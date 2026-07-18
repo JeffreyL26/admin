@@ -1,0 +1,36 @@
+{
+  "name": "hrmonic",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HRMONIC — HR-Verwaltungssoftware für den deutschsprachigen Markt",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev -w apps/backend",
+    "dev:renderer": "npm run dev -w apps/renderer",
+    "dev:desktop": "npm run dev -w apps/desktop",
+    "dev": "concurrently -n backend,renderer -c blue,green \"npm:dev:backend\" \"npm:dev:renderer\"",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "seed": "npm run seed -w apps/backend",
+    "build": "npm run build -w apps/renderer && npm run build -w apps/backend && npm run build -w apps/desktop",
+    "dist:win": "npm run build && npm run dist:win -w apps/desktop"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.24.2": true,
+    "esbuild@0.28.1": true,
+    "esbuild@0.25.12": true,
+    "electron@38.8.6": true,
+    "electron-winstaller@5.4.0": true
+  }
+}

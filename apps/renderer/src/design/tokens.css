@@ -1,0 +1,76 @@
+/* HRMONIC Design-Tokens — abgeleitet aus dem Logo:
+   Primärblau #0864C6 ("MONIC"), Navy #0F2F5F ("HR"). */
+:root {
+  /* Marke */
+  --brand-primary: #0864c6;
+  --brand-primary-hover: #0a58ab;
+  --brand-primary-active: #084a90;
+  --brand-navy: #0f2f5f;
+  --brand-navy-deep: #0a2246;
+
+  /* Abstufungen Primärblau */
+  --blue-50: #eef5fd;
+  --blue-100: #d9e9fa;
+  --blue-200: #b3d3f5;
+  --blue-300: #7fb3ec;
+  --blue-500: #0864c6;
+  --blue-700: #084a90;
+
+  /* Neutralpalette (kühles Grau, zur Marke passend) */
+  --gray-25: #fbfcfe;
+  --gray-50: #f5f7fb;
+  --gray-100: #eef1f6;
+  --gray-200: #e2e7ef;
+  --gray-300: #cbd3e0;
+  --gray-400: #9aa7bc;
+  --gray-500: #6b7a94;
+  --gray-600: #4d5b73;
+  --gray-700: #364358;
+  --gray-800: #232e40;
+  --gray-900: #16202f;
+
+  /* Semantik */
+  --success: #1a8a4e;
+  --success-bg: #e5f6ec;
+  --warning: #b26a00;
+  --warning-bg: #fdf3e0;
+  --danger: #c22f3d;
+  --danger-bg: #fcebed;
+  --info: var(--blue-500);
+  --info-bg: var(--blue-50);
+
+  /* Flächen */
+  --bg-app: var(--gray-50);
+  --bg-surface: #ffffff;
+  --bg-sidebar: linear-gradient(180deg, var(--brand-navy) 0%, var(--brand-navy-deep) 100%);
+  --border: var(--gray-200);
+  --border-strong: var(--gray-300);
+
+  /* Text */
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted: var(--gray-500);
+  --text-on-dark: #f4f7fc;
+
+  /* Typografie */
+  --font-sans: 'Inter Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.75rem;
+
+  /* Geometrie */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgb(16 32 47 / 0.06);
+  --shadow: 0 1px 3px rgb(16 32 47 / 0.08), 0 4px 14px rgb(16 32 47 / 0.06);
+  --shadow-lg: 0 8px 30px rgb(16 32 47 / 0.16);
+
+  /* Layout */
+  --sidebar-width: 244px;
+  --topbar-height: 60px;
+}

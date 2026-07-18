@@ -1,0 +1,12 @@
+node_modules/
+dist/
+release/
+*.log
+.env
+.env.local
+data/
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+apps/backend/storage/
+apps/backend/openapi/openapi.generated.yaml

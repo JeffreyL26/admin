@@ -1,0 +1,33 @@
+{
+  "name": "@hrmonic/backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "seed": "tsx src/seed/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx src/test/smoke.ts",
+    "openapi": "node scripts/merge-openapi.mjs",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --log-level=warning"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/jwt": "^9.0.3",
+    "@fastify/multipart": "^9.0.2",
+    "@hrmonic/shared": "*",
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.4.1",
+    "fastify": "^5.2.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.5",
+    "esbuild": "^0.24.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

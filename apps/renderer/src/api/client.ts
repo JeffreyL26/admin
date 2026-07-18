@@ -1,0 +1,93 @@
+/**
+ * Zentraler API-Client. Basis-URL:
+ * - Desktop (Electron): vom Preload-Skript via window.hrmonic.apiBaseUrl injiziert
+ *   (Backend läuft eingebettet auf zufälligem 127.0.0.1-Port)
+ * - Browser-Dev: http://127.0.0.1:3001
+ */
+declare global {
+  interface Window {
+    hrmonic?: {
+      apiBaseUrl: string;
+      platform: string;
+      appVersion: string;
+      /** Navigation aus dem nativen Menü (Electron); Rückgabe = Unsubscribe. */
+      onMenuNavigate?: (callback: (route: string) => void) => () => void;
+    };
+  }
+}
+
+export const API_BASE = window.hrmonic?.apiBaseUrl ?? 'http://127.0.0.1:3001';
+
+let authToken: string | null = localStorage.getItem('hrmonic.token');
+
+export function setToken(token: string | null): void {
+  authToken = token;
+  if (token) localStorage.setItem('hrmonic.token', token);
+  else localStorage.removeItem('hrmonic.token');
+}
+
+export function hasToken(): boolean {
+  return authToken !== null;
+}
+
+export class ApiRequestError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+    public details?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(fn: () => void): void {
+  onUnauthorized = fn;
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const isForm = body instanceof FormData;
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(body !== undefined && !isForm ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
+  });
+  if (res.status === 204) return undefined as T;
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = json?.error ?? { code: 'UNKNOWN', message: `HTTP ${res.status}` };
+    if (res.status === 401 && err.code !== 'UNAUTHORIZED_LOGIN') onUnauthorized?.();
+    throw new ApiRequestError(res.status, err.code, err.message, err.details);
+  }
+  return json as T;
+}
+
+export const api = {
+  get: <T>(path: string) => request<T>('GET', path),
+  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
+  patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
+  delete: <T>(path: string) => request<T>('DELETE', path),
+};
+
+/** Datei hochladen → files-Eintrag. */
+export async function uploadFile(file: File): Promise<{ file: { id: number; original_name: string } }> {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post('/api/files', form);
+}
+
+/** Signierte Download-URL holen und Download im Browser/OS anstoßen. */
+export async function downloadFile(fileId: number): Promise<void> {
+  const { url } = await api.post<{ url: string }>(`/api/files/${fileId}/sign`);
+  const a = document.createElement('a');
+  a.href = `${API_BASE}${url}`;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}

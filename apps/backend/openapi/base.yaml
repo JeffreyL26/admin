@@ -1,0 +1,146 @@
+# HRMONIC API — Basisdefinition.
+# Die Fachmodule pflegen ihre Pfade in openapi/<modul>.paths.yaml;
+# `npm run openapi -w apps/backend` erzeugt daraus openapi.generated.yaml.
+#
+# Endpunkte mit `x-status: planned` sind für den späteren Mitarbeitenden-
+# Web-Client reserviert: benannt und spezifiziert, aber noch nicht implementiert.
+openapi: 3.1.0
+info:
+  title: HRMONIC API
+  version: 1.0.0
+  description: >
+    Client-agnostische REST-API für HRMONIC. Heute vom Desktop-Client
+    (HR-Administration) genutzt, später zusätzlich vom Mitarbeitenden-Web-Client
+    (Self-Service). Zugriffsprüfung erfolgt ausschließlich im Backend.
+servers:
+  - url: http://127.0.0.1:3001
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: {}
+security:
+  - bearerAuth: []
+paths:
+  /api/health:
+    get:
+      summary: Health-Check
+      security: []
+      responses:
+        "200": { description: OK }
+  /api/auth/login:
+    post:
+      summary: Anmeldung (HR-Administration)
+      security: []
+      responses:
+        "200": { description: Token und Benutzer }
+        "401":
+          description: Ungültige Zugangsdaten
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/auth/me:
+    get:
+      summary: Angemeldeter Benutzer
+      responses:
+        "200": { description: Benutzer }
+  /api/files/{id}/download:
+    get:
+      summary: Datei-Download über kurzlebige signierte URL (beide Clients identisch)
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: expires, in: query, required: true, schema: { type: integer } }
+        - { name: sig, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Dateiinhalt }
+
+  # ---------------------------------------------------------------------------
+  # Geplante Self-Service-Endpunkte des Mitarbeitenden-Web-Clients (x-status:
+  # planned — nicht implementiert, nur Schnittstellen-Reservierung).
+  # ---------------------------------------------------------------------------
+  /api/me/profile:
+    get:
+      x-status: planned
+      summary: Eigene Stammdaten lesen (Self-Service)
+      responses: { "200": { description: Eigene Stammdaten } }
+    patch:
+      x-status: planned
+      summary: Eigene Stammdaten teilweise ändern (Kontaktdaten, Adresse, Bankverbindung)
+      responses: { "200": { description: Aktualisierte Stammdaten } }
+  /api/me/documents:
+    get:
+      x-status: planned
+      summary: Eigene Dokumente auflisten
+      responses: { "200": { description: Dokumentliste } }
+  /api/me/leave-requests:
+    get:
+      x-status: planned
+      summary: Eigene Urlaubsanträge einsehen
+      responses: { "200": { description: Antragsliste } }
+    post:
+      x-status: planned
+      summary: Urlaub beantragen
+      responses: { "201": { description: Antrag angelegt } }
+  /api/me/leave-balance:
+    get:
+      x-status: planned
+      summary: Eigenen Urlaubssaldo einsehen
+      responses: { "200": { description: Saldo } }
+  /api/me/sick-notes:
+    post:
+      x-status: planned
+      summary: Krankmeldung einreichen (inkl. AU-Upload)
+      responses: { "201": { description: Krankmeldung erfasst } }
+  /api/me/team-calendar:
+    get:
+      x-status: planned
+      summary: Abwesenheitskalender des eigenen Teams
+      responses: { "200": { description: Kalenderdaten } }
+  /api/me/goals:
+    get:
+      x-status: planned
+      summary: Eigene Ziele und Fortschritt einsehen
+      responses: { "200": { description: Zielliste } }
+  /api/me/reviews:
+    get:
+      x-status: planned
+      summary: Eigene Beurteilungen einsehen
+      responses: { "200": { description: Beurteilungen } }
+  /api/me/announcements:
+    get:
+      x-status: planned
+      summary: Ankündigungen lesen
+      responses: { "200": { description: Ankündigungen } }
+  /api/me/announcements/{id}/ack:
+    post:
+      x-status: planned
+      summary: Ankündigung als gelesen bestätigen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses: { "204": { description: Bestätigt } }
+  /api/me/surveys:
+    get:
+      x-status: planned
+      summary: Offene Umfragen auflisten
+      responses: { "200": { description: Umfragen } }
+  /api/me/surveys/{id}/response:
+    post:
+      x-status: planned
+      summary: An Umfrage teilnehmen (anonym ausgewertet)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses: { "201": { description: Teilnahme gespeichert } }

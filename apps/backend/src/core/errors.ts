@@ -1,0 +1,69 @@
+import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
+import { ZodError, type ZodSchema } from 'zod';
+
+/**
+ * Einheitliches Fehlerschema für alle Clients (Desktop heute, Web später):
+ *   { "error": { "code": "...", "message": "...", "details": ... } }
+ */
+export class AppError extends Error {
+  constructor(
+    public statusCode: number,
+    public code: string,
+    message: string,
+    public details?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+export const notFound = (msg = 'Nicht gefunden') => new AppError(404, 'NOT_FOUND', msg);
+export const badRequest = (msg: string, details?: unknown) =>
+  new AppError(400, 'BAD_REQUEST', msg, details);
+export const conflict = (msg: string) => new AppError(409, 'CONFLICT', msg);
+export const unauthorized = (msg = 'Nicht angemeldet') => new AppError(401, 'UNAUTHORIZED', msg);
+
+/** Validiert Request-Daten gegen ein Zod-Schema und wirft bei Fehlern das einheitliche Schema. */
+export function parse<T>(schema: ZodSchema<T>, data: unknown): T {
+  const result = schema.safeParse(data);
+  if (!result.success) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'Eingabedaten sind ungültig', result.error.flatten());
+  }
+  return result.data;
+}
+
+export function errorHandler(error: FastifyError, req: FastifyRequest, reply: FastifyReply): void {
+  if (error instanceof AppError) {
+    reply.status(error.statusCode).send({
+      error: { code: error.code, message: error.message, details: error.details },
+    });
+    return;
+  }
+  if (error instanceof ZodError) {
+    reply.status(400).send({
+      error: { code: 'VALIDATION_ERROR', message: 'Eingabedaten sind ungültig', details: error.flatten() },
+    });
+    return;
+  }
+  // JWT-Fehler (@fastify/jwt) einheitlich und deutsch ausgeben.
+  if (error.code?.startsWith('FST_JWT')) {
+    reply.status(401).send({
+      error: { code: 'UNAUTHORIZED', message: 'Nicht angemeldet oder Sitzung abgelaufen' },
+    });
+    return;
+  }
+  // SQLite-Constraint-Verletzungen als 409 statt 500 ausgeben.
+  if (error.message?.includes('SQLITE_CONSTRAINT')) {
+    reply.status(409).send({
+      error: { code: 'CONFLICT', message: 'Der Datensatz verletzt eine Integritätsbedingung', details: error.message },
+    });
+    return;
+  }
+  const status = error.statusCode ?? 500;
+  req.log.error(error);
+  reply.status(status).send({
+    error: {
+      code: status === 500 ? 'INTERNAL_ERROR' : (error.code ?? 'ERROR'),
+      message: status === 500 ? 'Interner Serverfehler' : error.message,
+    },
+  });
+}
