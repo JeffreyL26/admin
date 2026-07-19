@@ -74,6 +74,13 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   (Details in docs/entscheidungen.md).
 - **better-sqlite3-Typings:** bei mehreren Bind-Parametern Array-Binding
   verwenden (`.all([a, b])`), die variadische Form scheitert am Typecheck.
+- **Nach `npm run dist:win`: `npm rebuild better-sqlite3` ausführen** —
+  electron-builder baut das Modul in-place auf die Electron-ABI um, danach
+  scheitern tsx/Smoke-Tests mit ABI-Fehlern, bis die Node-Variante
+  wiederhergestellt ist.
+- **Embedding-Bundle `server.cjs` kommt aus `src/server.ts`** (nur Exporte);
+  `src/index.ts` ist der CLI-Einstieg mit Selbststart und wird separat zu
+  `cli.cjs` gebündelt. Nicht verwechseln — Details in docs/entscheidungen.md.
 
 ## Häufige Kommandos
 

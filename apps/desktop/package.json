@@ -2,6 +2,7 @@
   "name": "@hrmonic/desktop",
   "version": "1.0.0",
   "private": true,
+  "productName": "HRMONIC",
   "description": "HRMONIC — HR-Verwaltung für den deutschsprachigen Markt",
   "author": "HRMONIC",
   "main": "dist/main.cjs",

@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx src/test/smoke.ts",
     "openapi": "node scripts/merge-openapi.mjs",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --log-level=warning"
+    "build": "esbuild src/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --log-level=warning && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/cli.cjs --external:better-sqlite3 --log-level=warning"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",

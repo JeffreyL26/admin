@@ -73,6 +73,36 @@ vollständig). **Lösung:** Zip aus dem Cache manuell mit `Expand-Archive` nach
 anlegen. Bei „Electron failed to install correctly" zuerst prüfen, ob `dist/`
 vollständig ist, statt neu zu installieren.
 
+## Sackgasse: Backend-Bundle aus dem CLI-Einstieg gebaut
+
+Das erste `server.cjs` wurde aus `src/index.ts` gebündelt — dem CLI-Einstieg,
+der beim Laden sofort `startServer()` auf Port 3001 aufruft und **nichts
+exportiert**. Symptom in der gepackten App: Fehlerdialog „startServer is not a
+function", während im Hintergrund trotzdem ein Server lief (der Auto-Start des
+CLI-Moduls hatte die Datenbank bereits angelegt — das machte die Diagnose
+zunächst verwirrend: DB existierte, App zeigte Fehler). Lösung: zwei Bundles —
+`dist/server.cjs` aus `src/server.ts` (nur Exporte, niemals Selbststart, wird
+von Electron eingebettet) und `dist/cli.cjs` aus `src/index.ts` (Standalone).
+Merksatz: Embedding-Bundles immer aus einem Modul ohne Seiteneffekte bauen.
+
+## Zwei electron-builder-Stolpersteine im npm-Workspace
+
+1. **`electronVersion` muss gepinnt werden:** Durch das Workspace-Hoisting liegt
+   `electron` im Root-`node_modules`; electron-builder kann die `^38.0.0`-Range
+   aus `apps/desktop/package.json` nicht selbst auflösen und bricht ab. Fester
+   Wert in `electron-builder.yml` (muss zur installierten Version passen).
+2. **`productName` gehört zusätzlich in die `package.json` der Desktop-App:**
+   `app.getPath('userData')` leitet sich aus dem Paketnamen ab — mit dem
+   Scoped-Namen `@hrmonic/desktop` landeten Nutzerdaten in
+   `%APPDATA%\@hrmonic\desktop` statt `%APPDATA%\HRMONIC`. Das `productName`
+   in `electron-builder.yml` allein beeinflusst nur Installer/Verknüpfungen,
+   nicht die Laufzeit.
+
+Außerdem: electron-builder baut `better-sqlite3` in-place auf die Electron-ABI
+um (`@electron/rebuild`). Danach schlagen Node-seitige Läufe (tsx, Smoke-Tests)
+mit ABI-Fehlern fehl, bis `npm rebuild better-sqlite3` die Node-Variante
+wiederherstellt. Nach jedem `dist:win` einplanen.
+
 ## Sackgasse: SQLite-Operator-Präzedenz bei String-Konkatenation
 
 `CAST(x AS INTEGER) + 1 || '-' || rest` lieferte im Dashboard statt eines

@@ -2,6 +2,11 @@ appId: de.hrmonic.app
 productName: HRMONIC
 copyright: © 2026 HRMONIC
 
+# Muss der tatsächlich installierten Electron-Version entsprechen: durch das
+# npm-Workspace-Hoisting liegt electron im Root-node_modules und electron-builder
+# kann die Range aus package.json nicht selbst auflösen.
+electronVersion: 38.8.6
+
 directories:
   output: release
   buildResources: build
