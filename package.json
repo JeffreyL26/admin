@@ -15,6 +15,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "seed": "npm run seed -w apps/backend",
+    "seed:desktop": "npm run seed:desktop -w apps/backend --",
     "build": "npm run build -w apps/renderer && npm run build -w apps/backend && npm run build -w apps/desktop",
     "dist:win": "npm run build && npm run dist:win -w apps/desktop"
   },

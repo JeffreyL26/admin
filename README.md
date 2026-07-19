@@ -18,7 +18,23 @@ npm run dev:desktop    # zusätzlich das Electron-Fenster
 Erst-Login: `admin@hrmonic.de` / `hrmonic2026` — Passwort unter
 *Einstellungen → Passwort ändern* anpassen.
 
-Demo-Daten: `npm run seed`
+Demo-Daten (Dev-Datenbank): `npm run seed`
+
+## Demo-Daten in die installierte Desktop-App laden
+
+Die **installierte** App hat eine eigene, getrennte Datenbank in
+`%APPDATA%\HRMONIC\data` und startet nach der Installation bewusst leer (nur der
+Admin-Login). Um sie mit den Beispieldaten zu füllen:
+
+```bash
+# 1. HRMONIC schließen (SQLite sperrt die Datei, solange die App läuft)
+# 2. Demo-Daten in die installierte App laden:
+npm run seed:desktop -- --force
+```
+
+Danach die App normal über die Startmenü-Verknüpfung starten. Der Befehl leert
+vorhandene Daten (`--force`) und legt 28 Beispiel-Mitarbeitende samt Verträgen,
+Abwesenheiten, Zielen, Gehältern und Kommunikation an.
 
 ## Windows-Installer bauen
 

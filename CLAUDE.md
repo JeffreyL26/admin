@@ -81,6 +81,12 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
 - **Embedding-Bundle `server.cjs` kommt aus `src/server.ts`** (nur Exporte);
   `src/index.ts` ist der CLI-Einstieg mit Selbststart und wird separat zu
   `cli.cjs` gebündelt. Nicht verwechseln — Details in docs/entscheidungen.md.
+- **Zwei getrennte Datenbanken:** Die Dev-DB liegt in `apps/backend/data`
+  (`npm run seed`), die **installierte App** in `%APPDATA%\HRMONIC\data` (aus
+  Electrons userData, abgeleitet vom `productName` "HRMONIC"). `npm run seed`
+  füllt NUR die Dev-DB; für die installierte App `npm run seed:desktop -- --force`
+  (App vorher schließen — SQLite-Dateisperre). Ein frisch installiertes Programm
+  startet absichtlich leer (nur Admin-Login).
 
 ## Häufige Kommandos
 
