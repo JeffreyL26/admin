@@ -5,6 +5,7 @@ import { formatDate, type SickNote } from '@hrmonic/shared';
 import { api, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
+import { FilePicker } from '../../components/FilePicker';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { useMissingSickNotes, useSickNotes } from './api';
@@ -272,7 +273,7 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
           </select>
         </Field>
         <Field label="AU-Bescheinigung (optional)" span2 hint="Ausstellungspflicht ab dem 3. Kalendertag.">
-          <input className="hm-input" type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <FilePicker file={file} onFile={setFile} accept=".pdf,.jpg,.jpeg,.png" hint="PDF oder Bild" />
         </Field>
         {file && (
           <Field label="Eingangsdatum der AU" span2>
@@ -330,8 +331,8 @@ function UploadCertificateDialog({ note, onClose }: { note: SickNote | null; onC
             {note.first_name} {note.last_name}, krank {formatDate(note.date_from)} – {formatDate(note.date_to)}. AU war
             fällig am {formatDate(note.certificate_due_date)}.
           </p>
-          <Field label="Bescheinigung" required>
-            <input className="hm-input" type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <Field label="Bescheinigung" required span2>
+            <FilePicker file={file} onFile={setFile} accept=".pdf,.jpg,.jpeg,.png" hint="PDF oder Bild" />
           </Field>
           <Field label="Eingangsdatum" required>
             <input className="hm-input" type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} />

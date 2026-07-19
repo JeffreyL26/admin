@@ -10,11 +10,29 @@ declare global {
       apiBaseUrl: string;
       platform: string;
       appVersion: string;
-      /** Navigation aus dem nativen Menü (Electron); Rückgabe = Unsubscribe. */
-      onMenuNavigate?: (callback: (route: string) => void) => () => void;
+      /** Fenster-Controls der eigenen Titelleiste (nur Electron). */
+      window?: {
+        minimize: () => void;
+        toggleMaximize: () => void;
+        close: () => void;
+        isMaximized: () => Promise<boolean>;
+        onMaximizeChange: (cb: (max: boolean) => void) => () => void;
+        onFullscreenChange: (cb: (fs: boolean) => void) => () => void;
+      };
+      /** App-Aktionen des Titelleisten-Menüs (nur Electron). */
+      app?: {
+        reload: () => void;
+        toggleDevTools: () => void;
+        toggleFullscreen: () => void;
+        zoom: (delta: number) => void;
+        openExternal: (url: string) => void;
+      };
     };
   }
 }
+
+/** True, wenn die App im Electron-Desktop läuft (nicht im Browser-Dev). */
+export const IS_ELECTRON = Boolean(window.hrmonic?.window);
 
 export const API_BASE = window.hrmonic?.apiBaseUrl ?? 'http://127.0.0.1:3001';
 

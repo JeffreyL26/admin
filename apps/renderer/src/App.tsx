@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext';
 import { ToastProvider } from './components/Toast';
 import { LoginPage } from './features/auth/LoginPage';
 import { Spinner } from './components/ui';
+import { TitleBar } from './layout/TitleBar';
 import { router } from './router';
 
 const queryClient = new QueryClient({
@@ -17,7 +18,7 @@ function Gate() {
   const { user, loading } = useAuth();
   if (loading) {
     return (
-      <div style={{ height: '100vh', display: 'grid', placeItems: 'center' }}>
+      <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
         <Spinner />
       </div>
     );
@@ -31,7 +32,12 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ToastProvider>
-          <Gate />
+          <div className="app-root">
+            <TitleBar />
+            <div className="app-body">
+              <Gate />
+            </div>
+          </div>
         </ToastProvider>
       </AuthProvider>
     </QueryClientProvider>

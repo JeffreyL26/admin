@@ -1,7 +1,156 @@
+/* Fensterwurzel: eigene Titelleiste oben, darunter Shell bzw. Login. */
+.app-root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.app-body {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---------- Eigene Titelleiste (ersetzt das native Menü) ---------- */
+.titlebar {
+  height: var(--titlebar-height);
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  background: var(--brand-navy-deep);
+  color: var(--text-on-dark);
+  -webkit-app-region: drag;
+  user-select: none;
+  position: relative;
+  z-index: 60;
+}
+.titlebar__left {
+  display: flex;
+  align-items: center;
+  padding-left: 10px;
+  -webkit-app-region: no-drag;
+  position: relative;
+}
+/* Auf macOS liegen links die Ampel-Buttons — Platz lassen. */
+.titlebar--mac .titlebar__left {
+  padding-left: 78px;
+}
+.titlebar__menu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgb(244 247 252 / 0.82);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.titlebar__menu-btn:hover,
+.titlebar__menu-btn.is-open {
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+}
+.titlebar__drag {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.titlebar__wordmark {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgb(244 247 252 / 0.72);
+}
+.titlebar__wordmark span {
+  color: #7fb3ec;
+}
+.titlebar__spacer {
+  width: 10px;
+}
+.titlebar__controls {
+  display: flex;
+  align-items: stretch;
+  -webkit-app-region: no-drag;
+}
+.titlebar__control {
+  width: 46px;
+  border: none;
+  background: transparent;
+  color: rgb(244 247 252 / 0.75);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.titlebar__control:hover {
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+}
+.titlebar__control--close:hover {
+  background: #e5484d;
+  color: #fff;
+}
+
+/* App-Menü-Popover */
+.titlebar__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 8px;
+  min-width: 236px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  z-index: 70;
+  animation: hm-pop 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-app-region: no-drag;
+}
+.titlebar__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.titlebar__menu-item:hover {
+  background: var(--blue-50);
+}
+.titlebar__menu-icon {
+  display: inline-flex;
+  color: var(--brand-primary);
+}
+.titlebar__menu-hint {
+  font-family: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.titlebar__sep {
+  height: 1px;
+  background: var(--border);
+  margin: 5px 8px;
+}
+
 /* App-Shell: dunkle Navy-Sidebar + heller, luftiger Inhaltsbereich. */
 .shell {
   display: flex;
-  height: 100vh;
+  height: 100%;
 }
 
 /* ---------- Sidebar ---------- */
@@ -210,7 +359,7 @@
 
 /* ---------- Login ---------- */
 .login {
-  height: 100vh;
+  height: 100%;
   display: grid;
   place-items: center;
   background:

@@ -9,9 +9,31 @@ contextBridge.exposeInMainWorld('hrmonic', {
   apiBaseUrl,
   platform: process.platform,
   appVersion: process.env.npm_package_version ?? '1.0.0',
-  onMenuNavigate: (callback: (route: string) => void) => {
-    const listener = (_event: unknown, route: string) => callback(route);
-    ipcRenderer.on('menu:navigate', listener);
-    return () => ipcRenderer.removeListener('menu:navigate', listener);
+
+  // Fenster-Controls der eigenen Titelleiste.
+  window: {
+    minimize: () => ipcRenderer.send('window:minimize'),
+    toggleMaximize: () => ipcRenderer.send('window:toggle-maximize'),
+    close: () => ipcRenderer.send('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:is-maximized') as Promise<boolean>,
+    onMaximizeChange: (cb: (max: boolean) => void) => {
+      const l = (_e: unknown, max: boolean) => cb(max);
+      ipcRenderer.on('window:maximized-changed', l);
+      return () => ipcRenderer.removeListener('window:maximized-changed', l);
+    },
+    onFullscreenChange: (cb: (fs: boolean) => void) => {
+      const l = (_e: unknown, fs: boolean) => cb(fs);
+      ipcRenderer.on('window:fullscreen-changed', l);
+      return () => ipcRenderer.removeListener('window:fullscreen-changed', l);
+    },
+  },
+
+  // App-Aktionen des Titelleisten-Menüs (früher das native Menü).
+  app: {
+    reload: () => ipcRenderer.send('app:reload'),
+    toggleDevTools: () => ipcRenderer.send('app:toggle-devtools'),
+    toggleFullscreen: () => ipcRenderer.send('app:toggle-fullscreen'),
+    zoom: (delta: number) => ipcRenderer.send('app:zoom', delta),
+    openExternal: (url: string) => ipcRenderer.send('app:open-external', url),
   },
 });

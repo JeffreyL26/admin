@@ -4,6 +4,7 @@ import { DOCUMENT_CATEGORY_LABELS, type DocumentCategory } from '@hrmonic/shared
 import { api, uploadFile } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';
+import { FilePicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import type { DocumentRow } from './api';
@@ -90,7 +91,7 @@ export function DocumentUploadModal({
     >
       <div className="hm-form-grid">
         <Field label="Datei" required span2>
-          <input className="hm-input" type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <FilePicker file={file} onFile={setFile} hint="PDF, Bild oder Office-Dokument" />
         </Field>
         <Field label="Titel" required span2 hint="Leer = Dateiname">
           <input className="hm-input" value={title} onChange={(e) => setTitle(e.target.value)} />

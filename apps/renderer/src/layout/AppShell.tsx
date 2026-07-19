@@ -13,22 +13,53 @@ export function AppShell() {
   const location = useLocation();
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // Navigation aus dem nativen Electron-Menü (Ctrl+1…6, Datei → Neu …).
+  // Tastaturkürzel (früher im nativen Menü): globale Suche, Modul-Navigation,
+  // Ansicht. Da es kein natives Menü mehr gibt, hier im Renderer registriert.
   useEffect(() => {
-    return window.hrmonic?.onMenuNavigate?.((route) => navigate(route));
-  }, [navigate]);
-
-  // Globale Suche: Strg/Cmd+K von überall.
-  useEffect(() => {
+    const NAV_KEYS: Record<string, string> = {
+      '1': '/dashboard',
+      '2': '/personal/mitarbeitende',
+      '3': '/abwesenheit/kalender',
+      '4': '/leistung/ziele',
+      '5': '/verguetung/gehaelter',
+      '6': '/kommunikation/ankuendigungen',
+    };
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((o) => !o);
+        return;
+      }
+      if (mod && NAV_KEYS[e.key]) {
+        e.preventDefault();
+        navigate(NAV_KEYS[e.key]);
+        return;
+      }
+      if (mod && e.key === ',') {
+        e.preventDefault();
+        navigate('/einstellungen');
+        return;
+      }
+      // Ansicht-Shortcuts an den Main-Prozess (nur Electron).
+      const appApi = window.hrmonic?.app;
+      if (mod && (e.key === '+' || e.key === '=')) {
+        e.preventDefault();
+        appApi?.zoom(0.5);
+      } else if (mod && e.key === '-') {
+        e.preventDefault();
+        appApi?.zoom(-0.5);
+      } else if (mod && e.key === '0') {
+        e.preventDefault();
+        appApi?.zoom(0);
+      } else if (e.key === 'F11') {
+        e.preventDefault();
+        appApi?.toggleFullscreen();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [navigate]);
 
   return (
     <div className="shell">

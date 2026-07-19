@@ -20,6 +20,14 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.hrmonic.apiBaseUrl`.
   Im Dev-Betrieb läuft das Backend separat auf 3001 (`npm run dev`).
+- **Kein natives Menü:** Das Fenster ist rahmenlos (`titleBarStyle: 'hidden'`,
+  auf macOS `hiddenInset`), `Menu.setApplicationMenu(null)`. Die eigene
+  Titelleiste (`renderer/src/layout/TitleBar.tsx`) bringt App-Menü und
+  Fenster-Controls mit; Aktionen laufen über IPC (`window.hrmonic.window` /
+  `.app`, definiert im Preload). Tastaturkürzel (Strg+K/1–6/±/0, F11) sind in
+  `AppShell.tsx` im Renderer registriert, da es kein Menü mehr für Accelerators
+  gibt. Datei-Uploads nutzen die Dropzone `components/FilePicker.tsx`
+  (`FilePicker`/`PhotoPicker`) statt nacktem `<input type=file>`.
 - **Dateien** liegen ausschließlich im Backend-Storage (`files`-Tabelle + Ordner).
   Downloads laufen über kurzlebige HMAC-signierte URLs (`core/files.ts`) — für
   Desktop- und späteren Web-Client identisch.

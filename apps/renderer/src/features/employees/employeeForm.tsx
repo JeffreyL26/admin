@@ -11,6 +11,7 @@ import {
 } from '@hrmonic/shared';
 import { uploadFile } from '../../api/client';
 import { Field } from '../../components/ui';
+import { PhotoPicker } from '../../components/FilePicker';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useDepartments, useLocations, useTeams, type EmployeeRow } from './api';
 
@@ -176,15 +177,11 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
       <Field label="Geburtsdatum">
         <input className="hm-input" type="date" value={form.birth_date} onChange={(e) => set({ birth_date: e.target.value })} />
       </Field>
-      <Field label="Foto" hint={form.photo_file_id ? 'Foto hinterlegt' : 'JPG/PNG hochladen'}>
-        <input
-          className="hm-input"
-          type="file"
-          accept="image/*"
-          disabled={uploading}
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
+      <Field label="Foto" span2>
+        <PhotoPicker
+          name={`${form.first_name} ${form.last_name}`.trim() || 'Neu'}
+          busy={uploading}
+          onPick={async (file) => {
             setUploading(true);
             try {
               const res = await uploadFile(file);

@@ -4,6 +4,7 @@ import { CONTRACT_TYPE_LABELS, type ContractDto, type ContractType } from '@hrmo
 import { api, uploadFile } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';
+import { FilePicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
 
 interface ContractForm {
@@ -50,10 +51,12 @@ export function ContractModal({
   const qc = useQueryClient();
   const [form, setForm] = useState<ContractForm>(EMPTY);
   const [uploading, setUploading] = useState(false);
+  const [docFile, setDocFile] = useState<File | null>(null);
   const set = (patch: Partial<ContractForm>) => setForm((f) => ({ ...f, ...patch }));
 
   useEffect(() => {
     if (!open) return;
+    setDocFile(null);
     if (correct) {
       setForm({
         contract_type: correct.contract_type,
@@ -190,14 +193,19 @@ export function ContractModal({
             />
           </Field>
         )}
-        <Field label="Vertragsdokument" hint={form.document_file_id ? 'Dokument hinterlegt' : 'PDF hochladen (optional)'}>
-          <input
-            className="hm-input"
-            type="file"
-            disabled={uploading}
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
+        <Field label="Vertragsdokument (optional)" span2>
+          <FilePicker
+            file={docFile}
+            busy={uploading}
+            accept=".pdf,.doc,.docx"
+            hint="PDF oder Word-Dokument"
+            existingLabel={form.document_file_id && !docFile ? 'Dokument hinterlegt' : undefined}
+            onFile={async (file) => {
+              setDocFile(file);
+              if (!file) {
+                set({ document_file_id: null });
+                return;
+              }
               setUploading(true);
               try {
                 const res = await uploadFile(file);

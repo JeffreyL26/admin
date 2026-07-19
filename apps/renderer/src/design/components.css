@@ -417,6 +417,119 @@
   object-fit: cover;
 }
 
+/* ---------- Datei-Auswahl ---------- */
+.hm-filepick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border-radius: 12px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.hm-filepick--drop {
+  padding: 16px 16px;
+  border: 1.5px dashed var(--border-strong);
+  background: var(--gray-25);
+  cursor: pointer;
+  text-align: left;
+}
+.hm-filepick--drop:hover {
+  border-color: var(--brand-primary);
+  background: var(--blue-50);
+}
+.hm-filepick--drop.is-dragging {
+  border-color: var(--brand-primary);
+  background: var(--blue-50);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+.hm-filepick--drop.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.hm-filepick--filled {
+  padding: 11px 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+}
+.hm-filepick__cloud {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--blue-100);
+  color: var(--brand-primary);
+  flex-shrink: 0;
+}
+.hm-filepick__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--blue-50);
+  color: var(--brand-primary);
+  flex-shrink: 0;
+}
+.hm-filepick__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.hm-filepick__name {
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-filepick__sub {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.hm-spin {
+  animation: hm-spin 0.7s linear infinite;
+}
+
+/* Foto-Auswahl mit runder Vorschau */
+.hm-photopick {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  flex-shrink: 0;
+}
+.hm-photopick img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.hm-photopick__overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: rgb(10 22 40 / 0.5);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.hm-photopick:hover:not(:disabled) .hm-photopick__overlay {
+  opacity: 1;
+}
+.hm-photopick:disabled {
+  cursor: not-allowed;
+}
+
 /* ---------- Organigramm ---------- */
 .org-node {
   animation: org-pop 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
