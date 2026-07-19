@@ -26,7 +26,8 @@ export function formatEuro(cents: number): string {
 
 /** ISO-Datum (YYYY-MM-DD) → deutsche Anzeige (TT.MM.JJJJ). */
 export function formatDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const [y, m, d] = iso.split('-');
-  return `${d}.${m}.${y}`;
+  if (iso === null || iso === undefined || iso === '') return '—';
+  const [y, m, d] = String(iso).split('-');
+  if (!y || !m || !d) return String(iso);
+  return `${d}.${m}.${y.slice(0, 4)}`;
 }

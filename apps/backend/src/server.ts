@@ -8,6 +8,7 @@ import { errorHandler } from './core/errors.js';
 import { authRoutes, ensureDefaultAdmin } from './core/auth.js';
 import { fileRoutes } from './core/files.js';
 import { settingsRoutes } from './core/settingsRoutes.js';
+import { dashboardRoutes } from './core/dashboardRoutes.js';
 import { registerModules } from './modules/index.js';
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -40,6 +41,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(authRoutes);
   await app.register(fileRoutes);
   await app.register(settingsRoutes);
+  await app.register(dashboardRoutes);
   await registerModules(app);
 
   return app;

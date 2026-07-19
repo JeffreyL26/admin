@@ -69,6 +69,11 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
 - **OneDrive-Arbeitsverzeichnis:** `node_modules`/Builds können durch die
   Synchronisierung gebremst oder gesperrt werden. Bei ERR_EPERM/EBUSY zuerst an
   OneDrive denken.
+- **SQLite-Präzedenz:** `||` bindet stärker als `+`. Arithmetik in
+  Konkatenationen immer klammern, sonst kommen Zahlen statt Strings zurück
+  (Details in docs/entscheidungen.md).
+- **better-sqlite3-Typings:** bei mehreren Bind-Parametern Array-Binding
+  verwenden (`.all([a, b])`), die variadische Form scheitert am Typecheck.
 
 ## Häufige Kommandos
 

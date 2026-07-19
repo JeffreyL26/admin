@@ -73,6 +73,24 @@ vollständig). **Lösung:** Zip aus dem Cache manuell mit `Expand-Archive` nach
 anlegen. Bei „Electron failed to install correctly" zuerst prüfen, ob `dist/`
 vollständig ist, statt neu zu installieren.
 
+## Sackgasse: SQLite-Operator-Präzedenz bei String-Konkatenation
+
+`CAST(x AS INTEGER) + 1 || '-' || rest` lieferte im Dashboard statt eines
+Datums-Strings eine Zahl: In SQLite bindet `||` **stärker** als `+`, der
+Ausdruck wurde als `CAST(x) + (1 || '-' || rest)` geparst und die rechte Seite
+numerisch koerziert. Symptom im Client: `iso.split is not a function` tief in
+`formatDate`. Lösung: `(CAST(x AS INTEGER) + 1) || '-' || rest` — und
+`formatDate` ist seitdem defensiv gegen Nicht-Strings.
+
+## Sackgasse: UTF-8-BOM-Literale unter Git-Bash/Windows patchen
+
+Der CSV-Export braucht ein UTF-8-BOM für deutsches Excel. Zwei Versuche, das
+BOM per `perl`-Einzeiler in den Quelltext zu patchen, zerschossen das Literal
+(Encoding-Doppelkonvertierung unter Git-Bash/Windows). Lösung: das BOM-Zeichen
+direkt als `﻿`-Escape im TypeScript-String belassen und Dateien mit
+Sonderzeichen nur über die Write/Edit-Werkzeuge anfassen, nie über
+Shell-Substitution.
+
 ## Feiertage: berechnet statt API/Datenpflege
 
 Gaußsche Osterformel + Regeltabelle je Bundesland in `core/holidays.ts`. Eine
