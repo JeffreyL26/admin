@@ -6,3 +6,4 @@ export * from './absences.js';
 export * from './performance.js';
 export * from './compensation.js';
 export * from './communication.js';
+export * from './recruiting.js';

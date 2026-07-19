@@ -38,6 +38,17 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const openSalaryRequests = count(
       `SELECT COUNT(*) n FROM salary_change_requests WHERE status = 'beantragt'`,
     );
+    // Recruiting: offene Stellen, aktive Bewerbungen, anstehende Interviews.
+    const openPositions = count(
+      `SELECT COUNT(*) n FROM job_postings WHERE status IN ('veroeffentlicht', 'pausiert')`,
+    );
+    const activeApplications = count(
+      `SELECT COUNT(*) n FROM applications WHERE status = 'aktiv'`,
+    );
+    const upcomingInterviewsCount = count(
+      `SELECT COUNT(*) n FROM interviews WHERE status = 'geplant' AND substr(scheduled_at, 1, 10) >= ?`,
+      today,
+    );
 
     const absentToday = db
       .prepare(
@@ -108,6 +119,19 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       )
       .all();
 
+    const upcomingInterviews = db
+      .prepare(
+        `SELECT i.id, i.kind, i.scheduled_at, p.title AS posting_title,
+                c.first_name, c.last_name
+         FROM interviews i
+         JOIN applications a ON a.id = i.application_id
+         JOIN candidates c ON c.id = a.candidate_id
+         JOIN job_postings p ON p.id = a.posting_id
+         WHERE i.status = 'geplant' AND substr(i.scheduled_at, 1, 10) >= ?
+         ORDER BY i.scheduled_at LIMIT 5`,
+      )
+      .all([today]);
+
     return {
       stats: {
         headcount,
@@ -116,6 +140,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         missingSickNotes,
         expiringDocuments,
         openSalaryRequests,
+        openPositions,
+        activeApplications,
+        upcomingInterviewsCount,
         absentTodayCount: absentToday.length,
       },
       absentToday,
@@ -125,6 +152,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       upcomingBirthdays,
       activeAnnouncements,
       runningSurveys,
+      upcomingInterviews,
     };
   });
 }

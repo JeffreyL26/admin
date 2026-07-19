@@ -11,7 +11,8 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   `backend/src/db/migrations/100_employees.ts`.
 - `departments` (mit `parent_id`-Hierarchie), `teams`, `locations` (mit `bundesland`).
 - Andere Module dürfen per SQL **lesend joinen** und Fremdschlüssel auf diese
-  Tabellen anlegen. Schreibzugriffe nur durch das Personal-Modul.
+  Tabellen anlegen. Schreibzugriffe nur durch das Personal-Modul — mit **einer
+  dokumentierten Ausnahme**: die Einstellung im Recruiting-Modul (siehe §2).
 
 ## 2. API-Kontrakte zwischen Modulen
 
@@ -33,6 +34,13 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   leeren Tabellen funktionieren (LEFT JOIN).
 - Dokument-Uploads überall: `POST /api/files` (Core) → `files.id` in
   Modultabellen referenzieren; Download via `POST /api/files/:id/sign`.
+- **Recruiting → Personal (Einstellung, Lebenszyklus-Brücke):**
+  `POST /api/recruiting/applications/:id/hire` ist der **einzige** zugelassene
+  Schreibzugriff eines Fachmoduls auf `employees` außerhalb des Personals. Es
+  wird bewusst nur ein Stammdaten-Grundgerüst angelegt (Name, Kontakt, Orga aus
+  der Stelle, Eintrittsdatum, Beschäftigungsart); Steuer/SV/Bank ergänzt die HR
+  danach im Personal-Modul. Die Bewerbung verweist über
+  `applications.converted_employee_id` auf den erzeugten Datensatz.
 
 ## 3. API-Stilregeln
 

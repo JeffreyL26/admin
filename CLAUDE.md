@@ -57,7 +57,7 @@ Jedes Fachmodul fasst **nur eigene Dateien** an; die Verdrahtung existiert berei
 
 | Was | Wo | Hinweis |
 |---|---|---|
-| SQL-Migrationen | `backend/src/db/migrations/<NNN>_<modul>.ts` | Nummernkreise: 0xx Core, 1xx Personal, 2xx Abwesenheit, 3xx Leistung, 4xx Vergütung, 5xx Kommunikation. Array in der Moduldatei füllen — `index.ts` nicht anfassen. |
+| SQL-Migrationen | `backend/src/db/migrations/<NNN>_<modul>.ts` | Nummernkreise: 0xx Core, 1xx Personal, 2xx Abwesenheit, 3xx Leistung, 4xx Vergütung, 5xx Kommunikation, 6xx Recruiting. Array in der Moduldatei füllen — `index.ts` nicht anfassen. |
 | API-Routen | `backend/src/modules/<modul>/` | `routes.ts` exportiert das Fastify-Plugin (bereits registriert). |
 | OpenAPI | `backend/openapi/<modul>.paths.yaml` | Nur ein top-level `paths:`-Block; Merge via `npm run openapi -w apps/backend`. |
 | Shared-Typen | `packages/shared/src/<modul>.ts` | Bereits aus `index.ts` re-exportiert. |

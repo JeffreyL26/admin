@@ -2,7 +2,8 @@ import {
   LayoutDashboard, Users, Network, FolderOpen, CalendarDays, Send, Stethoscope,
   ListChecks, Target, ClipboardCheck, Grid3x3, GraduationCap, MessagesSquare,
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
-  FileText, Radio, Settings,
+  FileText, Radio, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
+  LineChart,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -32,6 +33,16 @@ export const NAV_SECTIONS: NavSection[] = [
       { path: '/personal/mitarbeitende', label: 'Mitarbeitende', icon: Users },
       { path: '/personal/organisation', label: 'Organisation', icon: Network },
       { path: '/personal/dokumente', label: 'Dokumente', icon: FolderOpen },
+    ],
+  },
+  {
+    title: 'Recruiting',
+    items: [
+      { path: '/recruiting/stellen', label: 'Stellen', icon: Briefcase },
+      { path: '/recruiting/pipeline', label: 'Pipeline', icon: KanbanSquare },
+      { path: '/recruiting/bewerber', label: 'Bewerber:innen', icon: UserSearch },
+      { path: '/recruiting/interviews', label: 'Interviews', icon: CalendarClock },
+      { path: '/recruiting/analyse', label: 'Analyse', icon: LineChart },
     ],
   },
   {

@@ -23,6 +23,7 @@ export function AppShell() {
       '4': '/leistung/ziele',
       '5': '/verguetung/gehaelter',
       '6': '/kommunikation/ankuendigungen',
+      '7': '/recruiting/pipeline',
     };
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;

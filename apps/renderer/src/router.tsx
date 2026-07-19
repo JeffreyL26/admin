@@ -8,6 +8,7 @@ import { absencesRoutes } from './features/absences/routes';
 import { performanceRoutes } from './features/performance/routes';
 import { compensationRoutes } from './features/compensation/routes';
 import { communicationRoutes } from './features/communication/routes';
+import { recruitingRoutes } from './features/recruiting/routes';
 
 // Hash-Router statt Browser-Router: die Desktop-App lädt den Build über
 // file://, dort gibt es keinen Server, der Deep-Links beantworten könnte.
@@ -18,6 +19,7 @@ export const router = createHashRouter([
       { path: '/', element: <Navigate to="/dashboard" replace /> },
       { path: '/dashboard', element: <DashboardPage /> },
       ...employeesRoutes,
+      ...recruitingRoutes,
       ...absencesRoutes,
       ...performanceRoutes,
       ...compensationRoutes,

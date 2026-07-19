@@ -35,6 +35,8 @@ if (employeeCount > 0 && !FORCE) {
 if (FORCE) {
   // Reihenfolge egal: FKs kaskadieren größtenteils; Rest explizit.
   const tables = [
+    // Recruiting (Kinder → Eltern; recruiting_stages bleibt, da per Migration geseedet)
+    'interviews', 'application_events', 'applications', 'candidates', 'job_postings',
     'channel_messages', 'channels', 'survey_participations', 'survey_responses',
     'survey_questions', 'surveys', 'announcement_acks', 'announcement_attachments',
     'announcements', 'meeting_protocols', 'certificates', 'freelancer_invoices',
@@ -589,6 +591,123 @@ inTransaction(() => {
   msg(ch2, 'Wartungsfenster am Samstag 06–08 Uhr: Deployment Release 4.1.', '2026-07-08 16:45:00');
   msg(ch2, 'Release 4.1 ist live. Danke an alle Beteiligten! 🎉', '2026-07-13 09:12:00');
   msg(ch3, 'Die Tiefgarage ist am Montag wegen Reinigung gesperrt — bitte auf die Ausweichplätze ausweichen.', '2026-07-17 08:00:00');
+
+  // ======================= Recruiting =======================
+  const stageId = (name: string) =>
+    (db.prepare('SELECT id FROM recruiting_stages WHERE name = ?').get(name) as { id: number }).id;
+  const stEingang = stageId('Eingegangen');
+  const stSichtung = stageId('Sichtung');
+  const stTelefon = stageId('Telefoninterview');
+  const stInterview = stageId('Interview');
+  const stAngebot = stageId('Angebot');
+  const stEingestellt = stageId('Eingestellt');
+  const stAbgelehnt = stageId('Abgelehnt');
+
+  const posting = (row: Record<string, unknown>) =>
+    insert('job_postings', { created_by_user_id: adminId, ...row });
+  const pBackend = posting({
+    title: 'Senior Backend Entwickler:in (m/w/d)', employment_type: 'vollzeit', department_id: depTech,
+    team_id: teamBackend, location_id: locMuc, hiring_manager_id: CTO, seats: 1,
+    employment_start: '2026-10-01', salary_min_cents: 6500000, salary_max_cents: 8500000,
+    description: 'Verantwortung für unsere Kern-APIs (Node.js/TypeScript, SQLite/PostgreSQL) und die technische Weiterentwicklung der Plattform.',
+    requirements: 'Mind. 5 Jahre Backend-Erfahrung, sehr gute TypeScript-Kenntnisse, Erfahrung mit relationalen Datenbanken.',
+    status: 'veroeffentlicht', published_at: '2026-06-02',
+  });
+  const pAE = posting({
+    title: 'Account Executive Neukunden (m/w/d)', employment_type: 'vollzeit', department_id: depSales,
+    team_id: teamNeu, location_id: locHh, hiring_manager_id: VTL, seats: 2,
+    employment_start: '2026-09-01', salary_min_cents: 5000000, salary_max_cents: 6500000,
+    description: 'Aufbau und Abschluss von Neukundengeschäft im DACH-Raum.',
+    requirements: 'Vertriebserfahrung im B2B-SaaS-Umfeld, Abschlussstärke, Reisebereitschaft.',
+    status: 'veroeffentlicht', published_at: '2026-06-15',
+  });
+  const pWerk = posting({
+    title: 'Werkstudent:in Frontend (m/w/d)', employment_type: 'werkstudent', department_id: depTech,
+    team_id: teamFrontend, location_id: locK, hiring_manager_id: TLF, seats: 1,
+    salary_min_cents: 1600, salary_max_cents: 1900,
+    description: 'Mitarbeit an unserem React-Frontend und Design-System (max. 20 h/Woche).',
+    requirements: 'Immatrikulation, erste React-Erfahrung, Interesse an UI/UX.',
+    status: 'veroeffentlicht', published_at: '2026-07-01',
+  });
+  posting({
+    title: 'People & Culture Manager:in (m/w/d)', employment_type: 'vollzeit', department_id: depHr,
+    location_id: locMuc, hiring_manager_id: HRL, seats: 1, salary_min_cents: 5500000, salary_max_cents: 7000000,
+    description: 'Verantwortung für Recruiting, Onboarding und Mitarbeiterentwicklung.',
+    requirements: 'Erfahrung im HR-Management, Kenntnisse im Arbeitsrecht.',
+    status: 'entwurf',
+  });
+
+  // Bewerber:innen
+  const cand = (row: Record<string, unknown>) => insert('candidates', row);
+  const cLena = cand({ first_name: 'Lena', last_name: 'Brandt', email: 'lena.brandt@example.com', phone: '+49 151 2345678', city: 'München', source: 'linkedin', headline: 'Backend-Entwicklerin bei ScaleUp GmbH', linkedin_url: 'https://www.linkedin.com/in/lenabrandt', consent_until: '2027-06-01' });
+  const cJan = cand({ first_name: 'Jan', last_name: 'Ostermann', email: 'jan.ostermann@example.com', phone: '+49 160 9988776', city: 'Nürnberg', source: 'stellenportal', headline: 'Senior Software Engineer', consent_until: '2027-06-01' });
+  const cPriya = cand({ first_name: 'Priya', last_name: 'Sharma', email: 'priya.sharma@example.com', city: 'Berlin', source: 'empfehlung', headline: 'Fullstack-Entwicklerin, Fokus Node.js', consent_until: '2027-06-01' });
+  const cTom = cand({ first_name: 'Tom', last_name: 'Berger', email: 'tom.berger@example.com', city: 'München', source: 'website', headline: 'Backend-Entwickler', consent_until: '2027-06-01' });
+  const cSofia = cand({ first_name: 'Sofia', last_name: 'Klein', email: 'sofia.klein@example.com', city: 'Augsburg', source: 'personalvermittlung', headline: 'Java-Entwicklerin', consent_until: '2027-06-01' });
+  const cMarco = cand({ first_name: 'Marco', last_name: 'Rossi', email: 'marco.rossi@example.com', phone: '+49 176 5544332', city: 'Hamburg', source: 'linkedin', headline: 'Account Executive, SaaS', consent_until: '2027-06-01' });
+  const cNadine = cand({ first_name: 'Nadine', last_name: 'Vogel', email: 'nadine.vogel@example.com', city: 'Hamburg', source: 'stellenportal', headline: 'Sales Managerin', consent_until: '2027-06-01' });
+  const cKevin = cand({ first_name: 'Kevin', last_name: 'Wolf', email: 'kevin.wolf@example.com', city: 'Bremen', source: 'website', headline: 'Junior Sales', consent_until: '2027-06-01' });
+  const cLaura = cand({ first_name: 'Laura', last_name: 'Fischer', email: 'laura.fischer@example.com', city: 'Köln', source: 'hochschule', headline: 'Studentin Medieninformatik (5. Semester)', consent_until: '2027-06-01' });
+
+  // Bewerbungen inkl. Timeline (Eingang + optional Stufenwechsel/Notiz).
+  const application = (
+    candidate: number, postingId: number, stage: number, appliedAt: string,
+    opts: { rating?: number; source?: string; status?: string; salary?: number; available?: string; rejection?: string; converted?: number; decided?: string } = {},
+  ) => {
+    const id = insert('applications', {
+      candidate_id: candidate, posting_id: postingId, stage_id: stage,
+      status: opts.status ?? 'aktiv', rating: opts.rating ?? null, source: opts.source ?? null,
+      salary_expectation_cents: opts.salary ?? null, available_from: opts.available ?? null,
+      applied_at: appliedAt, stage_changed_at: appliedAt, rejection_reason: opts.rejection ?? null,
+      decided_at: opts.decided ?? null, converted_employee_id: opts.converted ?? null,
+    });
+    insert('application_events', { application_id: id, kind: 'eingang', to_stage_id: stEingang, user_id: adminId, created_at: `${appliedAt} 08:30:00` });
+    return id;
+  };
+  const event = (appId: number, kind: string, body: string | null, from: number | null, to: number | null, at: string) =>
+    insert('application_events', { application_id: appId, kind, body, from_stage_id: from, to_stage_id: to, user_id: adminId, created_at: at });
+  const interview = (appId: number, kind: string, at: string, opts: { status?: string; recommendation?: string; scorecard?: [string, number][]; feedback?: string; location?: string; interviewers?: number[]; duration?: number } = {}) =>
+    insert('interviews', {
+      application_id: appId, kind, scheduled_at: at, duration_minutes: opts.duration ?? 45,
+      location: opts.location ?? null, interviewer_ids: JSON.stringify(opts.interviewers ?? []),
+      status: opts.status ?? 'geplant', recommendation: opts.recommendation ?? null,
+      scorecard: JSON.stringify((opts.scorecard ?? []).map(([criterion, score]) => ({ criterion, score }))),
+      feedback: opts.feedback ?? null,
+    });
+
+  // Backend-Pipeline (gut gefüllt für die Kanban-Demo)
+  application(cTom, pBackend, stSichtung, '2026-07-10', { rating: 3, source: 'website', salary: 7200000 });
+  const aJan = application(cJan, pBackend, stTelefon, '2026-06-28', { rating: 4, source: 'stellenportal', salary: 7500000, available: '2026-10-01' });
+  event(aJan, 'stufenwechsel', null, stSichtung, stTelefon, '2026-07-02 11:00:00');
+  interview(aJan, 'telefon', '2026-07-08 10:00', { status: 'stattgefunden', recommendation: 'ja', duration: 30, interviewers: [CTO], scorecard: [['Fachkompetenz', 4], ['Kommunikation', 4]], feedback: 'Solider Eindruck, weiter in die nächste Runde.' });
+  const aLena = application(cLena, pBackend, stInterview, '2026-06-20', { rating: 5, source: 'linkedin', salary: 8000000, available: '2026-11-01' });
+  event(aLena, 'stufenwechsel', null, stSichtung, stTelefon, '2026-06-25 09:30:00');
+  event(aLena, 'notiz', 'Sehr überzeugendes Portfolio, starke Systemdesign-Kenntnisse.', null, null, '2026-06-26 14:00:00');
+  event(aLena, 'stufenwechsel', null, stTelefon, stInterview, '2026-07-05 16:00:00');
+  interview(aLena, 'telefon', '2026-07-01 14:00', { status: 'stattgefunden', recommendation: 'ja', duration: 30, interviewers: [CTO], scorecard: [['Fachkompetenz', 5], ['Kommunikation', 4]], feedback: 'Top-Kandidatin.' });
+  interview(aLena, 'technik', '2026-07-22 13:00', { status: 'geplant', duration: 90, location: 'Videocall (Zoom)', interviewers: [TLB, DEV1] });
+  const aPriya = application(cPriya, pBackend, stAngebot, '2026-06-10', { rating: 5, source: 'empfehlung', salary: 7800000, available: '2026-09-15' });
+  event(aPriya, 'stufenwechsel', null, stSichtung, stTelefon, '2026-06-14 10:00:00');
+  event(aPriya, 'stufenwechsel', null, stTelefon, stInterview, '2026-06-24 10:00:00');
+  event(aPriya, 'stufenwechsel', null, stInterview, stAngebot, '2026-07-09 10:00:00');
+  interview(aPriya, 'vor_ort', '2026-07-07 11:00', { status: 'stattgefunden', recommendation: 'ja', duration: 120, location: 'München, Raum Isar', interviewers: [CTO, TLB, DEV1], scorecard: [['Fachkompetenz', 5], ['Kommunikation', 5], ['Kultur-Fit', 4]], feedback: 'Einstellungsempfehlung des gesamten Panels.' });
+  const aSofia = application(cSofia, pBackend, stAbgelehnt, '2026-06-30', { rating: 2, source: 'personalvermittlung', status: 'abgelehnt', rejection: 'Schwerpunkt liegt auf Java; gesuchtes Node.js-Profil nicht ausreichend abgedeckt.', decided: '2026-07-06 09:00:00' });
+  event(aSofia, 'absage', 'Schwerpunkt liegt auf Java; gesuchtes Node.js-Profil nicht ausreichend abgedeckt.', stSichtung, stAbgelehnt, '2026-07-06 09:00:00');
+
+  // Vertriebs-Pipeline
+  const aMarco = application(cMarco, pAE, stInterview, '2026-06-22', { rating: 4, source: 'linkedin', salary: 6000000 });
+  event(aMarco, 'stufenwechsel', null, stSichtung, stTelefon, '2026-06-27 10:00:00');
+  event(aMarco, 'stufenwechsel', null, stTelefon, stInterview, '2026-07-06 10:00:00');
+  interview(aMarco, 'video', '2026-07-21 15:00', { status: 'geplant', duration: 45, location: 'Google Meet', interviewers: [VTL] });
+  application(cNadine, pAE, stSichtung, '2026-07-12', { rating: 3, source: 'stellenportal' });
+  application(cKevin, pAE, stEingang, '2026-07-16', { source: 'website' });
+  // Bereits eingestellt (eine von zwei Stellen besetzt) → verknüpft mit Sandra Ebert (SDR).
+  const cSandra = cand({ first_name: 'Sandra', last_name: 'Ebert', email: 'sandra.ebert@example.com', city: 'München', source: 'stellenportal', headline: 'Sales Development Rep', consent_until: '2027-06-01' });
+  const aHired = application(cSandra, pAE, stEingestellt, '2026-03-02', { rating: 5, source: 'stellenportal', status: 'eingestellt', decided: '2026-04-01 12:00:00', converted: SDR });
+  event(aHired, 'einstellung', 'Eingestellt zum 15.04.2026', null, stEingestellt, '2026-04-01 12:00:00');
+
+  // Werkstudenten-Pipeline
+  application(cLaura, pWerk, stTelefon, '2026-07-14', { rating: 4, source: 'hochschule' });
 });
 
 const stats = {
@@ -598,6 +717,8 @@ const stats = {
   Ziele: (db.prepare('SELECT COUNT(*) n FROM goals').get() as { n: number }).n,
   Gehaltskomponenten: (db.prepare('SELECT COUNT(*) n FROM salary_components').get() as { n: number }).n,
   Ankündigungen: (db.prepare('SELECT COUNT(*) n FROM announcements').get() as { n: number }).n,
+  Stellen: (db.prepare('SELECT COUNT(*) n FROM job_postings').get() as { n: number }).n,
+  Bewerbungen: (db.prepare('SELECT COUNT(*) n FROM applications').get() as { n: number }).n,
 };
 console.log('Demo-Daten angelegt:', stats);
 closeDb();

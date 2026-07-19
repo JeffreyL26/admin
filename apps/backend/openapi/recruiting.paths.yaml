@@ -1,0 +1,145 @@
+# Recruiting & Bewerbermanagement (Nummernkreis 6xx).
+# Wird von scripts/merge-openapi.mjs unter base.paths gehängt.
+paths:
+  /api/recruiting/stages:
+    get:
+      summary: Pipeline-Stufen auflisten
+      responses: { "200": { description: Stufenliste } }
+  /api/recruiting/org:
+    get:
+      summary: Org-Lookup (Abteilungen, Teams, Standorte) für Auswahllisten
+      responses: { "200": { description: Org-Daten } }
+
+  /api/recruiting/postings:
+    get:
+      summary: Stellenausschreibungen (Filter status, search, department_id)
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+        - { name: department_id, in: query, schema: { type: integer } }
+      responses: { "200": { description: Liste inkl. Bewerbungszahlen } }
+    post:
+      summary: Stelle anlegen (Status Entwurf)
+      responses:
+        "201": { description: Stelle angelegt }
+        "400":
+          description: Ungültige Eingaben
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  /api/recruiting/postings/{id}:
+    get:
+      summary: Stelle inkl. Stufenverteilung
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Stelle }, "404": { description: Nicht gefunden } }
+    put:
+      summary: Stelle bearbeiten
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Aktualisiert } }
+    delete:
+      summary: Stelle löschen (nur ohne Bewerbungen, sonst 409)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "204": { description: Gelöscht }, "409": { description: Referenziert } }
+  /api/recruiting/postings/{id}/status:
+    post:
+      summary: Statuswechsel der Stelle (Zustandsautomat)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Neuer Status }, "409": { description: Übergang unzulässig } }
+
+  /api/recruiting/candidates:
+    get:
+      summary: Bewerber:innen (Filter search)
+      parameters: [{ name: search, in: query, schema: { type: string } }]
+      responses: { "200": { description: Liste } }
+    post:
+      summary: Bewerber:in anlegen
+      responses: { "201": { description: Angelegt } }
+  /api/recruiting/candidates/{id}:
+    get:
+      summary: Bewerber:in inkl. aller Bewerbungen
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Bewerber:in } }
+    put:
+      summary: Bewerber:in bearbeiten
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Aktualisiert } }
+    delete:
+      summary: Bewerber:in löschen (kaskadiert Bewerbungen)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "204": { description: Gelöscht } }
+
+  /api/recruiting/applications:
+    get:
+      summary: Bewerbungen (Filter posting_id, stage_id, status, search)
+      parameters:
+        - { name: posting_id, in: query, schema: { type: integer } }
+        - { name: stage_id, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+      responses: { "200": { description: Bewerbungsliste (für Pipeline-Board) } }
+    post:
+      summary: Bewerbung anlegen (bestehende:r candidate_id ODER inline candidate)
+      responses: { "201": { description: Bewerbung angelegt }, "409": { description: Duplikat } }
+  /api/recruiting/applications/{id}:
+    get:
+      summary: Bewerbung inkl. Timeline und Interviews
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Bewerbungsdetail } }
+    patch:
+      summary: Bewerbung teilweise ändern (Bewertung, Kanal, Anschreiben, CV …)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Aktualisiert } }
+  /api/recruiting/applications/{id}/stage:
+    post:
+      summary: Bewerbung in andere aktive Stufe verschieben (Kanban-Move)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Verschoben }, "400": { description: Terminalstufe } }
+  /api/recruiting/applications/{id}/notes:
+    post:
+      summary: Notiz zur Timeline hinzufügen
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "201": { description: Notiz gespeichert } }
+  /api/recruiting/applications/{id}/reject:
+    post:
+      summary: Bewerbung ablehnen (Grund erforderlich)
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Abgelehnt } }
+  /api/recruiting/applications/{id}/withdraw:
+    post:
+      summary: Bewerbung zurückziehen
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Zurückgezogen } }
+  /api/recruiting/applications/{id}/hire:
+    post:
+      summary: >
+        Einstellen — Lebenszyklus-Brücke: legt einen Mitarbeitenden-Grunddatensatz
+        an (converted_employee_id) und setzt die Stelle bei voller Belegung auf besetzt.
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: Eingestellt inkl. employee_id }
+        "409": { description: Bewerbung nicht einstellbar }
+  /api/recruiting/applications/{id}/interviews:
+    post:
+      summary: Interview planen
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "201": { description: Interview geplant } }
+
+  /api/recruiting/interviews:
+    get:
+      summary: Interviews (Filter status, upcoming)
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: upcoming, in: query, schema: { type: boolean } }
+      responses: { "200": { description: Interviewliste } }
+  /api/recruiting/interviews/{id}:
+    put:
+      summary: Interview bearbeiten / Feedback + Scorecard erfassen
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "200": { description: Aktualisiert } }
+    delete:
+      summary: Interview löschen
+      parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+      responses: { "204": { description: Gelöscht } }
+
+  /api/recruiting/analytics:
+    get:
+      summary: Recruiting-Kennzahlen (Funnel, Time-to-Hire, Kanäle, offene Stellen)
+      responses: { "200": { description: Analysedaten } }
