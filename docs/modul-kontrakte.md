@@ -26,6 +26,11 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   (Leistungs-Modul) — Spalten-Kontrakt: `goals(id, employee_id, title, progress
   INTEGER 0–100, status TEXT)`. Nur lesend, LEFT JOIN, muss auch mit leerer
   Tabelle funktionieren.
+- Skill-Suche im Verzeichnis: Kommunikation liest die Tabellen des
+  Leistungs-Moduls — Spalten-Kontrakt: `skills(id, name)` und
+  `employee_skills(employee_id, skill_id, level INTEGER 1–5)`. Das
+  Leistungs-Modul MUSS exakt diese Namen/Spalten verwenden; Lesende müssen mit
+  leeren Tabellen funktionieren (LEFT JOIN).
 - Dokument-Uploads überall: `POST /api/files` (Core) → `files.id` in
   Modultabellen referenzieren; Download via `POST /api/files/:id/sign`.
 

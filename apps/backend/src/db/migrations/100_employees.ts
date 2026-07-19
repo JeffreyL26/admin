@@ -83,4 +83,82 @@ export const employeesMigrations: Migration[] = [
       CREATE INDEX idx_employees_status ON employees(status);
     `,
   },
+  {
+    name: '101_contracts_documents',
+    sql: `
+      -- Vertragshistorie: pro Mitarbeiter beliebig viele Versionen mit
+      -- Gültigkeitszeitraum. valid_to IS NULL = aktuell offene Version.
+      -- Neue Versionen schließen die vorherige (valid_to = Vortag) — es wird
+      -- nie überschrieben, nur die offene Version darf korrigiert werden.
+      CREATE TABLE contracts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        contract_type TEXT NOT NULL,          -- unbefristet|befristet|ausbildung|werkvertrag|praktikum
+        valid_from TEXT NOT NULL,             -- ISO YYYY-MM-DD
+        valid_to TEXT,                        -- NULL = offen
+        probation_end TEXT,
+        notice_period_weeks INTEGER,
+        weekly_hours REAL,
+        annual_leave_days REAL,
+        fixed_term_reason TEXT,               -- Befristungsgrund (TzBfG)
+        document_file_id INTEGER REFERENCES files(id),
+        note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_contracts_employee ON contracts(employee_id, valid_from);
+
+      -- Dokumentenverwaltung: employee_id NULL = allgemeines Dokument.
+      -- Versionierung über supersedes_id (neue Version zeigt auf die alte).
+      CREATE TABLE documents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
+        file_id INTEGER NOT NULL REFERENCES files(id),
+        category TEXT NOT NULL DEFAULT 'sonstiges',  -- vertrag|zeugnis|zertifikat|bescheinigung|sonstiges
+        title TEXT NOT NULL,
+        note TEXT,
+        expiry_date TEXT,                     -- ISO YYYY-MM-DD, NULL = läuft nicht ab
+        reminder_days INTEGER NOT NULL DEFAULT 30,
+        version INTEGER NOT NULL DEFAULT 1,
+        supersedes_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_documents_employee ON documents(employee_id);
+      CREATE INDEX idx_documents_expiry ON documents(expiry_date);
+
+      -- Volltextsuche über Dokument-Metadaten (Titel, Notiz, Kategorie,
+      -- Original-Dateiname, Mitarbeitername). rowid = documents.id.
+      CREATE VIRTUAL TABLE documents_fts USING fts5(
+        title, note, category, original_name, employee_name
+      );
+
+      CREATE TRIGGER trg_documents_fts_insert AFTER INSERT ON documents BEGIN
+        INSERT INTO documents_fts (rowid, title, note, category, original_name, employee_name)
+        VALUES (
+          new.id,
+          new.title,
+          coalesce(new.note, ''),
+          new.category,
+          coalesce((SELECT original_name FROM files WHERE id = new.file_id), ''),
+          coalesce((SELECT first_name || ' ' || last_name FROM employees WHERE id = new.employee_id), '')
+        );
+      END;
+
+      CREATE TRIGGER trg_documents_fts_update AFTER UPDATE ON documents BEGIN
+        DELETE FROM documents_fts WHERE rowid = old.id;
+        INSERT INTO documents_fts (rowid, title, note, category, original_name, employee_name)
+        VALUES (
+          new.id,
+          new.title,
+          coalesce(new.note, ''),
+          new.category,
+          coalesce((SELECT original_name FROM files WHERE id = new.file_id), ''),
+          coalesce((SELECT first_name || ' ' || last_name FROM employees WHERE id = new.employee_id), '')
+        );
+      END;
+
+      CREATE TRIGGER trg_documents_fts_delete AFTER DELETE ON documents BEGIN
+        DELETE FROM documents_fts WHERE rowid = old.id;
+      END;
+    `,
+  },
 ];

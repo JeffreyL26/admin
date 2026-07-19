@@ -1,0 +1,258 @@
+# Modul Vergütung — Pfade (Merge via npm run openapi -w apps/backend).
+paths:
+  /api/compensation/salaries:
+    get:
+      summary: Gesamtübersicht aktuelles Monatsbrutto aller Mitarbeitenden (ohne Freiberufler)
+      tags: [Vergütung]
+      responses:
+        "200": { description: Liste mit Monatsbrutto, Komponentenzahl und letzter Änderung }
+  /api/compensation/employees/{id}/salary:
+    get:
+      summary: Aktuelle Vergütung einer Mitarbeiter:in (Komponenten + Summe)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktive Komponenten mit Monatswerten und Monatsbrutto }
+        "404": { description: Mitarbeiter:in nicht gefunden }
+  /api/compensation/employees/{id}/salary/history:
+    get:
+      summary: Historie aller Gehaltskomponenten (Timeline, lückenlos)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Alle Komponenten-Zeilen absteigend nach Gültigkeitsbeginn }
+  /api/compensation/employees/{id}/components:
+    post:
+      summary: Neue Gehaltskomponente (schließt offene Vorgängerzeile gleicher Art)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "201": { description: Komponente angelegt }
+        "400": { description: Validierungsfehler oder Freiberufler:in }
+        "409": { description: Überschneidung mit bestehender Komponente }
+  /api/compensation/employees/{id}/audit:
+    get:
+      summary: Audit-Historie der Vergütung je Mitarbeiter:in (wer/wann/was/warum)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Audit-Einträge mit Details (alter/neuer Betrag, Begründung) }
+  /api/compensation/change-requests:
+    get:
+      summary: Gehaltsänderungsanträge auflisten
+      tags: [Vergütung]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [beantragt, genehmigt, abgelehnt] } }
+        - { name: employee_id, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Antragsliste }
+    post:
+      summary: Gehaltsänderung beantragen (Begründung Pflicht)
+      tags: [Vergütung]
+      responses:
+        "201": { description: Antrag angelegt }
+        "400": { description: Validierungsfehler (u. a. fehlende Begründung) }
+  /api/compensation/change-requests/{id}/decide:
+    post:
+      summary: Antrag genehmigen/ablehnen (Genehmigung wendet Komponente transaktional an)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Entschiedener Antrag }
+        "409": { description: Bereits entschieden oder Komponenten-Überschneidung }
+  /api/compensation/goals:
+    get:
+      summary: Ziele einer Mitarbeiter:in für die Bonus-Zielkopplung (liest goals des Leistungs-Moduls)
+      tags: [Vergütung]
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Zielliste (leer bei fehlender Befüllung) }
+  /api/compensation/bonuses:
+    get:
+      summary: Boni auflisten (inkl. serverseitig berechnetem payout_cents bei Zielkopplung)
+      tags: [Vergütung]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [geplant, freigegeben, ausgezahlt] } }
+        - { name: employee_id, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Bonusliste mit Zielinformationen }
+    post:
+      summary: Bonus anlegen (fest oder zielgekoppelt)
+      tags: [Vergütung]
+      responses:
+        "201": { description: Bonus angelegt }
+        "400": { description: Validierungsfehler (Betrag/Zielbetrag-Pflicht, fremdes Ziel) }
+  /api/compensation/bonuses/{id}/status:
+    post:
+      summary: Bonus-Statuswechsel geplant → freigegeben → ausgezahlt (auditiert)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Bonus }
+        "409": { description: Unzulässiger Statuswechsel }
+  /api/compensation/bonuses/{id}:
+    delete:
+      summary: Geplanten Bonus löschen
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+        "409": { description: Nur geplante Boni löschbar }
+  /api/compensation/payroll-runs:
+    get:
+      summary: Abrechnungsläufe auflisten (mit Anzahl MA und Warnungen)
+      tags: [Vergütung]
+      responses:
+        "200": { description: Laufliste }
+    post:
+      summary: Abrechnungslauf erstellen (stellt Bewegungsdaten des Monats zusammen)
+      tags: [Vergütung]
+      responses:
+        "201": { description: Lauf mit Items (Flags, Warnungen) }
+        "409": { description: Für den Monat existiert bereits ein Lauf }
+  /api/compensation/payroll-runs/{id}:
+    get:
+      summary: Lauf-Detail mit Bewegungsdaten je Mitarbeiter:in
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Lauf + Items }
+  /api/compensation/payroll-runs/{id}/status:
+    post:
+      summary: Statuswechsel offen → geprueft → exportiert (nur vorwärts)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Lauf }
+        "409": { description: Unzulässiger Statuswechsel }
+  /api/compensation/payroll-runs/{id}/export.datev:
+    get:
+      summary: DATEV-LODAS-ASCII-Export (Bewegungsdaten); setzt Status auf exportiert
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: LODAS-ASCII-Datei (text/plain) }
+        "409": { description: Lauf ist noch nicht geprüft }
+  /api/compensation/payroll-runs/{id}/export.csv:
+    get:
+      summary: Generischer CSV-Export (UTF-8 BOM, Semikolon); setzt Status auf exportiert
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: CSV-Datei }
+        "409": { description: Lauf ist noch nicht geprüft }
+  /api/compensation/freelancer-rates:
+    get:
+      summary: Honorarsätze auflisten
+      tags: [Vergütung]
+      parameters:
+        - { name: employee_id, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Honorarsätze }
+    post:
+      summary: Honorarsatz anlegen (nur employee_type=freiberufler)
+      tags: [Vergütung]
+      responses:
+        "201": { description: Honorarsatz angelegt }
+        "400": { description: Person ist keine Freiberufler:in }
+  /api/compensation/freelancer-rates/{id}:
+    put:
+      summary: Honorarsatz ändern
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Honorarsatz }
+    delete:
+      summary: Honorarsatz löschen
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/compensation/freelancer-invoices:
+    get:
+      summary: Freiberufler-Rechnungen auflisten (inkl. Offene-Posten-Summe)
+      tags: [Vergütung]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [offen, geprueft, bezahlt] } }
+        - { name: employee_id, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Rechnungen + open_count/open_cents }
+    post:
+      summary: Rechnung erfassen (Rechnungsnummer je MA eindeutig)
+      tags: [Vergütung]
+      responses:
+        "201": { description: Rechnung angelegt }
+        "409": { description: Rechnungsnummer existiert bereits }
+  /api/compensation/freelancer-invoices/{id}/status:
+    post:
+      summary: Rechnungs-Statuswechsel offen → geprueft → bezahlt (bezahlt mit Zahldatum)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Rechnung }
+        "409": { description: Unzulässiger Statuswechsel }
+  /api/compensation/freelancer-invoices/{id}:
+    delete:
+      summary: Offene Rechnung löschen
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+        "409": { description: Nur offene Rechnungen löschbar }
+  /api/compensation/certificates:
+    get:
+      summary: Bescheinigungen auflisten
+      tags: [Vergütung]
+      parameters:
+        - { name: employee_id, in: query, schema: { type: integer } }
+        - { name: kind, in: query, schema: { type: string, enum: [lohnsteuerbescheinigung, arbeitgeberbescheinigung, entgeltbescheinigung_108] } }
+      responses:
+        "200": { description: Bescheinigungsliste }
+    post:
+      summary: Bescheinigung erstellen (generiert HTML-Dokument im Storage → file_id)
+      tags: [Vergütung]
+      responses:
+        "201": { description: Bescheinigung mit file_id, Status erstellt }
+  /api/compensation/certificates/{id}/sign:
+    post:
+      summary: Signierte Download-URL der Bescheinigung
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Kurzlebige signierte URL }
+        "409": { description: Keine Datei vorhanden }
+  /api/compensation/certificates/{id}/status:
+    post:
+      summary: Statuswechsel erstellt → ausgehaendigt (auditiert)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Bescheinigung }
+        "409": { description: Unzulässiger Statuswechsel }
+  /api/compensation/certificates/{id}:
+    delete:
+      summary: Nicht ausgehändigte Bescheinigung löschen
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+        "409": { description: Ausgehändigte Bescheinigungen sind nicht löschbar }

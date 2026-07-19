@@ -1,0 +1,188 @@
+# Modul Personalverwaltung & Stammdaten — Pfad-Fragment (Merge via npm run openapi).
+paths:
+  /api/employees:
+    get:
+      summary: Mitarbeitende auflisten (Suche, Filter, fields=lite für Modul-Kontrakt)
+      parameters:
+        - { name: search, in: query, schema: { type: string }, description: Volltextsuche über alle relevanten Stammdatenfelder }
+        - { name: status, in: query, schema: { type: string, enum: [aktiv, ausgeschieden] } }
+        - { name: employee_type, in: query, schema: { type: string } }
+        - { name: department_id, in: query, schema: { type: integer } }
+        - { name: team_id, in: query, schema: { type: integer } }
+        - { name: location_id, in: query, schema: { type: integer } }
+        - { name: fields, in: query, schema: { type: string, enum: [lite, full] } }
+      responses:
+        "200": { description: "{ employees: [...] }" }
+    post:
+      summary: Mitarbeiter:in anlegen (typabhängige Pflichtfelder serverseitig validiert)
+      responses:
+        "201": { description: Angelegte:r Mitarbeiter:in }
+        "400": { description: Validierungsfehler (u. a. EMPLOYEE_TYPE_RULES) }
+  /api/employees/export.csv:
+    get:
+      summary: CSV-Export der Stammdaten (BOM + Semikolon, gleiche Filter wie Liste)
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: employee_type, in: query, schema: { type: string } }
+        - { name: department_id, in: query, schema: { type: integer } }
+        - { name: team_id, in: query, schema: { type: integer } }
+        - { name: location_id, in: query, schema: { type: integer } }
+      responses:
+        "200":
+          description: CSV-Datei
+          content:
+            text/csv: {}
+  /api/employees/bulk:
+    post:
+      summary: Massenbearbeitung (nur department_id, team_id, location_id, manager_id, status, weekly_hours, annual_leave_days; transaktional, auditiert)
+      responses:
+        "200": { description: "{ updated: n }" }
+        "400": { description: Unzulässiges Feld oder Typregel-Verletzung }
+  /api/employees/{id}:
+    get:
+      summary: Mitarbeiter:in mit Organisationskontext und Reporting-Line
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ employee, reporting_line }" }
+        "404": { description: Nicht gefunden }
+    patch:
+      summary: Stammdaten teilweise ändern (Typregeln gelten für den gemergten Stand)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte:r Mitarbeiter:in }
+    delete:
+      summary: Mitarbeiter:in löschen (bei Fremdreferenzen 409 — dann Status ausgeschieden nutzen)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+        "409": { description: Referenzen anderer Module vorhanden }
+  /api/employees/{id}/contracts:
+    get:
+      summary: Vertragshistorie eines Mitarbeitenden (neueste zuerst)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ contracts: [...] }" }
+    post:
+      summary: Neue Vertragsversion (schließt die offene Vorversion auf den Vortag; spiegelt Stunden/Urlaub auf employees)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "201": { description: Neue Version }
+        "409": { description: valid_from liegt nicht nach dem Beginn der offenen Version }
+  /api/contracts/{id}:
+    patch:
+      summary: Korrektur ausschließlich der offenen Vertragsversion
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Korrigierte Version }
+        "409": { description: Version ist geschlossen (Historie) }
+  /api/org/tree:
+    get:
+      summary: Organisationsbaum (Abteilungen → Teams) mit Mitarbeiterzahlen
+      responses:
+        "200": { description: "{ tree: [...], unassigned_count }" }
+  /api/departments:
+    get:
+      summary: Abteilungen auflisten
+      responses:
+        "200": { description: "{ departments: [...] }" }
+    post:
+      summary: Abteilung anlegen
+      responses:
+        "201": { description: Abteilung }
+  /api/departments/{id}:
+    patch:
+      summary: Abteilung ändern/umhängen (Zyklen-Check serverseitig)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Abteilung }
+        "409": { description: Umhängen würde einen Zyklus erzeugen }
+    delete:
+      summary: Abteilung löschen (Zuordnungen werden gelöst)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/teams:
+    get:
+      summary: Teams auflisten
+      responses:
+        "200": { description: "{ teams: [...] }" }
+    post:
+      summary: Team anlegen
+      responses:
+        "201": { description: Team }
+  /api/teams/{id}:
+    patch:
+      summary: Team ändern/in andere Abteilung umhängen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Team }
+    delete:
+      summary: Team löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/locations:
+    get:
+      summary: Standorte auflisten (inkl. Bundesland für Feiertage)
+      responses:
+        "200": { description: "{ locations: [...] }" }
+    post:
+      summary: Standort anlegen
+      responses:
+        "201": { description: Standort }
+  /api/locations/{id}:
+    patch:
+      summary: Standort ändern
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Standort }
+    delete:
+      summary: Standort löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/documents:
+    get:
+      summary: Dokumente auflisten (FTS5-Volltextsuche über Metadaten, Kategorie-/Mitarbeiterfilter)
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string, enum: [vertrag, zeugnis, zertifikat, bescheinigung, sonstiges] } }
+        - { name: employee_id, in: query, schema: { type: integer } }
+        - { name: include_superseded, in: query, schema: { type: boolean } }
+      responses:
+        "200": { description: "{ documents: [...] }" }
+    post:
+      summary: Dokument-Metadaten anlegen (Datei zuvor über POST /api/files hochladen; Versionierung via supersedes_id)
+      responses:
+        "201": { description: Dokument }
+  /api/documents/expiring:
+    get:
+      summary: Ablaufende Dokumente (expiry_date innerhalb reminder_days, nur aktuelle Versionen)
+      responses:
+        "200": { description: "{ documents: [...] }" }
+  /api/documents/{id}:
+    patch:
+      summary: Dokument-Metadaten ändern
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Dokument }
+    delete:
+      summary: Dokument löschen (Metadaten; Datei bleibt im Storage)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }

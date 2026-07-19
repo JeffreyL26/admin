@@ -1,0 +1,251 @@
+# Modul Kommunikation & Engagement — Pfade (Merge via npm run openapi -w apps/backend).
+paths:
+  /api/communication/org:
+    get:
+      summary: Abteilungen, Teams und Standorte für Zielgruppen-Auswahl und Filter (lesend)
+      tags: [Kommunikation]
+      responses:
+        "200": { description: Organisationseinheiten }
+  /api/communication/directory:
+    get:
+      summary: Mitarbeiterverzeichnis (nur dienstliche Felder, Sichtbarkeit serverseitig gefiltert)
+      tags: [Kommunikation]
+      parameters:
+        - { name: search, in: query, required: false, schema: { type: string } }
+        - { name: department_id, in: query, required: false, schema: { type: integer } }
+        - { name: location_id, in: query, required: false, schema: { type: integer } }
+        - { name: skill, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: Verzeichnis-Einträge inkl. Skills mit Level }
+  /api/communication/directory/fields:
+    get:
+      summary: Feld-Sichtbarkeit des Verzeichnisses lesen
+      tags: [Kommunikation]
+      responses:
+        "200": { description: Sichtbarkeits-Konfiguration je Feld }
+    put:
+      summary: Feld-Sichtbarkeit des Verzeichnisses ändern
+      tags: [Kommunikation]
+      responses:
+        "200": { description: Aktualisierte Konfiguration }
+        "400":
+          description: Unbekanntes Feld
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/communication/announcements:
+    get:
+      summary: Ankündigungen mit abgeleitetem Status, Empfängerzahl und Lesequote
+      tags: [Kommunikation]
+      responses:
+        "200": { description: Ankündigungsliste }
+    post:
+      summary: Ankündigung anlegen (inkl. Anhänge über files.id)
+      tags: [Kommunikation]
+      responses:
+        "201": { description: Angelegte Ankündigung }
+        "400":
+          description: Validierungsfehler
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/communication/announcements/{id}:
+    get:
+      summary: Ankündigung mit Anhangsliste
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Ankündigung }
+        "404":
+          description: Nicht gefunden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      summary: Ankündigung aktualisieren
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Ankündigung }
+    delete:
+      summary: Ankündigung löschen
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/communication/surveys:
+    get:
+      summary: Umfragen mit Status, Empfängerzahl und Teilnahmequote
+      tags: [Kommunikation]
+      responses:
+        "200": { description: Umfragenliste }
+    post:
+      summary: Umfrage mit Fragen anlegen (Status entwurf)
+      tags: [Kommunikation]
+      responses:
+        "201": { description: Angelegte Umfrage }
+  /api/communication/surveys/{id}:
+    get:
+      summary: Umfrage mit Fragen
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Umfrage }
+    put:
+      summary: Umfrage aktualisieren (nur im Status entwurf)
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Umfrage }
+        "409":
+          description: Nicht im Status entwurf
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Umfrage löschen (nur im Status entwurf)
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/communication/surveys/{id}/status:
+    post:
+      summary: Statuswechsel (entwurf→laufend→beendet)
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Umfrage mit neuem Status }
+        "409":
+          description: Unzulässiger Statuswechsel
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/communication/surveys/{id}/responses:
+    post:
+      summary: >-
+        Antwort erfassen (Demo/Test; produktiv später über
+        POST /api/me/surveys/{id}/response). Teilnahme-Marker getrennt von den
+        anonymen Antworten (keine employee_id an der Antwort).
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "201": { description: Teilnahme gespeichert }
+        "409":
+          description: Bereits teilgenommen oder Umfrage läuft nicht
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/communication/surveys/{id}/results:
+    get:
+      summary: Anonyme Auswertung (erst ab Mindestteilnehmerzahl)
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "Aggregation (Skala: Ø + Verteilung, Auswahl: Häufigkeiten, Freitext: Liste)" }
+        "403":
+          description: MIN_PARTICIPANTS_NOT_REACHED mit benötigter Restzahl, keine Teilergebnisse
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/communication/meetings:
+    get:
+      summary: Gesprächsprotokolle (Filter employee_id, occasion)
+      tags: [Kommunikation]
+      parameters:
+        - { name: employee_id, in: query, required: false, schema: { type: integer } }
+        - { name: occasion, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: Protokollliste }
+    post:
+      summary: Gesprächsprotokoll anlegen
+      tags: [Kommunikation]
+      responses:
+        "201": { description: Angelegtes Protokoll }
+  /api/communication/meetings/follow-ups:
+    get:
+      summary: Fällige Wiedervorlagen (heute oder überfällig)
+      tags: [Kommunikation]
+      responses:
+        "200": { description: Fällige Protokolle }
+  /api/communication/meetings/{id}:
+    get:
+      summary: Gesprächsprotokoll lesen
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Protokoll }
+    put:
+      summary: Gesprächsprotokoll aktualisieren
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisiertes Protokoll }
+    delete:
+      summary: Gesprächsprotokoll löschen
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/communication/channels:
+    get:
+      summary: Kanäle mit Zielgruppe, Empfängerzahl und Nachrichtenstatistik
+      tags: [Kommunikation]
+      responses:
+        "200": { description: Kanalliste }
+    post:
+      summary: Kanal anlegen (Name eindeutig)
+      tags: [Kommunikation]
+      responses:
+        "201": { description: Angelegter Kanal }
+        "409":
+          description: Kanalname bereits vergeben
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/communication/channels/{id}:
+    put:
+      summary: Kanal aktualisieren (inkl. Archiv-Toggle)
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Kanal }
+    delete:
+      summary: Kanal löschen (Nachrichten kaskadieren)
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/communication/channels/{id}/messages:
+    get:
+      summary: Nachrichtenverlauf eines Kanals
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Nachrichten chronologisch }
+    post:
+      summary: Nachricht in Kanal senden (nicht in archivierte Kanäle)
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "201": { description: Gesendete Nachricht }
+        "409":
+          description: Kanal archiviert
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }

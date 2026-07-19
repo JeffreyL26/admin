@@ -1,11 +1,14 @@
 import React from 'react';
 import type { RouteObject } from 'react-router-dom';
-import { PlaceholderPage } from '../../components/PlaceholderPage';
+import { CalendarPage } from './CalendarPage';
+import { RequestsPage } from './RequestsPage';
+import { SickNotesPage } from './SickNotesPage';
+import { TypesPage } from './TypesPage';
 
-// Modul Abwesenheit — wird in der Modul-Phase durch echte Seiten ersetzt.
+// Modul Abwesenheit — Pfad-Kontrakt aus layout/nav.ts.
 export const absencesRoutes: RouteObject[] = [
-  { path: '/abwesenheit/kalender', element: <PlaceholderPage title="Abwesenheitskalender" /> },
-  { path: '/abwesenheit/antraege', element: <PlaceholderPage title="Anträge" /> },
-  { path: '/abwesenheit/krankmeldungen', element: <PlaceholderPage title="Krankmeldungen" /> },
-  { path: '/abwesenheit/arten', element: <PlaceholderPage title="Abwesenheitsarten" /> },
+  { path: '/abwesenheit/kalender', element: <CalendarPage /> },
+  { path: '/abwesenheit/antraege', element: <RequestsPage /> },
+  { path: '/abwesenheit/krankmeldungen', element: <SickNotesPage /> },
+  { path: '/abwesenheit/arten', element: <TypesPage /> },
 ];

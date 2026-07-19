@@ -1,11 +1,14 @@
 import React from 'react';
 import type { RouteObject } from 'react-router-dom';
-import { PlaceholderPage } from '../../components/PlaceholderPage';
+import { EmployeeListPage } from './EmployeeListPage';
+import { EmployeeDetailPage } from './EmployeeDetailPage';
+import { OrgPage } from './OrgPage';
+import { DocumentsPage } from './DocumentsPage';
 
-// Modul Personal — wird in der Modul-Phase durch echte Seiten ersetzt.
-// Pfad-Kontrakt siehe layout/nav.ts.
+// Modul Personal — Pfad-Kontrakt siehe layout/nav.ts.
 export const employeesRoutes: RouteObject[] = [
-  { path: '/personal/mitarbeitende', element: <PlaceholderPage title="Mitarbeitende" /> },
-  { path: '/personal/organisation', element: <PlaceholderPage title="Organisation" /> },
-  { path: '/personal/dokumente', element: <PlaceholderPage title="Dokumente" /> },
+  { path: '/personal/mitarbeitende', element: <EmployeeListPage /> },
+  { path: '/personal/mitarbeitende/:id', element: <EmployeeDetailPage /> },
+  { path: '/personal/organisation', element: <OrgPage /> },
+  { path: '/personal/dokumente', element: <DocumentsPage /> },
 ];

@@ -1,0 +1,191 @@
+# Modul Abwesenheitsmanagement — Pfade (Merge via npm run openapi -w apps/backend).
+paths:
+  /api/absences/types:
+    get:
+      summary: Abwesenheitsarten auflisten (inkl. deaktivierter)
+      responses:
+        "200": { description: Liste der Arten }
+    post:
+      summary: Abwesenheitsart anlegen
+      responses:
+        "201": { description: Art angelegt }
+        "400":
+          description: Ungültige Eingaben
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/absences/types/{id}:
+    put:
+      summary: Abwesenheitsart bearbeiten
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Art }
+        "404":
+          description: Art nicht gefunden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Abwesenheitsart löschen (nur wenn unbenutzt)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+        "409":
+          description: Art wird verwendet — stattdessen deaktivieren
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/absences/requests:
+    get:
+      summary: Abwesenheitsanträge auflisten
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [beantragt, genehmigt, abgelehnt, storniert] } }
+        - { name: type_id, in: query, schema: { type: integer } }
+        - { name: employee_id, in: query, schema: { type: integer } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+      responses:
+        "200": { description: Antragsliste (mit Mitarbeiter- und Art-Daten) }
+    post:
+      summary: Antrag stellvertretend erfassen (Auto-Genehmigung bei Arten ohne Genehmigungspflicht)
+      responses:
+        "201": { description: Antrag angelegt, days_counted berechnet }
+        "400":
+          description: Ungültiger Zeitraum oder keine zählbaren Arbeitstage
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Überschneidung mit bestehender Abwesenheit oder Jahresobergrenze der Art überschritten
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/absences/preview:
+    get:
+      summary: Live-Vorschau der gezählten Tage (Arbeitstage minus Feiertage minus Betriebsruhe, halbe Randtage)
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: integer } }
+        - { name: date_from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: date_to, in: query, required: true, schema: { type: string, format: date } }
+        - { name: half_day_start, in: query, schema: { type: string, enum: ["0", "1"] } }
+        - { name: half_day_end, in: query, schema: { type: string, enum: ["0", "1"] } }
+      responses:
+        "200": { description: "{ days_counted, bundesland }" }
+  /api/absences/requests/{id}/approve:
+    post:
+      summary: Antrag genehmigen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Genehmigter Antrag }
+        "409":
+          description: Antrag ist nicht im Status beantragt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/absences/requests/{id}/reject:
+    post:
+      summary: Antrag ablehnen (Begründung erforderlich)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Abgelehnter Antrag }
+        "400":
+          description: Begründung fehlt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Antrag ist nicht im Status beantragt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/absences/requests/{id}/cancel:
+    post:
+      summary: Antrag stornieren (beantragt oder genehmigt)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Stornierter Antrag }
+        "409":
+          description: Antrag kann nicht mehr storniert werden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/absences/balance/{employeeId}/{year}:
+    get:
+      summary: Urlaubssaldo (Anspruch anteilig gezwölftelt, Übertrag mit Verfallsstichtag, genommen, verplant, Rest)
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+        - { name: year, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Saldo des Mitarbeitenden }
+  /api/absences/balances/{year}:
+    get:
+      summary: Saldenübersicht aller aktiven Mitarbeitenden eines Jahres
+      parameters:
+        - { name: year, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Salden inkl. Verfallsstichtag }
+  /api/absences/sick-notes:
+    get:
+      summary: Krankmeldungen auflisten
+      parameters:
+        - { name: child_sick, in: query, schema: { type: string, enum: ["0", "1"] } }
+        - { name: year, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Krankmeldungen mit Antrags- und Mitarbeiterdaten }
+    post:
+      summary: Krankmeldung erfassen (legt intern den Abwesenheitsantrag an; AU-Frist = 3. Kalendertag)
+      responses:
+        "201": { description: Krankmeldung angelegt }
+        "400":
+          description: Ungültige Eingaben oder unbekannte Erstbescheinigung
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Überschneidung mit bestehender Abwesenheit
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/absences/sick-notes/missing:
+    get:
+      summary: Fehlende AU-Bescheinigungen (Frist überschritten, kein Upload)
+      responses:
+        "200": { description: Überfällige Krankmeldungen }
+  /api/absences/sick-notes/{id}:
+    patch:
+      summary: AU-Bescheinigung nachtragen (Datei, Eingangsdatum)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Krankmeldung }
+  /api/absences/closures:
+    get:
+      summary: Betriebsruhetage auflisten
+      responses:
+        "200": { description: Liste der Betriebsruhen }
+    post:
+      summary: Betriebsruhe anlegen
+      responses:
+        "201": { description: Betriebsruhe angelegt }
+  /api/absences/closures/{id}:
+    delete:
+      summary: Betriebsruhe löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/absences/calendar:
+    get:
+      summary: Abwesenheitskalender (Monat oder Jahr) inkl. Feiertagen je Bundesland, Betriebsruhe und Team-Konflikten (> 50 % gleichzeitig abwesend)
+      parameters:
+        - { name: year, in: query, required: true, schema: { type: integer } }
+        - { name: month, in: query, schema: { type: integer, minimum: 1, maximum: 12 } }
+        - { name: department_id, in: query, schema: { type: integer } }
+        - { name: team_id, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Kalenderdaten je Mitarbeiter + Konfliktliste }

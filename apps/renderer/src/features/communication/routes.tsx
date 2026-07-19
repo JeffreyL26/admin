@@ -1,12 +1,16 @@
 import React from 'react';
 import type { RouteObject } from 'react-router-dom';
-import { PlaceholderPage } from '../../components/PlaceholderPage';
+import { DirectoryPage } from './DirectoryPage';
+import { AnnouncementsPage } from './AnnouncementsPage';
+import { SurveysPage } from './SurveysPage';
+import { MeetingsPage } from './MeetingsPage';
+import { ChannelsPage } from './ChannelsPage';
 
-// Modul Kommunikation — wird in der Modul-Phase durch echte Seiten ersetzt.
+// Modul Kommunikation & Engagement — Pfad-Kontrakt aus layout/nav.ts.
 export const communicationRoutes: RouteObject[] = [
-  { path: '/kommunikation/verzeichnis', element: <PlaceholderPage title="Mitarbeiterverzeichnis" /> },
-  { path: '/kommunikation/ankuendigungen', element: <PlaceholderPage title="Ankündigungen" /> },
-  { path: '/kommunikation/umfragen', element: <PlaceholderPage title="Umfragen" /> },
-  { path: '/kommunikation/gespraeche', element: <PlaceholderPage title="Gespräche" /> },
-  { path: '/kommunikation/kanaele', element: <PlaceholderPage title="Kanäle" /> },
+  { path: '/kommunikation/verzeichnis', element: <DirectoryPage /> },
+  { path: '/kommunikation/ankuendigungen', element: <AnnouncementsPage /> },
+  { path: '/kommunikation/umfragen', element: <SurveysPage /> },
+  { path: '/kommunikation/gespraeche', element: <MeetingsPage /> },
+  { path: '/kommunikation/kanaele', element: <ChannelsPage /> },
 ];

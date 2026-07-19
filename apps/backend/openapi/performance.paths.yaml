@@ -1,0 +1,409 @@
+# Modul Leistungsverwaltung & Entwicklung — Pfade (Merge via npm run openapi).
+paths:
+  /api/performance/goals:
+    get:
+      summary: Ziele auflisten (Filter employee_id, status, kind)
+      parameters:
+        - { name: employee_id, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string, enum: [aktiv, erreicht, verfehlt, abgebrochen] } }
+        - { name: kind, in: query, schema: { type: string, enum: [objective, key_result, kpi] } }
+      responses:
+        "200": { description: Zielliste }
+    post:
+      summary: Ziel anlegen (Objective, Key Result mit parent_goal_id, KPI)
+      responses:
+        "201": { description: Angelegtes Ziel }
+        "400": { description: Validierungsfehler }
+        "409": { description: Ungültige OKR-Struktur }
+  /api/performance/goals/{id}:
+    put:
+      summary: Ziel aktualisieren
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisiertes Ziel }
+    delete:
+      summary: Ziel löschen (Key Results kaskadieren)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/goals/{id}/progress:
+    post:
+      summary: Fortschritt aktualisieren (führt Objective-Fortschritt automatisch nach)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Ziel und ggf. übergeordnetes Objective }
+        "409": { description: Objective mit Key Results wird automatisch berechnet }
+  /api/performance/review-cycles:
+    get:
+      summary: Beurteilungszyklen auflisten
+      responses:
+        "200": { description: Zyklen }
+    post:
+      summary: Zyklus anlegen
+      responses:
+        "201": { description: Angelegter Zyklus }
+  /api/performance/review-cycles/{id}:
+    put:
+      summary: Zyklus aktualisieren (inkl. Statuswechsel)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Zyklus }
+    delete:
+      summary: Zyklus löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/review-cycles/{id}/overview:
+    get:
+      summary: Teilnehmerübersicht eines Zyklus (Fortschritt je Mitarbeiter:in)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Teilnehmerliste mit Fortschritt }
+  /api/performance/review-templates:
+    get:
+      summary: Beurteilungsbögen auflisten
+      responses:
+        "200": { description: Bögen mit Kriterien }
+    post:
+      summary: Bogen anlegen (Kriterien mit konfigurierbarer Skala)
+      responses:
+        "201": { description: Angelegter Bogen }
+  /api/performance/review-templates/{id}:
+    put:
+      summary: Bogen aktualisieren
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Bogen }
+    delete:
+      summary: Bogen löschen (nur wenn unbenutzt)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+        "409": { description: Bogen wird verwendet }
+  /api/performance/reviews:
+    get:
+      summary: Beurteilungen auflisten (Filter cycle_id, employee_id, status)
+      parameters:
+        - { name: cycle_id, in: query, schema: { type: integer } }
+        - { name: employee_id, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string, enum: [offen, in_bearbeitung, abgeschlossen] } }
+      responses:
+        "200": { description: Beurteilungen }
+    post:
+      summary: Beurteilung anlegen (selbst / vorgesetzt / feedback360)
+      responses:
+        "201": { description: Angelegte Beurteilung }
+        "409": { description: Kombination existiert bereits }
+  /api/performance/reviews/{id}:
+    put:
+      summary: Bewertungen und Zusammenfassung speichern
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Gespeicherte Beurteilung }
+        "409": { description: Bereits abgeschlossen }
+    delete:
+      summary: Beurteilung löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/reviews/{id}/complete:
+    post:
+      summary: Beurteilung abschließen (Gesamtergebnis wird berechnet)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Abgeschlossene Beurteilung }
+        "400": { description: Unvollständige Bewertung }
+  /api/performance/reviews/aggregate/{cycleId}/{employeeId}:
+    get:
+      summary: 360°-/Gesamt-Aggregat je Zyklus und Mitarbeiter:in (Ø je Kriterium)
+      parameters:
+        - { name: cycleId, in: path, required: true, schema: { type: integer } }
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aggregat }
+  /api/performance/development-plans:
+    get:
+      summary: Entwicklungspläne auflisten (Filter employee_id)
+      parameters:
+        - { name: employee_id, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Pläne }
+    post:
+      summary: Entwicklungsplan anlegen
+      responses:
+        "201": { description: Angelegter Plan }
+  /api/performance/development-plans/{id}:
+    get:
+      summary: Plan mit Maßnahmen lesen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Plan und Maßnahmen }
+    put:
+      summary: Plan aktualisieren
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Plan }
+    delete:
+      summary: Plan löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/development-plans/{id}/measures:
+    post:
+      summary: Maßnahme zu einem Plan anlegen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "201": { description: Angelegte Maßnahme }
+  /api/performance/development-measures/{id}:
+    put:
+      summary: Maßnahme aktualisieren (inkl. Status)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Maßnahme }
+    delete:
+      summary: Maßnahme löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/career-levels:
+    get:
+      summary: Karrierestufen auflisten (Filter role_name)
+      parameters:
+        - { name: role_name, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Stufen }
+    post:
+      summary: Karrierestufe anlegen
+      responses:
+        "201": { description: Angelegte Stufe }
+        "409": { description: Level je Rolle bereits vorhanden }
+  /api/performance/career-levels/{id}:
+    put:
+      summary: Karrierestufe aktualisieren
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Stufe }
+    delete:
+      summary: Karrierestufe löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/employee-levels:
+    post:
+      summary: Karrierestufe einer Person zuweisen (Historie)
+      responses:
+        "201": { description: Zuweisung }
+  /api/performance/employee-levels/{id}:
+    get:
+      summary: Aktuelles Level, nächster Karriereschritt und Historie einer Person
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer }, description: Mitarbeiter-ID }
+      responses:
+        "200": { description: Level-Informationen }
+  /api/performance/skills:
+    get:
+      summary: Skill-Katalog auflisten
+      responses:
+        "200": { description: Skills }
+    post:
+      summary: Skill anlegen
+      responses:
+        "201": { description: Angelegter Skill }
+        "409": { description: Name bereits vergeben }
+  /api/performance/skills/{id}:
+    put:
+      summary: Skill aktualisieren
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Skill }
+    delete:
+      summary: Skill löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/skills/matrix:
+    get:
+      summary: Skill-Matrix Mitarbeitende × Skills (Filter department_id, team_id)
+      parameters:
+        - { name: department_id, in: query, schema: { type: integer } }
+        - { name: team_id, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: Matrixdaten inkl. Filterlisten }
+  /api/performance/skills/gap/{id}:
+    get:
+      summary: Lückenanalyse Soll-Profil vs. Ist-Levels (Rolle via role_name oder Jobtitel)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer }, description: Mitarbeiter-ID }
+        - { name: role_name, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Lücken je Skill }
+  /api/performance/employee-skills:
+    put:
+      summary: Skill-Level einer Person setzen (Upsert, Level 1–5)
+      responses:
+        "200": { description: Gesetzter Eintrag }
+  /api/performance/employee-skills/{employeeId}/{skillId}:
+    delete:
+      summary: Skill-Zuordnung entfernen
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+        - { name: skillId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Entfernt }
+  /api/performance/role-skill-profiles:
+    get:
+      summary: Soll-Profile auflisten (Filter role_name)
+      parameters:
+        - { name: role_name, in: query, schema: { type: string } }
+      responses:
+        "200": { description: Soll-Profile }
+    post:
+      summary: Soll-Profil-Eintrag anlegen
+      responses:
+        "201": { description: Angelegter Eintrag }
+        "409": { description: Skill bereits im Profil }
+  /api/performance/role-skill-profiles/{id}:
+    put:
+      summary: Soll-Level ändern
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Eintrag }
+    delete:
+      summary: Soll-Profil-Eintrag löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/trainings:
+    get:
+      summary: Trainingskatalog auflisten
+      responses:
+        "200": { description: Trainings mit Anmeldezahl }
+    post:
+      summary: Training anlegen
+      responses:
+        "201": { description: Angelegtes Training }
+  /api/performance/trainings/{id}:
+    put:
+      summary: Training aktualisieren
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisiertes Training }
+    delete:
+      summary: Training löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/trainings/due:
+    get:
+      summary: Fällige Pflichtschulungen (überfällig / bald fällig binnen 60 Tagen)
+      responses:
+        "200": { description: Fälligkeitsliste }
+  /api/performance/trainings/{id}/registrations:
+    get:
+      summary: Anmeldungen eines Trainings auflisten
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Anmeldungen }
+  /api/performance/training-registrations:
+    post:
+      summary: Anmeldung anlegen
+      responses:
+        "201": { description: Angelegte Anmeldung }
+        "409": { description: Aktive Anmeldung existiert bereits }
+  /api/performance/training-registrations/{id}:
+    put:
+      summary: Anmeldung aktualisieren (Status-Workflow, Zertifikat)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Anmeldung }
+  /api/performance/feedback-meetings:
+    get:
+      summary: Feedback-Gespräche auflisten (Filter employee_id, status)
+      parameters:
+        - { name: employee_id, in: query, schema: { type: integer } }
+        - { name: status, in: query, schema: { type: string, enum: [geplant, stattgefunden, abgesagt] } }
+      responses:
+        "200": { description: Gespräche }
+    post:
+      summary: Gespräch anlegen (optional wiederkehrend via recurrence_months)
+      responses:
+        "201": { description: Angelegtes Gespräch }
+  /api/performance/feedback-meetings/{id}:
+    get:
+      summary: Gespräch mit Maßnahmen lesen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Gespräch und Maßnahmen }
+    put:
+      summary: Gespräch aktualisieren (Absage via status=abgesagt)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisiertes Gespräch }
+    delete:
+      summary: Gespräch löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/feedback-meetings/{id}/complete:
+    post:
+      summary: Gespräch abschließen (legt bei Wiederholung den Folgetermin an)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Gespräch und ggf. Folgetermin }
+        "409": { description: Nur geplante Gespräche abschließbar }
+  /api/performance/feedback-meetings/{id}/actions:
+    post:
+      summary: Maßnahme zu einem Gespräch anlegen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "201": { description: Angelegte Maßnahme }
+  /api/performance/feedback-actions/{id}:
+    put:
+      summary: Maßnahme aktualisieren (Status-Toggle offen/erledigt)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Maßnahme }
+    delete:
+      summary: Maßnahme löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/performance/feedback/reminders:
+    get:
+      summary: Erinnerungen — anstehende (14 Tage) und überfällige Gespräche, offene Maßnahmen
+      responses:
+        "200": { description: Erinnerungslisten }
