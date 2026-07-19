@@ -1,227 +1,260 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
-import {
-  Users, Send, Stethoscope, FolderClock, Wallet, CalendarDays,
-  Megaphone, BarChart3, Cake, MessagesSquare, Briefcase, CalendarClock,
-} from 'lucide-react';
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-} from 'recharts';
-import {
-  formatDate, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS,
-  type FeedbackMeetingKind, type InterviewKind,
-} from '@hrmonic/shared';
-import { api } from '../../api/client';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { SlidersHorizontal, Check, RotateCcw, Plus, X, GripVertical } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
-import { Badge, Card, PageHeader, Spinner, StatCard } from '../../components/ui';
+import { Card, PageHeader, Spinner, StatCard, EmptyState } from '../../components/ui';
+import { useToast } from '../../components/Toast';
+import { useDashboard, type DashboardData } from './api';
+import {
+  ALL_STATS, ALL_WIDGETS, DEFAULT_CONFIG, STAT_DEFS, WIDGET_DEFS,
+  loadDashboardConfig, saveDashboardConfig,
+  type DashboardConfig, type StatKey, type WidgetKey,
+} from './dashboardConfig';
+import {
+  AbsenceChartWidget, DepartmentChartWidget, AbsentTodayWidget, InterviewsWidget,
+  MeetingsWidget, AnnouncementsWidget, SurveysWidget, BirthdaysWidget,
+} from './widgets';
 
-interface DashboardData {
-  stats: {
-    headcount: number;
-    hiresYtd: number;
-    pendingAbsences: number;
-    missingSickNotes: number;
-    expiringDocuments: number;
-    openSalaryRequests: number;
-    openPositions: number;
-    activeApplications: number;
-    upcomingInterviewsCount: number;
-    absentTodayCount: number;
-  };
-  absentToday: { id: number; first_name: string; last_name: string; type_name: string; color: string; date_to: string }[];
-  byDepartment: { department: string; count: number }[];
-  absenceDaysByMonth: { month: string; days: number }[];
-  upcomingMeetings: { id: number; kind: FeedbackMeetingKind; scheduled_date: string; first_name: string; last_name: string }[];
-  upcomingBirthdays: { id: number; first_name: string; last_name: string; birth_date: string; next_birthday: string }[];
-  activeAnnouncements: { id: number; title: string; publish_at: string; requires_ack: number }[];
-  runningSurveys: { id: number; title: string; date_to: string; participations: number }[];
-  upcomingInterviews: { id: number; kind: InterviewKind; scheduled_at: string; posting_title: string; first_name: string; last_name: string }[];
+/** Widgets, deren Inhalt bis an den Card-Rand läuft (Tabellen). */
+const FLUSH_WIDGETS: WidgetKey[] = ['absent-today'];
+
+function widgetBody(key: WidgetKey, data: DashboardData): React.ReactNode {
+  switch (key) {
+    case 'absence-chart': return <AbsenceChartWidget data={data} />;
+    case 'department-chart': return <DepartmentChartWidget data={data} />;
+    case 'absent-today': return <AbsentTodayWidget data={data} />;
+    case 'interviews': return <InterviewsWidget data={data} />;
+    case 'meetings': return <MeetingsWidget data={data} />;
+    case 'announcements': return <AnnouncementsWidget data={data} />;
+    case 'surveys': return <SurveysWidget data={data} />;
+    case 'birthdays': return <BirthdaysWidget data={data} />;
+    default: return null;
+  }
 }
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
 export function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { data, isLoading } = useQuery({
-    queryKey: ['dashboard'],
-    queryFn: () => api.get<DashboardData>('/api/dashboard'),
-  });
+  const toast = useToast();
+  const { data, isLoading } = useDashboard();
+
+  const [config, setConfig] = useState<DashboardConfig>(loadDashboardConfig);
+  const [edit, setEdit] = useState(false);
+  const [dragKey, setDragKey] = useState<WidgetKey | null>(null);
+  const [overKey, setOverKey] = useState<WidgetKey | null>(null);
+
+  const update = (next: DashboardConfig) => {
+    setConfig(next);
+    saveDashboardConfig(next);
+  };
+
+  const removeWidget = (key: WidgetKey) =>
+    update({ ...config, widgets: config.widgets.filter((w) => w !== key) });
+  const addWidget = (key: WidgetKey) => update({ ...config, widgets: [...config.widgets, key] });
+  const toggleKpi = (key: StatKey) => {
+    const active = new Set(config.kpis);
+    if (active.has(key)) active.delete(key);
+    else active.add(key);
+    update({ ...config, kpis: ALL_STATS.filter((k) => active.has(k)) });
+  };
+  const reset = () => {
+    update(DEFAULT_CONFIG);
+    toast.success('Dashboard zurückgesetzt');
+  };
+
+  /** Drag & Drop: gezogenes Widget vor dem Ziel einsortieren. */
+  const dropOn = (target: WidgetKey) => {
+    if (dragKey !== null && dragKey !== target) {
+      const rest = config.widgets.filter((w) => w !== dragKey);
+      const idx = rest.indexOf(target);
+      rest.splice(idx, 0, dragKey);
+      update({ ...config, widgets: rest });
+    }
+    setDragKey(null);
+    setOverKey(null);
+  };
 
   const hour = new Date().getHours();
   const greeting = hour < 11 ? 'Guten Morgen' : hour < 17 ? 'Guten Tag' : 'Guten Abend';
+  const today = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
 
   if (isLoading || !data) return <Spinner center />;
   const { stats } = data;
+  const hiddenWidgets = ALL_WIDGETS.filter((w) => !config.widgets.includes(w));
 
-  const monthData = data.absenceDaysByMonth.map((m) => ({
-    name: MONTH_NAMES[Number(m.month.slice(5)) - 1],
-    Tage: m.days,
-  }));
+  /** Rahmen im Bearbeitungsmodus: Greifer, gestrichelte Kontur, Entfernen-Knopf. */
+  const editWrapProps = (key: WidgetKey): React.HTMLAttributes<HTMLDivElement> =>
+    edit
+      ? {
+          draggable: true,
+          onDragStart: () => setDragKey(key),
+          onDragOver: (e) => { e.preventDefault(); setOverKey(key); },
+          onDragLeave: () => setOverKey((k) => (k === key ? null : k)),
+          onDrop: () => dropOn(key),
+          style: {
+            cursor: 'grab',
+            opacity: dragKey === key ? 0.45 : 1,
+            outline: overKey === key && dragKey !== key ? '2px dashed var(--brand-primary)' : 'none',
+            outlineOffset: 3,
+            borderRadius: 12,
+          },
+        }
+      : {};
+
+  const editActions = (key: WidgetKey) =>
+    edit ? (
+      <>
+        <GripVertical size={15} style={{ color: 'var(--gray-400)' }} />
+        <button
+          className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+          title="Widget entfernen"
+          onClick={() => removeWidget(key)}
+        >
+          <X size={14} />
+        </button>
+      </>
+    ) : undefined;
 
   return (
     <>
       <PageHeader
         title={`${greeting}, ${user?.name?.split(' ')[0] ?? ''} 👋`}
-        subtitle="Hier ist der Überblick über Ihre Personalarbeit."
+        subtitle={`${today} — Ihr persönlicher Überblick.`}
+        actions={
+          edit ? (
+            <div className="row" style={{ gap: 8 }}>
+              <button className="hm-btn hm-btn--ghost" onClick={reset} title="Standard-Layout wiederherstellen">
+                <RotateCcw size={15} /> Zurücksetzen
+              </button>
+              <button className="hm-btn hm-btn--primary" onClick={() => setEdit(false)}>
+                <Check size={15} /> Fertig
+              </button>
+            </div>
+          ) : (
+            <button className="hm-btn hm-btn--secondary" onClick={() => setEdit(true)}>
+              <SlidersHorizontal size={15} /> Anpassen
+            </button>
+          )
+        }
       />
 
-      <div className="grid-stats">
-        <StatCard label="Aktive Mitarbeitende" value={stats.headcount} icon={<Users size={15} />} sub={`${stats.hiresYtd} Neueintritte dieses Jahr`} onClick={() => navigate('/personal/mitarbeitende')} />
-        <StatCard label="Heute abwesend" value={stats.absentTodayCount} icon={<CalendarDays size={15} />} onClick={() => navigate('/abwesenheit/kalender')} />
-        <StatCard label="Offene Anträge" value={stats.pendingAbsences} icon={<Send size={15} />} sub="Abwesenheit" onClick={() => navigate('/abwesenheit/antraege')} />
-        <StatCard label="Fehlende AU" value={stats.missingSickNotes} icon={<Stethoscope size={15} />} sub={stats.missingSickNotes > 0 ? 'Frist überschritten' : 'Alles fristgerecht'} onClick={() => navigate('/abwesenheit/krankmeldungen')} />
-        <StatCard label="Ablaufende Dokumente" value={stats.expiringDocuments} icon={<FolderClock size={15} />} sub="innerhalb 30 Tagen" onClick={() => navigate('/personal/dokumente')} />
-        <StatCard label="Gehaltsanträge" value={stats.openSalaryRequests} icon={<Wallet size={15} />} sub="zur Entscheidung" onClick={() => navigate('/verguetung/gehaelter')} />
-        <StatCard label="Offene Stellen" value={stats.openPositions} icon={<Briefcase size={15} />} sub={`${stats.activeApplications} aktive Bewerbungen`} onClick={() => navigate('/recruiting/stellen')} />
-      </div>
+      {/* Galerie ausgeblendeter Widgets (nur im Bearbeitungsmodus). */}
+      {edit && (
+        <div
+          style={{
+            border: '1px dashed var(--border-strong)', borderRadius: 12, padding: '10px 14px',
+            marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
+          }}
+        >
+          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>
+            Widget hinzufügen:
+          </span>
+          {hiddenWidgets.length === 0 && (
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+              Alle Widgets sind bereits sichtbar.
+            </span>
+          )}
+          {hiddenWidgets.map((key) => {
+            const def = WIDGET_DEFS[key];
+            return (
+              <button key={key} className="hm-btn hm-btn--secondary hm-btn--sm" title={def.description} onClick={() => addWidget(key)}>
+                <Plus size={13} /> <def.icon size={13} /> {def.title}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16, alignItems: 'start' }}>
-        <div className="stack">
-          <Card title="Genehmigte Abwesenheitstage je Monat">
-            <div style={{ height: 220 }}>
-              <ResponsiveContainer>
-                <BarChart data={monthData} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-200)" vertical={false} />
-                  <XAxis dataKey="name" tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
-                  <YAxis tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
-                  <Tooltip cursor={{ fill: 'var(--blue-50)' }} />
-                  <Bar dataKey="Tage" fill="var(--brand-primary)" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-
-          <Card title="Mitarbeitende je Abteilung">
-            <div style={{ height: Math.max(160, data.byDepartment.length * 34) }}>
-              <ResponsiveContainer>
-                <BarChart data={data.byDepartment} layout="vertical" margin={{ top: 0, right: 24, left: 30, bottom: 0 }}>
-                  <XAxis type="number" hide />
-                  <YAxis type="category" dataKey="department" width={110} tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
-                  <Tooltip cursor={{ fill: 'var(--blue-50)' }} />
-                  <Bar dataKey="count" name="Anzahl" fill="var(--brand-navy)" radius={[0, 4, 4, 0]} barSize={16} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </Card>
-
-          <Card
-            title={
-              <span className="row"><CalendarDays size={16} /> Heute abwesend</span>
+      {config.widgets.length === 0 ? (
+        <Card>
+          <EmptyState
+            title="Ihr Dashboard ist leer"
+            hint="Fügen Sie über „Anpassen“ die Widgets hinzu, die für Sie zählen."
+            action={
+              !edit && (
+                <button className="hm-btn hm-btn--primary" onClick={() => setEdit(true)}>
+                  <SlidersHorizontal size={15} /> Anpassen
+                </button>
+              )
             }
-            flush
-          >
-            {data.absentToday.length === 0 ? (
-              <p style={{ padding: 16, color: 'var(--text-muted)' }}>Heute sind alle an Bord.</p>
-            ) : (
-              <div className="hm-table-wrap" style={{ maxHeight: 240 }}>
-                <table className="hm-table">
-                  <tbody>
-                    {data.absentToday.map((a) => (
-                      <tr key={a.id}>
-                        <td style={{ fontWeight: 550 }}>{a.first_name} {a.last_name}</td>
-                        <td>
-                          <span className="hm-badge" style={{ background: `${a.color}22`, color: a.color }}>
-                            {a.type_name}
-                          </span>
-                        </td>
-                        <td style={{ color: 'var(--text-muted)' }}>bis {formatDate(a.date_to)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-        </div>
+          />
+        </Card>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'start' }}>
+          {config.widgets.map((key) => {
+            const def = WIDGET_DEFS[key];
 
-        <div className="stack">
-          <Card title={<span className="row"><MessagesSquare size={16} /> Nächste Gespräche</span>}>
-            <div className="stack" style={{ gap: 10 }}>
-              {data.upcomingMeetings.length === 0 && (
-                <p style={{ color: 'var(--text-muted)' }}>Keine Gespräche in den nächsten 3 Wochen.</p>
-              )}
-              {data.upcomingMeetings.map((m) => (
-                <Link key={m.id} to="/leistung/feedback" style={{ color: 'inherit', textDecoration: 'none' }}>
-                  <div className="row row--between">
-                    <span style={{ fontWeight: 550 }}>{m.first_name} {m.last_name}</span>
-                    <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                      {FEEDBACK_MEETING_KIND_LABELS[m.kind]} · {formatDate(m.scheduled_date)}
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </Card>
-
-          <Card title={<span className="row"><CalendarClock size={16} /> Anstehende Interviews</span>}>
-            <div className="stack" style={{ gap: 10 }}>
-              {data.upcomingInterviews.length === 0 && (
-                <p style={{ color: 'var(--text-muted)' }}>Keine geplanten Interviews.</p>
-              )}
-              {data.upcomingInterviews.map((iv) => (
-                <Link key={iv.id} to="/recruiting/interviews" style={{ color: 'inherit', textDecoration: 'none' }}>
-                  <div className="row row--between">
-                    <span style={{ fontWeight: 550 }}>{iv.first_name} {iv.last_name}</span>
-                    <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                      {INTERVIEW_KIND_LABELS[iv.kind]} · {formatDate(iv.scheduled_at.slice(0, 10))}
-                    </span>
-                  </div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>{iv.posting_title}</div>
-                </Link>
-              ))}
-            </div>
-          </Card>
-
-          <Card title={<span className="row"><Megaphone size={16} /> Aktive Ankündigungen</span>}>
-            <div className="stack" style={{ gap: 10 }}>
-              {data.activeAnnouncements.length === 0 && (
-                <p style={{ color: 'var(--text-muted)' }}>Keine aktiven Ankündigungen.</p>
-              )}
-              {data.activeAnnouncements.map((a) => (
-                <Link key={a.id} to="/kommunikation/ankuendigungen" style={{ color: 'inherit', textDecoration: 'none' }}>
-                  <div className="row row--between">
-                    <span style={{ fontWeight: 550 }}>{a.title}</span>
-                    {a.requires_ack ? <Badge tone="blue">Bestätigung</Badge> : null}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </Card>
-
-          <Card title={<span className="row"><BarChart3 size={16} /> Laufende Umfragen</span>}>
-            <div className="stack" style={{ gap: 10 }}>
-              {data.runningSurveys.length === 0 && (
-                <p style={{ color: 'var(--text-muted)' }}>Keine laufenden Umfragen.</p>
-              )}
-              {data.runningSurveys.map((s) => (
-                <Link key={s.id} to="/kommunikation/umfragen" style={{ color: 'inherit', textDecoration: 'none' }}>
-                  <div className="row row--between">
-                    <span style={{ fontWeight: 550 }}>{s.title}</span>
-                    <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                      {s.participations} Teilnahmen · bis {formatDate(s.date_to)}
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </Card>
-
-          <Card title={<span className="row"><Cake size={16} /> Nächste Geburtstage</span>}>
-            <div className="stack" style={{ gap: 10 }}>
-              {data.upcomingBirthdays.map((b) => (
-                <div key={b.id} className="row row--between">
-                  <span>{b.first_name} {b.last_name}</span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                    {formatDate(b.next_birthday)}
-                  </span>
+            // KPI-Leiste: volle Breite, eigene Darstellung ohne Card-Rahmen.
+            if (key === 'kpis') {
+              const wrap = editWrapProps(key);
+              return (
+                <div key={key} {...wrap} style={{ gridColumn: '1 / -1', ...wrap.style }}>
+                  {edit && (
+                    <div className="row row--between" style={{ marginBottom: 8 }}>
+                      <span className="row" style={{ gap: 6, fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                        <GripVertical size={15} style={{ color: 'var(--gray-400)' }} /> Kennzahlen — Kacheln wählen:
+                      </span>
+                      <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" title="Widget entfernen" onClick={() => removeWidget(key)}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                  {edit && (
+                    <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                      {ALL_STATS.map((sk) => {
+                        const sd = STAT_DEFS[sk];
+                        const active = config.kpis.includes(sk);
+                        return (
+                          <button
+                            key={sk}
+                            className={`hm-btn hm-btn--sm ${active ? 'hm-btn--primary' : 'hm-btn--secondary'}`}
+                            onClick={() => toggleKpi(sk)}
+                          >
+                            <sd.icon size={13} /> {sd.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {config.kpis.length === 0 ? (
+                    <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                      Keine Kennzahlen ausgewählt.
+                    </p>
+                  ) : (
+                    <div className="grid-stats">
+                      {config.kpis.map((sk) => {
+                        const sd = STAT_DEFS[sk];
+                        return (
+                          <StatCard
+                            key={sk}
+                            label={sd.label}
+                            value={sd.value(stats)}
+                            sub={sd.sub?.(stats)}
+                            icon={<sd.icon size={15} />}
+                            onClick={edit ? undefined : () => navigate(sd.path)}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </Card>
+              );
+            }
+
+            return (
+              <div key={key} {...editWrapProps(key)}>
+                <Card
+                  title={<span className="row"><def.icon size={16} /> {def.title}</span>}
+                  actions={editActions(key)}
+                  flush={FLUSH_WIDGETS.includes(key)}
+                >
+                  {widgetBody(key, data)}
+                </Card>
+              </div>
+            );
+          })}
         </div>
-      </div>
+      )}
     </>
   );
 }

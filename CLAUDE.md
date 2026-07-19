@@ -43,6 +43,10 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   (`core/errors.ts`). Eingaben mit `parse(zodSchema, req.body)` validieren.
 - **Audit:** Änderungen mit Begründungspflicht (z. B. Gehalt) schreiben über
   `core/audit.ts` ins zentrale `audit_log`.
+- **Dashboard ist personalisierbar:** Widgets/KPI-Kacheln sind pro Gerät wählbar
+  und anordenbar; Registry + localStorage-Persistenz (`hrmonic.dashboard`) in
+  `renderer/src/features/dashboard/dashboardConfig.ts`. Neue Module registrieren
+  ihre Dashboard-Widgets dort (Default-Sichtbarkeit bewusst kuratiert klein).
 - **Themes:** Vier Farbschemata (Hell/Dunkel/Rosé/Silber) leben ausschließlich
   als CSS-Variablen-Blöcke in `design/tokens.css` (`:root[data-theme='…']`),
   Umschaltung über `design/theme.ts` (localStorage `hrmonic.theme`). Neue
