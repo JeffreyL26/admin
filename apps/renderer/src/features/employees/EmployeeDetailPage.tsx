@@ -27,6 +27,7 @@ import {
 } from './employeeForm';
 import { ContractModal } from './ContractModal';
 import { DocumentUploadModal } from './DocumentUploadModal';
+import { EmployeeAbsenceTab, EmployeeCompensationTab } from './CrossModuleTabs';
 import { TYPE_TONES } from './EmployeeListPage';
 
 export function EmployeeDetailPage() {
@@ -68,6 +69,8 @@ export function EmployeeDetailPage() {
           { key: 'vertrag', label: 'Vertrag' },
           { key: 'dokumente', label: 'Dokumente' },
           { key: 'organisation', label: 'Organisation' },
+          { key: 'abwesenheit', label: 'Abwesenheit' },
+          { key: 'verguetung', label: 'Vergütung' },
         ]}
         active={tab}
         onChange={setTab}
@@ -77,6 +80,8 @@ export function EmployeeDetailPage() {
         {tab === 'vertrag' && <ContractsTab employeeId={employeeId} />}
         {tab === 'dokumente' && <DocumentsTab employeeId={employeeId} />}
         {tab === 'organisation' && <OrgTab employee={e} reportingLine={data.reporting_line} />}
+        {tab === 'abwesenheit' && <EmployeeAbsenceTab employeeId={employeeId} />}
+        {tab === 'verguetung' && <EmployeeCompensationTab employeeId={employeeId} />}
       </div>
     </>
   );

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check } from 'lucide-react';
 import { BUNDESLAND_LABELS } from '@hrmonic/shared';
 import { api } from '../../api/client';
 import { Card, Field, PageHeader, Spinner } from '../../components/ui';
 import { useToast } from '../../components/Toast';
+import { applyTheme, getTheme, THEMES, type ThemeName } from '../../design/theme';
 
 interface Settings {
   companyName: string;
@@ -43,6 +45,7 @@ export function SettingsPage() {
     <>
       <PageHeader title="Einstellungen" subtitle="Unternehmensweite Konfiguration von HRMONIC." />
       <div className="stack" style={{ maxWidth: 760 }}>
+        <ThemeCard />
         <Card title="Unternehmen">
           <div className="hm-form-grid">
             <Field label="Firmenname" span2>
@@ -142,6 +145,71 @@ export function SettingsPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+function ThemeCard() {
+  const [active, setActive] = useState<ThemeName>(getTheme());
+  return (
+    <Card title="Darstellung">
+      <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
+        Das Farbschema gilt sofort und wird auf diesem Gerät gespeichert.
+      </p>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+          gap: 12,
+        }}
+      >
+        {THEMES.map((t) => {
+          const selected = active === t.name;
+          return (
+            <button
+              key={t.name}
+              onClick={() => {
+                applyTheme(t.name);
+                setActive(t.name);
+              }}
+              style={{
+                font: 'inherit',
+                textAlign: 'left',
+                cursor: 'pointer',
+                padding: 12,
+                borderRadius: 12,
+                background: 'var(--bg-surface)',
+                border: selected
+                  ? '2px solid var(--brand-primary)'
+                  : '1px solid var(--border-strong)',
+                boxShadow: selected ? 'var(--shadow-primary-sm)' : 'var(--shadow-sm)',
+                transition: 'border-color .15s ease, box-shadow .15s ease',
+              }}
+            >
+              <span className="row" style={{ gap: 5, marginBottom: 8 }}>
+                {t.swatch.map((color, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      width: i === 0 ? 34 : 18,
+                      height: 18,
+                      borderRadius: 6,
+                      background: color,
+                      border: '1px solid rgb(0 0 0 / 0.08)',
+                    }}
+                  />
+                ))}
+                <span style={{ flex: 1 }} />
+                {selected && <Check size={16} color="var(--brand-primary)" />}
+              </span>
+              <div style={{ fontWeight: 620 }}>{t.label}</div>
+              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                {t.description}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 

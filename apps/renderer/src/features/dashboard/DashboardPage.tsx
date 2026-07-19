@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Users, UserPlus, Send, Stethoscope, FolderClock, Wallet, CalendarDays,
   Megaphone, BarChart3, Cake, MessagesSquare,
@@ -36,6 +36,7 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'S
 
 export function DashboardPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api.get<DashboardData>('/api/dashboard'),
@@ -60,12 +61,12 @@ export function DashboardPage() {
       />
 
       <div className="grid-stats">
-        <StatCard label="Aktive Mitarbeitende" value={stats.headcount} icon={<Users size={15} />} sub={`${stats.hiresYtd} Neueintritte dieses Jahr`} />
-        <StatCard label="Heute abwesend" value={stats.absentTodayCount} icon={<CalendarDays size={15} />} />
-        <StatCard label="Offene Anträge" value={stats.pendingAbsences} icon={<Send size={15} />} sub="Abwesenheit" />
-        <StatCard label="Fehlende AU" value={stats.missingSickNotes} icon={<Stethoscope size={15} />} sub={stats.missingSickNotes > 0 ? 'Frist überschritten' : 'Alles fristgerecht'} />
-        <StatCard label="Ablaufende Dokumente" value={stats.expiringDocuments} icon={<FolderClock size={15} />} sub="innerhalb 30 Tagen" />
-        <StatCard label="Gehaltsanträge" value={stats.openSalaryRequests} icon={<Wallet size={15} />} sub="zur Entscheidung" />
+        <StatCard label="Aktive Mitarbeitende" value={stats.headcount} icon={<Users size={15} />} sub={`${stats.hiresYtd} Neueintritte dieses Jahr`} onClick={() => navigate('/personal/mitarbeitende')} />
+        <StatCard label="Heute abwesend" value={stats.absentTodayCount} icon={<CalendarDays size={15} />} onClick={() => navigate('/abwesenheit/kalender')} />
+        <StatCard label="Offene Anträge" value={stats.pendingAbsences} icon={<Send size={15} />} sub="Abwesenheit" onClick={() => navigate('/abwesenheit/antraege')} />
+        <StatCard label="Fehlende AU" value={stats.missingSickNotes} icon={<Stethoscope size={15} />} sub={stats.missingSickNotes > 0 ? 'Frist überschritten' : 'Alles fristgerecht'} onClick={() => navigate('/abwesenheit/krankmeldungen')} />
+        <StatCard label="Ablaufende Dokumente" value={stats.expiringDocuments} icon={<FolderClock size={15} />} sub="innerhalb 30 Tagen" onClick={() => navigate('/personal/dokumente')} />
+        <StatCard label="Gehaltsanträge" value={stats.openSalaryRequests} icon={<Wallet size={15} />} sub="zur Entscheidung" onClick={() => navigate('/verguetung/gehaelter')} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16, alignItems: 'start' }}>

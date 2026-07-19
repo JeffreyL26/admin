@@ -1,20 +1,34 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LogOut } from 'lucide-react';
+import { LogOut, Search } from 'lucide-react';
 import { NAV_SECTIONS } from './nav';
 import { useAuth } from '../auth/AuthContext';
 import { Avatar } from '../components/ui';
+import { CommandPalette } from '../components/CommandPalette';
 import logo from '../assets/logo.png';
 
 export function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   // Navigation aus dem nativen Electron-Menü (Ctrl+1…6, Datei → Neu …).
   useEffect(() => {
     return window.hrmonic?.onMenuNavigate?.((route) => navigate(route));
   }, [navigate]);
+
+  // Globale Suche: Strg/Cmd+K von überall.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   return (
     <div className="shell">
@@ -25,6 +39,11 @@ export function AppShell() {
             HR<span>MONIC</span>
           </span>
         </div>
+        <button className="sidebar__search" onClick={() => setPaletteOpen(true)}>
+          <Search size={15} />
+          <span style={{ flex: 1, textAlign: 'left' }}>Suchen …</span>
+          <kbd>Strg K</kbd>
+        </button>
         <nav className="sidebar__nav">
           {NAV_SECTIONS.map((section, i) => (
             <div key={i}>
@@ -61,6 +80,7 @@ export function AppShell() {
           </div>
         </div>
       </main>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }

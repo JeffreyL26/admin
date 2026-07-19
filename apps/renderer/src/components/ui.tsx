@@ -142,14 +142,20 @@ export function StatCard({
   value,
   sub,
   icon,
+  onClick,
 }: {
   label: string;
   value: React.ReactNode;
   sub?: string;
   icon?: React.ReactNode;
+  onClick?: () => void;
 }) {
   return (
-    <div className="hm-card hm-stat">
+    <div
+      className={`hm-card hm-stat${onClick ? ' hm-card--clickable' : ''}`}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
       <div className="hm-stat__top">
         <span className="hm-stat__label">{label}</span>
         {icon && <span className="hm-stat__icon">{icon}</span>}

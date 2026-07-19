@@ -19,8 +19,8 @@ body {
   /* Sanfte Farbtupfer statt flacher Graufläche — kaum sichtbar, nimmt aber
      die Sterilität raus. */
   background:
-    radial-gradient(1100px 520px at 92% -8%, rgb(8 100 198 / 0.055), transparent 55%),
-    radial-gradient(900px 480px at -8% 104%, rgb(15 47 95 / 0.045), transparent 52%),
+    radial-gradient(1100px 520px at 92% -8%, var(--bg-tint-1), transparent 55%),
+    radial-gradient(900px 480px at -8% 104%, var(--bg-tint-2), transparent 52%),
     var(--bg-app);
   background-attachment: fixed;
   -webkit-font-smoothing: antialiased;

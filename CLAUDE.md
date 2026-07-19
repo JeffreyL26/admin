@@ -35,6 +35,13 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   (`core/errors.ts`). Eingaben mit `parse(zodSchema, req.body)` validieren.
 - **Audit:** Änderungen mit Begründungspflicht (z. B. Gehalt) schreiben über
   `core/audit.ts` ins zentrale `audit_log`.
+- **Themes:** Vier Farbschemata (Hell/Dunkel/Rosé/Silber) leben ausschließlich
+  als CSS-Variablen-Blöcke in `design/tokens.css` (`:root[data-theme='…']`),
+  Umschaltung über `design/theme.ts` (localStorage `hrmonic.theme`). Neue
+  UI-Farben deshalb NIE hartkodieren, sondern immer über bestehende Variablen —
+  im Dunkel-Theme ist die Grau-Rampe invertiert (gray-25 = dunkelste Fläche).
+  SVG-Exporte (Organigramm) lösen Variablen zur Renderzeit über
+  `getComputedStyle` in konkrete Werte auf.
 
 ## Modul-Erweiterungspunkte (parallel konfliktfrei)
 

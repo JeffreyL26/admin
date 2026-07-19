@@ -32,7 +32,7 @@
 .hm-btn--primary {
   background: var(--brand-gradient);
   color: #fff;
-  box-shadow: 0 1px 3px rgb(8 100 198 / 0.35);
+  box-shadow: var(--shadow-primary-sm);
 }
 .hm-btn--primary:hover:not(:disabled) {
   box-shadow: var(--shadow-primary);
@@ -158,7 +158,7 @@
 .hm-textarea:focus {
   outline: none;
   border-color: var(--brand-primary);
-  box-shadow: 0 0 0 4px rgb(8 100 198 / 0.13);
+  box-shadow: 0 0 0 4px var(--focus-ring);
 }
 .hm-input[aria-invalid='true'],
 .hm-select[aria-invalid='true'] {
@@ -227,7 +227,7 @@
   transition: background 0.12s ease;
 }
 .hm-table tbody tr:hover {
-  background: #f2f7fe;
+  background: var(--table-hover);
 }
 .hm-table tbody tr.clickable {
   cursor: pointer;
@@ -384,8 +384,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  background: var(--gray-900);
-  color: #fff;
+  background: var(--toast-bg);
+  color: var(--toast-text);
   border-radius: 12px;
   padding: 12px 18px;
   font-size: var(--text-base);
@@ -415,6 +415,28 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+/* ---------- Organigramm ---------- */
+.org-node {
+  animation: org-pop 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@keyframes org-pop {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* ---------- Klickbare Karten ---------- */
+.hm-card--clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.hm-card--clickable:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--blue-300);
 }
 
 /* ---------- Kennzahlen-Karten ---------- */

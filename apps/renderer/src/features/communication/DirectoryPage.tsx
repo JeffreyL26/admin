@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Mail, Phone, Settings, BookUser, MapPin } from 'lucide-react';
 import {
   DIRECTORY_FIELD_KEYS,
@@ -83,6 +84,7 @@ function FieldVisibilityDialog({ open, onClose }: { open: boolean; onClose: () =
 }
 
 export function DirectoryPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [departmentId, setDepartmentId] = useState<number | undefined>();
   const [locationId, setLocationId] = useState<number | undefined>();
@@ -186,7 +188,12 @@ export function DirectoryPage() {
           {employees.map((e) => {
             const name = `${e.first_name} ${e.last_name}`;
             return (
-              <div key={e.id} className="hm-card">
+              <div
+                key={e.id}
+                className="hm-card hm-card--clickable"
+                title="Personalakte öffnen"
+                onClick={() => navigate(`/personal/mitarbeitende/${e.id}`)}
+              >
                 <div className="hm-card__body" style={{ padding: 16 }}>
                   <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
                     <Avatar

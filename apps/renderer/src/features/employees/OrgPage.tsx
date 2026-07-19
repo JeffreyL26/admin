@@ -1,7 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Building2, Check, Download, MapPin, Network, Pencil, Plus, Trash2, Users, X,
+  Building2, Check, Download, MapPin, Maximize2, Network, Pencil, Plus, Trash2,
+  Users, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
 import { BUNDESLAND_LABELS, type BundeslandCode } from '@hrmonic/shared';
 import { api } from '../../api/client';
@@ -494,10 +495,10 @@ function TeamNode({
 // Organigramm (SVG, hierarchisch) + Export
 // ---------------------------------------------------------------------------
 
-const NODE_W = 200;
-const NODE_H = 74;
-const H_GAP = 24;
-const V_GAP = 60;
+const NODE_W = 216;
+const NODE_H = 88;
+const H_GAP = 28;
+const V_GAP = 76;
 
 interface LaidOutNode {
   node: OrgTreeNode;
@@ -541,13 +542,85 @@ function layoutTree(roots: OrgTreeNode[]): { nodes: LaidOutNode[]; edges: [LaidO
   return { nodes, edges, width: Math.max(left, NODE_W + H_GAP), height: (maxDepth + 1) * (NODE_H + V_GAP) };
 }
 
+/** Farbwerte des aktiven Themes als konkrete Strings (auch für den SVG-Export). */
+function useChartColors() {
+  return useMemo(() => {
+    const styles = getComputedStyle(document.documentElement);
+    const v = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback;
+    return {
+      surface: v('--bg-surface', '#ffffff'),
+      border: v('--border-strong', '#d4dce6'),
+      edge: v('--gray-300', '#c3cede'),
+      accent: v('--brand-primary', '#0864c6'),
+      accentSoft: v('--blue-100', '#d9e9fa'),
+      accentText: v('--blue-700', '#084a90'),
+      text: v('--text-primary', '#16232f'),
+      muted: v('--text-muted', '#5b6b7c'),
+    };
+  }, []);
+}
+
 function OrgChartTab() {
   const { data, isLoading } = useOrgTree();
   const toast = useToast();
   const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const colors = useChartColors();
+
+  const [view, setView] = useState({ x: 40, y: 30, k: 1 });
+  const [hoverId, setHoverId] = useState<number | null>(null);
+  const drag = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
+
+  const layout = useMemo(() => (data && data.tree.length > 0 ? layoutTree(data.tree) : null), [data]);
+
+  /** Ansicht so setzen, dass das Diagramm eingepasst und zentriert ist. */
+  const fit = React.useCallback(() => {
+    const el = containerRef.current;
+    if (!el || !layout) return;
+    const pad = 48;
+    const k = Math.min(1.15, (el.clientWidth - pad) / layout.width, (el.clientHeight - pad) / layout.height);
+    setView({
+      x: (el.clientWidth - layout.width * k) / 2,
+      y: Math.max(24, (el.clientHeight - layout.height * k) / 2),
+      k: Math.max(0.25, k),
+    });
+  }, [layout]);
+
+  useEffect(() => {
+    fit();
+  }, [fit]);
+
+  // Rad-Zoom um die Mausposition — nativer Listener, weil React wheel passiv anbindet.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setView((v) => {
+        const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+        const k = Math.min(2.5, Math.max(0.25, v.k * factor));
+        const rect = el.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        return { k, x: mx - ((mx - v.x) / v.k) * k, y: my - ((my - v.y) / v.k) * k };
+      });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  const zoomBy = (factor: number) =>
+    setView((v) => {
+      const el = containerRef.current;
+      const k = Math.min(2.5, Math.max(0.25, v.k * factor));
+      if (!el) return { ...v, k };
+      const cx = el.clientWidth / 2;
+      const cy = el.clientHeight / 2;
+      return { k, x: cx - ((cx - v.x) / v.k) * k, y: cy - ((cy - v.y) / v.k) * k };
+    });
 
   if (isLoading || !data) return <Spinner center />;
-  if (data.tree.length === 0) {
+  if (!layout) {
     return (
       <Card>
         <EmptyState
@@ -559,13 +632,30 @@ function OrgChartTab() {
     );
   }
 
-  const { nodes, edges, width, height } = layoutTree(data.tree);
+  const { nodes, edges } = layout;
+  const connected = (a: LaidOutNode, b: LaidOutNode) =>
+    hoverId !== null && (a.node.id === hoverId || b.node.id === hoverId);
+
+  const initials = (name: string | null) =>
+    name
+      ? name
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((p) => p[0]?.toUpperCase())
+          .join('')
+      : '?';
 
   const exportSvg = () => {
     const svg = svgRef.current;
     if (!svg) return;
     const clone = svg.cloneNode(true) as SVGSVGElement;
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    // Pan/Zoom der Bildschirmansicht für den Export neutralisieren.
+    clone.querySelector('#org-viewport')?.setAttribute('transform', 'translate(20, 20)');
+    clone.setAttribute('viewBox', `0 0 ${layout.width + 40} ${layout.height + 40}`);
+    clone.setAttribute('width', String(layout.width + 40));
+    clone.setAttribute('height', String(layout.height + 40));
     const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -581,48 +671,155 @@ function OrgChartTab() {
   return (
     <Card
       title="Organigramm"
+      flush
       actions={
-        <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={exportSvg}>
-          <Download size={15} /> SVG exportieren
-        </button>
+        <>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            Ziehen zum Verschieben · Mausrad zum Zoomen
+          </span>
+          <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={exportSvg}>
+            <Download size={15} /> SVG exportieren
+          </button>
+        </>
       }
     >
-      <div className="hm-table-wrap">
+      <div
+        ref={containerRef}
+        style={{
+          position: 'relative',
+          height: 560,
+          overflow: 'hidden',
+          cursor: drag.current ? 'grabbing' : 'grab',
+          backgroundImage: 'radial-gradient(var(--gray-200) 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+          touchAction: 'none',
+        }}
+        onPointerDown={(e) => {
+          (e.target as Element).setPointerCapture?.(e.pointerId);
+          drag.current = { px: e.clientX, py: e.clientY, ox: view.x, oy: view.y };
+        }}
+        onPointerMove={(e) => {
+          if (!drag.current) return;
+          const d = drag.current;
+          setView((v) => ({ ...v, x: d.ox + (e.clientX - d.px), y: d.oy + (e.clientY - d.py) }));
+        }}
+        onPointerUp={() => (drag.current = null)}
+        onPointerLeave={() => (drag.current = null)}
+      >
         <svg
           ref={svgRef}
-          viewBox={`0 0 ${width} ${height}`}
-          width={width}
-          height={height}
-          style={{ maxWidth: '100%', height: 'auto', fontFamily: 'Inter, system-ui, sans-serif' }}
+          width="100%"
+          height="100%"
+          style={{ fontFamily: 'Inter, system-ui, sans-serif', display: 'block' }}
         >
-          {edges.map(([from, to], i) => (
-            <path
-              key={i}
-              d={`M ${from.x + NODE_W / 2} ${from.y + NODE_H}
-                  C ${from.x + NODE_W / 2} ${from.y + NODE_H + V_GAP / 2},
-                    ${to.x + NODE_W / 2} ${to.y - V_GAP / 2},
-                    ${to.x + NODE_W / 2} ${to.y}`}
-              fill="none"
-              stroke="#c3cede"
-              strokeWidth={1.5}
-            />
-          ))}
-          {nodes.map(({ node, x, y }) => (
-            <g key={node.id}>
-              <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={10} fill="#ffffff" stroke="#d4dce6" />
-              <rect x={x} y={y} width={4} height={NODE_H} rx={2} fill="#0864c6" />
-              <text x={x + 14} y={y + 22} fontSize={13} fontWeight={700} fill="#16232f">
-                {node.name.length > 24 ? `${node.name.slice(0, 23)}…` : node.name}
-              </text>
-              <text x={x + 14} y={y + 41} fontSize={11} fill="#5b6b7c">
-                {node.head_name ? `Leitung: ${node.head_name}` : 'Leitung offen'}
-              </text>
-              <text x={x + 14} y={y + 59} fontSize={11} fill="#5b6b7c">
-                {node.total_employee_count} Mitarbeitende · {node.teams.length} Teams
-              </text>
-            </g>
-          ))}
+          <defs>
+            <filter id="org-shadow" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="2" stdDeviation="4" floodColor="#0a1a2e" floodOpacity="0.14" />
+            </filter>
+          </defs>
+          <g id="org-viewport" transform={`translate(${view.x}, ${view.y}) scale(${view.k})`}>
+            {edges.map(([from, to], i) => {
+              const hot = connected(from, to);
+              return (
+                <path
+                  key={i}
+                  d={`M ${from.x + NODE_W / 2} ${from.y + NODE_H}
+                      C ${from.x + NODE_W / 2} ${from.y + NODE_H + V_GAP / 2},
+                        ${to.x + NODE_W / 2} ${to.y - V_GAP / 2},
+                        ${to.x + NODE_W / 2} ${to.y}`}
+                  fill="none"
+                  stroke={hot ? colors.accent : colors.edge}
+                  strokeWidth={hot ? 2.5 : 1.5}
+                  opacity={hoverId !== null && !hot ? 0.35 : 1}
+                  style={{ transition: 'stroke .15s ease, opacity .15s ease' }}
+                />
+              );
+            })}
+            {nodes.map(({ node, x, y }, i) => {
+              const hot = hoverId === node.id;
+              const dimmed =
+                hoverId !== null &&
+                !hot &&
+                !edges.some(([a, b]) => connected(a, b) && (a.node.id === node.id || b.node.id === node.id));
+              return (
+                <g
+                  key={node.id}
+                  className="org-node"
+                  style={{ animationDelay: `${i * 30}ms` }}
+                  opacity={dimmed ? 0.45 : 1}
+                  onMouseEnter={() => setHoverId(node.id)}
+                  onMouseLeave={() => setHoverId(null)}
+                >
+                  <rect
+                    x={x}
+                    y={y}
+                    width={NODE_W}
+                    height={NODE_H}
+                    rx={14}
+                    fill={colors.surface}
+                    stroke={hot ? colors.accent : colors.border}
+                    strokeWidth={hot ? 1.8 : 1}
+                    filter="url(#org-shadow)"
+                    style={{ transition: 'stroke .15s ease' }}
+                  />
+                  <rect x={x} y={y} width={5} height={NODE_H} rx={2.5} fill={colors.accent} />
+                  <circle cx={x + 34} cy={y + NODE_H / 2} r={17} fill={colors.accentSoft} />
+                  <text
+                    x={x + 34}
+                    y={y + NODE_H / 2 + 4.5}
+                    fontSize={12}
+                    fontWeight={700}
+                    fill={colors.accentText}
+                    textAnchor="middle"
+                  >
+                    {initials(node.head_name)}
+                  </text>
+                  <text x={x + 62} y={y + 28} fontSize={13.5} fontWeight={700} fill={colors.text}>
+                    {node.name.length > 19 ? `${node.name.slice(0, 18)}…` : node.name}
+                  </text>
+                  <text x={x + 62} y={y + 47} fontSize={11} fill={colors.muted}>
+                    {node.head_name
+                      ? node.head_name.length > 22
+                        ? `${node.head_name.slice(0, 21)}…`
+                        : node.head_name
+                      : 'Leitung offen'}
+                  </text>
+                  <text x={x + 62} y={y + 66} fontSize={11} fill={colors.muted}>
+                    {node.total_employee_count} MA{node.teams.length > 0 ? ` · ${node.teams.length} Teams` : ''}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
         </svg>
+
+        <div
+          className="row"
+          style={{
+            position: 'absolute',
+            right: 14,
+            bottom: 14,
+            gap: 6,
+            background: 'var(--bg-surface)',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+            padding: 5,
+            boxShadow: 'var(--shadow)',
+          }}
+        >
+          <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" title="Verkleinern" onClick={() => zoomBy(1 / 1.25)}>
+            <ZoomOut size={15} />
+          </button>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', minWidth: 38, textAlign: 'center' }}>
+            {Math.round(view.k * 100)} %
+          </span>
+          <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" title="Vergrößern" onClick={() => zoomBy(1.25)}>
+            <ZoomIn size={15} />
+          </button>
+          <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" title="Einpassen" onClick={fit}>
+            <Maximize2 size={15} />
+          </button>
+        </div>
       </div>
     </Card>
   );
