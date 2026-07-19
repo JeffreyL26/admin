@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { NAV_SECTIONS } from './nav';
 import { useAuth } from '../auth/AuthContext';
@@ -9,6 +9,7 @@ import logo from '../assets/logo.png';
 export function AppShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Navigation aus dem nativen Electron-Menü (Ctrl+1…6, Datei → Neu …).
   useEffect(() => {
@@ -54,7 +55,10 @@ export function AppShell() {
       </aside>
       <main className="main">
         <div className="page">
-          <Outlet />
+          {/* Key = Pfad: löst die Einblend-Animation bei jedem Seitenwechsel aus. */}
+          <div className="page-enter" key={location.pathname}>
+            <Outlet />
+          </div>
         </div>
       </main>
     </div>

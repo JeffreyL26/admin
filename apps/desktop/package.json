@@ -10,9 +10,9 @@
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs --dev && electron . ",
     "typecheck": "tsc --noEmit",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist:win": "node scripts/reset-native.mjs && electron-builder --win",
+    "dist:mac": "node scripts/reset-native.mjs && electron-builder --mac",
+    "dist:linux": "node scripts/reset-native.mjs && electron-builder --linux"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1"

@@ -77,7 +77,10 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
 - **Nach `npm run dist:win`: `npm rebuild better-sqlite3` ausführen** —
   electron-builder baut das Modul in-place auf die Electron-ABI um, danach
   scheitern tsx/Smoke-Tests mit ABI-Fehlern, bis die Node-Variante
-  wiederhergestellt ist.
+  wiederhergestellt ist. Die Gegenrichtung ist abgesichert: `dist:*` löscht
+  vorher `better-sqlite3/build` (reset-native.mjs), weil electron-builder den
+  Umbau sonst wegen eines übrig gebliebenen `.forge-meta`-Markers überspringt
+  und die falsche ABI einpackt (Details in docs/entscheidungen.md).
 - **Embedding-Bundle `server.cjs` kommt aus `src/server.ts`** (nur Exporte);
   `src/index.ts` ist der CLI-Einstieg mit Selbststart und wird separat zu
   `cli.cjs` gebündelt. Nicht verwechseln — Details in docs/entscheidungen.md.

@@ -150,9 +150,10 @@ export function StatCard({
 }) {
   return (
     <div className="hm-card hm-stat">
-      <span className="hm-stat__label">
-        {icon} {label}
-      </span>
+      <div className="hm-stat__top">
+        <span className="hm-stat__label">{label}</span>
+        {icon && <span className="hm-stat__icon">{icon}</span>}
+      </div>
       <span className="hm-stat__value">{value}</span>
       {sub && <span className="hm-stat__sub">{sub}</span>}
     </div>

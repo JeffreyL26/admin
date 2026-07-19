@@ -49,7 +49,7 @@ export function LoginPage() {
             required
           />
         </Field>
-        <button className="hm-btn hm-btn--primary" disabled={busy} style={{ height: 40 }}>
+        <button className="hm-btn hm-btn--primary" disabled={busy} style={{ height: 44 }}>
           {busy ? 'Anmelden …' : 'Anmelden'}
         </button>
       </form>

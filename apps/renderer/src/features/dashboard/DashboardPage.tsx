@@ -55,7 +55,7 @@ export function DashboardPage() {
   return (
     <>
       <PageHeader
-        title={`${greeting}, ${user?.name?.split(' ')[0] ?? ''}!`}
+        title={`${greeting}, ${user?.name?.split(' ')[0] ?? ''} 👋`}
         subtitle="Hier ist der Überblick über Ihre Personalarbeit."
       />
 

@@ -103,6 +103,17 @@ um (`@electron/rebuild`). Danach schlagen Node-seitige Läufe (tsx, Smoke-Tests)
 mit ABI-Fehlern fehl, bis `npm rebuild better-sqlite3` die Node-Variante
 wiederherstellt. Nach jedem `dist:win` einplanen.
 
+**Sackgasse — der zweite Installer-Build packte die falsche ABI:** electron-builder
+hinterlässt nach dem Umbau einen Marker (`better-sqlite3/build/Release/.forge-meta`)
+und überspringt den Umbau beim nächsten Mal, wenn er existiert. Ein
+zwischenzeitliches `npm rebuild better-sqlite3` tauscht jedoch nur die
+`.node`-Datei zurück auf die Node-ABI und **lässt den Marker stehen** — der
+nächste Installer enthielt dadurch die Node-Variante und die installierte App
+startete mit `NODE_MODULE_VERSION`-Fehlerdialog, obwohl das Build-Log
+„finished moduleName=better-sqlite3" meldete. Lösung:
+`desktop/scripts/reset-native.mjs` löscht den Build-Ordner vor jedem `dist:*`
+(in den npm-Skripten verdrahtet), sodass immer frisch für Electron gebaut wird.
+
 ## Sackgasse: SQLite-Operator-Präzedenz bei String-Konkatenation
 
 `CAST(x AS INTEGER) + 1 || '-' || rest` lieferte im Dashboard statt eines
