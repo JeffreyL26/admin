@@ -174,7 +174,8 @@ let interviewId = 0;
     method: 'POST',
     url: `/api/recruiting/applications/${applicationId}/interviews`,
     headers: auth,
-    payload: { kind: 'technik', scheduled_at: '2026-07-20 14:00', duration_minutes: 60, location: 'Meet-Raum', interviewer_ids: [1] },
+    // Dynamisch morgen, damit die „anstehend“-Prüfung nicht mit der Zeit verrottet.
+    payload: { kind: 'technik', scheduled_at: `${new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)} 14:00`, duration_minutes: 60, location: 'Meet-Raum', interviewer_ids: [1] },
   });
   check('Interview: planen', created.statusCode === 201 && created.json().interview.interviewer_names[0] === 'Tobias Krämer', created.json());
   interviewId = created.json().interview.id as number;

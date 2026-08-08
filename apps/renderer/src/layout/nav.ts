@@ -3,7 +3,7 @@ import {
   ListChecks, Target, ClipboardCheck, Grid3x3, GraduationCap, MessagesSquare,
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
   FileText, Radio, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
-  LineChart,
+  LineChart, FileStack, UserPlus,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -82,6 +82,13 @@ export const NAV_SECTIONS: NavSection[] = [
       { path: '/kommunikation/umfragen', label: 'Umfragen', icon: BarChart3 },
       { path: '/kommunikation/gespraeche', label: 'Gespräche', icon: FileText },
       { path: '/kommunikation/kanaele', label: 'Kanäle', icon: Radio },
+    ],
+  },
+  {
+    title: 'Verwaltung',
+    items: [
+      { path: '/verwaltung/vorlagen', label: 'HR-Vorlagen', icon: FileStack },
+      { path: '/verwaltung/onboarding', label: 'On- & Offboarding', icon: UserPlus },
     ],
   },
   {

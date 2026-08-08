@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SlidersHorizontal, Check, RotateCcw, Plus, X, GripVertical } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
+import { RequestDialog } from '../absences/RequestDialog';
 import { Card, PageHeader, Spinner, StatCard, EmptyState } from '../../components/ui';
 import { useToast } from '../../components/Toast';
 import { useDashboard, type DashboardData } from './api';
@@ -12,7 +13,7 @@ import {
 } from './dashboardConfig';
 import {
   AbsenceChartWidget, DepartmentChartWidget, AbsentTodayWidget, InterviewsWidget,
-  MeetingsWidget, AnnouncementsWidget, SurveysWidget, BirthdaysWidget,
+  MeetingsWidget, AnnouncementsWidget, SurveysWidget, BirthdaysWidget, OnboardingWidget,
 } from './widgets';
 
 /** Widgets, deren Inhalt bis an den Card-Rand läuft (Tabellen). */
@@ -28,6 +29,7 @@ function widgetBody(key: WidgetKey, data: DashboardData): React.ReactNode {
     case 'announcements': return <AnnouncementsWidget data={data} />;
     case 'surveys': return <SurveysWidget data={data} />;
     case 'birthdays': return <BirthdaysWidget data={data} />;
+    case 'onboarding': return <OnboardingWidget />;
     default: return null;
   }
 }
@@ -40,6 +42,7 @@ export function DashboardPage() {
 
   const [config, setConfig] = useState<DashboardConfig>(loadDashboardConfig);
   const [edit, setEdit] = useState(false);
+  const [quickAbsenceOpen, setQuickAbsenceOpen] = useState(false);
   const [dragKey, setDragKey] = useState<WidgetKey | null>(null);
   const [overKey, setOverKey] = useState<WidgetKey | null>(null);
 
@@ -113,6 +116,15 @@ export function DashboardPage() {
           <X size={14} />
         </button>
       </>
+    ) : key === 'absent-today' ? (
+      // Schnelleintrag: Abwesenheit direkt vom Dashboard aus erfassen.
+      <button
+        className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+        title="Abwesenheit schnell erfassen"
+        onClick={() => setQuickAbsenceOpen(true)}
+      >
+        <Plus size={15} />
+      </button>
     ) : undefined;
 
   return (
@@ -255,6 +267,8 @@ export function DashboardPage() {
           })}
         </div>
       )}
+
+      <RequestDialog open={quickAbsenceOpen} onClose={() => setQuickAbsenceOpen(false)} />
     </>
   );
 }

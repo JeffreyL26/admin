@@ -280,6 +280,42 @@ const sickOverlap = await post('/api/absences/sick-notes', {
 });
 check('Überlappende Krankmeldung → 409', sickOverlap.statusCode === 409);
 
+// Bereits fehlende Tage + Entgeltfortzahlung (Anreicherung der Liste).
+const enrichedList = await get('/api/absences/sick-notes');
+const enriched = enrichedList.json().sick_notes as {
+  id: number;
+  days_absent_so_far: number;
+  sick_pay_days_used: number;
+  sick_pay_exceeded: boolean;
+}[];
+const e1 = enriched.find((n) => n.id === s1.id)!;
+check(
+  'Krankmeldung 01.–03.06. (Mo–Mi): 3 bereits fehlende Arbeitstage',
+  e1.days_absent_so_far === 3,
+  e1,
+);
+check(
+  'AU-Kette (Erst- + Folgebescheinigung 01.–05.06.): 5 Kalendertage Entgeltfortzahlung, nicht überzogen',
+  e1.sick_pay_days_used === 5 && e1.sick_pay_exceeded === false,
+  e1,
+);
+// Langzeiterkrankung > 42 Kalendertage → Überzogen-Warnung.
+const longSick = await post('/api/absences/sick-notes', {
+  employee_id: 3,
+  date_from: '2026-01-05',
+  date_to: '2026-02-27',
+});
+check('Langzeit-Krankmeldung → 201', longSick.statusCode === 201, longSick.json());
+const enriched2 = await get('/api/absences/sick-notes');
+const eLong = (enriched2.json().sick_notes as typeof enriched).find(
+  (n) => n.id === longSick.json().sick_note.id,
+)!;
+check(
+  'Langzeiterkrankung (54 Kalendertage) → Entgeltfortzahlung überzogen',
+  eLong.sick_pay_days_used === 54 && eLong.sick_pay_exceeded === true,
+  eLong,
+);
+
 // ---------------------------------------------------------------- Kalender ---
 // Ben ebenfalls 21./22.12. im Urlaub → Team "Backend" (2 Mitglieder) zu 100 % abwesend.
 const rBen = await post('/api/absences/requests', {

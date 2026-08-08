@@ -47,6 +47,8 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['absences'] });
+      // Der Dialog ist auch vom Dashboard aus erreichbar (Schnelleintrag).
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
       toast.success('Antrag wurde erfasst');
       reset();
       onClose();

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
-import { formatDate, type SickNote } from '@hrmonic/shared';
+import { AlertTriangle, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
+import { formatDate, SICK_PAY_LIMIT_DAYS, type SickNote } from '@hrmonic/shared';
 import { api, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
@@ -24,6 +24,26 @@ function certificateBadge(note: SickNote) {
   return <Badge tone="neutral">fehlt noch</Badge>;
 }
 
+/** Bereits angefallene Fehltage; laufende Erkrankungen und überzogene Entgeltfortzahlung markieren. */
+function missedDaysCell(note: SickNote) {
+  const ongoing = note.date_to !== undefined && note.date_to >= todayIso();
+  return (
+    <span className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
+      {(note.days_absent_so_far ?? 0).toLocaleString('de-DE')}
+      {ongoing && (
+        <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>laufend</span>
+      )}
+      {note.sick_pay_exceeded && (
+        <span
+          title={`Entgeltfortzahlung überzogen: ${note.sick_pay_days_used} von ${SICK_PAY_LIMIT_DAYS} Kalendertagen seit Beginn der AU-Kette — Übergang ins Krankengeld prüfen.`}
+        >
+          <Badge tone="red">Überzogen ❗</Badge>
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function SickNotesPage() {
   const [childFilter, setChildFilter] = useState<'' | '0' | '1'>('');
   const { data: notes, isLoading } = useSickNotes(childFilter === '' ? null : childFilter);
@@ -43,6 +63,42 @@ export function SickNotesPage() {
         }
       />
       <div className="stack">
+        {(() => {
+          // Überzogene Entgeltfortzahlung: je Mitarbeiter:in nur einmal warnen
+          // (die Kette teilt sich sick_pay_days_used über alle Bescheinigungen).
+          const exceeded = new Map<number, SickNote>();
+          for (const n of notes ?? []) {
+            if (!n.sick_pay_exceeded || n.employee_id === undefined) continue;
+            const prev = exceeded.get(n.employee_id);
+            if (!prev || (n.sick_pay_days_used ?? 0) > (prev.sick_pay_days_used ?? 0)) {
+              exceeded.set(n.employee_id, n);
+            }
+          }
+          if (exceeded.size === 0) return null;
+          return (
+            <Card
+              title={
+                <span className="row" style={{ gap: 8, color: 'var(--danger)' }}>
+                  <AlertTriangle size={17} /> Entgeltfortzahlung überzogen ({exceeded.size})
+                </span>
+              }
+            >
+              <div className="stack" style={{ gap: 8 }}>
+                {[...exceeded.values()].map((n) => (
+                  <div key={n.id} className="row row--between">
+                    <span style={{ fontWeight: 600 }}>
+                      {n.last_name}, {n.first_name}
+                    </span>
+                    <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                      {n.sick_pay_days_used} von {SICK_PAY_LIMIT_DAYS} Kalendertagen — Übergang ins
+                      Krankengeld prüfen
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          );
+        })()}
         {missing && missing.length > 0 && (
           <Card
             title={
@@ -124,6 +180,7 @@ export function SickNotesPage() {
                     <th>Mitarbeiter:in</th>
                     <th>Zeitraum</th>
                     <th className="num">Tage</th>
+                    <th className="num">Bereits fehlend</th>
                     <th>Art</th>
                     <th>AU-Status</th>
                     <th>AU-Frist</th>
@@ -140,6 +197,7 @@ export function SickNotesPage() {
                         {formatDate(n.date_from)} – {formatDate(n.date_to)}
                       </td>
                       <td className="num">{n.days_counted?.toLocaleString('de-DE')}</td>
+                      <td className="num">{missedDaysCell(n)}</td>
                       <td>
                         <span className="row" style={{ gap: 6 }}>
                           {n.child_sick === 1 ? <Badge tone="blue">Kind krank</Badge> : <Badge tone="neutral">Krankheit</Badge>}

@@ -91,7 +91,16 @@ export interface SickNote {
   date_to?: string;
   days_counted?: number;
   request_status?: AbsenceRequestStatus;
+  /** Bereits angefallene Fehltage (Arbeitstage von Beginn bis heute). */
+  days_absent_so_far?: number;
+  /** Kalendertage seit Beginn der AU-Kette (Erst- + Folgebescheinigungen), bis heute. */
+  sick_pay_days_used?: number;
+  /** Entgeltfortzahlung (42 Kalendertage) überzogen. */
+  sick_pay_exceeded?: boolean;
 }
+
+/** Entgeltfortzahlung im Krankheitsfall: 6 Wochen = 42 Kalendertage. */
+export const SICK_PAY_LIMIT_DAYS = 42;
 
 export interface CompanyClosure {
   id: number;

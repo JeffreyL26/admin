@@ -46,7 +46,10 @@ if (FORCE) {
     'employee_skills', 'skills', 'employee_levels', 'career_levels',
     'development_measures', 'development_plans', 'reviews', 'review_templates',
     'review_cycles', 'goals', 'sick_notes', 'absence_requests', 'company_closures',
-    'documents', 'contracts', 'employees', 'teams', 'departments', 'locations',
+    'documents', 'contracts',
+    // Verwaltung (onboarding_task_templates bleibt, da per Migration geseedet)
+    'onboarding_tasks', 'onboarding_processes', 'hr_templates',
+    'employees', 'teams', 'departments', 'locations',
     'audit_log', 'files',
   ];
   inTransaction(() => {
@@ -708,6 +711,50 @@ inTransaction(() => {
 
   // Werkstudenten-Pipeline
   application(cLaura, pWerk, stTelefon, '2026-07-14', { rating: 4, source: 'hochschule' });
+
+  // ======================= Verwaltung =======================
+  // HR-Dokumentverzeichnis: zentrale Vorlagen der Abteilung.
+  const hrTpl = (category: string, title: string, description: string) =>
+    insert('hr_templates', {
+      category, title, description,
+      file_id: demoFile(
+        `${title.replace(/[^A-Za-zÄÖÜäöüß0-9]+/g, '_')}.txt`,
+        `HRMONIC Demo-Vorlage\n${title}\n${description}`,
+      ),
+    });
+  hrTpl('schreiben', 'Willkommensschreiben neue Mitarbeitende', 'Anschreiben zum ersten Arbeitstag mit Agenda und Ansprechpartnern.');
+  hrTpl('schreiben', 'Abmahnung (Muster)', 'Arbeitsrechtlich geprüftes Muster — vor Versand mit der Geschäftsführung abstimmen.');
+  hrTpl('schreiben', 'Arbeitgeberbescheinigung', 'Standardbescheinigung für Behörden, Banken und Vermieter.');
+  hrTpl('vertrag', 'Arbeitsvertrag unbefristet (Vorlage)', 'Basisvertrag Vollzeit/Teilzeit mit Standardklauseln.');
+  hrTpl('formular', 'Urlaubsantrag (Formular)', 'Für die Übergangszeit, bis alle Anträge digital gestellt werden.');
+  hrTpl('richtlinie', 'Handbuch für Führungskräfte', 'Leitfaden für neue Führungskräfte — wird im Onboarding freigegeben.');
+
+  // On-/Offboarding: Checklisten aus den Standard-Vorlagen des Prozesstyps.
+  const processFor = (
+    emp: number, kind: string, target: string | null, note: string | null,
+    doneCount: number, status: 'laufend' | 'abgeschlossen' = 'laufend',
+  ) => {
+    const pid = insert('onboarding_processes', {
+      employee_id: emp, kind, status, target_date: target, note,
+      completed_at: status === 'abgeschlossen' ? '2026-04-24 10:00:00' : null,
+    });
+    const taskTemplates = db
+      .prepare('SELECT title, sort_order FROM onboarding_task_templates WHERE kind = ? AND active = 1 ORDER BY sort_order, id')
+      .all(kind) as { title: string; sort_order: number }[];
+    taskTemplates.forEach((t, i) => {
+      const done = status === 'abgeschlossen' || i < doneCount;
+      insert('onboarding_tasks', {
+        process_id: pid, title: t.title, sort_order: t.sort_order,
+        done: done ? 1 : 0,
+        done_at: done ? '2026-07-10 09:00:00' : null,
+        done_by_user_id: done ? adminId : null,
+      });
+    });
+    return pid;
+  };
+  processFor(PRAKT, 'onboarding', '2026-06-01', 'Praktikum Vertrieb, befristet bis 30.11.', 4);
+  processFor(SDR, 'onboarding', '2026-04-15', null, 0, 'abgeschlossen');
+  processFor(EXIT, 'offboarding', '2026-03-31', 'Arbeitszeugnis noch ausstehend.', 6);
 });
 
 const stats = {
@@ -719,6 +766,8 @@ const stats = {
   Ankündigungen: (db.prepare('SELECT COUNT(*) n FROM announcements').get() as { n: number }).n,
   Stellen: (db.prepare('SELECT COUNT(*) n FROM job_postings').get() as { n: number }).n,
   Bewerbungen: (db.prepare('SELECT COUNT(*) n FROM applications').get() as { n: number }).n,
+  'HR-Vorlagen': (db.prepare('SELECT COUNT(*) n FROM hr_templates').get() as { n: number }).n,
+  'On-/Offboarding': (db.prepare('SELECT COUNT(*) n FROM onboarding_processes').get() as { n: number }).n,
 };
 console.log('Demo-Daten angelegt:', stats);
 closeDb();

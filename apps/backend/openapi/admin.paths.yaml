@@ -1,0 +1,114 @@
+# Modul Verwaltung (HR-Vorlagen, On-/Offboarding) — Pfade (Merge via npm run openapi -w apps/backend).
+paths:
+  /api/admin/templates:
+    get:
+      summary: HR-Vorlagen auflisten (Dokumentverzeichnis der Abteilung)
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string, enum: [schreiben, vertrag, formular, richtlinie, checkliste, sonstiges] } }
+      responses:
+        "200": { description: Liste der Vorlagen (mit Datei-Metadaten) }
+    post:
+      summary: Vorlage anlegen (Datei zuvor über POST /api/files hochladen)
+      responses:
+        "201": { description: Vorlage angelegt }
+        "404":
+          description: Datei nicht gefunden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/admin/templates/{id}:
+    patch:
+      summary: Vorlage bearbeiten (Titel, Kategorie, Beschreibung, Datei tauschen)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Vorlage }
+        "404":
+          description: Vorlage nicht gefunden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Vorlage löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/admin/onboarding:
+    get:
+      summary: On-/Offboarding-Prozesse auflisten (mit Aufgaben-Fortschritt)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [laufend, abgeschlossen] } }
+        - { name: kind, in: query, schema: { type: string, enum: [onboarding, offboarding] } }
+      responses:
+        "200": { description: Prozessliste (mit Mitarbeiter-Daten und done/total Aufgaben) }
+    post:
+      summary: Prozess starten (Checkliste wird aus den aktiven Vorlagen des Typs kopiert)
+      responses:
+        "201": { description: Prozess samt Checkliste angelegt }
+        "409":
+          description: Für diese Person läuft bereits ein Prozess dieses Typs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/admin/onboarding/{id}:
+    get:
+      summary: Prozess mit vollständiger Checkliste laden
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ process, tasks }" }
+        "404":
+          description: Prozess nicht gefunden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Prozess samt Checkliste löschen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/admin/onboarding/{id}/tasks:
+    post:
+      summary: Zusätzliche Aufgabe zur Checkliste hinzufügen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "201": { description: Aufgabe angelegt }
+        "409":
+          description: Prozess bereits abgeschlossen
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/admin/onboarding/tasks/{taskId}:
+    patch:
+      summary: Aufgabe abhaken bzw. wieder öffnen (done true/false)
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Aufgabe (mit done_by/done_at) }
+        "409":
+          description: Prozess bereits abgeschlossen
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Aufgabe aus der Checkliste entfernen
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+  /api/admin/onboarding/{id}/complete:
+    post:
+      summary: Prozess abschließen (nur wenn alle Aufgaben abgehakt sind)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Abgeschlossener Prozess }
+        "409":
+          description: Es sind noch Aufgaben offen
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }

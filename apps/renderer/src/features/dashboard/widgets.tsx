@@ -4,8 +4,9 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import {
-  formatDate, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS,
+  formatDate, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, ONBOARDING_KIND_LABELS,
 } from '@hrmonic/shared';
+import { useOnboardingProcesses } from '../admin/api';
 import type { DashboardData } from './api';
 
 /* Reine Widget-Inhalte des Dashboards — der Card-Rahmen (Titel, Icon,
@@ -143,6 +144,33 @@ export function SurveysWidget({ data }: { data: DashboardData }) {
               {s.participations} Teilnahmen · bis {formatDate(s.date_to)}
             </span>
           </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+/** Lädt seine Daten selbst (Modul Verwaltung), statt /api/dashboard zu erweitern. */
+export function OnboardingWidget() {
+  const { data: processes } = useOnboardingProcesses('laufend', '');
+  if (!processes || processes.length === 0) {
+    return <Empty text="Aktuell ist niemand im On- oder Offboarding." />;
+  }
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      {processes.map((p) => (
+        <Link key={p.id} to="/verwaltung/onboarding" style={{ color: 'inherit', textDecoration: 'none' }}>
+          <div className="row row--between">
+            <span style={{ fontWeight: 550 }}>{p.first_name} {p.last_name}</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+              {ONBOARDING_KIND_LABELS[p.kind]} · {p.done_tasks ?? 0}/{p.total_tasks ?? 0} erledigt
+            </span>
+          </div>
+          {p.target_date && (
+            <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
+              Stichtag {formatDate(p.target_date)}
+            </div>
+          )}
         </Link>
       ))}
     </div>

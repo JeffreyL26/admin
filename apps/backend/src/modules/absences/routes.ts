@@ -346,6 +346,91 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     JOIN absence_requests r ON r.id = s.absence_request_id
     JOIN employees e ON e.id = r.employee_id`;
 
+  /** Entgeltfortzahlung im Krankheitsfall: 6 Wochen = 42 Kalendertage. */
+  const SICK_PAY_LIMIT_DAYS = 42;
+
+  interface SickRow {
+    id: number;
+    employee_id: number;
+    date_from: string;
+    date_to: string;
+    follow_up_of_id: number | null;
+    child_sick: number;
+  }
+
+  /**
+   * Reichert Krankmeldungen um die bereits angefallenen Fehltage an:
+   * - days_absent_so_far: Arbeitstage von Beginn bis heute (gedeckelt auf das Ende)
+   * - sick_pay_days_used: Kalendertage seit Beginn der AU-Kette (Erst- plus
+   *   Folgebescheinigungen), ebenfalls bis maximal heute
+   * - sick_pay_exceeded: Entgeltfortzahlungszeitraum (42 Kalendertage) überzogen
+   *   (nur eigene Erkrankung — Kind-krank läuft über Kinderkrankengeld)
+   */
+  function enrichSickNotes<T extends SickRow>(rows: T[]): (T & {
+    days_absent_so_far: number;
+    sick_pay_days_used: number;
+    sick_pay_exceeded: boolean;
+  })[] {
+    if (rows.length === 0) return [];
+    const today = todayIso();
+    const employeeIds = [...new Set(rows.map((r) => r.employee_id))];
+
+    // Für die Ketten-Betrachtung alle (nicht stornierten) AUs der betroffenen
+    // Mitarbeitenden laden — die gefilterte Liste könnte Kettenglieder verlieren.
+    const all = db()
+      .prepare(
+        `SELECT s.id, s.follow_up_of_id, s.child_sick, r.employee_id, r.date_from, r.date_to
+         FROM sick_notes s
+         JOIN absence_requests r ON r.id = s.absence_request_id
+         WHERE r.status != 'storniert' AND r.employee_id IN (${employeeIds.map(() => '?').join(',')})`,
+      )
+      .all(...employeeIds) as SickRow[];
+    const byId = new Map(all.map((n) => [n.id, n]));
+    const rootOf = (note: SickRow): number => {
+      let cur = note;
+      const seen = new Set<number>();
+      while (cur.follow_up_of_id !== null && byId.has(cur.follow_up_of_id) && !seen.has(cur.id)) {
+        seen.add(cur.id);
+        cur = byId.get(cur.follow_up_of_id)!;
+      }
+      return cur.id;
+    };
+    // Kettenumfang je Wurzel: frühester Beginn, spätestes Ende.
+    const chains = new Map<number, { from: string; to: string }>();
+    for (const n of all) {
+      const root = rootOf(n);
+      const chain = chains.get(root);
+      if (!chain) chains.set(root, { from: n.date_from, to: n.date_to });
+      else {
+        if (n.date_from < chain.from) chain.from = n.date_from;
+        if (n.date_to > chain.to) chain.to = n.date_to;
+      }
+    }
+    const calendarDays = (from: string, to: string): number =>
+      Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+
+    const landCache = new Map<number, ReturnType<typeof bundeslandForEmployee>>();
+    return rows.map((row) => {
+      let land = landCache.get(row.employee_id);
+      if (!land) landCache.set(row.employee_id, (land = bundeslandForEmployee(row.employee_id)));
+      const daysAbsent = countAbsenceDays({
+        land,
+        dateFrom: row.date_from,
+        dateTo: row.date_to,
+        clipTo: today,
+      });
+      const chain = chains.get(rootOf(byId.get(row.id) ?? row)) ?? { from: row.date_from, to: row.date_to };
+      const chainEnd = chain.to < today ? chain.to : today;
+      const sickPayDays = chain.from > chainEnd ? 0 : calendarDays(chain.from, chainEnd);
+      return {
+        ...row,
+        days_absent_so_far: daysAbsent,
+        sick_pay_days_used: sickPayDays,
+        sick_pay_exceeded: row.child_sick === 0 && sickPayDays > SICK_PAY_LIMIT_DAYS,
+      };
+    });
+  }
+
   app.get('/api/absences/sick-notes', async (req) => {
     const q = req.query as { child_sick?: string; year?: string };
     const where: string[] = ["r.status != 'storniert'"];
@@ -358,8 +443,8 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     }
     const rows = db()
       .prepare(`${SICK_SELECT} WHERE ${where.join(' AND ')} ORDER BY r.date_from DESC, s.id DESC`)
-      .all(...params);
-    return { sick_notes: rows };
+      .all(...params) as SickRow[];
+    return { sick_notes: enrichSickNotes(rows) };
   });
 
   /** AU-Bescheinigungen, deren Frist überschritten ist und die noch fehlen. */
@@ -371,8 +456,8 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
            AND s.certificate_due_date < ?
          ORDER BY s.certificate_due_date ASC`,
       )
-      .all(todayIso());
-    return { sick_notes: rows };
+      .all(todayIso()) as SickRow[];
+    return { sick_notes: enrichSickNotes(rows) };
   });
 
   app.post('/api/absences/sick-notes', async (req, reply) => {

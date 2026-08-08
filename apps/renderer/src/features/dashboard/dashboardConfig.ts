@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Users, CalendarDays, Send, Stethoscope, FolderClock, Wallet, Briefcase,
   CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
+  UserPlus,
 } from 'lucide-react';
 import type { DashboardStats } from './api';
 
@@ -110,7 +111,8 @@ export type WidgetKey =
   | 'meetings'
   | 'announcements'
   | 'surveys'
-  | 'birthdays';
+  | 'birthdays'
+  | 'onboarding';
 
 export interface WidgetDef {
   title: string;
@@ -130,6 +132,7 @@ export const WIDGET_DEFS: Record<WidgetKey, WidgetDef> = {
   announcements: { title: 'Aktive Ankündigungen', description: 'Laufende Mitteilungen', icon: Megaphone },
   surveys: { title: 'Laufende Umfragen', description: 'Teilnahmestand aktiver Umfragen', icon: BarChart3 },
   birthdays: { title: 'Nächste Geburtstage', description: 'Wer demnächst feiert', icon: Cake },
+  onboarding: { title: 'On- & Offboarding', description: 'Wer gerade an- oder abreist', icon: UserPlus },
 };
 
 export const ALL_WIDGETS = Object.keys(WIDGET_DEFS) as WidgetKey[];

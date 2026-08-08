@@ -7,3 +7,4 @@ export * from './performance.js';
 export * from './compensation.js';
 export * from './communication.js';
 export * from './recruiting.js';
+export * from './admin.js';
