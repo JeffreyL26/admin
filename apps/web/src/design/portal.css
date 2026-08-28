@@ -638,9 +638,33 @@ button {
   }
 }
 @media (max-width: 720px) {
+  /* Kopfzeile zweizeilig: oben Marke + Konto, darunter die Navigation in
+     voller Breite (intern scrollbar) — sonst erzwingen die nowrap-Elemente
+     eine Mindestbreite über dem Viewport und der Body scrollt horizontal. */
   .portal-header__inner {
     padding: 0 16px;
-    gap: 16px;
+    gap: 0 12px;
+    height: auto;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .portal-brand {
+    order: 1;
+    padding: 12px 0 6px;
+  }
+  .portal-user {
+    order: 2;
+    padding: 12px 0 6px;
+  }
+  .portal-nav {
+    order: 3;
+    width: 100%;
+  }
+  .portal-nav__link:first-child {
+    padding-left: 0;
+  }
+  .portal-nav__link {
+    padding: 8px 12px;
   }
   .portal-user__name {
     display: none;
