@@ -114,9 +114,35 @@ Browser ── https://portal.firma.de ──> nginx/Caddy
    nginx analog: `location /api/ { proxy_pass http://127.0.0.1:3001; }` und
    `location / { try_files $uri /index.html; }` (SPA-Fallback wegen
    BrowserRouter nicht vergessen).
-4. Die Desktop-App der HR-Administration kann auf demselben Backend arbeiten,
-   sobald sie gegen `https://portal.firma.de` konfiguriert wird; im heutigen
-   Rollout läuft sie weiterhin mit eingebettetem Backend bzw. im LAN.
+4. Die Desktop-App der HR-Administration arbeitet auf demselben Backend,
+   sobald eine Basis-URL konfiguriert ist — dann startet sie **kein** eigenes
+   Backend mehr und HR-Administration und Portal teilen sich eine Datenbank.
+   Zwei Quellen, Umgebungsvariable schlägt Datei
+   (`readConfiguredApiBase` in `apps/desktop/src/main.ts`):
+
+   | Quelle | Wofür |
+   |---|---|
+   | `HRMONIC_API_BASE=https://portal.firma.de` | skriptierter Rollout, Verknüpfung, MDM |
+   | `%APPDATA%\HRMONIC\config.json` → `{ "apiBaseUrl": "https://portal.firma.de" }` | IT-Konfiguration je Installation |
+
+   Ohne Konfiguration bleibt alles wie bisher: eingebettetes Backend mit
+   lokaler Datenbank in `%APPDATA%\HRMONIC\data` (Einzelplatz-Betrieb).
+   Beim Start prüft die App `GET /api/health` und bricht bei nicht
+   erreichbarem Backend mit klarer Meldung ab statt mit leerem Fenster.
+
+   **CORS nicht vergessen:** Der Desktop-Renderer lädt über `file://` und
+   sendet deshalb `Origin: null`. Sobald `HRMONIC_CORS_ORIGIN` gesetzt ist,
+   muss `null` mit in der Liste stehen, sonst blockiert der Browserkern der
+   Desktop-App jede Anfrage:
+
+   ```
+   HRMONIC_CORS_ORIGIN=https://portal.firma.de,null
+   ```
+
+   Lokal zum Ausprobieren (beide Clients auf einer Maschine, gemeinsamer
+   Datenbestand): Backend auf 3001 starten und die installierte App per
+   `config.json` mit `{ "apiBaseUrl": "http://127.0.0.1:3001" }` darauf
+   zeigen lassen — CORS bleibt dabei offen, es braucht keine Liste.
 
 Lokal testen: `npm run dev` (drei Prozesse), Portal auf
 http://127.0.0.1:5174, HR-Administration auf http://127.0.0.1:5173.

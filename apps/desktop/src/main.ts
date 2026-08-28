@@ -10,8 +10,80 @@ const isDev = Boolean(devServerUrl);
 
 let mainWindow: BrowserWindow | null = null;
 
+// Gemeinsames Backend (Mehrplatz-/Server-Betrieb): Ist eine Basis-URL
+// konfiguriert, startet die App KEIN eigenes Backend, sondern arbeitet auf
+// demselben Server wie das Mitarbeitenden-Portal — beide Clients sehen damit
+// dieselben Daten. Zwei Quellen, Umgebungsvariable schlägt Datei:
+//   HRMONIC_API_BASE=https://portal.firma.de        (skriptierter Rollout)
+//   %APPDATA%\HRMONIC\config.json → { "apiBaseUrl": "…" }  (IT-Konfiguration)
+// Ohne Konfiguration bleibt es beim eingebetteten Backend mit lokaler
+// Datenbank — der Einzelplatz-Betrieb ändert sich dadurch nicht.
+function configFilePath(): string {
+  return path.join(app.getPath('userData'), 'config.json');
+}
+
+function readConfiguredApiBase(): string | null {
+  const fromEnv = process.env.HRMONIC_API_BASE?.trim();
+  if (fromEnv) return fromEnv;
+
+  const cfgPath = configFilePath();
+  if (!fs.existsSync(cfgPath)) return null;
+  let parsed: { apiBaseUrl?: unknown };
+  try {
+    parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { apiBaseUrl?: unknown };
+  } catch {
+    throw new Error(`Die Konfigurationsdatei ${cfgPath} enthält kein gültiges JSON.`);
+  }
+  const value = parsed.apiBaseUrl;
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string') {
+    throw new Error(`"apiBaseUrl" in ${cfgPath} muss eine Zeichenkette sein.`);
+  }
+  return value.trim();
+}
+
+// Trailing Slash entfernen: der Renderer hängt Pfade wie "/api/…" direkt an.
+function normalizeApiBase(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`"${raw}" ist keine gültige Backend-Adresse (erwartet z. B. https://portal.firma.de).`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`"${raw}" muss mit http:// oder https:// beginnen.`);
+  }
+  return raw.replace(/\/+$/, '');
+}
+
+// Früh und mit klarer Meldung scheitern statt mit leerem Fenster: ein nicht
+// erreichbares Backend ist im Server-Betrieb der wahrscheinlichste Fehler.
+async function assertReachable(base: string): Promise<void> {
+  try {
+    const res = await fetch(`${base}/api/health`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Das HRMONIC-Backend unter ${base} ist nicht erreichbar (${reason}).\n\n` +
+        `Prüfen Sie, ob der Dienst läuft und ob die Adresse in\n${configFilePath()}\n` +
+        `bzw. in der Umgebungsvariable HRMONIC_API_BASE stimmt.`,
+    );
+  }
+}
+
 async function startBackend(): Promise<string> {
   if (isDev) return 'http://127.0.0.1:3001';
+
+  const configured = readConfiguredApiBase();
+  if (configured) {
+    const base = normalizeApiBase(configured);
+    await assertReachable(base);
+    return base;
+  }
+
   const dataDir = path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   process.env.HRMONIC_DATA_DIR = dataDir;
