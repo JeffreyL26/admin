@@ -60,12 +60,16 @@ Rollen-Guard ab). Demo-Konten legt `npm run seed` an — vier Admins
 - API-Basis: `VITE_API_BASE`, sonst im Dev `http://127.0.0.1:3001`, im
   Prod-Build **same-origin** (`''`) — gedacht für den Reverse-Proxy-Deploy unten.
   Token liegt unter `localStorage['hrmonic.portal.token']`.
-- Gestaltung: HRMONIC-Farbwelt und Wortmarke wie die Desktop-App
-  (`src/design/tokens.css`, Werte identisch zu `apps/renderer`), aber eigene,
-  ruhig-dokumentenhafte Formensprache: Public Sans + Source Serif 4 statt Inter,
-  flache Karten mit Hairlines statt Schatten, keine Icon-Bibliothek,
-  Skeleton-Loader statt Spinner, responsive bis Smartphone-Breite.
-  Klassenpräfix `pt-` (Portal) statt `hm-`.
+- Gestaltung: HRMONIC-Farbwelt, Wortmarke und Typografie wie die Desktop-App
+  (`src/design/tokens.css`, Farb- und Schriftwerte identisch zu
+  `apps/renderer`; Inter Variable, gleiche Größenskala), aber eigene,
+  ruhig-dokumentenhafte Formensprache: flache Karten mit Hairlines statt
+  Schatten, keine Icon-Bibliothek, Skeleton-Loader statt Spinner, responsive
+  bis Smartphone-Breite. Klassenpräfix `pt-` (Portal) statt `hm-`.
+  Die Login-Seite legt hinter Wortmarke, Claim und Karte eine langsam
+  driftende Wellen-Ebene (harmonische Teilschwingungen einer Grundwelle,
+  `HarmonyBackdrop` in `pages/LoginPage.tsx`; respektiert
+  `prefers-reduced-motion`).
 
 ## Deployment hinter eigener Domain
 

@@ -51,6 +51,9 @@
   --bg-surface: #ffffff;
   --border: #e6eaf2;
   --border-strong: #d5dce8;
+  /* Zarte Hintergrund-Tönungen (wie Desktop-App) */
+  --bg-tint-1: rgb(8 100 198 / 0.055);
+  --bg-tint-2: rgb(15 47 95 / 0.045);
 
   /* Text */
   --text-primary: var(--gray-900);
@@ -58,17 +61,17 @@
   --text-muted: var(--gray-500);
   --text-on-dark: #f4f7fc;
 
-  /* Typografie: Public Sans für die Oberfläche, Source Serif für Titel
-     und große Zahlen — bewusst eigenständig gegenüber der Desktop-App. */
-  --font-sans: 'Public Sans Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
-  --font-serif: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
+  /* Typografie: Inter Variable — identisch zur Desktop-App, damit beide
+     Clients als ein Produkt lesbar sind (Schriftschnitt und Größenskala
+     wie in apps/renderer/src/design/tokens.css). */
+  --font-sans: 'Inter Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
   --text-base: 0.9375rem;
   --text-md: 1.0625rem;
-  --text-lg: 1.25rem;
-  --text-xl: 1.75rem;
-  --text-2xl: 2.25rem;
+  --text-lg: 1.1875rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 1.875rem;
 
   /* Geometrie: knappere Radien als die Desktop-App, keine Schatten */
   --radius-sm: 6px;

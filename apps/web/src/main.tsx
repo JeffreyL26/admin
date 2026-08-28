@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import '@fontsource-variable/public-sans';
-import '@fontsource-variable/source-serif-4';
+import '@fontsource-variable/inter';
 import './design/tokens.css';
 import './design/portal.css';
 import App from './App';

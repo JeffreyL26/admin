@@ -164,8 +164,15 @@ kommentiert.
 
 **Entscheidung:** `apps/web` ist ein eigenständiges Vite-Projekt (BrowserRouter,
 Port 5174, Prod-API same-origin hinter Reverse-Proxy, `VITE_API_BASE` als
-Override) mit eigenem, bewusst dokumentenhaftem UI (Public Sans + Source Serif 4,
-flache Karten, Skeleton-Loader, `pt-`-Präfix) auf identischen Markenfarben.
+Override) mit eigenem, bewusst dokumentenhaftem UI (flache Karten,
+Skeleton-Loader, `pt-`-Präfix) auf identischen Markenfarben.
+
+**Revidiert (Rollout-Feedback):** Ursprünglich hatte das Portal eine eigene
+Schriftpaarung (Public Sans + Source Serif 4). Auf Wunsch aus dem Rollout
+teilt es jetzt Typografie und Größenskala der Desktop-App (Inter Variable) —
+beide Clients sollen als ein Produkt lesbar sein. Die Eigenständigkeit des
+Portals liegt seither in Layout und Komponenten (Hairlines statt Schatten,
+keine Icons), nicht in der Schrift.
 
 **Warum kein geteilter UI-Code mit dem Renderer:** Der Renderer ist eine
 Maus-zentrierte Desktop-Verwaltung ohne Media-Queries (fixe 264-px-Sidebar,
