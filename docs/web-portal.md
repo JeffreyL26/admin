@@ -17,6 +17,13 @@ ausschließlich in der Desktop-App und entscheidet dort über die Anträge.
   alle übrigen Routen antworten mit `403 FORBIDDEN`. Die Self-Service-Routen
   wiederum verlangen ein verknüpftes, aktives Personalprofil und liefern
   ausschließlich eigene Daten.
+- **Das Token belegt nur die Identität:** Rolle und `employee_id` werden im
+  Hook pro Request frisch aus `users` geladen. Rollenentzug, Umverknüpfung
+  oder Kontolöschung wirken damit sofort — wichtig für ein internetseitig
+  erreichbares Portal, nicht erst nach Ablauf der 12-Stunden-Token-Laufzeit.
+- Die Self-Service-Routen begrenzen Zeitspannen auf zwei Jahre
+  (`MAX_SPAN_DAYS` in `modules/me/routes.ts`) — Schutz der synchronen
+  Tageszählung vor absurden Spannen; längere Abwesenheiten erfasst die HR.
 - Beide Clients nutzen denselben Login (`POST /api/auth/login`). Die Desktop-App
   weist Portalkonten mit einer Meldung ab, das Portal reine Admin-Konten —
   das ist nur UX; die Sicherheitsgrenze ist der Backend-Hook.

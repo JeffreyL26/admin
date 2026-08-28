@@ -1,13 +1,20 @@
 import { Link } from 'react-router-dom';
 import type { AbsenceRequest } from '@hrmonic/shared';
 import { useMyBalance, useMyProfile, useMyRequests } from '../api/hooks';
-import { Card, EmptyState, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
+import { Card, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
 import { formatDate, formatDays, formatLongDate, formatRange, greeting, todayIso } from '../lib/format';
 
 function BalanceCard() {
   const year = Number(todayIso().slice(0, 4));
-  const { data: balance, isLoading } = useMyBalance(year);
+  const { data: balance, isLoading, error } = useMyBalance(year);
 
+  if (error) {
+    return (
+      <Card title={`Urlaubskonto ${year}`}>
+        <LoadError error={error} />
+      </Card>
+    );
+  }
   if (isLoading || !balance) {
     return (
       <Card title={`Urlaubskonto ${year}`}>
@@ -94,7 +101,7 @@ function RequestRow({ request }: { request: AbsenceRequest }) {
 
 export function OverviewPage() {
   const { data: profile, isLoading: profileLoading } = useMyProfile();
-  const { data: requests, isLoading: requestsLoading } = useMyRequests();
+  const { data: requests, isLoading: requestsLoading, error: requestsError } = useMyRequests();
 
   const today = todayIso();
   const open = (requests ?? []).filter((r) => r.status === 'beantragt');
@@ -122,7 +129,11 @@ export function OverviewPage() {
         <div className="stack">
           <BalanceCard />
           <Card title="Offene Anträge" flush>
-            {requestsLoading ? (
+            {requestsError ? (
+              <div className="pt-card__body">
+                <LoadError error={requestsError} />
+              </div>
+            ) : requestsLoading ? (
               <div className="pt-card__body">
                 <SkeletonRows rows={2} />
               </div>
@@ -143,7 +154,9 @@ export function OverviewPage() {
 
         <div className="stack">
           <Card title="Nächste Abwesenheit">
-            {requestsLoading ? (
+            {requestsError ? (
+              <LoadError error={requestsError} />
+            ) : requestsLoading ? (
               <>
                 <Skeleton width={160} height={22} />
                 <div style={{ marginTop: 10 }}>
@@ -173,7 +186,11 @@ export function OverviewPage() {
           </Card>
 
           <Card title="Zuletzt entschieden" flush>
-            {requestsLoading ? (
+            {requestsError ? (
+              <div className="pt-card__body">
+                <LoadError error={requestsError} />
+              </div>
+            ) : requestsLoading ? (
               <div className="pt-card__body">
                 <SkeletonRows rows={3} />
               </div>

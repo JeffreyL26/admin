@@ -4,8 +4,9 @@ import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import { config } from './config.js';
 import { migrate } from './db/migrate.js';
-import { errorHandler, forbidden } from './core/errors.js';
-import { authRoutes, ensureDefaultAdmin } from './core/auth.js';
+import { errorHandler, forbidden, unauthorized } from './core/errors.js';
+import { authRoutes, ensureDefaultAdmin, type AuthUser } from './core/auth.js';
+import { getDb } from './db/db.js';
 import { fileRoutes } from './core/files.js';
 import { settingsRoutes } from './core/settingsRoutes.js';
 import { dashboardRoutes } from './core/dashboardRoutes.js';
@@ -33,9 +34,20 @@ export async function buildServer(): Promise<FastifyInstance> {
   // Rollenmodell: Mitarbeitenden-Accounts (role 'mitarbeiter', Web-Portal)
   // erreichen nur den Self-Service (/api/me/*) und die Auth-Routen; alle
   // übrigen Routen sind der HR-Administration (role 'admin') vorbehalten.
+  //
+  // Das Token belegt nur die Identität (id); Rolle und Profil-Verknüpfung
+  // werden pro Request frisch geladen, damit Rollenentzug, Umverknüpfung
+  // oder Kontolöschung sofort wirken — nicht erst nach Ablauf der
+  // 12-Stunden-Token-Laufzeit. (Ein indizierter Primärschlüssel-Lookup
+  // pro Request; bei better-sqlite3 im Mikrosekundenbereich.)
   app.addHook('onRequest', async (req) => {
     if ((req.routeOptions.config as { public?: boolean } | undefined)?.public) return;
     await req.jwtVerify();
+    const account = getDb()
+      .prepare('SELECT id, email, name, role, employee_id FROM users WHERE id = ?')
+      .get(req.user.id) as AuthUser | undefined;
+    if (!account) throw unauthorized('Nicht angemeldet oder Sitzung abgelaufen');
+    req.user = account;
     const route = req.routeOptions.url ?? req.url;
     const selfService = route.startsWith('/api/me/') || route.startsWith('/api/auth/');
     if (!selfService && req.user.role !== 'admin') {

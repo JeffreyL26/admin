@@ -50,6 +50,24 @@ const MY_REQUEST_SELECT = `
   JOIN absence_types t ON t.id = r.type_id
   LEFT JOIN users u ON u.id = r.decided_by_user_id`;
 
+/**
+ * Obergrenze der Zeitspanne je Antrag/Vorschau. Schutz vor absurden Spannen
+ * (z. B. bis 9999-12-31), deren tageweise Zählung das synchrone Backend
+ * blockieren würde — legitime lange Abwesenheiten (Elternzeit, Sabbatical)
+ * bleiben mit zwei Jahren möglich, alles darüber erfasst die HR.
+ */
+const MAX_SPAN_DAYS = 731;
+
+function assertReasonableSpan(dateFrom: string, dateTo: string): void {
+  const span =
+    Math.round((Date.parse(`${dateTo}T00:00:00Z`) - Date.parse(`${dateFrom}T00:00:00Z`)) / 86_400_000) + 1;
+  if (span > MAX_SPAN_DAYS) {
+    throw badRequest(
+      'Der Zeitraum ist zu lang (maximal zwei Jahre). Bitte wenden Sie sich für längere Abwesenheiten an die Personalabteilung.',
+    );
+  }
+}
+
 const MY_SICK_SELECT = `
   SELECT s.id, s.absence_request_id, s.certificate_file_id, s.certificate_due_date,
          s.received_date, s.follow_up_of_id, s.child_sick, s.created_at,
@@ -143,6 +161,7 @@ export const meModule: FastifyPluginAsync = async (app) => {
     const emp = requireEmployee(req);
     const body = parse(leaveRequestBodySchema, req.body);
     if (body.date_to < body.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
+    assertReasonableSpan(body.date_from, body.date_to);
     if (body.date_from === body.date_to && body.half_day_start && body.half_day_end) {
       throw badRequest('Bei einem eintägigen Zeitraum kann nur ein halber Tag gewählt werden');
     }
@@ -200,6 +219,7 @@ export const meModule: FastifyPluginAsync = async (app) => {
       throw badRequest('date_from und date_to sind erforderlich');
     }
     if (q.date_to < q.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
+    assertReasonableSpan(q.date_from, q.date_to);
     const land = bundeslandForEmployee(emp.id);
     const days = countAbsenceDays({
       land,
@@ -227,6 +247,7 @@ export const meModule: FastifyPluginAsync = async (app) => {
     const emp = requireEmployee(req);
     const body = parse(sickNoteBodySchema, req.body);
     if (body.date_to < body.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
+    assertReasonableSpan(body.date_from, body.date_to);
     const typeName = body.child_sick ? 'Kind krank' : 'Krankheit';
     const type = db()
       .prepare("SELECT * FROM absence_types WHERE name = ? AND category = 'krankheit' AND active = 1")

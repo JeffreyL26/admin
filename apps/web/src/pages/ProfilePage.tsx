@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ApiRequestError } from '../api/client';
 import { useChangePassword, useMyProfile } from '../api/hooks';
-import { Card, Field, Skeleton } from '../components/ui';
+import { Card, Field, LoadError, Skeleton } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { formatDate, formatDays } from '../lib/format';
 
@@ -107,7 +107,7 @@ function PasswordCard() {
 }
 
 export function ProfilePage() {
-  const { data: profile, isLoading } = useMyProfile();
+  const { data: profile, isLoading, error } = useMyProfile();
 
   return (
     <div>
@@ -118,10 +118,16 @@ export function ProfilePage() {
         </p>
       </header>
 
+      {error && (
+        <div style={{ marginBottom: 20 }}>
+          <LoadError error={error} />
+        </div>
+      )}
+
       <div className="grid-overview">
         <div className="stack">
           <Card title="Tätigkeit">
-            {isLoading || !profile ? (
+            {error ? null : isLoading || !profile ? (
               <div className="stack" style={{ gap: 12 }}>
                 <Skeleton />
                 <Skeleton width="80%" />
@@ -151,7 +157,7 @@ export function ProfilePage() {
             )}
           </Card>
           <Card title="Kontakt">
-            {isLoading || !profile ? (
+            {error ? null : isLoading || !profile ? (
               <div className="stack" style={{ gap: 12 }}>
                 <Skeleton />
                 <Skeleton width="75%" />
@@ -177,7 +183,7 @@ export function ProfilePage() {
 
         <div className="stack">
           <Card title="Person">
-            {isLoading || !profile ? (
+            {error ? null : isLoading || !profile ? (
               <div className="stack" style={{ gap: 12 }}>
                 <Skeleton />
                 <Skeleton width="60%" />

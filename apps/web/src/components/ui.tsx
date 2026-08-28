@@ -103,6 +103,19 @@ export function SkeletonRows({ rows = 3 }: { rows?: number }) {
   );
 }
 
+/** Ladefehler-Anzeige: API-Meldungen sind deutsch und werden direkt gezeigt. */
+export function LoadError({ error }: { error?: unknown }) {
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : 'Die Daten konnten nicht geladen werden.';
+  return (
+    <p className="pt-alert pt-alert--danger" role="alert">
+      {message} Bitte laden Sie die Seite neu oder versuchen Sie es später erneut.
+    </p>
+  );
+}
+
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="pt-empty">

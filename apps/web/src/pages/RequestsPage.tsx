@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { AbsenceRequest } from '@hrmonic/shared';
 import { ApiRequestError } from '../api/client';
 import { useCancelRequest, useMyRequests } from '../api/hooks';
-import { Card, EmptyState, Skeleton, StatusChip } from '../components/ui';
+import { Card, EmptyState, LoadError, Skeleton, StatusChip } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { formatDate, formatDays, formatRange, todayIso } from '../lib/format';
 
@@ -58,7 +58,7 @@ export function RequestsPage() {
   const currentYear = Number(todayIso().slice(0, 4));
   const [year, setYear] = useState<number>(currentYear);
   const [status, setStatus] = useState('');
-  const { data: requests, isLoading } = useMyRequests(year);
+  const { data: requests, isLoading, error } = useMyRequests(year);
 
   const filtered = (requests ?? []).filter((r) => !status || r.status === status);
 
@@ -106,7 +106,11 @@ export function RequestsPage() {
       </div>
 
       <Card flush>
-        {isLoading ? (
+        {error ? (
+          <div className="pt-card__body">
+            <LoadError error={error} />
+          </div>
+        ) : isLoading ? (
           <div className="pt-card__body stack" style={{ gap: 14 }}>
             {Array.from({ length: 4 }, (_, i) => (
               <div key={i} className="row">

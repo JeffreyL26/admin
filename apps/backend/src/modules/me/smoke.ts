@@ -140,6 +140,15 @@ const badRange = await empPost('/api/me/leave-requests', {
 });
 check('Ende vor Beginn → 400', badRange.statusCode === 400);
 
+const absurdSpan = await empPost('/api/me/leave-requests', {
+  type_id: urlaub.id,
+  date_from: '2026-01-01',
+  date_to: '9999-12-31',
+});
+check('Absurde Zeitspanne → 400 (DoS-Schutz)', absurdSpan.statusCode === 400, absurdSpan.json());
+const absurdPreview = await empGet('/api/me/leave-preview?date_from=2026-01-01&date_to=9999-12-31');
+check('Absurde Vorschau-Spanne → 400', absurdPreview.statusCode === 400);
+
 const list = await empGet('/api/me/leave-requests');
 check(
   'Antragsliste: nur eigene Anträge',
@@ -224,6 +233,31 @@ check(
   adminSick.json().sick_notes.some((n: { id: number }) => n.id === s.id),
   adminSick.json(),
 );
+
+// ------------------------------------------------------ Sofortiger Widerruf ---
+// Rolle/Verknüpfung werden pro Request frisch geladen — Änderungen wirken
+// sofort, nicht erst nach Ablauf der Token-Laufzeit.
+db.prepare("UPDATE users SET employee_id = NULL WHERE email = 'ben.berg@test.de'").run();
+const unlinked = await app.inject({ method: 'GET', url: '/api/me/profile', headers: benAuth });
+check('Entfernte Profil-Verknüpfung wirkt sofort (altes Token → 403)', unlinked.statusCode === 403, unlinked.json());
+db.prepare("UPDATE users SET role = 'mitarbeiter' WHERE email = 'admin@hrmonic.de'").run();
+const demoted = await app.inject({ method: 'GET', url: '/api/employees', headers: adminAuth });
+check('Rollenentzug wirkt sofort (Admin-Token → 403)', demoted.statusCode === 403, demoted.json());
+db.prepare("UPDATE users SET role = 'admin' WHERE email = 'admin@hrmonic.de'").run();
+// Löschung: eigenes Wegwerf-Konto ohne Aktivität (Konten mit Anträgen sind
+// per FK absichtlich nicht hart löschbar).
+db.prepare(
+  "INSERT INTO users (email, name, password_hash, role, employee_id) VALUES ('temp@test.de', 'Temp', ?, 'mitarbeiter', 2)",
+).run(hash);
+const loginTemp = await app.inject({
+  method: 'POST',
+  url: '/api/auth/login',
+  payload: { email: 'temp@test.de', password: 'geheim123' },
+});
+const tempAuth = { authorization: `Bearer ${loginTemp.json().token as string}` };
+db.prepare("DELETE FROM users WHERE email = 'temp@test.de'").run();
+const deleted = await app.inject({ method: 'GET', url: '/api/me/profile', headers: tempAuth });
+check('Gelöschtes Konto wirkt sofort (altes Token → 401)', deleted.statusCode === 401, deleted.json());
 
 await app.close();
 closeDb();

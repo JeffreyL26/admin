@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { SickNote } from '@hrmonic/shared';
 import { ApiRequestError } from '../api/client';
 import { useCreateSickNote, useMySickNotes } from '../api/hooks';
-import { Card, EmptyState, Field, SkeletonRows } from '../components/ui';
+import { Card, EmptyState, Field, LoadError, SkeletonRows } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { formatDate, formatRange, todayIso } from '../lib/format';
 
@@ -15,7 +15,7 @@ function certificateState(note: SickNote): { label: string; tone: string } {
 
 export function SickNotePage() {
   const toast = useToast();
-  const { data: sickNotes, isLoading } = useMySickNotes();
+  const { data: sickNotes, isLoading, error: listError } = useMySickNotes();
   const create = useCreateSickNote();
 
   const today = todayIso();
@@ -145,7 +145,11 @@ export function SickNotePage() {
         )}
 
         <Card title="Ihre Krankmeldungen" flush>
-          {isLoading ? (
+          {listError ? (
+            <div className="pt-card__body">
+              <LoadError error={listError} />
+            </div>
+          ) : isLoading ? (
             <div className="pt-card__body">
               <SkeletonRows rows={2} />
             </div>

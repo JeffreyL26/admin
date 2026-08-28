@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { AuthUserDto } from '@hrmonic/shared';
 import { api, hasToken, setToken, setUnauthorizedHandler } from '../api/client';
 
@@ -30,11 +31,15 @@ export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUserDto | null>(null);
   const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
-  }, []);
+    // Gecachte Personaldaten dürfen einen Kontowechsel am selben Gerät
+    // nicht überleben.
+    queryClient.clear();
+  }, [queryClient]);
 
   useEffect(() => {
     setUnauthorizedHandler(logout);
@@ -58,9 +63,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
     });
     if (res.user.employee_id === null) throw new Error(NO_PROFILE_MESSAGE);
+    queryClient.clear();
     setToken(res.token);
     setUser(res.user);
-  }, []);
+  }, [queryClient]);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>
