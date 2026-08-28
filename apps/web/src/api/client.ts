@@ -42,13 +42,17 @@ export function setUnauthorizedHandler(fn: () => void): void {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  // Bei FormData setzt der Browser Content-Type samt multipart-Boundary
+  // selbst — ein eigener Header würde die Boundary abschneiden und das
+  // Backend fände keine Datei mehr.
+  const isForm = body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
       ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+      ...(body !== undefined && !isForm ? { 'Content-Type': 'application/json' } : {}),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
   });
   if (res.status === 204) return undefined as T;
   const json = await res.json().catch(() => null);
@@ -65,3 +69,42 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body),
 };
+
+/**
+ * Datei mit Metadaten als multipart/form-data hochladen.
+ *
+ * Anders als in der Desktop-App gibt es im Portal keinen generischen
+ * `/api/files`-Upload (die Route ist der HR-Administration vorbehalten): Der
+ * Pfad wird deshalb übergeben, aktuell `/api/me/documents`. Leere Felder
+ * werden weggelassen, damit das Backend seine Vorgabewerte greifen lässt.
+ */
+export async function uploadFile<T>(
+  path: string,
+  file: File,
+  fields: Record<string, string | undefined> = {},
+): Promise<T> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined && value !== '') form.append(key, value);
+  }
+  return api.post<T>(path, form);
+}
+
+/**
+ * Signierte Download-URL holen und den Download anstoßen.
+ *
+ * Die Antwort enthält einen RELATIVEN Pfad (`/api/files/…`) — er muss mit
+ * API_BASE zusammengesetzt werden, sonst zeigt der Link im Dev-Betrieb auf den
+ * Vite-Server statt auf das Backend. Der Download braucht keinen Auth-Header:
+ * die Signatur in der URL ist der Nachweis, deshalb genügt ein <a>-Klick.
+ */
+export async function downloadFile(signPath: string): Promise<void> {
+  const { url } = await api.post<{ url: string }>(signPath);
+  const a = document.createElement('a');
+  a.href = `${API_BASE}${url}`;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}

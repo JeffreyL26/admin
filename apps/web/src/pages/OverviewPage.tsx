@@ -1,6 +1,7 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import type { AbsenceRequest } from '@hrmonic/shared';
-import { useMyBalance, useMyProfile, useMyRequests } from '../api/hooks';
+import type { AbsenceRequest, MeCalendarEmployee } from '@hrmonic/shared';
+import { useMyBalance, useMyCalendar, useMyProfile, useMyRequests } from '../api/hooks';
 import { Card, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
 import { formatDate, formatDays, formatLongDate, formatRange, greeting, todayIso } from '../lib/format';
 
@@ -96,6 +97,184 @@ function RequestRow({ request }: { request: AbsenceRequest }) {
         <StatusChip status={request.status} />
       </span>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Widget „Diese Woche abwesend“
+// ---------------------------------------------------------------------------
+
+/** Länge des Vorschaufensters in Tagen, heute eingeschlossen. */
+const WEEK_WINDOW_DAYS = 7;
+
+/** Höchstzahl gezeigter Einträge; der Rest wird nur noch gezählt. */
+const MAX_AWAY_ITEMS = 5;
+
+/**
+ * Anzeigename maskierter Einträge. Bewusst hier gesetzt und nicht aus
+ * `type_name` übernommen: bei `type_id === null` hat niemand — auch nicht bei
+ * einer späteren Backend-Änderung — Anspruch auf mehr als dieses eine Wort.
+ */
+const MASKED_LABEL = 'Abwesend';
+
+/**
+ * Datumsarithmetik über UTC-Mitternacht, damit die Sommerzeitumstellung keinen
+ * Tag verschluckt oder verdoppelt.
+ */
+function addDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+interface AwayItem {
+  /** `request_id` ist über alle Anträge eindeutig — taugt als Schlüssel und zur Entdopplung. */
+  requestId: number;
+  name: string;
+  label: string;
+  color: string;
+  dateFrom: string;
+  dateTo: string;
+}
+
+/** Alle Abwesenheiten einer Monatsantwort, die ins Fenster [from, to] fallen. */
+function collectAway(
+  employees: MeCalendarEmployee[],
+  ownEmployeeId: number | null,
+  from: string,
+  to: string,
+  seen: Set<number>,
+  into: AwayItem[],
+): void {
+  for (const employee of employees) {
+    // Die eigene Person steht schon in „Nächste Abwesenheit“ nebenan.
+    if (ownEmployeeId !== null && employee.id === ownEmployeeId) continue;
+    for (const entry of employee.absences) {
+      // Überlappung mit dem Fenster; die Route liefert den vollen Zeitraum des
+      // Antrags, nicht den auf den Monat beschnittenen.
+      if (entry.date_from > to || entry.date_to < from) continue;
+      // Ein über die Monatsgrenze laufender Antrag steckt in beiden Antworten.
+      if (seen.has(entry.request_id)) continue;
+      seen.add(entry.request_id);
+      into.push({
+        requestId: entry.request_id,
+        name: `${employee.first_name} ${employee.last_name}`,
+        label: entry.type_id === null ? MASKED_LABEL : entry.type_name,
+        color: entry.color,
+        dateFrom: entry.date_from,
+        dateTo: entry.date_to,
+      });
+    }
+  }
+}
+
+/**
+ * Wer ist in den nächsten sieben Tagen nicht da? Grundlage für Vertretungen
+ * und Terminplanung.
+ *
+ * Der Firmenkalender wird monatsweise geladen (harte Deckelung im Backend).
+ * Ein Sieben-Tage-Fenster kann über die Monatsgrenze laufen — dann wird der
+ * Folgemonat als zweite Abfrage nachgeholt, sonst fehlten die Abwesenheiten
+ * der letzten Fenstertage stillschweigend. Liegt das Fenster ganz im
+ * laufenden Monat, bleibt die zweite Abfrage über den ungültigen Monat 0
+ * abgeschaltet (siehe `enabled` in useMyCalendar).
+ */
+function AwayThisWeekCard() {
+  const today = todayIso();
+  const windowEnd = addDays(today, WEEK_WINDOW_DAYS - 1);
+
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  const endYear = Number(windowEnd.slice(0, 4));
+  const endMonth = Number(windowEnd.slice(5, 7));
+  const crossesMonth = endYear !== year || endMonth !== month;
+
+  const { data: profile, isLoading: profileLoading } = useMyProfile();
+  const current = useMyCalendar(year, month);
+  const next = useMyCalendar(endYear, crossesMonth ? endMonth : 0);
+
+  const ownEmployeeId = profile?.id ?? null;
+  const items = useMemo(() => {
+    const seen = new Set<number>();
+    const out: AwayItem[] = [];
+    for (const page of [current.data, next.data]) {
+      if (page) collectAway(page.employees, ownEmployeeId, today, windowEnd, seen, out);
+    }
+    out.sort(
+      (a, b) =>
+        a.dateFrom.localeCompare(b.dateFrom) ||
+        a.name.localeCompare(b.name, 'de') ||
+        a.dateTo.localeCompare(b.dateTo),
+    );
+    return out;
+  }, [current.data, next.data, ownEmployeeId, today, windowEnd]);
+
+  // Fehlt eine der beiden Monatsantworten, wäre die Liste unvollständig, ohne
+  // dass man es ihr ansieht — deshalb lieber gar keine Liste als eine falsche.
+  const error = current.error ?? next.error;
+  const isLoading = profileLoading || current.isLoading || next.isLoading;
+  const rest = items.length - MAX_AWAY_ITEMS;
+
+  return (
+    <Card
+      title="Diese Woche abwesend"
+      flush
+      actions={
+        <Link to="/kalender" className="pt-btn pt-btn--quiet pt-btn--sm">
+          Alle ansehen
+        </Link>
+      }
+    >
+      {error ? (
+        <div className="pt-card__body">
+          <LoadError error={error} />
+        </div>
+      ) : isLoading ? (
+        <div className="pt-card__body">
+          <SkeletonRows rows={3} />
+        </div>
+      ) : items.length === 0 ? (
+        <EmptyState
+          title="Alle an Bord"
+          hint="In den nächsten sieben Tagen ist niemand abwesend gemeldet."
+        />
+      ) : (
+        <div style={{ marginTop: -1 }}>
+          {items.slice(0, MAX_AWAY_ITEMS).map((item) => (
+            <div
+              key={item.requestId}
+              className="row"
+              style={{
+                padding: '13px 22px',
+                borderTop: '1px solid var(--gray-100)',
+                alignItems: 'flex-start',
+              }}
+            >
+              {/* Farbe der Abwesenheitsart kommt aus den Daten, nicht aus den Tokens. */}
+              <span className="pt-dot" style={{ background: item.color }} />
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{item.name}</p>
+                <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                  {item.label} · {formatRange(item.dateFrom, item.dateTo)}
+                </p>
+              </div>
+            </div>
+          ))}
+          {rest > 0 && (
+            <p
+              style={{
+                padding: '11px 22px',
+                borderTop: '1px solid var(--gray-100)',
+                color: 'var(--text-muted)',
+                fontSize: 'var(--text-sm)',
+              }}
+            >
+              … und {rest} weitere
+            </p>
+          )}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -218,6 +397,8 @@ export function OverviewPage() {
               </div>
             )}
           </Card>
+
+          <AwayThisWeekCard />
         </div>
       </div>
     </div>

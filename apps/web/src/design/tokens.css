@@ -83,12 +83,15 @@
   /* Themebare Einzelwerte */
   --bg-tint-1: rgb(8 100 198 / 0.055);
   --bg-tint-2: rgb(15 47 95 / 0.045);
+  --nav-active-bg: linear-gradient(135deg, rgb(17 121 221 / 0.92), rgb(8 100 198 / 0.72));
   --toast-bg: var(--gray-900);
   --toast-text: #fff;
   --focus-ring: rgb(8 100 198 / 0.13);
   --table-hover: #f2f7fe;
 
-  /* Layout (Portal-eigen: Kopfzeile statt Sidebar) */
+  /* Layout */
+  --sidebar-width: 264px;
+  /* Nur noch die schlanke Topbar unter 900px (dort steht der Hamburger). */
   --header-height: 56px;
   --content-width: 1060px;
 }
@@ -156,6 +159,9 @@
 
   --bg-tint-1: rgb(59 143 228 / 0.07);
   --bg-tint-2: rgb(76 110 245 / 0.05);
+  /* --nav-active-bg wird bewusst NICHT überschrieben: das Blau aus :root hebt
+     sich auf dem dunkleren Sidebar-Verlauf besser ab als eine eigene Variante
+     (identische Entscheidung wie in der Desktop-App). */
   --toast-bg: #24405f;
   --toast-text: #eef4fb;
   --focus-ring: rgb(59 143 228 / 0.28);
@@ -208,6 +214,7 @@
 
   --bg-tint-1: rgb(212 84 143 / 0.06);
   --bg-tint-2: rgb(142 79 117 / 0.05);
+  --nav-active-bg: linear-gradient(135deg, rgb(231 127 176 / 0.95), rgb(191 70 128 / 0.8));
   --toast-bg: #3a2331;
   --focus-ring: rgb(212 84 143 / 0.16);
   --table-hover: #fcf2f7;
@@ -259,6 +266,7 @@
 
   --bg-tint-1: rgb(100 112 138 / 0.06);
   --bg-tint-2: rgb(60 69 87 / 0.05);
+  --nav-active-bg: linear-gradient(135deg, rgb(139 152 176 / 0.95), rgb(84 95 120 / 0.85));
   --toast-bg: #272c37;
   --focus-ring: rgb(100 112 138 / 0.16);
   --table-hover: #f2f4f7;

@@ -73,39 +73,58 @@ button {
 }
 
 /* ================================================================ Shell === */
-.portal-header {
+/* Zweispaltiges Grundgerüst wie in der Desktop-App: links die Seitenleiste,
+   rechts Inhalt und Fußzeile.
+
+   Höhenmodell — bewusst ANDERS als im Renderer: dort hält
+   `body { overflow: hidden }` die Shell auf Fensterhöhe und ein innerer
+   Container scrollt. Hier scrollt der Body selbst, die Leiste bleibt per
+   `position: sticky` stehen. Grund: Der Farbnebel des Portals liegt als
+   `background-attachment: fixed` auf dem Body, und mobile Browser rechnen ihre
+   ein-/ausfahrende Adressleiste nur beim Body-Scroll korrekt heraus. Ein
+   Mischbetrieb aus beiden Modellen bricht genau das. */
+.portal-shell {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100dvh;
+}
+
+.portal-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  width: var(--sidebar-width);
+  flex: none;
+  display: flex;
+  flex-direction: column;
   /* Gleicher Verlauf wie die Desktop-Sidebar — trägt in jedem Theme dessen
      charakteristische Farbe (Navy, Nachtblau, Wein, Graphit). */
   background: var(--bg-sidebar);
   color: var(--text-on-dark);
+  -webkit-user-select: none;
+  user-select: none;
 }
-.portal-header__inner {
-  max-width: var(--content-width);
-  margin: 0 auto;
-  padding: 0 24px;
-  height: var(--header-height);
-  display: flex;
-  align-items: stretch;
-  gap: 28px;
-}
+
 .portal-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  padding: 22px 20px 16px;
+  font-size: 1.15rem;
   font-weight: 700;
-  font-size: 1.0625rem;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: #ffffff;
   white-space: nowrap;
 }
-/* Logo-Kachel wie in der Sidebar der Desktop-App: dieselbe Datei, weiße
-   Fläche, damit das Logo auf dem dunklen Kopfzeilen-Verlauf trägt. */
+/* Logo-Kachel wie in der Desktop-App: weiße Fläche, damit das Logo auf dem
+   dunklen Verlauf trägt. */
 .portal-brand img {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
   background: #fff;
-  padding: 3px;
+  padding: 4px;
   box-shadow: 0 2px 10px rgb(0 0 0 / 0.25);
 }
 /* Die Wortmarke braucht ihren eigenen Kasten: .portal-brand ist ein
@@ -114,56 +133,70 @@ button {
 .portal-brand__name {
   white-space: nowrap;
 }
-.portal-brand span {
+/* Nur die zweite Silbe wird abgesetzt — deshalb der Kindselektor. */
+.portal-brand__name > span {
   color: var(--wordmark-accent);
 }
+
 .portal-nav {
-  display: flex;
-  align-items: stretch;
-  gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 12px 16px;
 }
-.portal-nav::-webkit-scrollbar {
-  display: none;
+.portal-nav::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.18);
+  background-clip: content-box;
+}
+.portal-nav__section {
+  font-size: 0.6875rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgb(244 247 252 / 0.42);
+  padding: 20px 12px 7px;
 }
 .portal-nav__link {
   display: flex;
   align-items: center;
-  padding: 0 14px;
-  color: rgb(244 247 252 / 0.72);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  border-bottom: 3px solid transparent;
-  border-top: 3px solid transparent; /* optische Mitte trotz Unterstreichung */
-  white-space: nowrap;
+  gap: 11px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  color: rgb(244 247 252 / 0.78);
+  font-size: var(--text-base);
+  font-weight: 500;
+  margin-bottom: 2px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 .portal-nav__link:hover {
+  background: rgb(255 255 255 / 0.08);
   color: #ffffff;
   text-decoration: none;
 }
 .portal-nav__link--active {
+  background: var(--nav-active-bg);
   color: #ffffff;
-  border-bottom-color: var(--wordmark-accent);
+  font-weight: 560;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
 }
+.portal-nav__link svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+.portal-nav__link--active svg {
+  opacity: 1;
+}
+
 .portal-user {
-  margin-left: auto;
+  border-top: 1px solid rgb(255 255 255 / 0.09);
+  padding: 14px 16px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-.portal-user__name {
-  font-size: var(--text-sm);
-  color: rgb(244 247 252 / 0.85);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  gap: 11px;
 }
 .portal-user__initials {
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   background: rgb(127 179 236 / 0.22);
   color: var(--wordmark-accent);
@@ -173,24 +206,103 @@ button {
   font-weight: 700;
   letter-spacing: 0.03em;
 }
-.portal-user__logout {
-  border: 1px solid rgb(244 247 252 / 0.28);
-  background: transparent;
-  color: rgb(244 247 252 / 0.85);
-  border-radius: var(--radius-sm);
-  height: 30px;
-  padding: 0 12px;
-  font-size: var(--text-xs);
+.portal-user__text {
+  flex: 1;
+  min-width: 0;
+}
+.portal-user__name {
+  font-size: var(--text-sm);
   font-weight: 600;
-  cursor: pointer;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.portal-user__role {
+  font-size: var(--text-xs);
+  color: rgb(244 247 252 / 0.55);
+}
+.portal-user__logout {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: rgb(244 247 252 / 0.7);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 .portal-user__logout:hover {
-  background: rgb(244 247 252 / 0.1);
+  background: rgb(255 255 255 / 0.1);
   color: #ffffff;
 }
 
+/* Schließen-Knopf und Overlay gehören zum Drawer und erscheinen erst unter
+   900px (siehe Responsiv-Block am Dateiende). `display: none` nimmt sie
+   auf großen Fenstern auch aus der Tab-Reihenfolge. */
+.portal-sidebar__close,
+.portal-overlay {
+  display: none;
+}
+
+.portal-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+/* Schlanke Topbar mit Hamburger — Gegenstück zum Drawer, ebenfalls erst
+   unter 900px sichtbar. */
+.portal-topbar {
+  display: none;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: var(--header-height);
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--bg-sidebar);
+  color: var(--text-on-dark);
+}
+.portal-topbar__burger {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgb(244 247 252 / 0.24);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: rgb(244 247 252 / 0.9);
+  cursor: pointer;
+}
+.portal-topbar__burger:hover {
+  background: rgb(255 255 255 / 0.12);
+  color: #ffffff;
+}
+.portal-topbar .portal-brand {
+  padding: 0;
+  gap: 10px;
+  font-size: 1.0625rem;
+  min-width: 0;
+  overflow: hidden;
+}
+.portal-topbar .portal-brand img {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  padding: 3px;
+}
+
 .portal-main {
+  /* flex: 1 drückt die Fußzeile ans untere Ende auch bei kurzen Seiten. */
+  flex: 1;
+  width: 100%;
   max-width: var(--content-width);
   margin: 0 auto;
   padding: 36px 24px 72px;
@@ -758,42 +870,81 @@ button {
 }
 
 /* ============================================================ Responsiv === */
+@media (max-width: 900px) {
+  /* Off-Canvas-Drawer: Auf Smartphone-Breite hat die feste Spalte keinen
+     Platz. Die Leiste wird zum ausfahrbaren Panel, die Topbar übernimmt
+     Marke und Hamburger.
+     Ausgeblendet wird ausschließlich nach LINKS — ein Element, das nach
+     rechts über den Viewport hinausragt, erzeugt horizontalen Body-Scroll,
+     ein nach links verschobenes nicht. */
+  .portal-topbar {
+    display: flex;
+  }
+  .portal-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 50;
+    width: min(var(--sidebar-width), 84vw);
+    transform: translateX(-100%);
+    visibility: hidden;
+    /* visibility mit Verzögerung: erst nach dem Hinausfahren unsichtbar
+       schalten, damit die geschlossene Leiste weder vorgelesen noch
+       angesprungen werden kann. */
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0.22s;
+    box-shadow: var(--shadow-lg);
+  }
+  .portal-sidebar--open {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s;
+  }
+  .portal-sidebar__close {
+    display: grid;
+    margin-left: auto;
+    flex: none;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid rgb(244 247 252 / 0.24);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: rgb(244 247 252 / 0.85);
+    cursor: pointer;
+  }
+  .portal-sidebar__close:hover {
+    background: rgb(255 255 255 / 0.12);
+    color: #ffffff;
+  }
+  .portal-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    border: 0;
+    padding: 0;
+    background: rgb(9 18 33 / 0.5);
+    cursor: pointer;
+  }
+  .portal-content {
+    /* Ohne die Seitenleiste in der Zeile darf der Inhalt die volle Breite
+       nutzen; die Mindesthöhe trägt jetzt .portal-shell allein. */
+    min-height: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-sidebar {
+    transition: none;
+  }
+}
 @media (max-width: 860px) {
   .grid-overview {
     grid-template-columns: 1fr;
   }
 }
 @media (max-width: 720px) {
-  /* Kopfzeile zweizeilig: oben Marke + Konto, darunter die Navigation in
-     voller Breite (intern scrollbar) — sonst erzwingen die nowrap-Elemente
-     eine Mindestbreite über dem Viewport und der Body scrollt horizontal. */
-  .portal-header__inner {
-    padding: 0 16px;
-    gap: 0 12px;
-    height: auto;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  .portal-header .portal-brand {
-    order: 1;
-    padding: 12px 0 6px;
-  }
-  .portal-header .portal-user {
-    order: 2;
-    padding: 12px 0 6px;
-  }
-  .portal-nav {
-    order: 3;
-    width: 100%;
-  }
-  .portal-nav__link:first-child {
-    padding-left: 0;
-  }
-  .portal-nav__link {
-    padding: 8px 12px;
-  }
-  .portal-user__name {
-    display: none;
+  .portal-topbar {
+    padding: 0 10px;
   }
   .portal-main {
     padding: 24px 16px 56px;
@@ -809,5 +960,148 @@ button {
   .pt-ledger__item {
     padding-right: 14px;
     margin-right: 14px;
+  }
+}
+
+/* ========================================================== Organigramm === */
+/* Zeichenfläche des Abteilungsdiagramms. Sie ist der einzige Bereich, in dem
+   geschoben und gezoomt wird: `overflow: hidden` plus die Transformation im
+   SVG halten alles im Kasten, damit die SEITE nie waagerecht scrollt.
+   `touch-action: none` gibt Ziehen und Spreizen an die Zeigerlogik ab —
+   ohne das rollt das Telefon die Seite, statt das Diagramm zu bewegen. */
+.pt-org-canvas {
+  position: relative;
+  height: clamp(340px, 62vh, 560px);
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  background-color: var(--gray-25);
+  background-image: radial-gradient(var(--gray-200) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.pt-org-canvas--panning {
+  cursor: grabbing;
+}
+/* Im Ladezustand gibt es nichts zu ziehen. */
+.pt-org-canvas--loading {
+  cursor: default;
+  touch-action: auto;
+}
+
+.pt-org-skeleton {
+  display: grid;
+  justify-items: center;
+  gap: 46px;
+  padding-top: 54px;
+}
+.pt-org-skeleton__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 18px;
+}
+
+/* Steuerleiste rechts unten in der Zeichenfläche. */
+.pt-org-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow);
+}
+.pt-org-zoom__value {
+  min-width: 44px;
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pt-org-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.pt-org-btn:hover:not(:disabled) {
+  background: var(--gray-100);
+  color: var(--text-primary);
+}
+.pt-org-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pt-org-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 18px;
+  padding: 12px 22px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.pt-org-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.pt-org-legend__swatch {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  background: var(--blue-50);
+  border: 2px solid var(--brand-primary);
+}
+.pt-org-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* Kästen laufen gestaffelt ein — die Verzögerung setzt die Seite je Knoten. */
+.pt-org-node {
+  animation: pt-org-appear 0.34s ease both;
+}
+@keyframes pt-org-appear {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pt-org-node {
+    animation: none;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Auf Telefonbreite fehlt in der Kartenkopfzeile der Platz; die Bedienung
+     erklärt sich dort über die Knöpfe. */
+  .pt-org-hint {
+    display: none;
+  }
+  .pt-org-canvas {
+    height: clamp(320px, 56vh, 460px);
+  }
+  .pt-org-foot {
+    padding-left: 16px;
+    padding-right: 16px;
   }
 }
