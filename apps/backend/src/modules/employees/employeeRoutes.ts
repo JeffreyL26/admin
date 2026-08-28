@@ -11,13 +11,48 @@ import {
   employeePatchSchema,
 } from './validation.js';
 
+/**
+ * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
+ * schickt kommagetrennt (`employee_type=vollzeit,werkstudent`) oder als
+ * wiederholten Parameter — beides landet hier als Liste. Ein leerer Wert
+ * bedeutet „kein Filter“, nicht „nichts anzeigen“.
+ */
+const csvList = z
+  .union([z.string(), z.array(z.string())])
+  .optional()
+  .transform((v) => {
+    if (v === undefined) return undefined;
+    const parts = (Array.isArray(v) ? v : [v])
+      .flatMap((s) => s.split(','))
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return parts.length ? parts : undefined;
+  });
+
+const numberList = csvList.transform((v) =>
+  v?.map(Number).filter((n) => Number.isInteger(n) && n > 0),
+);
+
+/** Sortierfelder der Liste. Bewusst eine Whitelist — der Wert geht ins SQL. */
+const SORT_COLUMNS = {
+  last_name: 'e.last_name COLLATE NOCASE',
+  first_name: 'e.first_name COLLATE NOCASE',
+  personnel_number: 'e.personnel_number COLLATE NOCASE',
+  hire_date: 'e.hire_date',
+  job_title: 'e.job_title COLLATE NOCASE',
+  department: 'd.name COLLATE NOCASE',
+} as const;
+
 const listQuerySchema = z.object({
   search: z.string().trim().optional(),
-  status: z.enum(['aktiv', 'ausgeschieden']).optional(),
-  employee_type: z.string().optional(),
-  department_id: z.coerce.number().int().positive().optional(),
-  team_id: z.coerce.number().int().positive().optional(),
-  location_id: z.coerce.number().int().positive().optional(),
+  status: csvList,
+  employee_type: csvList,
+  job_title: csvList,
+  department_id: numberList,
+  team_id: numberList,
+  location_id: numberList,
+  sort: z.enum(Object.keys(SORT_COLUMNS) as [keyof typeof SORT_COLUMNS]).optional(),
+  dir: z.enum(['asc', 'desc']).optional(),
   fields: z.enum(['lite', 'full']).optional(),
 });
 
@@ -49,27 +84,40 @@ const SEARCH_FIELDS = [
 function queryEmployees(query: ListQuery): Record<string, unknown>[] {
   const where: string[] = [];
   const params: unknown[] = [];
-  if (query.status) {
-    where.push('e.status = ?');
-    params.push(query.status);
-  }
-  if (query.employee_type) {
-    where.push('e.employee_type = ?');
-    params.push(query.employee_type);
-  }
-  for (const key of ['department_id', 'team_id', 'location_id'] as const) {
-    if (query[key] !== undefined) {
-      where.push(`e.${key} = ?`);
-      params.push(query[key]);
-    }
-  }
+
+  // Mehrere Werte je Filter werden mit IN verodert, verschiedene Filter mit AND
+  // verknüpft: „(Vollzeit ODER Werkstudent) UND Abteilung Technik“.
+  const inFilter = (column: string, values: (string | number)[] | undefined) => {
+    if (!values?.length) return;
+    where.push(`${column} IN (${values.map(() => '?').join(', ')})`);
+    params.push(...values);
+  };
+  inFilter('e.status', query.status);
+  inFilter('e.employee_type', query.employee_type);
+  inFilter('e.department_id', query.department_id);
+  inFilter('e.team_id', query.team_id);
+  inFilter('e.location_id', query.location_id);
+  inFilter('e.job_title', query.job_title);
+
   if (query.search) {
     const like = `%${query.search.toLowerCase()}%`;
     where.push(`(${SEARCH_FIELDS.map((f) => `lower(coalesce(${f}, '')) LIKE ?`).join(' OR ')})`);
     for (let i = 0; i < SEARCH_FIELDS.length; i++) params.push(like);
   }
+
+  // Sortierung aus der Whitelist; der Name als zweites Kriterium hält die
+  // Reihenfolge bei Gleichstand stabil (sonst springen Zeilen beim Neuladen).
+  const column = SORT_COLUMNS[query.sort ?? 'last_name'];
+  const dir = query.dir === 'desc' ? 'DESC' : 'ASC';
+  const tieBreak =
+    query.sort === 'first_name'
+      ? 'e.last_name COLLATE NOCASE'
+      : 'e.first_name COLLATE NOCASE';
+  // NULLs (z. B. fehlende Personalnummer) ans Ende, unabhängig von der Richtung.
+  const nullsLast = `CASE WHEN ${column} IS NULL THEN 1 ELSE 0 END`;
+
   const sql = `${BASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    ORDER BY e.last_name COLLATE NOCASE, e.first_name COLLATE NOCASE`;
+    ORDER BY ${nullsLast}, ${column} ${dir}, ${tieBreak} ${dir}`;
   return getDb().prepare(sql).all(...params) as Record<string, unknown>[];
 }
 
@@ -126,7 +174,7 @@ function csvCell(value: unknown): string {
 }
 
 const CSV_COLUMNS = [
-  'id', 'first_name', 'last_name', 'email', 'phone', 'birth_date',
+  'id', 'personnel_number', 'first_name', 'last_name', 'email', 'phone', 'birth_date',
   'private_street', 'private_zip', 'private_city', 'private_phone', 'private_email',
   'iban', 'bic', 'tax_id', 'tax_class', 'church_tax', 'child_allowances',
   'social_security_number', 'health_insurance',
@@ -136,7 +184,23 @@ const CSV_COLUMNS = [
 ];
 
 export async function employeeRoutes(app: FastifyInstance): Promise<void> {
-  // Liste inkl. Suche/Filter; fields=lite ist Kontrakt für andere Module.
+  // Vorhandene Titel als Filterwerte — damit sich z. B. alle Leitungsrollen
+  // quer über die Abteilungen zeigen lassen. Bewusst aus dem Bestand statt aus
+  // einer gepflegten Liste: Titel entstehen beim Anlegen frei, eine getrennte
+  // Stammdatenpflege liefe sofort auseinander.
+  // Muss VOR '/api/employees/:id' stehen, sonst greift die Parameter-Route.
+  app.get('/api/employees/job-titles', async () => {
+    const rows = getDb()
+      .prepare(
+        `SELECT job_title AS title, COUNT(*) AS count FROM employees
+         WHERE job_title IS NOT NULL AND trim(job_title) != ''
+         GROUP BY job_title ORDER BY job_title COLLATE NOCASE`,
+      )
+      .all() as { title: string; count: number }[];
+    return { job_titles: rows };
+  });
+
+  // Liste inkl. Suche/Filter/Sortierung; fields=lite ist Kontrakt für andere Module.
   app.get('/api/employees', async (req) => {
     const query = parse(listQuerySchema, req.query ?? {});
     const rows = queryEmployees(query);
@@ -189,9 +253,32 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     return { employee, reporting_line: reportingLine(id) };
   });
 
+  /**
+   * Doppelte Personalnummer vorab abfangen. Der partielle UNIQUE-Index würde
+   * sonst als roher SQLite-Fehler durchschlagen — hier wird daraus eine
+   * Meldung, die sagt, wem die Nummer schon gehört.
+   */
+  function assertPersonnelNumberFree(value: unknown, exceptId?: number): void {
+    if (typeof value !== 'string' || value.trim() === '') return;
+    const clash = getDb()
+      .prepare(
+        `SELECT id, first_name, last_name FROM employees
+         WHERE personnel_number = ? AND id != ?`,
+      )
+      .get([value.trim(), exceptId ?? -1]) as
+      | { id: number; first_name: string; last_name: string }
+      | undefined;
+    if (clash) {
+      throw conflict(
+        `Die Personalnummer „${value.trim()}“ ist bereits ${clash.first_name} ${clash.last_name} zugeordnet.`,
+      );
+    }
+  }
+
   app.post('/api/employees', async (req, reply) => {
     const body = parse(employeeBodySchema, req.body);
     assertTypeRules(body);
+    assertPersonnelNumberFree(body.personnel_number);
     const cols = EMPLOYEE_COLUMNS.filter((c) => body[c] !== undefined);
     const info = getDb()
       .prepare(
@@ -214,6 +301,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     const cols = EMPLOYEE_COLUMNS.filter((c) => patch[c] !== undefined);
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
     assertTypeRules({ ...existing, ...patch });
+    assertPersonnelNumberFree(patch.personnel_number, id);
     getDb()
       .prepare(
         `UPDATE employees SET ${cols.map((c) => `${c} = ?`).join(', ')},

@@ -217,4 +217,19 @@ export const employeesMigrations: Migration[] = [
         CHECK (source IN ('hr','portal'));
     `,
   },
+  {
+    name: '104_personnel_number',
+    // Personalnummer: freiwillig, weil Betriebe sie sehr unterschiedlich
+    // handhaben (aus der Lohnbuchhaltung übernommen, eigenes Schema, oder gar
+    // nicht). Deshalb TEXT und nicht INTEGER — führende Nullen und Präfixe wie
+    // "P-0042" sind in der Praxis üblich und dürfen nicht verlorengehen.
+    //
+    // Eindeutig, aber nur wo gesetzt: Der partielle UNIQUE-Index lässt beliebig
+    // viele NULL-Zeilen zu und verhindert trotzdem doppelte Nummern.
+    sql: `
+      ALTER TABLE employees ADD COLUMN personnel_number TEXT;
+      CREATE UNIQUE INDEX idx_employees_personnel_number
+        ON employees(personnel_number) WHERE personnel_number IS NOT NULL;
+    `,
+  },
 ];

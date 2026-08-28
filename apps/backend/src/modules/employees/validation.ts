@@ -24,6 +24,11 @@ const nullableString = z.string().trim().max(500).nullish();
 export const employeeBodySchema = z.object({
   first_name: z.string().trim().min(1, 'Vorname ist Pflicht'),
   last_name: z.string().trim().min(1, 'Nachname ist Pflicht'),
+  // Freiwillig und als Text: Betriebe übernehmen sie aus der Lohnbuchhaltung
+  // oder pflegen ein eigenes Schema, oft mit führenden Nullen oder Präfix
+  // ("P-0042"). Als Zahl gespeichert ginge diese Form verloren.
+  // Eindeutigkeit erzwingt ein partieller UNIQUE-Index (Migration 104).
+  personnel_number: z.string().trim().max(40).nullish(),
   email: nullableString,
   phone: nullableString,
   photo_file_id: z.number().int().positive().nullish(),

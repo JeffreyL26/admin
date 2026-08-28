@@ -151,6 +151,12 @@ export interface EmployeeLiteDto {
 }
 
 export interface EmployeeDto extends EmployeeLiteDto {
+  /**
+   * Freiwillige Personalnummer; Text, weil führende Nullen und Präfixe üblich
+   * sind. Bewusst NICHT Teil der schlanken Form (fields=lite) — die ist
+   * Kontrakt für andere Module und bleibt unverändert.
+   */
+  personnel_number: string | null;
   email: string | null;
   phone: string | null;
   photo_file_id: number | null;
@@ -239,3 +245,92 @@ export interface OrgTreeNode {
   }[];
   children: OrgTreeNode[];
 }
+
+// ---------------------------------------------------------------------------
+// Mitarbeiterliste: Spalten, Sortierung, Seniorität
+// ---------------------------------------------------------------------------
+
+/**
+ * Betriebszugehörigkeit als Anzahl voller Monate seit Eintritt.
+ * Angefangene Monate zählen nicht — „2 Jahre 1 Monat“ soll am Monatstag
+ * umspringen, nicht schon Tage vorher.
+ */
+export function seniorityMonths(hireDate: string | null, today = new Date()): number | null {
+  if (!hireDate) return null;
+  const [y, m, d] = hireDate.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  let months = (today.getFullYear() - y) * 12 + (today.getMonth() + 1 - m);
+  if (today.getDate() < d) months -= 1; // Monatstag noch nicht erreicht
+  return months < 0 ? 0 : months;
+}
+
+export type SeniorityFormat = 'monate' | 'jahre';
+
+export const SENIORITY_FORMAT_LABELS: Record<SeniorityFormat, string> = {
+  monate: 'In Monaten (z. B. 25 Monate)',
+  jahre: 'In Jahren und Monaten (z. B. 2 Jahre 1 Monat)',
+};
+
+/** Betriebszugehörigkeit als deutscher Text. */
+export function formatSeniority(
+  hireDate: string | null,
+  format: SeniorityFormat = 'jahre',
+  today = new Date(),
+): string {
+  const months = seniorityMonths(hireDate, today);
+  if (months === null) return '—';
+  if (format === 'monate') return months === 1 ? '1 Monat' : `${months} Monate`;
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  const yearPart = years === 1 ? '1 Jahr' : `${years} Jahre`;
+  const monthPart = rest === 1 ? '1 Monat' : `${rest} Monate`;
+  if (years === 0) return monthPart;
+  if (rest === 0) return yearPart;
+  return `${yearPart} ${monthPart}`;
+}
+
+/**
+ * Wählbare Spalten der Mitarbeiterliste. `fixed` bleibt immer sichtbar —
+ * ohne Name und Personalnummer wäre eine Zeile nicht mehr zuzuordnen.
+ */
+export interface EmployeeColumnDef {
+  id: string;
+  label: string;
+  fixed?: boolean;
+  defaultVisible?: boolean;
+}
+
+export const EMPLOYEE_LIST_COLUMNS: EmployeeColumnDef[] = [
+  { id: 'name', label: 'Name', fixed: true, defaultVisible: true },
+  { id: 'personnel_number', label: 'Personalnummer', fixed: true, defaultVisible: true },
+  { id: 'employee_type', label: 'Typ', defaultVisible: true },
+  { id: 'department', label: 'Abteilung / Team', defaultVisible: true },
+  { id: 'job_title', label: 'Titel', defaultVisible: true },
+  { id: 'hire_date', label: 'Eintritt', defaultVisible: true },
+  { id: 'seniority', label: 'Betriebszugehörigkeit' },
+  { id: 'location', label: 'Standort' },
+  { id: 'status', label: 'Status' },
+  { id: 'email', label: 'E-Mail' },
+  { id: 'phone', label: 'Telefon' },
+  { id: 'manager', label: 'Vorgesetzte:r' },
+  { id: 'weekly_hours', label: 'Wochenstunden' },
+  { id: 'annual_leave_days', label: 'Urlaubsanspruch' },
+  { id: 'exit_date', label: 'Austritt' },
+];
+
+export type EmployeeSortField =
+  | 'last_name'
+  | 'first_name'
+  | 'personnel_number'
+  | 'hire_date'
+  | 'job_title'
+  | 'department';
+
+export const EMPLOYEE_SORT_LABELS: Record<EmployeeSortField, string> = {
+  last_name: 'Nachname',
+  first_name: 'Vorname',
+  personnel_number: 'Personalnummer',
+  hire_date: 'Eintritt',
+  job_title: 'Titel',
+  department: 'Abteilung',
+};

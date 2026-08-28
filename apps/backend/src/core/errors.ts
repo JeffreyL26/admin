@@ -1,5 +1,5 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify';
-import { ZodError, type ZodSchema } from 'zod';
+import { ZodError, type ZodType, type ZodTypeDef } from 'zod';
 
 /**
  * Einheitliches Fehlerschema für alle Clients (Desktop heute, Web später):
@@ -25,7 +25,12 @@ export const forbidden = (msg = 'Keine Berechtigung für diese Aktion') =>
   new AppError(403, 'FORBIDDEN', msg);
 
 /** Validiert Request-Daten gegen ein Zod-Schema und wirft bei Fehlern das einheitliche Schema. */
-export function parse<T>(schema: ZodSchema<T>, data: unknown): T {
+/**
+ * Eingabe ist bewusst `unknown` statt an den Ausgabetyp gekoppelt: Schemata mit
+ * `.transform()` (z. B. kommagetrennte Filterlisten in Query-Parametern) haben
+ * eine andere Ein- als Ausgabeform. Am Aufrufverhalten ändert das nichts.
+ */
+export function parse<T>(schema: ZodType<T, ZodTypeDef, unknown>, data: unknown): T {
   const result = schema.safeParse(data);
   if (!result.success) {
     throw new AppError(400, 'VALIDATION_ERROR', 'Eingabedaten sind ungültig', result.error.flatten());

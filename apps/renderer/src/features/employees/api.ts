@@ -3,6 +3,7 @@ import type {
   ContractDto,
   DocumentDto,
   EmployeeDto,
+  EmployeeSortField,
   EmployeeStatus,
   EmployeeType,
 } from '@hrmonic/shared';
@@ -65,34 +66,62 @@ export interface OrgTreeNode extends Department {
   children: OrgTreeNode[];
 }
 
+/**
+ * Filter der Mitarbeiterliste. Alle Auswahlfilter sind Listen — leer heißt
+ * „kein Filter“, mehrere Werte werden verodert („Vollzeit ODER Werkstudent“).
+ */
 export interface EmployeeFilters {
   search: string;
-  status: EmployeeStatus | '';
-  employee_type: EmployeeType | '';
-  department_id: number | '';
-  team_id: number | '';
-  location_id: number | '';
+  status: EmployeeStatus[];
+  employee_type: EmployeeType[];
+  job_title: string[];
+  department_id: number[];
+  team_id: number[];
+  location_id: number[];
+  sort: EmployeeSortField;
+  dir: 'asc' | 'desc';
 }
 
 export const EMPTY_FILTERS: EmployeeFilters = {
   search: '',
-  status: 'aktiv',
-  employee_type: '',
-  department_id: '',
-  team_id: '',
-  location_id: '',
+  // Ausgeschiedene bleiben wie bisher außen vor, bis man sie ausdrücklich dazunimmt.
+  status: ['aktiv'],
+  employee_type: [],
+  job_title: [],
+  department_id: [],
+  team_id: [],
+  location_id: [],
+  sort: 'last_name',
+  dir: 'asc',
 };
 
 export function filtersToQuery(f: EmployeeFilters): string {
   const p = new URLSearchParams();
   if (f.search.trim()) p.set('search', f.search.trim());
-  if (f.status) p.set('status', f.status);
-  if (f.employee_type) p.set('employee_type', f.employee_type);
-  if (f.department_id !== '') p.set('department_id', String(f.department_id));
-  if (f.team_id !== '') p.set('team_id', String(f.team_id));
-  if (f.location_id !== '') p.set('location_id', String(f.location_id));
+  // Kommagetrennt statt wiederholter Parameter — kürzere URLs, und das Backend
+  // versteht beides.
+  const list = (key: string, values: (string | number)[]) => {
+    if (values.length) p.set(key, values.join(','));
+  };
+  list('status', f.status);
+  list('employee_type', f.employee_type);
+  list('job_title', f.job_title);
+  list('department_id', f.department_id);
+  list('team_id', f.team_id);
+  list('location_id', f.location_id);
+  if (f.sort !== 'last_name') p.set('sort', f.sort);
+  if (f.dir !== 'asc') p.set('dir', f.dir);
   const s = p.toString();
   return s ? `?${s}` : '';
+}
+
+/** Vorhandene Titel als Filterwerte (aus dem Bestand, nicht gepflegt). */
+export function useJobTitles() {
+  return useQuery({
+    queryKey: ['employees', 'job-titles'],
+    queryFn: () => api.get<{ job_titles: { title: string; count: number }[] }>('/api/employees/job-titles'),
+    select: (d) => d.job_titles,
+  });
 }
 
 // ---------------------------------------------------------------------------

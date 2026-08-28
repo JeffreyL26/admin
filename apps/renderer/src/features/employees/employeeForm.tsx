@@ -19,6 +19,7 @@ import { useDepartments, useLocations, useTeams, type EmployeeRow } from './api'
 export interface EmployeeFormState {
   first_name: string;
   last_name: string;
+  personnel_number: string;
   email: string;
   phone: string;
   birth_date: string;
@@ -52,6 +53,7 @@ export interface EmployeeFormState {
 export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
   first_name: '',
   last_name: '',
+  personnel_number: '',
   email: '',
   phone: '',
   birth_date: '',
@@ -86,6 +88,7 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
   return {
     first_name: e.first_name ?? '',
     last_name: e.last_name ?? '',
+    personnel_number: e.personnel_number ?? '',
     email: e.email ?? '',
     phone: e.phone ?? '',
     birth_date: e.birth_date ?? '',
@@ -126,6 +129,7 @@ export function formToPayload(f: EmployeeFormState): Record<string, unknown> {
   return {
     first_name: f.first_name.trim(),
     last_name: f.last_name.trim(),
+    personnel_number: str(f.personnel_number),
     email: str(f.email),
     phone: str(f.phone),
     birth_date: str(f.birth_date),
@@ -256,6 +260,17 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
       </Field>
       <Field label="Jobtitel" span2>
         <input className="hm-input" value={form.job_title} onChange={(e) => set({ job_title: e.target.value })} />
+      </Field>
+      <Field
+        label="Personalnummer"
+        hint="Optional. Buchstaben und führende Nullen bleiben erhalten (z. B. P-0042); jede Nummer darf nur einmal vergeben werden."
+      >
+        <input
+          className="hm-input"
+          value={form.personnel_number}
+          onChange={(e) => set({ personnel_number: e.target.value })}
+          placeholder="—"
+        />
       </Field>
       <Field label="Abteilung">
         <select
