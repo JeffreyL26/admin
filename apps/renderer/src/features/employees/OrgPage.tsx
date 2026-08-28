@@ -4,13 +4,13 @@ import {
   Building2, Check, Download, MapPin, Maximize2, Network, Pencil, Plus, Trash2,
   Users, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
-import { BUNDESLAND_LABELS, type BundeslandCode } from '@hrmonic/shared';
+import { BUNDESLAND_LABELS, type BundeslandCode, type OrgTreeNode } from '@hrmonic/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
-import { useLocations, useOrgTree, type Location, type OrgTreeNode } from './api';
+import { useLocations, useOrgTree, type Location } from './api';
 
 type DragPayload = { kind: 'department' | 'team'; id: number };
 

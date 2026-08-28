@@ -7,7 +7,7 @@ import { getDb } from '../../db/db.js';
 import { eachDay, isWeekend, todayIso } from '../../core/dates.js';
 import { isHoliday, type Bundesland } from '../../core/holidays.js';
 import { getSetting } from '../../core/settings.js';
-import { badRequest, conflict } from '../../core/errors.js';
+import { badRequest, conflict, forbidden } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 
 export interface EmployeeRow {
@@ -241,6 +241,91 @@ export interface AbsenceTypeRow {
   active: number;
 }
 
+/**
+ * Berechtigung für eine Abwesenheitsart auflösen. Zwei Regelquellen:
+ * eine Rollen-Allowlist je Art (keine Zeile bedeutet bewusst "alle dürfen",
+ * damit bestehende Arten ohne Pflege offen bleiben) und eine Personenregel,
+ * die die Rollenregel in beide Richtungen schlägt.
+ */
+function isTypeAllowed(employeeId: number, typeId: number, category: string): boolean {
+  // Krankmeldungen dürfen nie an einer Berechtigung scheitern.
+  if (category === 'krankheit') return true;
+  const db = getDb();
+
+  const rule = db
+    .prepare('SELECT effect FROM absence_type_employee_rules WHERE type_id = ? AND employee_id = ?')
+    .get([typeId, employeeId]) as { effect: string } | undefined;
+  if (rule) return rule.effect === 'allow';
+
+  // Ein Query statt "Allowlist laden, dann Rollen laden": der LEFT JOIN auf die
+  // Rollen der Person liefert Umfang und Treffer der Allowlist in einem Zug.
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS listed,
+              COALESCE(SUM(CASE WHEN er.employee_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS matched
+       FROM absence_type_roles atr
+       LEFT JOIN employee_roles er ON er.role_id = atr.role_id AND er.employee_id = ?
+       WHERE atr.type_id = ?`,
+    )
+    .get([employeeId, typeId]) as { listed: number; matched: number };
+  return row.listed === 0 || row.matched > 0;
+}
+
+/** Wirft 403, wenn die Person diese Abwesenheitsart nicht beantragen darf. */
+export function assertTypeAllowed(employeeId: number, type: AbsenceTypeRow): void {
+  if (isTypeAllowed(employeeId, type.id, type.category)) return;
+  throw forbidden(
+    `Die Abwesenheitsart „${type.name}“ ist für Sie nicht freigegeben. Bitte wenden Sie sich an die Personalabteilung.`,
+  );
+}
+
+/**
+ * Dieselbe Auflösung mengenweise für Lesefilter (z. B. die Auswahlliste im
+ * Portal). Bewusst drei Queries statt einer je Art, damit die Anzahl der
+ * Abfragen nicht mit der Anzahl der Arten wächst.
+ */
+export function allowedTypeIdsFor(employeeId: number): Set<number> {
+  const db = getDb();
+
+  const types = db.prepare('SELECT id, category FROM absence_types').all() as {
+    id: number;
+    category: string;
+  }[];
+
+  const rules = db
+    .prepare('SELECT type_id, effect FROM absence_type_employee_rules WHERE employee_id = ?')
+    .all(employeeId) as { type_id: number; effect: string }[];
+  const ruleByType = new Map(rules.map((r) => [r.type_id, r.effect]));
+
+  const listRows = db
+    .prepare(
+      `SELECT atr.type_id,
+              MAX(CASE WHEN er.employee_id IS NOT NULL THEN 1 ELSE 0 END) AS matched
+       FROM absence_type_roles atr
+       LEFT JOIN employee_roles er ON er.role_id = atr.role_id AND er.employee_id = ?
+       GROUP BY atr.type_id`,
+    )
+    .all(employeeId) as { type_id: number; matched: number }[];
+  const matchedByType = new Map(listRows.map((r) => [r.type_id, r.matched]));
+
+  const allowed = new Set<number>();
+  for (const t of types) {
+    if (t.category === 'krankheit') {
+      allowed.add(t.id);
+      continue;
+    }
+    const rule = ruleByType.get(t.id);
+    if (rule) {
+      if (rule === 'allow') allowed.add(t.id);
+      continue;
+    }
+    const matched = matchedByType.get(t.id);
+    // Keine Zeile in der Allowlist ⇒ die Art ist für alle offen.
+    if (matched === undefined || matched === 1) allowed.add(t.id);
+  }
+  return allowed;
+}
+
 export interface CreateRequestBody {
   employee_id: number;
   type_id: number;
@@ -263,6 +348,14 @@ export function createRequest(
   type: AbsenceTypeRow,
 ): number {
   const db = getDb();
+  // Die Berechtigungsprüfung sitzt hier und nicht in den Routen, weil
+  // createRequest der einzige gemeinsame Engpass aller vier Erfassungswege ist
+  // (HR-Erfassung, HR-Krankmeldung, Portal-Antrag, Portal-Krankmeldung). In den
+  // Routen müsste dieselbe Prüfung viermal stehen und würde bei einem fünften
+  // Weg vergessen. Geprüft wird ausschließlich die Neuanlage: bestehende
+  // Anträge bleiben gültig, wenn eine Berechtigung später entzogen wird.
+  assertTypeAllowed(body.employee_id, type);
+
   const overlapping = db
     .prepare(
       `SELECT r.id, r.date_from, r.date_to, t.name AS type_name FROM absence_requests r

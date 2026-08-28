@@ -1,7 +1,7 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
-import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
+import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../core/dates.js';
 import { holidaysForYear, type Bundesland } from '../../core/holidays.js';
@@ -32,6 +32,21 @@ const typeBodySchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Farbe als Hex-Wert (#RRGGBB) angeben'),
   max_days_per_year: z.number().positive().nullable().optional(),
   active: z.boolean().optional(),
+  // Sichtbarkeit im Firmenkalender des Portals. Fehlt das Feld, gilt 'name'
+  // (Klarname) — so behalten ältere Clients die bisherige Anzeige.
+  portal_visibility: z.enum(['name', 'neutral']).optional(),
+});
+
+const eligibilityBodySchema = z.object({
+  role_ids: z.array(z.number().int().positive()).optional(),
+  employee_rules: z
+    .array(
+      z.object({
+        employee_id: z.number().int().positive(),
+        effect: z.enum(['allow', 'deny']),
+      }),
+    )
+    .optional(),
 });
 
 const requestBodySchema = z.object({
@@ -73,6 +88,27 @@ interface RequestRow {
   status: string;
 }
 
+/**
+ * Vier-Augen-Prinzip: Wer selbst hinter einem Antrag steht, darf ihn nicht
+ * entscheiden. Bewusst nur bei `approve`/`reject` — `cancel` ist kein
+ * Entscheid, sondern ein Rückzug und muss der eigenen Person offenstehen;
+ * die Auto-Genehmigung bei `requires_approval = 0` (service.ts) trifft
+ * niemand persönlich, sondern folgt der Konfiguration der Abwesenheitsart.
+ *
+ * Ein Admin-Konto ohne Personalprofil (`employee_id = null`) hat keinen
+ * eigenen Antrag und wird deshalb nie geblockt. Im Ein-Admin-Betrieb bleibt
+ * der eigene Antrag liegen, bis ein zweites HR-Konto ihn prüft — das ist
+ * gewollt, ein Schlupfloch gäbe es sonst immer.
+ */
+function assertNotOwnRequest(req: FastifyRequest, row: RequestRow): void {
+  const actorEmployeeId = (req.user as { employee_id?: number | null }).employee_id ?? null;
+  if (actorEmployeeId !== null && actorEmployeeId === row.employee_id) {
+    throw forbidden(
+      'Eigene Abwesenheitsanträge dürfen nicht selbst entschieden werden. Bitte lassen Sie den Antrag von einer anderen Person der HR-Administration prüfen.',
+    );
+  }
+}
+
 const REQUEST_SELECT = `
   SELECT r.*, e.first_name, e.last_name,
          t.name AS type_name, t.color AS type_color, t.category AS type_category
@@ -84,17 +120,53 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
   const db = () => getDb();
 
   // ---------------------------------------------------------------- Arten ---
-  app.get('/api/absences/types', async () => ({
-    types: db().prepare('SELECT * FROM absence_types ORDER BY active DESC, category, name').all(),
-  }));
+  /**
+   * HR-Liste: bewusst UNGEFILTERT (die Berechtigung greift beim Anlegen eines
+   * Antrags, nicht beim Lesen der Stammdaten) — die Zuordnung wird nur zur
+   * Anzeige mitgeliefert. Beide Verknüpfungen kommen als Sammelabfrage und
+   * werden im Speicher zugeordnet, sonst wäre es eine Abfrage je Art.
+   */
+  app.get('/api/absences/types', async () => {
+    const types = db()
+      .prepare('SELECT * FROM absence_types ORDER BY active DESC, category, name')
+      .all() as TypeRow[];
+    const roleLinks = db()
+      .prepare('SELECT type_id, role_id FROM absence_type_roles')
+      .all() as { type_id: number; role_id: number }[];
+    const ruleLinks = db()
+      .prepare('SELECT type_id, employee_id, effect FROM absence_type_employee_rules')
+      .all() as { type_id: number; employee_id: number; effect: 'allow' | 'deny' }[];
+
+    const rolesByType = new Map<number, number[]>();
+    for (const link of roleLinks) {
+      const list = rolesByType.get(link.type_id);
+      if (list) list.push(link.role_id);
+      else rolesByType.set(link.type_id, [link.role_id]);
+    }
+    const rulesByType = new Map<number, { employee_id: number; effect: 'allow' | 'deny' }[]>();
+    for (const link of ruleLinks) {
+      const entry = { employee_id: link.employee_id, effect: link.effect };
+      const list = rulesByType.get(link.type_id);
+      if (list) list.push(entry);
+      else rulesByType.set(link.type_id, [entry]);
+    }
+
+    return {
+      types: types.map((t) => ({
+        ...t,
+        eligible_role_ids: rolesByType.get(t.id) ?? [],
+        employee_rules: rulesByType.get(t.id) ?? [],
+      })),
+    };
+  });
 
   app.post('/api/absences/types', async (req, reply) => {
     const body = parse(typeBodySchema, req.body);
     const result = db()
       .prepare(
         `INSERT INTO absence_types
-         (name, category, paid, affects_balance, requires_proof, requires_approval, color, max_days_per_year, active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (name, category, paid, affects_balance, requires_proof, requires_approval, color, max_days_per_year, active, portal_visibility)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         body.name,
@@ -106,6 +178,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         body.color,
         body.max_days_per_year ?? null,
         body.active === false ? 0 : 1,
+        body.portal_visibility ?? 'name',
       );
     const id = Number(result.lastInsertRowid);
     audit(req, 'create', 'absence_type', id, body);
@@ -121,7 +194,8 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     db()
       .prepare(
         `UPDATE absence_types SET name = ?, category = ?, paid = ?, affects_balance = ?,
-         requires_proof = ?, requires_approval = ?, color = ?, max_days_per_year = ?, active = ?
+         requires_proof = ?, requires_approval = ?, color = ?, max_days_per_year = ?, active = ?,
+         portal_visibility = ?
          WHERE id = ?`,
       )
       .run(
@@ -134,6 +208,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         body.color,
         body.max_days_per_year ?? null,
         body.active === false ? 0 : 1,
+        body.portal_visibility ?? 'name',
         id,
       );
     audit(req, 'update', 'absence_type', id, body);
@@ -157,6 +232,76 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     db().prepare('DELETE FROM absence_types WHERE id = ?').run(id);
     audit(req, 'delete', 'absence_type', id, { name: existing.name });
     reply.status(204);
+  });
+
+  // -------------------------------------------------------- Berechtigungen ---
+  // Wer darf eine Art beantragen? Rollen-Allowlist (leer = alle Rollen dürfen)
+  // plus Personenregeln, die die Rollenregel schlagen. Ausgewertet wird das
+  // beim Anlegen eines Antrags (service.ts), hier steht nur die Pflege.
+  app.get('/api/absences/types/:id/eligibility', async (req) => {
+    const id = Number((req.params as { id: string }).id);
+    const existing = db().prepare('SELECT id FROM absence_types WHERE id = ?').get(id);
+    if (!existing) throw notFound('Abwesenheitsart nicht gefunden');
+    const roles = db()
+      .prepare('SELECT role_id FROM absence_type_roles WHERE type_id = ? ORDER BY role_id')
+      .all(id) as { role_id: number }[];
+    const employeeRules = db()
+      .prepare(
+        `SELECT employee_id, effect FROM absence_type_employee_rules
+         WHERE type_id = ? ORDER BY employee_id`,
+      )
+      .all(id) as { employee_id: number; effect: 'allow' | 'deny' }[];
+    return { role_ids: roles.map((r) => r.role_id), employee_rules: employeeRules };
+  });
+
+  app.put('/api/absences/types/:id/eligibility', async (req) => {
+    const id = Number((req.params as { id: string }).id);
+    const existing = db().prepare('SELECT * FROM absence_types WHERE id = ?').get(id) as
+      | TypeRow
+      | undefined;
+    if (!existing) throw notFound('Abwesenheitsart nicht gefunden');
+    const body = parse(eligibilityBodySchema, req.body);
+
+    // Doppelte Rollen sind harmlos (Menge), doppelte Personenregeln nicht:
+    // zweimal dieselbe Person mit unterschiedlicher Wirkung ist mehrdeutig.
+    const roleIds = [...new Set(body.role_ids ?? [])];
+    const employeeRules = body.employee_rules ?? [];
+    const employeeIds = employeeRules.map((r) => r.employee_id);
+    if (new Set(employeeIds).size !== employeeIds.length) {
+      throw badRequest('Für eine Person darf nur eine Regel angegeben werden');
+    }
+    // Fremdschlüssel würden zwar greifen, lieferten aber nur eine technische
+    // Meldung — deshalb vorab prüfen und deutsch antworten.
+    for (const roleId of roleIds) {
+      const role = db().prepare('SELECT id FROM roles WHERE id = ?').get(roleId);
+      if (!role) throw badRequest(`Die Rolle mit der ID ${roleId} existiert nicht`);
+    }
+    for (const employeeId of employeeIds) {
+      const employee = db().prepare('SELECT id FROM employees WHERE id = ?').get(employeeId);
+      if (!employee) throw badRequest(`Mitarbeiter:in mit der ID ${employeeId} existiert nicht`);
+    }
+
+    // Ersetzen statt Abgleichen: DELETE + INSERT in EINER Transaktion, damit
+    // nie ein Zwischenstand ohne Allowlist sichtbar wird (leer = alle dürfen).
+    inTransaction(() => {
+      db().prepare('DELETE FROM absence_type_roles WHERE type_id = ?').run(id);
+      db().prepare('DELETE FROM absence_type_employee_rules WHERE type_id = ?').run(id);
+      const insertRole = db().prepare(
+        'INSERT INTO absence_type_roles (type_id, role_id) VALUES (?, ?)',
+      );
+      for (const roleId of roleIds) insertRole.run(id, roleId);
+      const insertRule = db().prepare(
+        'INSERT INTO absence_type_employee_rules (type_id, employee_id, effect) VALUES (?, ?, ?)',
+      );
+      for (const rule of employeeRules) insertRule.run(id, rule.employee_id, rule.effect);
+    });
+
+    audit(req, 'update', 'absence_type_eligibility', id, {
+      name: existing.name,
+      role_ids: roleIds,
+      employee_rules: employeeRules,
+    });
+    return { role_ids: roleIds, employee_rules: employeeRules };
   });
 
   // -------------------------------------------------------------- Anträge ---
@@ -245,6 +390,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     if (row.status !== 'beantragt') {
       throw conflict(`Nur beantragte Anträge können genehmigt werden (Status: ${row.status})`);
     }
+    assertNotOwnRequest(req, row);
     const userId = (req.user as { id?: number }).id ?? null;
     db()
       .prepare(
@@ -269,6 +415,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     if (row.status !== 'beantragt') {
       throw conflict(`Nur beantragte Anträge können abgelehnt werden (Status: ${row.status})`);
     }
+    assertNotOwnRequest(req, row);
     const userId = (req.user as { id?: number }).id ?? null;
     db()
       .prepare(
@@ -280,6 +427,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     return { request: db().prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(id) };
   });
 
+  // Ohne Vier-Augen-Prüfung: Stornieren ist ein Rückzug, kein Entscheid.
   app.post('/api/absences/requests/:id/cancel', async (req) => {
     const id = Number((req.params as { id: string }).id);
     const row = db().prepare('SELECT * FROM absence_requests WHERE id = ?').get(id) as

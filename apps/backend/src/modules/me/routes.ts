@@ -7,20 +7,25 @@
  * Jahresobergrenzen, Auto-Genehmigung) ist dieselbe wie in der
  * HR-Administration (modules/absences/service.ts).
  */
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
-import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
+import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { addDaysIso, isValidIsoDate, todayIso } from '../../core/dates.js';
 import {
+  allowedTypeIdsFor,
   bundeslandForEmployee,
   computeBalance,
   countAbsenceDays,
   createRequest,
   type AbsenceTypeRow,
-  type EmployeeRow,
 } from '../absences/service.js';
+import { assertReasonableSpan, requireEmployee } from './lib.js';
+import { meCalendarRoutes } from './calendarRoutes.js';
+import { meDocumentRoutes } from './documentRoutes.js';
+import { meOrgRoutes } from './orgRoutes.js';
+import { meSalaryRoutes } from './salaryRoutes.js';
 
 const isoDate = z
   .string()
@@ -50,24 +55,6 @@ const MY_REQUEST_SELECT = `
   JOIN absence_types t ON t.id = r.type_id
   LEFT JOIN users u ON u.id = r.decided_by_user_id`;
 
-/**
- * Obergrenze der Zeitspanne je Antrag/Vorschau. Schutz vor absurden Spannen
- * (z. B. bis 9999-12-31), deren tageweise Zählung das synchrone Backend
- * blockieren würde — legitime lange Abwesenheiten (Elternzeit, Sabbatical)
- * bleiben mit zwei Jahren möglich, alles darüber erfasst die HR.
- */
-const MAX_SPAN_DAYS = 731;
-
-function assertReasonableSpan(dateFrom: string, dateTo: string): void {
-  const span =
-    Math.round((Date.parse(`${dateTo}T00:00:00Z`) - Date.parse(`${dateFrom}T00:00:00Z`)) / 86_400_000) + 1;
-  if (span > MAX_SPAN_DAYS) {
-    throw badRequest(
-      'Der Zeitraum ist zu lang (maximal zwei Jahre). Bitte wenden Sie sich für längere Abwesenheiten an die Personalabteilung.',
-    );
-  }
-}
-
 const MY_SICK_SELECT = `
   SELECT s.id, s.absence_request_id, s.certificate_file_id, s.certificate_due_date,
          s.received_date, s.follow_up_of_id, s.child_sick, s.created_at,
@@ -78,27 +65,14 @@ const MY_SICK_SELECT = `
 export const meModule: FastifyPluginAsync = async (app) => {
   const db = () => getDb();
 
-  /** Lädt das eigene Personalprofil oder lehnt den Zugriff ab. */
-  function requireEmployee(req: FastifyRequest): EmployeeRow {
-    const employeeId = req.user.employee_id ?? null;
-    if (employeeId === null) {
-      throw forbidden(
-        'Für diesen Account ist kein Personalprofil hinterlegt. Bitte wenden Sie sich an die Personalabteilung.',
-      );
-    }
-    const emp = db().prepare('SELECT * FROM employees WHERE id = ?').get(employeeId) as
-      | EmployeeRow
-      | undefined;
-    if (!emp) {
-      throw forbidden(
-        'Das verknüpfte Personalprofil existiert nicht mehr. Bitte wenden Sie sich an die Personalabteilung.',
-      );
-    }
-    if (emp.status !== 'aktiv') {
-      throw forbidden('Ihr Personalprofil ist nicht mehr aktiv.');
-    }
-    return emp;
-  }
+  // Das Self-Service-Modul ist auf mehrere Routendateien verteilt (Vorbild:
+  // modules/employees/routes.ts), damit parallele Arbeit keine Dateikonflikte
+  // erzeugt. modules/index.ts registriert nur dieses eine Modul-Plugin, die
+  // Teilpakete hängen sich hier ein.
+  await app.register(meSalaryRoutes);
+  await app.register(meOrgRoutes);
+  await app.register(meCalendarRoutes);
+  await app.register(meDocumentRoutes);
 
   // ------------------------------------------------------------- Stammdaten ---
   app.get('/api/me/profile', async (req) => {
@@ -123,16 +97,27 @@ export const meModule: FastifyPluginAsync = async (app) => {
   });
 
   // ------------------------------------------------------- Abwesenheitsarten ---
-  /** Beantragbare Arten (aktiv, ohne Krankheit — die läuft über Krankmeldung). */
+  /**
+   * Beantragbare Arten (aktiv, ohne Krankheit — die läuft über Krankmeldung).
+   *
+   * Der Lesefilter muss dieselbe Auflösung verwenden wie die Schreibseite
+   * (assertTypeAllowed in createRequest), sonst böte das Portal Arten zur
+   * Auswahl an, deren Antrag anschließend mit 403 scheitert.
+   * allowedTypeIdsFor kapselt genau diese Logik mengenweise (leere Allowlist
+   * ⇒ alle dürfen, Personenregel schlägt Rolle) — hier bewusst nicht als
+   * eigenes SQL nachgebaut, damit beide Seiten nicht auseinanderlaufen.
+   */
   app.get('/api/me/leave-types', async (req) => {
-    requireEmployee(req);
+    const emp = requireEmployee(req);
     const types = db()
       .prepare(
         `SELECT * FROM absence_types WHERE active = 1 AND category != 'krankheit'
          ORDER BY CASE category WHEN 'urlaub' THEN 0 ELSE 1 END, name`,
       )
-      .all();
-    return { types };
+      .all() as AbsenceTypeRow[];
+    // Eine Sammelabfrage für alle Arten (kein N+1 über die Liste).
+    const allowed = allowedTypeIdsFor(emp.id);
+    return { types: types.filter((t) => allowed.has(t.id)) };
   });
 
   // ----------------------------------------------------------------- Anträge ---

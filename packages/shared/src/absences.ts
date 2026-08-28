@@ -24,6 +24,17 @@ export const ABSENCE_STATUS_LABELS: Record<AbsenceRequestStatus, string> = {
  */
 export const ABSENCE_CONFLICT_THRESHOLD = 0.5;
 
+/**
+ * Sichtbarkeit einer Abwesenheitsart im Firmenkalender des Portals:
+ * `name` zeigt die Art im Klartext, `neutral` maskiert sie zu „Abwesend“.
+ */
+export type PortalVisibility = 'name' | 'neutral';
+
+export const PORTAL_VISIBILITY_LABELS: Record<PortalVisibility, string> = {
+  name: 'Art im Klartext',
+  neutral: 'Nur „Abwesend“',
+};
+
 export interface AbsenceType {
   id: number;
   name: string;
@@ -35,6 +46,22 @@ export interface AbsenceType {
   color: string;
   max_days_per_year: number | null;
   active: number;
+  portal_visibility: PortalVisibility;
+  /**
+   * Angereichert in der HR-Liste (GET /api/absences/types): Rollen-Allowlist
+   * zur Anzeige. Leere Liste ⇒ alle Rollen dürfen (die Liste filtert nicht).
+   */
+  role_ids?: number[];
+}
+
+/**
+ * Wer darf eine Abwesenheitsart beantragen? Rollen-Allowlist (leere Liste ⇒
+ * alle Rollen dürfen) plus Personenregeln, die die Rollenregel schlagen.
+ * Die Kategorie `krankheit` ist von der Prüfung ausgenommen.
+ */
+export interface AbsenceTypeEligibility {
+  role_ids: number[];
+  employee_rules: { employee_id: number; effect: 'allow' | 'deny' }[];
 }
 
 export interface AbsenceRequest {

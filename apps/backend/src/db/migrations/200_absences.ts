@@ -81,4 +81,34 @@ export const absencesMigrations: Migration[] = [
         ('Sonderurlaub Todesfall', 'sonder',    1, 0, 0, 1, '#5F6B7A', 2);
     `,
   },
+  {
+    // Setzt '102_employee_roles' voraus (Tabelle roles) — läuft alphabetisch
+    // danach, deshalb liegen die Rollen im 1xx-Kreis.
+    name: '201_absence_type_eligibility',
+    sql: `
+      -- Rollen-Allowlist je Art. KEINE Zeile für eine Art ⇒ alle Rollen dürfen.
+      CREATE TABLE absence_type_roles (
+        type_id INTEGER NOT NULL REFERENCES absence_types(id) ON DELETE CASCADE,
+        role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+        PRIMARY KEY (type_id, role_id)
+      );
+
+      -- Personenregel, schlägt die Rollenregel.
+      CREATE TABLE absence_type_employee_rules (
+        type_id INTEGER NOT NULL REFERENCES absence_types(id) ON DELETE CASCADE,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        effect TEXT NOT NULL CHECK (effect IN ('allow','deny')),
+        PRIMARY KEY (type_id, employee_id)
+      );
+
+      -- Sichtbarkeit im Portal-Firmenkalender.
+      ALTER TABLE absence_types ADD COLUMN portal_visibility TEXT NOT NULL DEFAULT 'name'
+        CHECK (portal_visibility IN ('name','neutral'));
+
+      -- Neue Art "Home Office" (Beispiel des Auftraggebers; keine Saldowirkung).
+      INSERT INTO absence_types
+        (name, category, paid, affects_balance, requires_proof, requires_approval, color, max_days_per_year)
+      VALUES ('Home Office', 'sonder', 1, 0, 0, 1, '#3E8E7E', NULL);
+    `,
+  },
 ];

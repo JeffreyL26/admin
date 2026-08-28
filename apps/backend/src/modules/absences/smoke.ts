@@ -48,7 +48,8 @@ const post = (url: string, payload?: Record<string, unknown>) =>
 // ------------------------------------------------------------------- Arten ---
 const types = await get('/api/absences/types');
 const typeList = types.json().types as { id: number; name: string; category: string }[];
-check('11 Standardarten geseedet', types.statusCode === 200 && typeList.length === 11, typeList);
+// 11 aus dem Ursprungs-Seed + 'Home Office' aus 201_absence_type_eligibility.
+check('12 Standardarten geseedet', types.statusCode === 200 && typeList.length === 12, typeList);
 const urlaubType = typeList.find((t) => t.name === 'Urlaub')!;
 const bildungType = typeList.find((t) => t.name === 'Bildungsurlaub')!;
 check('Urlaub & Bildungsurlaub vorhanden', !!urlaubType && !!bildungType);

@@ -4,6 +4,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { isValidIsoDate } from '../../core/dates.js';
+import { roleRoutes } from './roleRoutes.js';
 
 const isoDate = z
   .string()
@@ -58,6 +59,9 @@ const TASK_SELECT = `
   LEFT JOIN users u ON u.id = ot.done_by_user_id`;
 
 export const adminModule: FastifyPluginAsync = async (app) => {
+  // Fachrollen liegen in einer eigenen Datei (Muster: modules/employees/routes.ts).
+  await roleRoutes(app);
+
   const db = () => getDb();
 
   // ------------------------------------------------------------ HR-Vorlagen ---

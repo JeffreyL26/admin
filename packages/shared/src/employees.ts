@@ -131,6 +131,9 @@ export const DOCUMENT_CATEGORY_LABELS: Record<DocumentCategory, string> = {
   sonstiges: 'Sonstiges',
 };
 
+/** Herkunft eines Dokuments: von der HR abgelegt oder aus dem Portal hochgeladen. */
+export type DocumentSource = 'hr' | 'portal';
+
 // ---------------------------------------------------------------------------
 // API-Formen (snake_case wie in der DB)
 // ---------------------------------------------------------------------------
@@ -201,5 +204,38 @@ export interface DocumentDto {
   reminder_days: number;
   version: number;
   supersedes_id: number | null;
+  source: DocumentSource;
+  /** Hochladendes Konto — bei Bestand und HR-Uploads ohne Zuordnung null. */
+  uploaded_by_user_id: number | null;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Organigramm
+// ---------------------------------------------------------------------------
+
+/**
+ * Knoten des Abteilungs-Organigramms (`GET /api/org/tree`, `GET /api/me/org-tree`).
+ * Liegt hier, weil Backend (`buildOrgTree`), Desktop-Renderer und Web-Portal
+ * dieselbe Form brauchen — Teams hängen als Blätter an ihrer Abteilung.
+ * `employee_count` zählt nur aktive Mitarbeitende der Abteilung selbst,
+ * `total_employee_count` zusätzlich alle untergeordneten Abteilungen.
+ */
+export interface OrgTreeNode {
+  id: number;
+  name: string;
+  parent_id: number | null;
+  head_employee_id: number | null;
+  head_name: string | null;
+  employee_count: number;
+  total_employee_count: number;
+  teams: {
+    id: number;
+    name: string;
+    department_id: number | null;
+    lead_employee_id: number | null;
+    lead_name: string | null;
+    employee_count: number;
+  }[];
+  children: OrgTreeNode[];
 }

@@ -1,4 +1,37 @@
-// Typen des Moduls Verwaltung (HR-Vorlagen, On-/Offboarding).
+// Typen des Moduls Verwaltung (Rollen, HR-Vorlagen, On-/Offboarding).
+
+import type { EmployeeStatus, EmployeeType } from './employees.js';
+
+// ---------------------------------------------------------------------------
+// Fachrollen
+// ---------------------------------------------------------------------------
+
+/**
+ * Frei anlegbare Fachrolle (Tabelle `roles`). Bewusst getrennt von
+ * `users.role` (`admin`/`mitarbeiter`, Zugriffssteuerung) und von
+ * `employees.employee_type` — die Startbelegung stammt zwar aus der
+ * Beschäftigungsart, darf danach aber frei davon abweichen.
+ */
+export interface Role {
+  id: number;
+  name: string;
+  description: string | null;
+  active: number; // SQLite-Bool (0/1)
+  created_at: string;
+  /** Angereichert in GET /api/admin/roles. */
+  member_count?: number;
+}
+
+/** Mitglied einer Rolle (GET /api/admin/roles/:id/members) — Personalstammdaten. */
+export interface RoleMember {
+  id: number;
+  first_name: string;
+  last_name: string;
+  employee_type: EmployeeType;
+  status: EmployeeStatus;
+  job_title: string | null;
+  department_name: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // HR-Vorlagen (Dokumentverzeichnis der Abteilung)

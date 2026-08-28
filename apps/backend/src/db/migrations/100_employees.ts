@@ -161,4 +161,60 @@ export const employeesMigrations: Migration[] = [
       END;
     `,
   },
+  {
+    // Fachrollen liegen bewusst im 1xx-Kreis, obwohl sie fachlich zur
+    // Berechtigungssteuerung der Abwesenheiten gehören: Migrationen laufen
+    // alphabetisch nach `name`, und '201_absence_type_eligibility' hält einen
+    // Fremdschlüssel auf `roles`. Das FK-Ziel muss also vor 201_ existieren.
+    name: '102_employee_roles',
+    sql: `
+      -- Frei anlegbare Fachrollen. Unabhängig von users.role (admin/mitarbeiter)
+      -- und von employees.employee_type — beide bleiben unangetastet.
+      CREATE TABLE roles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE employee_roles (
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+        PRIMARY KEY (employee_id, role_id)
+      );
+      CREATE INDEX idx_employee_roles_role ON employee_roles(role_id);
+
+      -- Startbestand: je Beschäftigungsart eine gleichnamige Rolle …
+      INSERT INTO roles (name, description) VALUES
+        ('Vollzeit',        'Automatisch aus der Beschäftigungsart übernommen'),
+        ('Teilzeit',        'Automatisch aus der Beschäftigungsart übernommen'),
+        ('Minijob',         'Automatisch aus der Beschäftigungsart übernommen'),
+        ('Werkstudent',     'Automatisch aus der Beschäftigungsart übernommen'),
+        ('Praktikant',      'Automatisch aus der Beschäftigungsart übernommen'),
+        ('Freiberufler',    'Automatisch aus der Beschäftigungsart übernommen'),
+        ('Auszubildender',  'Automatisch aus der Beschäftigungsart übernommen');
+
+      -- … und zuweisen. Mapping employee_type -> Rollenname. Ist employees noch
+      -- leer (Frischinstallation), liefert das SELECT schlicht keine Zeilen.
+      INSERT INTO employee_roles (employee_id, role_id)
+      SELECT e.id, r.id FROM employees e JOIN roles r ON r.name = CASE e.employee_type
+        WHEN 'vollzeit' THEN 'Vollzeit'  WHEN 'teilzeit' THEN 'Teilzeit'
+        WHEN 'minijob' THEN 'Minijob'    WHEN 'werkstudent' THEN 'Werkstudent'
+        WHEN 'praktikant' THEN 'Praktikant' WHEN 'freiberufler' THEN 'Freiberufler'
+        WHEN 'auszubildender' THEN 'Auszubildender' END
+      WHERE r.name IS NOT NULL;
+    `,
+  },
+  {
+    name: '103_documents_source',
+    sql: `
+      -- Herkunft eines Dokuments: von HR abgelegt oder von der Person selbst
+      -- über das Portal hochgeladen. NOT NULL braucht in SQLite bei ADD COLUMN
+      -- zwingend einen Default — Bestand ist per Definition 'hr'.
+      ALTER TABLE documents ADD COLUMN uploaded_by_user_id INTEGER REFERENCES users(id);
+      ALTER TABLE documents ADD COLUMN source TEXT NOT NULL DEFAULT 'hr'
+        CHECK (source IN ('hr','portal'));
+    `,
+  },
 ];
