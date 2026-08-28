@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { getDb } from '../db/db.js';
 import { parse, unauthorized, badRequest } from './errors.js';
+import { permissionsFor } from './permissions.js';
 
 /** Rollen: 'admin' = HR-Administration (Desktop), 'mitarbeiter' = Web-Portal. */
 export interface AuthUser {
@@ -12,6 +13,13 @@ export interface AuthUser {
   role: string;
   /** Verknüpftes Personalprofil (nur Mitarbeitenden-Accounts, sonst null). */
   employee_id: number | null;
+  /**
+   * Abgestufte Rechte innerhalb der HR-Administration. `null` bedeutet
+   * Vollzugriff (siehe Migration 002_admin_roles) — nicht "keine Rechte".
+   * Wie role und employee_id wird das Feld pro Request frisch geladen, damit
+   * ein Rechteentzug sofort greift und nicht erst nach Tokenablauf.
+   */
+  admin_role_id?: number | null;
 }
 
 declare module '@fastify/jwt' {
@@ -52,12 +60,19 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       name: row.name,
       role: row.role,
       employee_id: row.employee_id ?? null,
+      admin_role_id: row.admin_role_id ?? null,
     };
     const token = await (app as FastifyInstance & { jwt: { sign: (p: AuthUser) => string } }).jwt.sign(user);
-    return { token, user };
+    // Die Rechte reisen mit der Antwort, damit die Oberfläche gesperrte
+    // Bereiche gar nicht erst anbietet. Sie sind reine Anzeigehilfe — die
+    // Durchsetzung passiert ausschließlich im Hook (core/permissions.ts).
+    return { token, user, permissions: permissionsFor(user.admin_role_id) };
   });
 
-  app.get('/api/auth/me', async (req) => ({ user: req.user }));
+  app.get('/api/auth/me', async (req) => ({
+    user: req.user,
+    permissions: permissionsFor(req.user.admin_role_id),
+  }));
 
   app.put('/api/auth/password', async (req) => {
     const body = parse(

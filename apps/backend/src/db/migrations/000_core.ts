@@ -61,4 +61,67 @@ export const coreMigrations: Migration[] = [
       CREATE UNIQUE INDEX idx_users_employee ON users(employee_id) WHERE employee_id IS NOT NULL;
     `,
   },
+  {
+    name: '002_admin_roles',
+    // Abgestufte Rechte innerhalb der HR-Administration. users.role bleibt
+    // bewusst zweiwertig (admin/mitarbeiter) — sie entscheidet WELCHER Client
+    // offensteht. Die Admin-Rolle entscheidet, WAS ein Admin darin sehen und
+    // ändern darf. Beides zu vermischen würde Portal-Konten Systemrechte geben.
+    //
+    // Ein Recht je Bereich mit drei Stufen (kein/lesen/bearbeiten). Fehlt für
+    // einen Bereich die Zeile, gilt 'kein' — neue Bereiche sind damit
+    // automatisch gesperrt statt versehentlich offen (fail closed).
+    //
+    // Konten OHNE admin_role_id behalten Vollzugriff: So bleibt eine
+    // bestehende Installation nach dem Update unverändert benutzbar, und ein
+    // frisch angelegtes Konto sperrt sich nicht selbst aus. Die Vergabe einer
+    // Rolle ist die bewusste Einschränkung.
+    sql: `
+      CREATE TABLE admin_roles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE admin_role_permissions (
+        role_id INTEGER NOT NULL REFERENCES admin_roles(id) ON DELETE CASCADE,
+        area TEXT NOT NULL,
+        level TEXT NOT NULL CHECK (level IN ('kein', 'lesen', 'bearbeiten')),
+        PRIMARY KEY (role_id, area)
+      );
+
+      -- ON DELETE SET NULL: Wird eine Rolle gelöscht, fallen ihre Konten auf
+      -- Vollzugriff zurück statt auszusperren. Das ist die sichere Richtung für
+      -- die Erreichbarkeit; die Rechtevergabe warnt entsprechend.
+      ALTER TABLE users ADD COLUMN admin_role_id INTEGER REFERENCES admin_roles(id) ON DELETE SET NULL;
+
+      -- Startbestand: drei gängige Zuschnitte, alle frei editierbar.
+      INSERT INTO admin_roles (name, description) VALUES
+        ('Geschäftsführung',   'Vollzugriff inklusive Benutzer- und Rechteverwaltung'),
+        ('Head of HR',         'Alle HR-Bereiche inklusive Vergütung; darf Rechte vergeben'),
+        ('HR-Sachbearbeitung', 'Tagesgeschäft ohne Vergütung und ohne Rechteverwaltung');
+
+      INSERT INTO admin_role_permissions (role_id, area, level)
+      SELECT r.id, a.area, CASE r.name
+        WHEN 'Geschäftsführung' THEN 'bearbeiten'
+        WHEN 'Head of HR' THEN CASE a.area WHEN 'einstellungen' THEN 'lesen' ELSE 'bearbeiten' END
+        ELSE CASE a.area
+          WHEN 'verguetung'    THEN 'kein'
+          WHEN 'benutzer'      THEN 'kein'
+          WHEN 'einstellungen' THEN 'kein'
+          WHEN 'verwaltung'    THEN 'lesen'
+          ELSE 'bearbeiten'
+        END
+      END
+      FROM admin_roles r
+      CROSS JOIN (
+        SELECT 'personal' AS area UNION ALL SELECT 'abwesenheit' UNION ALL
+        SELECT 'leistung'         UNION ALL SELECT 'verguetung'  UNION ALL
+        SELECT 'recruiting'       UNION ALL SELECT 'kommunikation' UNION ALL
+        SELECT 'verwaltung'       UNION ALL SELECT 'einstellungen' UNION ALL
+        SELECT 'benutzer'
+      ) a;
+    `,
+  },
 ];

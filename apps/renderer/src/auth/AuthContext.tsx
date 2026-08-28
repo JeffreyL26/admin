@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { FULL_ACCESS, permits, type AdminArea, type AdminPermissions } from '@hrmonic/shared';
 import { api, hasToken, setToken, setUnauthorizedHandler } from '../api/client';
 
 export interface AuthUser {
@@ -7,6 +8,8 @@ export interface AuthUser {
   name: string;
   role: string;
   employee_id: number | null;
+  /** `null` heißt Vollzugriff, nicht „keine Rechte“ (siehe Migration 002). */
+  admin_role_id: number | null;
 }
 
 /**
@@ -20,6 +23,15 @@ const ADMIN_ONLY_MESSAGE =
 
 interface AuthState {
   user: AuthUser | null;
+  /**
+   * Rechte des angemeldeten Kontos. REINE ANZEIGEHILFE — sie steuern, welche
+   * Menüpunkte und Knöpfe erscheinen. Die Durchsetzung passiert ausschließlich
+   * im Backend-Hook (core/permissions.ts); wer hier etwas umgeht, bekommt dort
+   * ein 403.
+   */
+  permissions: AdminPermissions;
+  /** Kurzform für Sichtbarkeitsprüfungen in der Oberfläche. */
+  can: (area: AdminArea, needed?: 'lesen' | 'bearbeiten') => boolean;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -27,6 +39,8 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState>({
   user: null,
+  permissions: FULL_ACCESS,
+  can: () => true,
   loading: true,
   login: async () => {},
   logout: () => {},
@@ -36,11 +50,13 @@ export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [permissions, setPermissions] = useState<AdminPermissions>(FULL_ACCESS);
   const [loading, setLoading] = useState(true);
 
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
+    setPermissions(FULL_ACCESS);
   }, []);
 
   useEffect(() => {
@@ -50,26 +66,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     api
-      .get<{ user: AuthUser }>('/api/auth/me')
+      .get<{ user: AuthUser; permissions?: AdminPermissions }>('/api/auth/me')
       .then((res) => {
         if (res.user.role !== 'admin') setToken(null);
-        else setUser(res.user);
+        else {
+          setUser(res.user);
+          setPermissions(res.permissions ?? FULL_ACCESS);
+        }
       })
       .catch(() => setToken(null))
       .finally(() => setLoading(false));
   }, [logout]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api.post<{ token: string; user: AuthUser }>('/api/auth/login', {
-      email,
-      password,
-    });
+    const res = await api.post<{ token: string; user: AuthUser; permissions?: AdminPermissions }>(
+      '/api/auth/login',
+      { email, password },
+    );
     if (res.user.role !== 'admin') throw new Error(ADMIN_ONLY_MESSAGE);
     setToken(res.token);
     setUser(res.user);
+    setPermissions(res.permissions ?? FULL_ACCESS);
   }, []);
 
+  const can = useCallback(
+    (area: AdminArea, needed: 'lesen' | 'bearbeiten' = 'lesen') => permits(permissions[area], needed),
+    [permissions],
+  );
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, permissions, can, loading, login, logout }}>
+      {children}
+    </AuthContext.Provider>
   );
 }

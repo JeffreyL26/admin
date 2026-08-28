@@ -123,3 +123,107 @@ export interface OnboardingTaskTemplate {
   sort_order: number;
   active: number;
 }
+
+// ---------------------------------------------------------------------------
+// Admin-Rollen und Rechte
+// ---------------------------------------------------------------------------
+
+/**
+ * Rechtebereiche der HR-Administration. Ein Bereich bündelt fachlich
+ * zusammengehörende Routen und Menüpunkte; feiner zu schneiden würde die
+ * Pflege unübersichtlich machen (rund 30 Menüpunkte).
+ *
+ * `benutzer` ist der Sonderfall: Wer ihn auf `bearbeiten` hat, vergibt Rechte.
+ * `einstellungen` deckt die Firmen- und Systemeinstellungen ab.
+ */
+export const ADMIN_AREAS = [
+  'personal',
+  'abwesenheit',
+  'leistung',
+  'verguetung',
+  'recruiting',
+  'kommunikation',
+  'verwaltung',
+  'einstellungen',
+  'benutzer',
+] as const;
+
+export type AdminArea = (typeof ADMIN_AREAS)[number];
+
+export const ADMIN_AREA_LABELS: Record<AdminArea, string> = {
+  personal: 'Personal',
+  abwesenheit: 'Abwesenheit',
+  leistung: 'Leistung',
+  verguetung: 'Vergütung',
+  recruiting: 'Recruiting',
+  kommunikation: 'Kommunikation',
+  verwaltung: 'Verwaltung',
+  einstellungen: 'Einstellungen',
+  benutzer: 'Benutzer & Rechte',
+};
+
+/** Kurzbeschreibung je Bereich — erklärt in der Rechtevergabe, was betroffen ist. */
+export const ADMIN_AREA_HINTS: Record<AdminArea, string> = {
+  personal: 'Mitarbeitende, Organisation, Verträge und Dokumente',
+  abwesenheit: 'Kalender, Anträge, Krankmeldungen und Abwesenheitsarten',
+  leistung: 'Ziele, Beurteilungen, Skills, Trainings und Feedback',
+  verguetung: 'Gehälter, Abrechnung, Boni, Honorare und Bescheinigungen',
+  recruiting: 'Stellen, Bewerbungen, Interviews und Auswertungen',
+  kommunikation: 'Verzeichnis, Ankündigungen, Umfragen und Gesprächsnotizen',
+  verwaltung: 'HR-Vorlagen, On- und Offboarding sowie Fachrollen',
+  einstellungen: 'Firmendaten und Systemeinstellungen',
+  benutzer: 'Konten anlegen und Rechte vergeben',
+};
+
+/** Drei Stufen je Bereich. Fehlt ein Eintrag, gilt `kein` (fail closed). */
+export const PERMISSION_LEVELS = ['kein', 'lesen', 'bearbeiten'] as const;
+export type PermissionLevel = (typeof PERMISSION_LEVELS)[number];
+
+export const PERMISSION_LEVEL_LABELS: Record<PermissionLevel, string> = {
+  kein: 'Kein Zugriff',
+  lesen: 'Nur lesen',
+  bearbeiten: 'Bearbeiten',
+};
+
+/** Rechte einer Admin-Rolle über alle Bereiche. */
+export type AdminPermissions = Record<AdminArea, PermissionLevel>;
+
+/** Frei konfigurierbare Admin-Rolle (Tabelle `admin_roles`). */
+export interface AdminRole {
+  id: number;
+  name: string;
+  description: string | null;
+  created_at: string;
+  permissions: AdminPermissions;
+  /** Angereichert in GET /api/admin/admin-roles. */
+  member_count?: number;
+}
+
+/** Konto der HR-Administration in der Benutzerverwaltung. */
+export interface AdminAccount {
+  id: number;
+  email: string;
+  name: string;
+  role: 'admin' | 'mitarbeiter';
+  employee_id: number | null;
+  admin_role_id: number | null;
+  admin_role_name: string | null;
+  created_at: string;
+}
+
+/**
+ * Rechte eines Kontos OHNE zugewiesene Rolle: Vollzugriff.
+ *
+ * Bewusst so herum, damit ein Update bestehende Installationen nicht lahmlegt
+ * und ein neu angelegtes Konto sich nicht selbst aussperrt. Die Einschränkung
+ * ist die aktive Entscheidung, nicht der Standard.
+ */
+export const FULL_ACCESS: AdminPermissions = Object.fromEntries(
+  ADMIN_AREAS.map((a) => [a, 'bearbeiten' as PermissionLevel]),
+) as AdminPermissions;
+
+/** Prüft, ob eine Stufe für den geforderten Zugriff ausreicht. */
+export function permits(level: PermissionLevel, needed: 'lesen' | 'bearbeiten'): boolean {
+  if (needed === 'lesen') return level === 'lesen' || level === 'bearbeiten';
+  return level === 'bearbeiten';
+}

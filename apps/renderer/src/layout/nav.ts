@@ -3,19 +3,28 @@ import {
   ListChecks, Target, ClipboardCheck, Grid3x3, GraduationCap, MessagesSquare,
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
   FileText, Radio, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
-  LineChart, FileStack, UserPlus, ShieldCheck,
+  LineChart, FileStack, UserPlus, ShieldCheck, KeyRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import type { AdminArea } from '@hrmonic/shared';
 
 export interface NavItem {
   path: string;
   label: string;
   icon: LucideIcon;
+  /** Abweichender Rechtebereich, wenn ein Eintrag nicht zu seinem Abschnitt passt. */
+  area?: AdminArea;
 }
 
 export interface NavSection {
   title: string | null;
   items: NavItem[];
+  /**
+   * Rechtebereich des Abschnitts. Ohne Angabe immer sichtbar (Dashboard).
+   * Die Sichtbarkeit ist reine Bequemlichkeit — durchgesetzt wird der Zugriff
+   * ausschließlich im Backend (core/permissions.ts).
+   */
+  area?: AdminArea;
 }
 
 /**
@@ -29,6 +38,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Personal',
+    area: 'personal',
     items: [
       { path: '/personal/mitarbeitende', label: 'Mitarbeitende', icon: Users },
       { path: '/personal/organisation', label: 'Organisation', icon: Network },
@@ -37,6 +47,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Recruiting',
+    area: 'recruiting',
     items: [
       { path: '/recruiting/stellen', label: 'Stellen', icon: Briefcase },
       { path: '/recruiting/pipeline', label: 'Pipeline', icon: KanbanSquare },
@@ -47,6 +58,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Abwesenheit',
+    area: 'abwesenheit',
     items: [
       { path: '/abwesenheit/kalender', label: 'Kalender', icon: CalendarDays },
       { path: '/abwesenheit/antraege', label: 'Anträge', icon: Send },
@@ -56,6 +68,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Leistung',
+    area: 'leistung',
     items: [
       { path: '/leistung/ziele', label: 'Ziele & OKR', icon: Target },
       { path: '/leistung/beurteilungen', label: 'Beurteilungen', icon: ClipboardCheck },
@@ -66,6 +79,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Vergütung',
+    area: 'verguetung',
     items: [
       { path: '/verguetung/gehaelter', label: 'Gehälter', icon: Wallet },
       { path: '/verguetung/abrechnung', label: 'Abrechnung', icon: Calculator },
@@ -76,6 +90,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Kommunikation',
+    area: 'kommunikation',
     items: [
       { path: '/kommunikation/verzeichnis', label: 'Verzeichnis', icon: BookUser },
       { path: '/kommunikation/ankuendigungen', label: 'Ankündigungen', icon: Megaphone },
@@ -86,14 +101,19 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Verwaltung',
+    area: 'verwaltung',
     items: [
       { path: '/verwaltung/vorlagen', label: 'HR-Vorlagen', icon: FileStack },
       { path: '/verwaltung/onboarding', label: 'On- & Offboarding', icon: UserPlus },
       { path: '/verwaltung/rollen', label: 'Rollen', icon: ShieldCheck },
+      // Eigener Rechtebereich: Wer Vorlagen pflegen darf, soll nicht
+      // automatisch auch Rechte vergeben können.
+      { path: '/verwaltung/benutzer', label: 'Benutzer & Rechte', icon: KeyRound, area: 'benutzer' },
     ],
   },
   {
     title: 'System',
+    area: 'einstellungen',
     items: [{ path: '/einstellungen', label: 'Einstellungen', icon: Settings }],
   },
 ];

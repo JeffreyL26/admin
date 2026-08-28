@@ -8,7 +8,7 @@ import { CommandPalette } from '../components/CommandPalette';
 import logo from '../assets/logo.png';
 
 export function AppShell() {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -77,17 +77,26 @@ export function AppShell() {
           <kbd>Strg K</kbd>
         </button>
         <nav className="sidebar__nav">
-          {NAV_SECTIONS.map((section, i) => (
-            <div key={i}>
-              {section.title && <div className="sidebar__section">{section.title}</div>}
-              {section.items.map((item) => (
-                <NavLink key={item.path} to={item.path} className="sidebar__link">
-                  <item.icon size={17} />
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          ))}
+          {/* Gesperrte Bereiche werden gar nicht erst angeboten. Ein leerer
+              Abschnitt entfällt samt Überschrift, sonst bliebe eine sinnlose
+              Zwischenzeile stehen. Die eigentliche Sperre sitzt im Backend. */}
+          {NAV_SECTIONS.map((section, i) => {
+            const items = section.items.filter((item) =>
+              item.area ? can(item.area) : section.area ? can(section.area) : true,
+            );
+            if (items.length === 0) return null;
+            return (
+              <div key={i}>
+                {section.title && <div className="sidebar__section">{section.title}</div>}
+                {items.map((item) => (
+                  <NavLink key={item.path} to={item.path} className="sidebar__link">
+                    <item.icon size={17} />
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="sidebar__footer">
           <Avatar name={user?.name ?? '?'} size={32} />

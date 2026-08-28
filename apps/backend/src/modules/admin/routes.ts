@@ -5,6 +5,7 @@ import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { isValidIsoDate } from '../../core/dates.js';
 import { roleRoutes } from './roleRoutes.js';
+import { adminUserRoutes } from './userRoutes.js';
 
 const isoDate = z
   .string()
@@ -61,6 +62,7 @@ const TASK_SELECT = `
 export const adminModule: FastifyPluginAsync = async (app) => {
   // Fachrollen liegen in einer eigenen Datei (Muster: modules/employees/routes.ts).
   await roleRoutes(app);
+  await adminUserRoutes(app);
 
   const db = () => getDb();
 
