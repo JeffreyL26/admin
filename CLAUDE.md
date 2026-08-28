@@ -22,9 +22,28 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   via `users.employee_id` mit dem Personalprofil verknüpft) erreicht nur
   `/api/auth/*` und `/api/me/*`, alles andere verlangt `admin` (403 sonst).
   Self-Service-Routen liefern strikt eigene Daten (`modules/me/`).
+- **Abgestufte Admin-Rechte (zweite Stufe im selben Hook).** `users.role`
+  entscheidet, WELCHER Client offensteht; die **Admin-Rolle**
+  (`users.admin_role_id` → `admin_roles` + `admin_role_permissions`,
+  Migration `002_admin_roles`) entscheidet, WAS ein Admin darin darf: je Bereich
+  (personal, abwesenheit, leistung, verguetung, recruiting, kommunikation,
+  verwaltung, einstellungen, benutzer) `kein` / `lesen` / `bearbeiten`.
+  Durchgesetzt in `core/permissions.ts`, aufgerufen aus dem globalen Hook —
+  GET/HEAD verlangt `lesen`, alles andere `bearbeiten`.
+  **Wichtig:** Die Zuordnung Route → Bereich steht dort in `ROUTE_AREAS`. Eine
+  Route ohne Eintrag ist gesperrt (fail closed) — neue Module tragen ihren
+  Präfix dort ein, sonst antworten sie mit 403.
+  `admin_role_id = NULL` heißt **Vollzugriff**, nicht „keine Rechte“: So bleiben
+  bestehende Installationen nach dem Update benutzbar und neue Konten sperren
+  sich nicht selbst aus. Selbstschutz in `modules/admin/userRoutes.ts`: niemand
+  ändert die eigene Zuweisung, hebt in der eigenen Rolle Rechte an oder entzieht
+  sich die Benutzerverwaltung; das letzte Konto mit `benutzer: bearbeiten` bleibt
+  erhalten, und eine Rolle mit Mitgliedern ist nicht löschbar (sonst hätten
+  deren Konten schlagartig Vollzugriff).
 - **Zwei getrennte Rollenbegriffe — nicht verwechseln.** `users.role` ist der
   **Systemzugang** und bleibt zweiwertig (`admin`/`mitarbeiter`); wer daran dreht,
-  sperrt Konten aus. Davon unabhängig sind **Fachrollen** (Tabellen `roles` +
+  sperrt Konten aus. Die **Admin-Rolle** oben regelt Rechte innerhalb der
+  Administration. Davon wiederum unabhängig sind **Fachrollen** (Tabellen `roles` +
   `employee_roles`, Migration `102_employee_roles`): frei anleg- und zuweisbar,
   verwaltet unter `/verwaltung/rollen`. Sie steuern ausschließlich, wer welche
   Abwesenheitsart beantragen darf. Beim ersten Start erzeugt die Migration je
@@ -76,6 +95,16 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   (`core/errors.ts`). Eingaben mit `parse(zodSchema, req.body)` validieren.
 - **Audit:** Änderungen mit Begründungspflicht (z. B. Gehalt) schreiben über
   `core/audit.ts` ins zentrale `audit_log`.
+- **Mitarbeiterliste:** Spaltenauswahl und Format der Betriebszugehörigkeit
+  liegen pro Gerät im localStorage (`hrmonic.employeeList`) — wie die
+  Dashboard-Konfiguration eine Arbeitsplatz-, keine Firmeneinstellung. Die
+  Spaltendefinition steht in `EMPLOYEE_LIST_COLUMNS` (`shared/employees.ts`);
+  `fixed: true` (Name, Personalnummer) bleibt immer sichtbar. Alle Auswahlfilter
+  sind **Listen** und werden kommagetrennt übergeben (`employee_type=vollzeit,werkstudent`);
+  mehrere Werte eines Filters verodern, verschiedene Filter verunden.
+  Sortierfelder sind eine Whitelist in `employeeRoutes.ts` (`SORT_COLUMNS`) —
+  der Wert geht direkt ins SQL. `personnel_number` ist bewusst **nicht** Teil
+  von `fields=lite`: Diese schlanke Form ist Kontrakt für andere Module.
 - **Dashboard ist personalisierbar:** Widgets/KPI-Kacheln sind pro Gerät wählbar
   und anordenbar; Registry + localStorage-Persistenz (`hrmonic.dashboard`) in
   `renderer/src/features/dashboard/dashboardConfig.ts`. Neue Module registrieren
