@@ -21,6 +21,8 @@ export const badRequest = (msg: string, details?: unknown) =>
   new AppError(400, 'BAD_REQUEST', msg, details);
 export const conflict = (msg: string) => new AppError(409, 'CONFLICT', msg);
 export const unauthorized = (msg = 'Nicht angemeldet') => new AppError(401, 'UNAUTHORIZED', msg);
+export const forbidden = (msg = 'Keine Berechtigung für diese Aktion') =>
+  new AppError(403, 'FORBIDDEN', msg);
 
 /** Validiert Request-Daten gegen ein Zod-Schema und wirft bei Fehlern das einheitliche Schema. */
 export function parse<T>(schema: ZodSchema<T>, data: unknown): T {

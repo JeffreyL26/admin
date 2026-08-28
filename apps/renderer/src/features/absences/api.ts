@@ -38,6 +38,9 @@ export function useAbsenceRequests(filters: RequestFilters) {
     queryKey: ['absences', 'requests', filters],
     queryFn: () => api.get<{ requests: AbsenceRequest[] }>(`/api/absences/requests${qs ? `?${qs}` : ''}`),
     select: (d) => d.requests,
+    // Offene Anträge kommen seit dem Web-Portal auch von Mitarbeitenden herein —
+    // die Genehmigungsansicht hält sich deshalb selbst aktuell.
+    refetchInterval: filters.status === 'beantragt' ? 30_000 : false,
   });
 }
 

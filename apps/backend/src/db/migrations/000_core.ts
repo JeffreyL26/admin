@@ -49,4 +49,16 @@ export const coreMigrations: Migration[] = [
       CREATE INDEX idx_audit_entity ON audit_log(entity, entity_id);
     `,
   },
+  {
+    name: '001_users_employee_link',
+    // Mitarbeitenden-Accounts für das Web-Portal: ein users-Eintrag kann auf
+    // ein Personalprofil zeigen (role 'mitarbeiter'). Die Spalte bleibt NULL-bar
+    // (reine Admin-Accounts haben kein Profil); höchstens ein Account je Profil.
+    // Hinweis Reihenfolge: employees entsteht erst in 100_employees — SQLite
+    // löst die Referenz erst bei Schreibzugriffen mit Nicht-NULL-Wert auf.
+    sql: `
+      ALTER TABLE users ADD COLUMN employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL;
+      CREATE UNIQUE INDEX idx_users_employee ON users(employee_id) WHERE employee_id IS NOT NULL;
+    `,
+  },
 ];

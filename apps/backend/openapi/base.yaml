@@ -9,9 +9,11 @@ info:
   title: HRMONIC API
   version: 1.0.0
   description: >
-    Client-agnostische REST-API für HRMONIC. Heute vom Desktop-Client
-    (HR-Administration) genutzt, später zusätzlich vom Mitarbeitenden-Web-Client
-    (Self-Service). Zugriffsprüfung erfolgt ausschließlich im Backend.
+    Client-agnostische REST-API für HRMONIC. Genutzt vom Desktop-Client
+    (HR-Administration, role "admin") und vom Mitarbeitenden-Web-Portal
+    (Self-Service, role "mitarbeiter"). Zugriffsprüfung erfolgt ausschließlich
+    im Backend: Accounts mit role "mitarbeiter" erreichen nur /api/auth/* und
+    /api/me/*; alle übrigen Routen antworten für sie mit 403 FORBIDDEN.
 servers:
   - url: http://127.0.0.1:3001
 components:
@@ -43,10 +45,10 @@ paths:
         "200": { description: OK }
   /api/auth/login:
     post:
-      summary: Anmeldung (HR-Administration)
+      summary: Anmeldung (HR-Administration und Mitarbeitenden-Portal)
       security: []
       responses:
-        "200": { description: Token und Benutzer }
+        "200": { description: "Token und Benutzer { id, email, name, role, employee_id }" }
         "401":
           description: Ungültige Zugangsdaten
           content:
@@ -69,14 +71,21 @@ paths:
         "200": { description: Dateiinhalt }
 
   # ---------------------------------------------------------------------------
-  # Geplante Self-Service-Endpunkte des Mitarbeitenden-Web-Clients (x-status:
-  # planned — nicht implementiert, nur Schnittstellen-Reservierung).
+  # Self-Service-Endpunkte des Mitarbeitenden-Web-Portals (/api/me/*).
+  # Alle Routen setzen einen Account mit verknüpftem Personalprofil voraus
+  # (users.employee_id) und liefern ausschließlich eigene Daten.
+  # Einträge mit x-status: planned sind weiterhin nur reserviert.
   # ---------------------------------------------------------------------------
   /api/me/profile:
     get:
-      x-status: planned
-      summary: Eigene Stammdaten lesen (Self-Service)
-      responses: { "200": { description: Eigene Stammdaten } }
+      summary: Eigene Stammdaten lesen (ohne Bank-/Steuerdaten)
+      responses:
+        "200": { description: "{ profile } inkl. Abteilungs-/Team-/Standortnamen" }
+        "403":
+          description: Kein verknüpftes oder kein aktives Personalprofil
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
     patch:
       x-status: planned
       summary: Eigene Stammdaten teilweise ändern (Kontaktdaten, Adresse, Bankverbindung)
@@ -86,25 +95,66 @@ paths:
       x-status: planned
       summary: Eigene Dokumente auflisten
       responses: { "200": { description: Dokumentliste } }
+  /api/me/leave-types:
+    get:
+      summary: Beantragbare Abwesenheitsarten (aktiv, ohne Kategorie Krankheit)
+      responses:
+        "200": { description: "{ types }" }
   /api/me/leave-requests:
     get:
-      x-status: planned
-      summary: Eigene Urlaubsanträge einsehen
-      responses: { "200": { description: Antragsliste } }
+      summary: Eigene Abwesenheitsanträge einsehen
+      parameters:
+        - { name: year, in: query, required: false, schema: { type: string } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: "{ requests } inkl. type_name/type_color/decided_by_name" }
     post:
-      x-status: planned
-      summary: Urlaub beantragen
-      responses: { "201": { description: Antrag angelegt } }
+      summary: Abwesenheit beantragen (Urlaub/Sonderabwesenheit)
+      responses:
+        "201": { description: "{ request } — bei genehmigungsfreien Arten direkt genehmigt" }
+        "409":
+          description: Überschneidung oder Jahresobergrenze überschritten
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/me/leave-requests/{id}/cancel:
+    post:
+      summary: Eigenen, noch offenen Antrag zurückziehen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ request } mit Status storniert" }
+        "409":
+          description: Antrag ist nicht mehr offen
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/me/leave-balance:
     get:
-      x-status: planned
       summary: Eigenen Urlaubssaldo einsehen
-      responses: { "200": { description: Saldo } }
+      parameters:
+        - { name: year, in: query, required: false, schema: { type: integer } }
+      responses:
+        "200": { description: "{ balance }" }
+  /api/me/leave-preview:
+    get:
+      summary: Live-Vorschau der gezählten Tage für das Antragsformular
+      parameters:
+        - { name: date_from, in: query, required: true, schema: { type: string } }
+        - { name: date_to, in: query, required: true, schema: { type: string } }
+        - { name: half_day_start, in: query, required: false, schema: { type: string } }
+        - { name: half_day_end, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: "{ days_counted, bundesland }" }
   /api/me/sick-notes:
+    get:
+      summary: Eigene Krankmeldungen einsehen (inkl. AU-Frist)
+      responses:
+        "200": { description: "{ sick_notes }" }
     post:
-      x-status: planned
-      summary: Krankmeldung einreichen (inkl. AU-Upload)
-      responses: { "201": { description: Krankmeldung erfasst } }
+      summary: Krankmeldung einreichen (AU-Nachweis reicht die HR nach)
+      responses:
+        "201": { description: "{ sick_note } inkl. certificate_due_date" }
   /api/me/team-calendar:
     get:
       x-status: planned

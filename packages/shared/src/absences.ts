@@ -59,6 +59,8 @@ export interface AbsenceRequest {
   type_name?: string;
   type_color?: string;
   type_category?: AbsenceCategory;
+  /** Nur Self-Service (/api/me/leave-requests): Name der entscheidenden Person. */
+  decided_by_name?: string | null;
 }
 
 export interface AbsenceBalance {

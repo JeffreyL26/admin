@@ -1,8 +1,8 @@
 # HRMONIC — Systemwissen
 
 HR-Verwaltungssoftware für den deutschsprachigen Markt. Desktop-App (Electron) für
-HR-Administrator:innen auf einem client-agnostischen Backend; ein Mitarbeitenden-
-Web-Client kommt später auf dasselbe Backend.
+HR-Administrator:innen und Mitarbeitenden-Web-Portal (Self-Service) auf demselben
+client-agnostischen Backend.
 
 ## Architektur
 
@@ -10,12 +10,18 @@ Web-Client kommt später auf dasselbe Backend.
 apps/backend    Fastify 5 + better-sqlite3, REST-API, eingebettet ODER standalone
 apps/renderer   React 18 + Vite, lädt im Prod-Betrieb über file:// (daher HashRouter)
 apps/desktop    Electron: Main-Prozess startet das Backend-Bundle in-process
+apps/web        Mitarbeitenden-Portal: React 18 + Vite, BrowserRouter, Port 5174
+                (Details + Deploy hinter eigener Domain: docs/web-portal.md)
 packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängigkeiten)
 ```
 
 - **Backend ist die einzige Sicherheitsgrenze.** Jede Route läuft durch den
   globalen JWT-Hook in `server.ts`; öffentlich ist nur, was explizit
   `config: { public: true }` setzt (Login, signierte Downloads, Health).
+  Rollenmodell im selben Hook: `users.role` `mitarbeiter` (Portal-Konten,
+  via `users.employee_id` mit dem Personalprofil verknüpft) erreicht nur
+  `/api/auth/*` und `/api/me/*`, alles andere verlangt `admin` (403 sonst).
+  Self-Service-Routen liefern strikt eigene Daten (`modules/me/`).
 - **Desktop-Embedding:** `desktop/src/main.ts` ruft `startServer(0)` aus dem
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.hrmonic.apiBaseUrl`.
@@ -113,11 +119,16 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
 ## Häufige Kommandos
 
 ```bash
-npm run dev            # Backend (3001) + Renderer (5173) parallel
+npm run dev            # Backend (3001) + Renderer (5173) + Web-Portal (5174) parallel
 npm run dev:desktop    # Electron-Fenster gegen den Dev-Stack
 npm run typecheck      # alle Workspaces
 npm run seed           # Demo-Daten
+npm run build:web      # statisches Portal-Build → apps/web/dist
 npm run dist:win       # kompletter Windows-Installer (NSIS) → apps/desktop/release
 ```
 
 Login im Dev/Frischinstallation: `admin@hrmonic.de` / `hrmonic2026`.
+`npm run seed` legt zusätzlich an: drei weitere Admin-Konten
+(sabine.berger@, jurgen.wilms@, melanie.sonntag@hrmonic.de / `hrmonic2026`)
+und vier Portal-Konten (deniz.aydin@, marta.kowalczyk@, leonie.vogt@,
+samuel.okafor@hrmonic.de / `portal2026`).

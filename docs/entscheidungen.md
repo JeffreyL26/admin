@@ -139,3 +139,39 @@ externe Feiertags-API wäre ein Online-Zwang für eine Desktop-App, die auch off
 funktionieren muss. Dokumentierte Vereinfachungen: Mariä Himmelfahrt nur SL (in BY
 gemeindeabhängig), Fronleichnam ohne kommunale Sonderfälle SN/TH, kein Augsburger
 Friedensfest.
+
+## Mitarbeitenden-Accounts: users-Tabelle erweitert statt eigener Tabelle
+
+**Entscheidung:** Portal-Logins sind normale `users`-Zeilen mit Rolle
+`mitarbeiter` und neuer Spalte `employee_id` (Migration `001_users_employee_link`,
+Partial-Unique, `ON DELETE SET NULL`) — keine separate `employee_accounts`-Tabelle.
+
+**Warum:** Login, bcrypt-Hashing, JWT-Ausstellung, `audit_log.user_id` und
+`decided_by_user_id`/`created_by_user_id` referenzieren alle `users`. Eine zweite
+Kontentabelle hätte jeden dieser Pfade verdoppelt. Autorisierung bleibt zentral:
+Der globale Hook in `server.ts` lässt Nicht-Admins nur auf `/api/auth/*` und
+`/api/me/*`; die Self-Service-Routen erzwingen zusätzlich das eigene Profil.
+Verworfen: Rollen-Checks pro Route (fehleranfällig, 100+ Routen) und ein eigener
+Employee-JWT-Typ (zwei Token-Pfade für denselben Verify-Hook).
+
+Stolperstein Reihenfolge: `001_…` läuft (Namenssortierung) vor `100_employees`,
+die referenzierte Tabelle existiert bei frischen DBs also noch nicht. SQLite
+löst FK-Ziele erst bei Nicht-NULL-Schreibzugriffen auf, und bis nach Migration
+100 schreibt niemand ein `employee_id` — bewusst so belassen, im Migrationstext
+kommentiert.
+
+## Web-Portal: eigener Workspace mit eigener Formensprache
+
+**Entscheidung:** `apps/web` ist ein eigenständiges Vite-Projekt (BrowserRouter,
+Port 5174, Prod-API same-origin hinter Reverse-Proxy, `VITE_API_BASE` als
+Override) mit eigenem, bewusst dokumentenhaftem UI (Public Sans + Source Serif 4,
+flache Karten, Skeleton-Loader, `pt-`-Präfix) auf identischen Markenfarben.
+
+**Warum kein geteilter UI-Code mit dem Renderer:** Der Renderer ist eine
+Maus-zentrierte Desktop-Verwaltung ohne Media-Queries (fixe 264-px-Sidebar,
+`body { overflow: hidden }`, Electron-Titelleiste); das Portal muss auf dem
+Smartphone funktionieren und deutlich weniger können. Geteilt wird, was stabil
+ist — Typen/Konstanten aus `@hrmonic/shared` und die Token-**Werte** — statt
+Komponenten, deren Layout-Annahmen nicht übertragbar sind. Die Desktop-Regel
+„base: './' + HashRouter" gilt hier ausdrücklich nicht (HTTP-Auslieferung,
+SPA-Fallback dokumentiert in docs/web-portal.md).

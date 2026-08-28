@@ -1,0 +1,82 @@
+/* HRMONIC Portal — Design-Tokens.
+   Farbwelt identisch zur Desktop-App (Primärblau #0864C6, Navy #0F2F5F,
+   kühle Grau-Rampe), eigene Formensprache: ruhig und dokumentenhaft.
+   Serifen-Auszeichnung für Überschriften, flache Karten mit Hairlines
+   statt Schatten, ein einziger Akzentton. */
+:root {
+  color-scheme: light;
+
+  /* Marke — identisch zu apps/renderer/src/design/tokens.css */
+  --brand-primary: #0864c6;
+  --brand-primary-hover: #0a58ab;
+  --brand-primary-active: #084a90;
+  --brand-navy: #0f2f5f;
+  --brand-navy-deep: #0a2246;
+  /* Akzent der Wortmarke (HR|MONIC) auf dunklen Flächen */
+  --wordmark-accent: #7fb3ec;
+
+  /* Abstufungen Primärblau */
+  --blue-50: #eef5fd;
+  --blue-100: #d9e9fa;
+  --blue-200: #b3d3f5;
+  --blue-300: #7fb3ec;
+  --blue-500: #0864c6;
+  --blue-700: #084a90;
+
+  /* Neutralpalette (kühles Grau, zur Marke passend) */
+  --gray-25: #fafbfe;
+  --gray-50: #f5f7fb;
+  --gray-100: #eef1f7;
+  --gray-200: #e4e9f1;
+  --gray-300: #cdd5e2;
+  --gray-400: #9aa7bc;
+  --gray-500: #6b7a94;
+  --gray-600: #4d5b73;
+  --gray-700: #364358;
+  --gray-800: #232e40;
+  --gray-900: #16202f;
+
+  /* Semantik */
+  --success: #178a4c;
+  --success-bg: #e4f7ec;
+  --warning: #b26a00;
+  --warning-bg: #fdf3e0;
+  --danger: #c22f3d;
+  --danger-bg: #fceced;
+  --info: var(--blue-500);
+  --info-bg: var(--blue-50);
+
+  /* Flächen und Linien */
+  --bg-app: #f3f6fb;
+  --bg-surface: #ffffff;
+  --border: #e6eaf2;
+  --border-strong: #d5dce8;
+
+  /* Text */
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted: var(--gray-500);
+  --text-on-dark: #f4f7fc;
+
+  /* Typografie: Public Sans für die Oberfläche, Source Serif für Titel
+     und große Zahlen — bewusst eigenständig gegenüber der Desktop-App. */
+  --font-sans: 'Public Sans Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.25rem;
+
+  /* Geometrie: knappere Radien als die Desktop-App, keine Schatten */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --focus-ring: rgb(8 100 198 / 0.15);
+
+  /* Layout */
+  --header-height: 56px;
+  --content-width: 1060px;
+}

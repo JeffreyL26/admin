@@ -11,6 +11,7 @@
  * - Minijob über der Verdienstgrenze + fehlende IBAN (Abrechnungs-Warnungen)
  * - ablaufendes Zertifikat (Erinnerung), überfällige Pflichtschulungen
  */
+import bcrypt from 'bcryptjs';
 import { getDb, closeDb, inTransaction } from '../db/db.js';
 import { migrate } from '../db/migrate.js';
 import { ensureDefaultAdmin } from '../core/auth.js';
@@ -54,6 +55,9 @@ if (FORCE) {
   ];
   inTransaction(() => {
     for (const t of tables) db.prepare(`DELETE FROM ${t}`).run();
+    // Benutzerkonten bis auf den Standard-Admin entfernen — die Mitarbeitenden-
+    // Accounts werden unten neu angelegt und auf die frischen Profile verknüpft.
+    db.prepare("DELETE FROM users WHERE email != 'admin@hrmonic.de'").run();
   });
   console.log('Bestehende Fachdaten gelöscht (--force).');
 }
@@ -208,6 +212,34 @@ inTransaction(() => {
   db.prepare('UPDATE departments SET head_employee_id = ? WHERE id = ?').run(FIN, depFin);
   db.prepare('UPDATE teams SET lead_employee_id = ? WHERE id = ?').run(TLB, teamBackend);
   db.prepare('UPDATE teams SET lead_employee_id = ? WHERE id = ?').run(TLF, teamFrontend);
+
+  // ======================= Benutzerkonten =======================
+  // Rollout-Setup: 4 Admin-Accounts für die HR-Administration (Desktop) und
+  // 4 Mitarbeitenden-Accounts für das Web-Portal. Der Standard-Admin
+  // (admin@hrmonic.de / hrmonic2026) existiert bereits über ensureDefaultAdmin().
+  const account = (
+    email: string,
+    name: string,
+    role: 'admin' | 'mitarbeiter',
+    password: string,
+    employeeId: number | null,
+  ) =>
+    insert('users', {
+      email,
+      name,
+      role,
+      password_hash: bcrypt.hashSync(password, 10),
+      employee_id: employeeId,
+    });
+  // Admins (verwalten und genehmigen; über das verknüpfte Profil auch portalfähig)
+  account('sabine.berger@hrmonic.de', 'Sabine Berger', 'admin', 'hrmonic2026', GF);
+  account('jurgen.wilms@hrmonic.de', 'Jürgen Wilms', 'admin', 'hrmonic2026', HRL);
+  account('melanie.sonntag@hrmonic.de', 'Melanie Sonntag', 'admin', 'hrmonic2026', HRR);
+  // Mitarbeitende (Web-Portal, Self-Service)
+  account('deniz.aydin@hrmonic.de', 'Deniz Aydin', 'mitarbeiter', 'portal2026', DEV1);
+  account('marta.kowalczyk@hrmonic.de', 'Marta Kowalczyk', 'mitarbeiter', 'portal2026', DEV2);
+  account('leonie.vogt@hrmonic.de', 'Leonie Vogt', 'mitarbeiter', 'portal2026', DEV3);
+  account('samuel.okafor@hrmonic.de', 'Samuel Okafor', 'mitarbeiter', 'portal2026', OPS1);
 
   // ======================= Verträge =======================
   const contractByType: Record<string, string> = {
@@ -770,4 +802,10 @@ const stats = {
   'On-/Offboarding': (db.prepare('SELECT COUNT(*) n FROM onboarding_processes').get() as { n: number }).n,
 };
 console.log('Demo-Daten angelegt:', stats);
+console.log(`
+Benutzerkonten:
+  HR-Administration (Desktop-App, Passwort "hrmonic2026"):
+    admin@hrmonic.de · sabine.berger@hrmonic.de · jurgen.wilms@hrmonic.de · melanie.sonntag@hrmonic.de
+  Mitarbeitenden-Portal (Web, Passwort "portal2026"):
+    deniz.aydin@hrmonic.de · marta.kowalczyk@hrmonic.de · leonie.vogt@hrmonic.de · samuel.okafor@hrmonic.de`);
 closeDb();

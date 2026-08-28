@@ -1,25 +1,18 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import type { AuthUserDto } from '@hrmonic/shared';
 import { api, hasToken, setToken, setUnauthorizedHandler } from '../api/client';
 
-export interface AuthUser {
-  id: number;
-  email: string;
-  name: string;
-  role: string;
-  employee_id: number | null;
-}
-
 /**
- * Die Desktop-App ist der HR-Administration vorbehalten; Mitarbeitenden-
- * Accounts (role 'mitarbeiter') gehören ins Web-Portal. Das Backend erzwingt
- * das ohnehin (403 auf allen Admin-Routen) — hier gibt es nur die passende
- * Meldung statt kryptischer Fehler.
+ * Das Portal steht allen Accounts mit verknüpftem Personalprofil offen —
+ * Mitarbeitenden (role 'mitarbeiter') ebenso wie HR-Admins, deren Account
+ * mit einem Profil verknüpft ist. Reine Admin-Accounts gehören in die
+ * Desktop-App; das Backend blockt sie auf /api/me/* ohnehin (403).
  */
-const ADMIN_ONLY_MESSAGE =
-  'Dieser Zugang ist der HR-Administration vorbehalten. Bitte melden Sie sich im HRMONIC Mitarbeitenden-Portal an.';
+const NO_PROFILE_MESSAGE =
+  'Für diesen Zugang ist kein Personalprofil hinterlegt. HR-Administrationskonten melden sich in der HRMONIC Desktop-App an.';
 
 interface AuthState {
-  user: AuthUser | null;
+  user: AuthUserDto | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -35,7 +28,7 @@ const AuthContext = createContext<AuthState>({
 export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUserDto | null>(null);
   const [loading, setLoading] = useState(true);
 
   const logout = useCallback(() => {
@@ -50,9 +43,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     api
-      .get<{ user: AuthUser }>('/api/auth/me')
+      .get<{ user: AuthUserDto }>('/api/auth/me')
       .then((res) => {
-        if (res.user.role !== 'admin') setToken(null);
+        if (res.user.employee_id === null) setToken(null);
         else setUser(res.user);
       })
       .catch(() => setToken(null))
@@ -60,11 +53,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [logout]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api.post<{ token: string; user: AuthUser }>('/api/auth/login', {
+    const res = await api.post<{ token: string; user: AuthUserDto }>('/api/auth/login', {
       email,
       password,
     });
-    if (res.user.role !== 'admin') throw new Error(ADMIN_ONLY_MESSAGE);
+    if (res.user.employee_id === null) throw new Error(NO_PROFILE_MESSAGE);
     setToken(res.token);
     setUser(res.user);
   }, []);

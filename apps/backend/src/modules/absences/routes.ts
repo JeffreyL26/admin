@@ -8,9 +8,10 @@ import { holidaysForYear, type Bundesland } from '../../core/holidays.js';
 import { getSetting } from '../../core/settings.js';
 import {
   bundeslandForEmployee,
-  closureDates,
   computeBalance,
   countAbsenceDays,
+  createRequest,
+  type AbsenceTypeRow as TypeRow,
   type EmployeeRow,
 } from './service.js';
 
@@ -59,19 +60,6 @@ const closureBodySchema = z.object({
   date_from: isoDate,
   date_to: isoDate,
 });
-
-interface TypeRow {
-  id: number;
-  name: string;
-  category: string;
-  paid: number;
-  affects_balance: number;
-  requires_proof: number;
-  requires_approval: number;
-  color: string;
-  max_days_per_year: number | null;
-  active: number;
-}
 
 interface RequestRow {
   id: number;
@@ -243,7 +231,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     if (!type) throw notFound('Abwesenheitsart nicht gefunden');
     if (!type.active) throw badRequest('Diese Abwesenheitsart ist deaktiviert');
 
-    const id = createRequest(req, body, employee, type);
+    const id = createRequest(req, body, type);
     reply.status(201);
     return { request: db().prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(id) };
   });
@@ -490,7 +478,6 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
           date_to: body.date_to,
           comment: body.comment,
         },
-        employee,
         type,
       );
       const result = db()
@@ -721,103 +708,4 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     };
   });
 
-  // ------------------------------------------------------------------------
-  /**
-   * Legt einen Antrag an (gemeinsam für Anträge und Krankmeldungen):
-   * Überlappungsprüfung, Tageszählung, Jahres-Obergrenze der Art,
-   * Auto-Genehmigung bei Arten ohne Genehmigungspflicht.
-   */
-  function createRequest(
-    req: Parameters<typeof audit>[0],
-    body: {
-      employee_id: number;
-      type_id: number;
-      date_from: string;
-      date_to: string;
-      half_day_start?: boolean;
-      half_day_end?: boolean;
-      comment?: string;
-    },
-    employee: EmployeeRow,
-    type: TypeRow,
-  ): number {
-    const overlapping = db()
-      .prepare(
-        `SELECT r.id, r.date_from, r.date_to, t.name AS type_name FROM absence_requests r
-         JOIN absence_types t ON t.id = r.type_id
-         WHERE r.employee_id = ? AND r.status IN ('beantragt', 'genehmigt')
-           AND r.date_from <= ? AND r.date_to >= ?`,
-      )
-      .get(body.employee_id, body.date_to, body.date_from) as
-      | { id: number; date_from: string; date_to: string; type_name: string }
-      | undefined;
-    if (overlapping) {
-      throw conflict(
-        `Überschneidung mit bestehender Abwesenheit (${overlapping.type_name}, ${overlapping.date_from} bis ${overlapping.date_to})`,
-      );
-    }
-
-    const land = bundeslandForEmployee(body.employee_id);
-    const days = countAbsenceDays({
-      land,
-      dateFrom: body.date_from,
-      dateTo: body.date_to,
-      halfDayStart: body.half_day_start,
-      halfDayEnd: body.half_day_end,
-      closures: closureDates(body.date_from, body.date_to),
-    });
-    if (days <= 0) {
-      throw badRequest('Der Zeitraum enthält keine zu zählenden Arbeitstage (Wochenende, Feiertage oder Betriebsruhe)');
-    }
-
-    if (type.max_days_per_year !== null) {
-      // Jahreszuordnung über das Startdatum des Antrags (bewusste Vereinfachung).
-      const year = body.date_from.slice(0, 4);
-      const usedRow = db()
-        .prepare(
-          `SELECT COALESCE(SUM(days_counted), 0) AS used FROM absence_requests
-           WHERE employee_id = ? AND type_id = ? AND status IN ('beantragt', 'genehmigt')
-             AND substr(date_from, 1, 4) = ?`,
-        )
-        .get(body.employee_id, body.type_id, year) as { used: number };
-      if (usedRow.used + days > type.max_days_per_year) {
-        throw conflict(
-          `Jahresobergrenze für "${type.name}" überschritten (maximal ${type.max_days_per_year} Tage, bereits ${usedRow.used} erfasst)`,
-        );
-      }
-    }
-
-    const userId = (req.user as { id?: number } | undefined)?.id ?? null;
-    const autoApprove = type.requires_approval === 0;
-    const result = db()
-      .prepare(
-        `INSERT INTO absence_requests
-         (employee_id, type_id, date_from, date_to, half_day_start, half_day_end, days_counted,
-          status, comment, decided_by_user_id, decided_at, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${autoApprove ? "datetime('now')" : 'NULL'}, ?)`,
-      )
-      .run(
-        body.employee_id,
-        body.type_id,
-        body.date_from,
-        body.date_to,
-        body.half_day_start ? 1 : 0,
-        body.half_day_end ? 1 : 0,
-        days,
-        autoApprove ? 'genehmigt' : 'beantragt',
-        body.comment ?? null,
-        autoApprove ? userId : null,
-        userId,
-      );
-    const id = Number(result.lastInsertRowid);
-    audit(req, 'create', 'absence_request', id, {
-      employee_id: body.employee_id,
-      type: type.name,
-      date_from: body.date_from,
-      date_to: body.date_to,
-      days_counted: days,
-      status: autoApprove ? 'genehmigt' : 'beantragt',
-    });
-    return id;
-  }
 };

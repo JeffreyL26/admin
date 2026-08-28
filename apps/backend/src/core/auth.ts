@@ -4,11 +4,14 @@ import { z } from 'zod';
 import { getDb } from '../db/db.js';
 import { parse, unauthorized, badRequest } from './errors.js';
 
+/** Rollen: 'admin' = HR-Administration (Desktop), 'mitarbeiter' = Web-Portal. */
 export interface AuthUser {
   id: number;
   email: string;
   name: string;
   role: string;
+  /** Verknüpftes Personalprofil (nur Mitarbeitenden-Accounts, sonst null). */
+  employee_id: number | null;
 }
 
 declare module '@fastify/jwt' {
@@ -43,7 +46,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!row || !bcrypt.compareSync(body.password, row.password_hash)) {
       throw unauthorized('E-Mail oder Passwort ist falsch');
     }
-    const user: AuthUser = { id: row.id, email: row.email, name: row.name, role: row.role };
+    const user: AuthUser = {
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      role: row.role,
+      employee_id: row.employee_id ?? null,
+    };
     const token = await (app as FastifyInstance & { jwt: { sign: (p: AuthUser) => string } }).jwt.sign(user);
     return { token, user };
   });

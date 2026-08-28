@@ -11,12 +11,14 @@
     "dev:backend": "npm run dev -w apps/backend",
     "dev:renderer": "npm run dev -w apps/renderer",
     "dev:desktop": "npm run dev -w apps/desktop",
-    "dev": "concurrently -n backend,renderer -c blue,green \"npm:dev:backend\" \"npm:dev:renderer\"",
+    "dev:web": "npm run dev -w apps/web",
+    "dev": "concurrently -n backend,renderer,web -c blue,green,magenta \"npm:dev:backend\" \"npm:dev:renderer\" \"npm:dev:web\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "seed": "npm run seed -w apps/backend",
     "seed:desktop": "npm run seed:desktop -w apps/backend --",
     "build": "npm run build -w apps/renderer && npm run build -w apps/backend && npm run build -w apps/desktop",
+    "build:web": "npm run build -w apps/web",
     "dist:win": "npm run build && npm run dist:win -w apps/desktop"
   },
   "devDependencies": {

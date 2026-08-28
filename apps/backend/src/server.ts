@@ -4,7 +4,7 @@ import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import { config } from './config.js';
 import { migrate } from './db/migrate.js';
-import { errorHandler } from './core/errors.js';
+import { errorHandler, forbidden } from './core/errors.js';
 import { authRoutes, ensureDefaultAdmin } from './core/auth.js';
 import { fileRoutes } from './core/files.js';
 import { settingsRoutes } from './core/settingsRoutes.js';
@@ -17,9 +17,10 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   const app = Fastify({ logger: { level: process.env.HRMONIC_LOG_LEVEL ?? 'warn' } });
 
-  // Das Backend bindet ausschließlich an 127.0.0.1. CORS ist offen, weil der
-  // Desktop-Client im Prod-Betrieb von file:// aus zugreift (Origin "null").
-  await app.register(cors, { origin: true });
+  // Standardmäßig bindet das Backend nur an 127.0.0.1 und CORS ist offen
+  // (Desktop-Client lädt von file://, Origin "null"). Im Server-Deploy wird
+  // die Origin-Liste über HRMONIC_CORS_ORIGIN eingeschränkt (siehe config.ts).
+  await app.register(cors, { origin: config.corsOrigin });
   await app.register(jwt, { secret: config.secret, sign: { expiresIn: config.tokenTtl } });
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -28,9 +29,18 @@ export async function buildServer(): Promise<FastifyInstance> {
   // Zugriffsprüfung passiert immer hier im Backend — der Client ist keine
   // Sicherheitsgrenze. Routen sind nur öffentlich, wenn sie explizit
   // config.public setzen (Login, signierte Downloads, Health).
+  //
+  // Rollenmodell: Mitarbeitenden-Accounts (role 'mitarbeiter', Web-Portal)
+  // erreichen nur den Self-Service (/api/me/*) und die Auth-Routen; alle
+  // übrigen Routen sind der HR-Administration (role 'admin') vorbehalten.
   app.addHook('onRequest', async (req) => {
     if ((req.routeOptions.config as { public?: boolean } | undefined)?.public) return;
     await req.jwtVerify();
+    const route = req.routeOptions.url ?? req.url;
+    const selfService = route.startsWith('/api/me/') || route.startsWith('/api/auth/');
+    if (!selfService && req.user.role !== 'admin') {
+      throw forbidden('Dieser Bereich ist der HR-Administration vorbehalten');
+    }
   });
 
   app.get('/api/health', { config: { public: true } }, async () => ({

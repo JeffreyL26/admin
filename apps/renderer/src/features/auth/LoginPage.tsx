@@ -18,7 +18,11 @@ export function LoginPage() {
     try {
       await login(email, password);
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : 'Anmeldung fehlgeschlagen');
+      setError(
+        err instanceof ApiRequestError || err instanceof Error
+          ? err.message
+          : 'Anmeldung fehlgeschlagen',
+      );
     } finally {
       setBusy(false);
     }
