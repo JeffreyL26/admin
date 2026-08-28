@@ -22,6 +22,33 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   via `users.employee_id` mit dem Personalprofil verknüpft) erreicht nur
   `/api/auth/*` und `/api/me/*`, alles andere verlangt `admin` (403 sonst).
   Self-Service-Routen liefern strikt eigene Daten (`modules/me/`).
+- **Zwei getrennte Rollenbegriffe — nicht verwechseln.** `users.role` ist der
+  **Systemzugang** und bleibt zweiwertig (`admin`/`mitarbeiter`); wer daran dreht,
+  sperrt Konten aus. Davon unabhängig sind **Fachrollen** (Tabellen `roles` +
+  `employee_roles`, Migration `102_employee_roles`): frei anleg- und zuweisbar,
+  verwaltet unter `/verwaltung/rollen`. Sie steuern ausschließlich, wer welche
+  Abwesenheitsart beantragen darf. Beim ersten Start erzeugt die Migration je
+  Beschäftigungsart (`employees.employee_type`) eine gleichnamige Fachrolle und
+  weist sie zu; danach driften beide bewusst auseinander — `employee_type` mit
+  seinen Pflichtfeld-Regeln bleibt unangetastet.
+- **Antragsberechtigung** je Abwesenheitsart: Rollen-Allowlist
+  (`absence_type_roles`, **leer ⇒ alle dürfen**) plus Personen-Ausnahmen
+  (`absence_type_employee_rules`, `allow`/`deny`), die die Rollenregel schlagen.
+  Durchgesetzt wird sie in `absences/service.ts#assertTypeAllowed`, aufgerufen in
+  **`createRequest`** — dem einzigen Punkt, durch den alle vier Erfassungswege
+  laufen. Eine Prüfung in den Routen würde die HR-Erfassung auslassen.
+  Kategorie `krankheit` ist ausgenommen: Krankmeldungen finden ihre Art über den
+  festen Namen, eine Sperre dort legte die gesamte Erfassung lahm.
+  Lesefilter (`GET /api/me/leave-types`) nutzt `allowedTypeIdsFor` — Lese- und
+  Schreibseite müssen sich decken, sonst bietet das Portal Arten an, die der POST
+  ablehnt.
+- **Vier-Augen-Prinzip:** `approve` und `reject` in `absences/routes.ts` weisen
+  den eigenen Antrag mit 403 ab (Vergleich `req.user.employee_id` gegen
+  `absence_requests.employee_id`). `cancel` bleibt erlaubt (Rückzug, kein
+  Entscheid), ebenso die Auto-Genehmigung bei `requires_approval = 0` — die
+  genehmigt technisch immer „selbst". **Achtung Einzelbetrieb:** Eine
+  Frischinstallation hat nur `admin@hrmonic.de`; dessen eigener Antrag ist dann
+  von niemandem entscheidbar. Ein zweites Admin-Konto ist Voraussetzung.
 - **Desktop-Embedding:** `desktop/src/main.ts` ruft `startServer(0)` aus dem
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.hrmonic.apiBaseUrl`.

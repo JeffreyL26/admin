@@ -32,24 +32,50 @@ ausschließlich in der Desktop-App und entscheidet dort über die Anträge.
 
 ## Self-Service-API (/api/me/*)
 
-Implementiert in `apps/backend/src/modules/me/routes.ts` (Antragslogik geteilt
-mit dem Abwesenheitsmodul über `modules/absences/service.ts#createRequest` —
-Überlappungsprüfung, Arbeitstagszählung, Jahresobergrenzen und Auto-Genehmigung
-sind damit in HR-Erfassung und Portal identisch):
+Das Modul ist aufgeteilt: `modules/me/routes.ts` registriert die Teil-Plugins,
+gemeinsame Helfer (`requireEmployee`, `assertReasonableSpan`, `MAX_SPAN_DAYS`)
+liegen in `modules/me/lib.ts` — **nicht kopieren, importieren**. Die Antragslogik
+teilt sich das Modul mit dem Abwesenheitsmodul über
+`modules/absences/service.ts#createRequest` (Überlappungsprüfung,
+Arbeitstagszählung, Jahresobergrenzen, Auto-Genehmigung **und
+Berechtigungsprüfung** sind damit in HR-Erfassung und Portal identisch):
 
-| Route | Zweck |
-|---|---|
-| `GET /api/me/profile` | Eigene Stammdaten (ohne Bank-/Steuerdaten) |
-| `GET /api/me/leave-types` | Beantragbare Arten (aktiv, ohne Kategorie Krankheit) |
-| `GET/POST /api/me/leave-requests` | Eigene Anträge lesen/stellen |
-| `POST /api/me/leave-requests/:id/cancel` | Eigenen offenen Antrag zurückziehen |
-| `GET /api/me/leave-balance` | Eigener Urlaubssaldo |
-| `GET /api/me/leave-preview` | Live-Vorschau der gezählten Tage |
-| `GET/POST /api/me/sick-notes` | Krankmeldungen einsehen/einreichen (AU-Frist = 3. Kalendertag) |
+| Route | Datei | Zweck |
+|---|---|---|
+| `GET /api/me/profile` | `routes.ts` | Eigene Stammdaten (ohne Bank-/Steuerdaten) |
+| `GET /api/me/leave-types` | `routes.ts` | Beantragbare Arten — gefiltert über `allowedTypeIdsFor` |
+| `GET/POST /api/me/leave-requests` | `routes.ts` | Eigene Anträge lesen/stellen |
+| `POST /api/me/leave-requests/:id/cancel` | `routes.ts` | Eigenen offenen Antrag zurückziehen |
+| `GET /api/me/leave-balance` | `routes.ts` | Eigener Urlaubssaldo |
+| `GET /api/me/leave-preview` | `routes.ts` | Live-Vorschau der gezählten Tage |
+| `GET/POST /api/me/sick-notes` | `routes.ts` | Krankmeldungen (AU-Frist = 3. Kalendertag) |
+| `GET /api/me/salary` · `/salary/history` · `/bonuses` · `/freelancer` | `salaryRoutes.ts` | Eigene Vergütung |
+| `GET /api/me/org-tree` | `orgRoutes.ts` | Abteilungs-Organigramm (`buildOrgTree()`) |
+| `GET /api/me/calendar?year=&month=` | `calendarRoutes.ts` | Firmenweite Abwesenheiten |
+| `GET/POST /api/me/documents` · `POST /api/me/documents/:id/download` | `documentRoutes.ts` | Eigene Dokumente |
 
-Smoke-Test: `npx tsx apps/backend/src/modules/me/smoke.ts` (deckt auch den
-Rollen-Guard ab). Demo-Konten legt `npm run seed` an — vier Admins
-(`hrmonic2026`) und vier Portal-Konten (`portal2026`), siehe Seed-Ausgabe.
+Drei Grenzen, die bewusst gesetzt sind und beim Erweitern gelten müssen:
+
+- **Gehalt:** `salary_components.note` enthält HR-interne Begründungen aus
+  Gehaltsänderungsanträgen (`Änderungsantrag #<id>: <reason>`). Antworten deshalb
+  **Feld für Feld** bauen — kein `SELECT *`, kein `{ ...row }`. Gleiches gilt für
+  `bonuses.note`/`goal_id` und `freelancer_invoices.note`/`file_id`.
+  Fehlen die Wochenstunden, liefert die Route bei Stundenlohn `0` statt einer
+  erfundenen Hochrechnung (`monthlyCents` fiele still auf 40 h zurück).
+- **Kalender:** `month` ist Pflicht (Lastgrenze — die Route ruft jede:r auf), nur
+  `status='genehmigt'`, keine `conflicts` (Teamquoten sind eine HR-Kennzahl).
+  Arten mit `absence_types.portal_visibility='neutral'` werden serverseitig zu
+  `type_id: null` / „Abwesend" maskiert.
+- **Dokumente:** Zugriff auf fremde Dokumente antwortet mit **404, nicht 403** —
+  ein 403 verriete deren Existenz. Upload nur mit Kategorie
+  `bescheinigung|zertifikat|sonstiges`, MIME-Whitelist, 10 MB, `supersedes_id`
+  verboten; `employee_id` kommt immer aus `requireEmployee`, nie aus dem Body.
+
+Smoke-Test: `npx tsx apps/backend/src/modules/me/smoke.ts` (deckt Rollen-Guard,
+Berechtigungen, Vier-Augen, Datenschutzgrenzen und Upload-Regeln ab). Neue Checks
+gehören **vor** den Widerrufsblock am Ende — der entzieht Profil und Rolle und
+löscht das Konto, danach schlägt alles fehl. Demo-Konten legt `npm run seed` an —
+vier Admins (`hrmonic2026`) und vier Portal-Konten (`portal2026`).
 
 ## Frontend-Architektur
 
@@ -67,10 +93,26 @@ Rollen-Guard ab). Demo-Konten legt `npm run seed` an — vier Admins
   vorhanden: `src/design/tokens.css` und `theme.ts` spiegeln die
   Renderer-Werte 1:1 (Sync-Pflicht, siehe CLAUDE.md); die Wahl liegt im
   Portal unter Profil → „Darstellung" (localStorage `hrmonic.theme`, pro
-  Gerät und Origin). Die Kopfzeile trägt den Sidebar-Verlauf des jeweiligen
-  Themes. Portal-eigen bleiben Layout (Kopfzeile statt Sidebar, responsive
-  bis Smartphone-Breite), Skeleton-Loader und der Verzicht auf eine
-  Icon-Bibliothek. Klassenpräfix `pt-` (Portal) statt `hm-`.
+  Gerät und Origin). Seit dem Self-Service-Ausbau trägt das Portal wie die
+  Desktop-App eine **linke Seitenleiste** (`.portal-sidebar`, Verlauf und
+  Linkoptik 1:1 aus `renderer/src/design/layout.css`). Zwei Abweichungen sind
+  Absicht: Das Höhenmodell ist `position: sticky; height: 100dvh` — das
+  `body { overflow: hidden }` des Renderers würde den Body-Scroll und den
+  `background-attachment: fixed`-Farbnebel des Portals brechen. Und unter 900px
+  wird die Leiste zum Off-Canvas-Drawer (Hamburger, Overlay, Escape); dafür gibt
+  es im Desktop keine Vorlage, weil dessen Fenster nie so schmal wird.
+  Portal-eigen bleiben Skeleton-Loader und der Verzicht auf eine
+  Icon-Bibliothek — die Symbole sind schlanke Inline-SVG in
+  `src/components/icons.tsx`, **`lucide-react` gehört nicht in `apps/web`**.
+  Klassenpräfix `pt-` (Portal) statt `hm-`.
+
+  Seiten: Übersicht · Anträge · Krankmeldung · Kalender (firmenweit) · Gehalt ·
+  Dokumente · Organigramm · Profil. Query-Keys beginnen **immer** mit `'me'` —
+  das Portal invalidiert grobkörnig über dieses Präfix; ein abweichender Key
+  zeigt stille Altdaten. Das Organigramm löst CSS-Variablen zur Renderzeit über
+  `getComputedStyle` in konkrete Werte auf (`features/org/chartColors.ts`) und
+  liest sie bei Theme-Wechsel per `MutationObserver` neu — `var(…)` greift in
+  SVG-Präsentationsattributen nicht zuverlässig.
   Die Login-Seite legt hinter Wortmarke, Claim und Karte eine langsam
   driftende Wellen-Ebene (harmonische Teilschwingungen einer Grundwelle,
   `HarmonyBackdrop` in `pages/LoginPage.tsx`; respektiert
