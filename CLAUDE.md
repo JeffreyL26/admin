@@ -59,7 +59,10 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   UI-Farben deshalb NIE hartkodieren, sondern immer über bestehende Variablen —
   im Dunkel-Theme ist die Grau-Rampe invertiert (gray-25 = dunkelste Fläche).
   SVG-Exporte (Organigramm) lösen Variablen zur Renderzeit über
-  `getComputedStyle` in konkrete Werte auf.
+  `getComputedStyle` in konkrete Werte auf. Das Web-Portal führt dieselben
+  vier Themes: `apps/web/src/design/tokens.css` + `theme.ts` spiegeln die
+  Renderer-Werte 1:1 (Wahl im Portal unter Profil → Darstellung) —
+  Token-Änderungen immer in BEIDEN tokens.css nachziehen.
 
 ## Modul-Erweiterungspunkte (parallel konfliktfrei)
 

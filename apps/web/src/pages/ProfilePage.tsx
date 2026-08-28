@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ApiRequestError } from '../api/client';
 import { useChangePassword, useMyProfile } from '../api/hooks';
 import { Card, Field, LoadError, Skeleton } from '../components/ui';
+import { ThemeCard } from '../components/ThemeCard';
 import { useToast } from '../components/Toast';
 import { formatDate, formatDays } from '../lib/format';
 
@@ -196,6 +197,7 @@ export function ProfilePage() {
               </div>
             )}
           </Card>
+          <ThemeCard />
           <PasswordCard />
         </div>
       </div>

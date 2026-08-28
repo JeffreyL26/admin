@@ -65,11 +65,10 @@ const STATUS_TONES: Record<AbsenceRequestStatus, string> = {
   storniert: 'neutral',
 };
 
-/** Statusanzeige eines Antrags: Punkt plus Text, Farbwelt wie die Desktop-App. */
+/** Statusanzeige eines Antrags — Pille wie hm-badge in der Desktop-App. */
 export function StatusChip({ status }: { status: AbsenceRequestStatus }) {
   return (
     <span className={`pt-chip pt-chip--${STATUS_TONES[status] ?? 'neutral'}`}>
-      <span className="pt-chip__dot" />
       {ABSENCE_STATUS_LABELS[status] ?? status}
     </span>
   );

@@ -1,18 +1,19 @@
 /* HRMONIC Portal — Design-Tokens.
-   Farbwelt identisch zur Desktop-App (Primärblau #0864C6, Navy #0F2F5F,
-   kühle Grau-Rampe), eigene Formensprache: ruhig und dokumentenhaft.
-   Serifen-Auszeichnung für Überschriften, flache Karten mit Hairlines
-   statt Schatten, ein einziger Akzentton. */
+   Farb-, Schrift- und Theme-Werte sind IDENTISCH zur Desktop-App
+   (apps/renderer/src/design/tokens.css) — Änderungen dort bitte hier
+   spiegeln, damit beide Clients als ein Produkt wirken. Portal-eigen sind
+   nur die Layout-Konstanten am Ende (Kopfzeile statt Sidebar). */
 :root {
   color-scheme: light;
 
-  /* Marke — identisch zu apps/renderer/src/design/tokens.css */
+  /* Marke */
   --brand-primary: #0864c6;
   --brand-primary-hover: #0a58ab;
   --brand-primary-active: #084a90;
   --brand-navy: #0f2f5f;
   --brand-navy-deep: #0a2246;
-  /* Akzent der Wortmarke (HR|MONIC) auf dunklen Flächen */
+  --brand-gradient: linear-gradient(135deg, #1179dd 0%, #0864c6 55%, #0a58ab 100%);
+  /* Akzent der Wortmarke (HR|MONIC) auf dunklen Flächen — in allen Themes fix */
   --wordmark-accent: #7fb3ec;
 
   /* Abstufungen Primärblau */
@@ -49,11 +50,9 @@
   /* Flächen und Linien */
   --bg-app: #f3f6fb;
   --bg-surface: #ffffff;
+  --bg-sidebar: linear-gradient(195deg, #143a70 0%, var(--brand-navy) 40%, var(--brand-navy-deep) 100%);
   --border: #e6eaf2;
   --border-strong: #d5dce8;
-  /* Zarte Hintergrund-Tönungen (wie Desktop-App) */
-  --bg-tint-1: rgb(8 100 198 / 0.055);
-  --bg-tint-2: rgb(15 47 95 / 0.045);
 
   /* Text */
   --text-primary: var(--gray-900);
@@ -61,9 +60,7 @@
   --text-muted: var(--gray-500);
   --text-on-dark: #f4f7fc;
 
-  /* Typografie: Inter Variable — identisch zur Desktop-App, damit beide
-     Clients als ein Produkt lesbar sind (Schriftschnitt und Größenskala
-     wie in apps/renderer/src/design/tokens.css). */
+  /* Typografie — identisch zur Desktop-App */
   --font-sans: 'Inter Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
@@ -73,13 +70,196 @@
   --text-xl: 1.5rem;
   --text-2xl: 1.875rem;
 
-  /* Geometrie: knappere Radien als die Desktop-App, keine Schatten */
-  --radius-sm: 6px;
-  --radius: 10px;
-  --radius-lg: 14px;
-  --focus-ring: rgb(8 100 198 / 0.15);
+  /* Geometrie — identisch zur Desktop-App */
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 18px;
+  --shadow-sm: 0 1px 2px rgb(16 32 47 / 0.05);
+  --shadow: 0 1px 3px rgb(16 32 47 / 0.06), 0 6px 24px rgb(16 32 47 / 0.05);
+  --shadow-lg: 0 12px 40px rgb(16 32 47 / 0.18);
+  --shadow-primary: 0 6px 18px rgb(8 100 198 / 0.28);
+  --shadow-primary-sm: 0 1px 3px rgb(8 100 198 / 0.35);
 
-  /* Layout */
+  /* Themebare Einzelwerte */
+  --bg-tint-1: rgb(8 100 198 / 0.055);
+  --bg-tint-2: rgb(15 47 95 / 0.045);
+  --toast-bg: var(--gray-900);
+  --toast-text: #fff;
+  --focus-ring: rgb(8 100 198 / 0.13);
+  --table-hover: #f2f7fe;
+
+  /* Layout (Portal-eigen: Kopfzeile statt Sidebar) */
   --header-height: 56px;
   --content-width: 1060px;
+}
+
+/* ===========================================================================
+   Themes — umgeschaltet über data-theme auf <html> (siehe design/theme.ts).
+   'light' ist der :root-Standard oben. Werte 1:1 aus der Desktop-App.
+   =========================================================================== */
+
+/* ---------- Dunkel (tiefes Blau statt Schwarz) ---------- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --brand-primary: #3b8fe4;
+  --brand-primary-hover: #5aa3ec;
+  --brand-primary-active: #2f7ccc;
+  --brand-navy: #4d8fd6;
+  --brand-navy-deep: #0a1c38;
+  --brand-gradient: linear-gradient(135deg, #4d9bea 0%, #3b8fe4 55%, #2f7ccc 100%);
+
+  --blue-50: #14294a;
+  --blue-100: #1c3a63;
+  --blue-200: #2b5591;
+  --blue-300: #3f74bd;
+  --blue-500: #3b8fe4;
+  --blue-700: #9cc4ef;
+
+  /* Grau-Rampe invertiert: helle Stufen = dunkle Flächen, dunkle = heller Text */
+  --gray-25: #16273f;
+  --gray-50: #182a45;
+  --gray-100: #1e3252;
+  --gray-200: #273d5e;
+  --gray-300: #35507a;
+  --gray-400: #5c7396;
+  --gray-500: #8299b8;
+  --gray-600: #a9bcd6;
+  --gray-700: #c6d4e8;
+  --gray-800: #dde7f4;
+  --gray-900: #eef4fb;
+
+  --success: #4ccb8a;
+  --success-bg: #12351f;
+  --warning: #e8b45a;
+  --warning-bg: #392b10;
+  --danger: #ef7683;
+  --danger-bg: #3d1a20;
+  --info: var(--blue-500);
+  --info-bg: var(--blue-50);
+
+  --bg-app: #0c1830;
+  --bg-surface: #13233d;
+  --bg-sidebar: linear-gradient(195deg, #0e2547 0%, #0a1c38 45%, #071228 100%);
+  --border: #223550;
+  --border-strong: #2d4360;
+
+  --text-primary: #eef4fb;
+  --text-secondary: #b9c8dd;
+  --text-muted: #8299b8;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow: 0 1px 3px rgb(0 0 0 / 0.35), 0 6px 24px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 12px 40px rgb(0 0 0 / 0.55);
+  --shadow-primary: 0 6px 18px rgb(59 143 228 / 0.35);
+  --shadow-primary-sm: 0 1px 3px rgb(59 143 228 / 0.4);
+
+  --bg-tint-1: rgb(59 143 228 / 0.07);
+  --bg-tint-2: rgb(76 110 245 / 0.05);
+  --toast-bg: #24405f;
+  --toast-text: #eef4fb;
+  --focus-ring: rgb(59 143 228 / 0.28);
+  --table-hover: #182f52;
+}
+
+/* ---------- Rosé / Pastell ---------- */
+:root[data-theme='rose'] {
+  --brand-primary: #d4548f;
+  --brand-primary-hover: #c04680;
+  --brand-primary-active: #a93a71;
+  --brand-navy: #8e4f75;
+  --brand-navy-deep: #5c3050;
+  --brand-gradient: linear-gradient(135deg, #e77fb0 0%, #d4548f 55%, #bf4680 100%);
+
+  --blue-50: #fceff6;
+  --blue-100: #f7dcea;
+  --blue-200: #efbcd7;
+  --blue-300: #e28cba;
+  --blue-500: #d4548f;
+  --blue-700: #a93a71;
+
+  --gray-25: #fdfafc;
+  --gray-50: #faf3f7;
+  --gray-100: #f4e8ef;
+  --gray-200: #ecd9e4;
+  --gray-300: #d9bccd;
+  --gray-400: #b28ba1;
+  --gray-500: #93677f;
+  --gray-600: #714d62;
+  --gray-700: #533747;
+  --gray-800: #3a2531;
+  --gray-900: #271822;
+
+  --bg-app: #fbf4f8;
+  --bg-surface: #ffffff;
+  --bg-sidebar: linear-gradient(195deg, #a24d7d 0%, #8e4270 40%, #632b4e 100%);
+  --border: #f0e0e9;
+  --border-strong: #e2cbd8;
+
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted: var(--gray-500);
+
+  --shadow-sm: 0 1px 2px rgb(90 30 60 / 0.06);
+  --shadow: 0 1px 3px rgb(90 30 60 / 0.07), 0 6px 24px rgb(90 30 60 / 0.06);
+  --shadow-lg: 0 12px 40px rgb(90 30 60 / 0.2);
+  --shadow-primary: 0 6px 18px rgb(212 84 143 / 0.3);
+  --shadow-primary-sm: 0 1px 3px rgb(212 84 143 / 0.35);
+
+  --bg-tint-1: rgb(212 84 143 / 0.06);
+  --bg-tint-2: rgb(142 79 117 / 0.05);
+  --toast-bg: #3a2331;
+  --focus-ring: rgb(212 84 143 / 0.16);
+  --table-hover: #fcf2f7;
+}
+
+/* ---------- Silber / Edel ---------- */
+:root[data-theme='silver'] {
+  --brand-primary: #64708a;
+  --brand-primary-hover: #545f78;
+  --brand-primary-active: #475066;
+  --brand-navy: #3c4557;
+  --brand-navy-deep: #20252f;
+  --brand-gradient: linear-gradient(135deg, #8b98b0 0%, #64708a 55%, #545f78 100%);
+
+  --blue-50: #f1f3f6;
+  --blue-100: #e5e8ee;
+  --blue-200: #cfd5df;
+  --blue-300: #a9b2c2;
+  --blue-500: #64708a;
+  --blue-700: #475066;
+
+  --gray-25: #fafbfc;
+  --gray-50: #f5f6f8;
+  --gray-100: #eef0f3;
+  --gray-200: #e2e5ea;
+  --gray-300: #ccd1d9;
+  --gray-400: #9aa2b0;
+  --gray-500: #6e7787;
+  --gray-600: #515a6a;
+  --gray-700: #3a4150;
+  --gray-800: #272c37;
+  --gray-900: #191d25;
+
+  --bg-app: #f3f4f6;
+  --bg-surface: #ffffff;
+  --bg-sidebar: linear-gradient(195deg, #3a4254 0%, #2c3342 45%, #1e232d 100%);
+  --border: #e5e7ec;
+  --border-strong: #d4d8df;
+
+  --text-primary: var(--gray-900);
+  --text-secondary: var(--gray-600);
+  --text-muted: var(--gray-500);
+
+  --shadow-sm: 0 1px 2px rgb(25 29 37 / 0.05);
+  --shadow: 0 1px 3px rgb(25 29 37 / 0.06), 0 6px 24px rgb(25 29 37 / 0.05);
+  --shadow-lg: 0 12px 40px rgb(25 29 37 / 0.18);
+  --shadow-primary: 0 6px 18px rgb(100 112 138 / 0.3);
+  --shadow-primary-sm: 0 1px 3px rgb(100 112 138 / 0.35);
+
+  --bg-tint-1: rgb(100 112 138 / 0.06);
+  --bg-tint-2: rgb(60 69 87 / 0.05);
+  --toast-bg: #272c37;
+  --focus-ring: rgb(100 112 138 / 0.16);
+  --table-hover: #f2f4f7;
 }

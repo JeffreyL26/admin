@@ -60,12 +60,17 @@ Rollen-Guard ab). Demo-Konten legt `npm run seed` an — vier Admins
 - API-Basis: `VITE_API_BASE`, sonst im Dev `http://127.0.0.1:3001`, im
   Prod-Build **same-origin** (`''`) — gedacht für den Reverse-Proxy-Deploy unten.
   Token liegt unter `localStorage['hrmonic.portal.token']`.
-- Gestaltung: HRMONIC-Farbwelt, Wortmarke und Typografie wie die Desktop-App
-  (`src/design/tokens.css`, Farb- und Schriftwerte identisch zu
-  `apps/renderer`; Inter Variable, gleiche Größenskala), aber eigene,
-  ruhig-dokumentenhafte Formensprache: flache Karten mit Hairlines statt
-  Schatten, keine Icon-Bibliothek, Skeleton-Loader statt Spinner, responsive
-  bis Smartphone-Breite. Klassenpräfix `pt-` (Portal) statt `hm-`.
+- Gestaltung: Farbwelt, Typografie (Inter Variable, gleiche Größenskala),
+  Radien, Schatten und Komponenten-Rezepte (Karten, Gradient-Primärbuttons,
+  Tabellenköpfe, Badges) wie die Desktop-App — beide Clients sollen als ein
+  Produkt wirken. Alle vier Farbschemata (Hell/Dunkel/Rosé/Silber) sind
+  vorhanden: `src/design/tokens.css` und `theme.ts` spiegeln die
+  Renderer-Werte 1:1 (Sync-Pflicht, siehe CLAUDE.md); die Wahl liegt im
+  Portal unter Profil → „Darstellung" (localStorage `hrmonic.theme`, pro
+  Gerät und Origin). Die Kopfzeile trägt den Sidebar-Verlauf des jeweiligen
+  Themes. Portal-eigen bleiben Layout (Kopfzeile statt Sidebar, responsive
+  bis Smartphone-Breite), Skeleton-Loader und der Verzicht auf eine
+  Icon-Bibliothek. Klassenpräfix `pt-` (Portal) statt `hm-`.
   Die Login-Seite legt hinter Wortmarke, Claim und Karte eine langsam
   driftende Wellen-Ebene (harmonische Teilschwingungen einer Grundwelle,
   `HarmonyBackdrop` in `pages/LoginPage.tsx`; respektiert

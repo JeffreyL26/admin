@@ -168,10 +168,7 @@ export function SickNotePage() {
                           <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> · Kind krank</span>
                         )}
                       </p>
-                      <span className={`pt-chip pt-chip--${cert.tone}`}>
-                        <span className="pt-chip__dot" />
-                        {cert.label}
-                      </span>
+                      <span className={`pt-chip pt-chip--${cert.tone}`}>{cert.label}</span>
                     </div>
                   </div>
                 );
