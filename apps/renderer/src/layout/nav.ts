@@ -3,7 +3,7 @@ import {
   ListChecks, Target, ClipboardCheck, Grid3x3, GraduationCap, MessagesSquare,
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
   FileText, Radio, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
-  LineChart, FileStack, UserPlus,
+  LineChart, FileStack, UserPlus, ShieldCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -89,6 +89,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { path: '/verwaltung/vorlagen', label: 'HR-Vorlagen', icon: FileStack },
       { path: '/verwaltung/onboarding', label: 'On- & Offboarding', icon: UserPlus },
+      { path: '/verwaltung/rollen', label: 'Rollen', icon: ShieldCheck },
     ],
   },
   {

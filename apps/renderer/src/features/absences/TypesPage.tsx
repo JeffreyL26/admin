@@ -1,17 +1,22 @@
-import React, { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CalendarOff, ListPlus, Pencil, Trash2 } from 'lucide-react';
+import React, { useId, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CalendarOff, Info, ListPlus, Pencil, Plus, ShieldAlert, Trash2, X } from 'lucide-react';
 import {
   formatDate,
   ABSENCE_CATEGORY_LABELS,
+  PORTAL_VISIBILITY_LABELS,
   type AbsenceCategory,
   type AbsenceType,
+  type AbsenceTypeEligibility,
   type CompanyClosure,
+  type PortalVisibility,
+  type Role,
 } from '@hrmonic/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import { EmployeeSelect, employeeName, useEmployees } from '../../components/EmployeeSelect';
 import { useAbsenceTypes, useClosures } from './api';
 
 interface TypeForm {
@@ -24,6 +29,7 @@ interface TypeForm {
   color: string;
   max_days_per_year: number | null;
   active: boolean;
+  portal_visibility: PortalVisibility;
 }
 
 const EMPTY_FORM: TypeForm = {
@@ -36,7 +42,44 @@ const EMPTY_FORM: TypeForm = {
   color: '#0864C6',
   max_days_per_year: null,
   active: true,
+  portal_visibility: 'name',
 };
+
+const EMPTY_ELIGIBILITY: AbsenceTypeEligibility = { role_ids: [], employee_rules: [] };
+
+/**
+ * Die HR-Liste (GET /api/absences/types) liefert die Zuordnung nur zur Anzeige
+ * mit — sie filtert bewusst nicht. Das Backend benennt die Rollen-Allowlist
+ * dort `eligible_role_ids`; `AbsenceType.role_ids` aus @hrmonic/shared wird
+ * zusätzlich gelesen, falls die beiden Namen später angeglichen werden.
+ */
+type TypeListRow = AbsenceType & {
+  eligible_role_ids?: number[];
+  employee_rules?: AbsenceTypeEligibility['employee_rules'];
+};
+
+/**
+ * Fachrollen für die Berechtigungsauswahl. Der Query-Key ist bewusst der
+ * generische `['admin', 'roles']`, damit die Rollenpflege in der Verwaltung und
+ * dieser Dialog aus demselben Cache leben.
+ */
+function useRoles() {
+  return useQuery({
+    queryKey: ['admin', 'roles'],
+    queryFn: () => api.get<{ roles: Role[] }>('/api/admin/roles'),
+    select: (d) => d.roles,
+  });
+}
+
+/** Kurzfassung der Zuordnung für die Artenliste ("Alle", "3 Rollen, 2 Ausnahmen"). */
+function eligibilitySummary(t: TypeListRow): string {
+  const roleCount = (t.eligible_role_ids ?? t.role_ids ?? []).length;
+  const ruleCount = (t.employee_rules ?? []).length;
+  if (roleCount === 0 && ruleCount === 0) return 'Alle';
+  const parts = [roleCount === 0 ? 'Alle Rollen' : `${roleCount} ${roleCount === 1 ? 'Rolle' : 'Rollen'}`];
+  if (ruleCount > 0) parts.push(`${ruleCount} ${ruleCount === 1 ? 'Ausnahme' : 'Ausnahmen'}`);
+  return parts.join(', ');
+}
 
 export function TypesPage() {
   const toast = useToast();
@@ -48,14 +91,36 @@ export function TypesPage() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ['absences'] });
 
   const save = useMutation({
-    mutationFn: ({ id, form }: { id: number | null; form: TypeForm }) =>
-      id === null ? api.post('/api/absences/types', form) : api.put(`/api/absences/types/${id}`, form),
+    mutationFn: async ({
+      id,
+      form,
+      eligibility,
+    }: {
+      id: number | null;
+      form: TypeForm;
+      eligibility: AbsenceTypeEligibility;
+    }) => {
+      let typeId = id;
+      if (typeId === null) {
+        // Neue Art: erst anlegen — die Berechtigung hängt an ihrer id.
+        const created = await api.post<{ type: AbsenceType }>('/api/absences/types', form);
+        typeId = created.type.id;
+      } else {
+        await api.put(`/api/absences/types/${typeId}`, form);
+      }
+      await api.put(`/api/absences/types/${typeId}/eligibility`, eligibility);
+    },
     onSuccess: () => {
       invalidate();
       toast.success('Abwesenheitsart gespeichert');
       setEditing(null);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      // Die Art kann bereits geschrieben und nur die Berechtigung gescheitert
+      // sein — die Liste deshalb auch im Fehlerfall neu laden.
+      invalidate();
+      toast.error(e.message);
+    },
   });
 
   const remove = useMutation({
@@ -94,12 +159,13 @@ export function TypesPage() {
                     <th>Kategorie</th>
                     <th>Eigenschaften</th>
                     <th className="num">Max. Tage/Jahr</th>
+                    <th>Wer darf beantragen</th>
                     <th>Status</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(types ?? []).map((t) => (
+                  {((types ?? []) as TypeListRow[]).map((t) => (
                     <tr key={t.id}>
                       <td>
                         <span className="row" style={{ gap: 8 }}>
@@ -116,9 +182,24 @@ export function TypesPage() {
                           {t.affects_balance === 1 && <Badge tone="blue">saldowirksam</Badge>}
                           {t.requires_proof === 1 && <Badge tone="yellow">Nachweis</Badge>}
                           {t.requires_approval === 1 && <Badge tone="navy">Genehmigung</Badge>}
+                          {t.portal_visibility === 'neutral' && <Badge tone="neutral">Portal: „Abwesend“</Badge>}
                         </span>
                       </td>
                       <td className="num">{t.max_days_per_year ?? '—'}</td>
+                      <td>
+                        {t.category === 'krankheit' ? (
+                          // Krankmeldungen werden nie geprüft — das muss hier stehen,
+                          // sonst wirken hinterlegte Regeln so, als griffen sie.
+                          <span
+                            style={{ color: 'var(--text-muted)' }}
+                            title="Krankmeldungen sind von der Berechtigungsprüfung ausgenommen: Diese Art darf immer beantragt werden."
+                          >
+                            Immer alle
+                          </span>
+                        ) : (
+                          eligibilitySummary(t)
+                        )}
+                      </td>
                       <td>{t.active === 1 ? <Badge tone="green">aktiv</Badge> : <Badge tone="neutral">deaktiviert</Badge>}</td>
                       <td>
                         <div className="row" style={{ justifyContent: 'flex-end' }}>
@@ -138,6 +219,7 @@ export function TypesPage() {
                                   color: t.color,
                                   max_days_per_year: t.max_days_per_year,
                                   active: t.active === 1,
+                                  portal_visibility: t.portal_visibility ?? 'name',
                                 },
                               })
                             }
@@ -167,7 +249,7 @@ export function TypesPage() {
       <TypeDialog
         state={editing}
         onClose={() => setEditing(null)}
-        onSave={(id, form) => save.mutate({ id, form })}
+        onSave={(id, form, eligibility) => save.mutate({ id, form, eligibility })}
         saving={save.isPending}
       />
       <ConfirmDialog
@@ -185,6 +267,40 @@ export function TypesPage() {
   );
 }
 
+/** Erklärkasten im Dialog. Farben ausschließlich über Tokens (vier Themes). */
+function Note({
+  tone = 'info',
+  icon,
+  children,
+}: {
+  tone?: 'info' | 'warning';
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const accent = tone === 'warning' ? 'var(--warning)' : 'var(--info)';
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 9,
+        alignItems: 'flex-start',
+        padding: '9px 12px',
+        borderRadius: 'var(--radius-sm)',
+        borderLeft: `3px solid ${accent}`,
+        background: tone === 'warning' ? 'var(--warning-bg)' : 'var(--info-bg)',
+        color: 'var(--text-secondary)',
+        fontSize: 'var(--text-sm)',
+        lineHeight: 1.5,
+      }}
+    >
+      <span style={{ color: accent, flexShrink: 0, marginTop: 1 }} aria-hidden="true">
+        {icon ?? <Info size={15} />}
+      </span>
+      <span>{children}</span>
+    </div>
+  );
+}
+
 function TypeDialog({
   state,
   onClose,
@@ -193,26 +309,98 @@ function TypeDialog({
 }: {
   state: { id: number | null; form: TypeForm } | null;
   onClose: () => void;
-  onSave: (id: number | null, form: TypeForm) => void;
+  onSave: (id: number | null, form: TypeForm, eligibility: AbsenceTypeEligibility) => void;
   saving: boolean;
 }) {
   const [form, setForm] = useState<TypeForm>(EMPTY_FORM);
   const [key, setKey] = useState<string | null>(null);
+  const [eligibility, setEligibility] = useState<AbsenceTypeEligibility>(EMPTY_ELIGIBILITY);
+  // Für welche Art die gespeicherte Berechtigung bereits übernommen wurde.
+  const [eligibilityLoadedFor, setEligibilityLoadedFor] = useState<number | null>(null);
+  const [pickEmployee, setPickEmployee] = useState<number | null>(null);
+  const [pickEffect, setPickEffect] = useState<'allow' | 'deny'>('deny');
+
+  const roleGroupId = useId();
+  const ruleGroupId = useId();
+  const { data: roles, isLoading: rolesLoading } = useRoles();
+  // Inaktive einschließen, damit auch Ausnahmen zu ausgeschiedenen Personen
+  // mit Namen statt nur mit id angezeigt werden.
+  const { data: employees } = useEmployees(true);
+
+  const eligibilityQuery = useQuery({
+    queryKey: ['absences', 'types', state?.id ?? 0, 'eligibility'],
+    queryFn: () => api.get<AbsenceTypeEligibility>(`/api/absences/types/${state?.id}/eligibility`),
+    enabled: state !== null && state.id !== null,
+  });
+
   // Formular beim Öffnen mit den Werten des Dialog-Ziels initialisieren.
   const stateKey = state === null ? null : `${state.id ?? 'neu'}`;
   if (stateKey !== key) {
     setKey(stateKey);
+    setEligibility(EMPTY_ELIGIBILITY);
+    setEligibilityLoadedFor(null);
+    setPickEmployee(null);
+    setPickEffect('deny');
     if (state) setForm(state.form);
   }
+  // Gespeicherte Berechtigung genau einmal je Dialogöffnung übernehmen, sonst
+  // würde ein Refetch die noch nicht gespeicherten Änderungen überschreiben.
+  if (state?.id != null && eligibilityQuery.data && eligibilityLoadedFor !== state.id) {
+    setEligibilityLoadedFor(state.id);
+    setEligibility({
+      role_ids: [...eligibilityQuery.data.role_ids],
+      employee_rules: eligibilityQuery.data.employee_rules.map((r) => ({ ...r })),
+    });
+  }
+
   if (!state) return null;
 
   const set = (patch: Partial<TypeForm>) => setForm((f) => ({ ...f, ...patch }));
+
+  const isSickness = form.category === 'krankheit';
+  // Bei bestehenden Arten erst speichern, wenn die gespeicherte Berechtigung
+  // wirklich da ist — sonst würde ein leeres Formular sie überschreiben.
+  const eligibilityReady = state.id === null || eligibilityLoadedFor === state.id;
+
+  const toggleRole = (roleId: number, checked: boolean) =>
+    setEligibility((e) => ({
+      ...e,
+      role_ids: checked ? [...e.role_ids, roleId] : e.role_ids.filter((id) => id !== roleId),
+    }));
+
+  const addRule = () => {
+    if (pickEmployee === null) return;
+    setEligibility((e) => ({
+      ...e,
+      // Je Person nur eine Regel — eine erneute Auswahl ersetzt die Wirkung.
+      employee_rules: [
+        ...e.employee_rules.filter((r) => r.employee_id !== pickEmployee),
+        { employee_id: pickEmployee, effect: pickEffect },
+      ],
+    }));
+    setPickEmployee(null);
+  };
+
+  const removeRule = (employeeId: number) =>
+    setEligibility((e) => ({
+      ...e,
+      employee_rules: e.employee_rules.filter((r) => r.employee_id !== employeeId),
+    }));
+
+  const nameOf = (employeeId: number) => {
+    const match = (employees ?? []).find((e) => e.id === employeeId);
+    return match ? employeeName(match) : `Person #${employeeId}`;
+  };
+
+  // Deaktivierte Rollen nur zeigen, wenn sie noch zugeordnet sind.
+  const visibleRoles = (roles ?? []).filter((r) => r.active === 1 || eligibility.role_ids.includes(r.id));
 
   return (
     <Modal
       title={state.id === null ? 'Neue Abwesenheitsart' : 'Abwesenheitsart bearbeiten'}
       open
       onClose={onClose}
+      wide
       footer={
         <>
           <button className="hm-btn hm-btn--secondary" onClick={onClose}>
@@ -220,8 +408,8 @@ function TypeDialog({
           </button>
           <button
             className="hm-btn hm-btn--primary"
-            disabled={saving || form.name.trim().length === 0}
-            onClick={() => onSave(state.id, { ...form, name: form.name.trim() })}
+            disabled={saving || form.name.trim().length === 0 || !eligibilityReady}
+            onClick={() => onSave(state.id, { ...form, name: form.name.trim() }, eligibility)}
           >
             Speichern
           </button>
@@ -287,6 +475,210 @@ function TypeDialog({
             aktiv
           </label>
         </div>
+
+        <Field
+          label="Sichtbarkeit im Mitarbeitenden-Portal"
+          span2
+          hint="Gilt für den Firmenkalender im Portal — für die eigene Abwesenheit sieht die Person die Art immer im Klartext."
+        >
+          <select
+            className="hm-select"
+            value={form.portal_visibility}
+            onChange={(e) => set({ portal_visibility: e.target.value as PortalVisibility })}
+          >
+            {(Object.entries(PORTAL_VISIBILITY_LABELS) as [PortalVisibility, string][]).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="span-2">
+          <Note>
+            <strong>{PORTAL_VISIBILITY_LABELS.name}:</strong> Kolleg:innen sehen im Firmenkalender den Namen der Art
+            (z. B. „Home Office“). <strong>{PORTAL_VISIBILITY_LABELS.neutral}:</strong> Sie sehen nur, <em>dass</em> jemand
+            abwesend ist — der Grund bleibt verborgen.
+          </Note>
+        </div>
+        {isSickness && (
+          <div className="span-2">
+            <Note tone="warning" icon={<ShieldAlert size={15} />}>
+              Gesundheitsdaten gelten als besonders schutzwürdig. Viele Häuser stellen Krankheits-Arten deshalb auf
+              „{PORTAL_VISIBILITY_LABELS.neutral}“ — die Entscheidung liegt bei Ihnen.
+            </Note>
+          </div>
+        )}
+
+        <fieldset
+          className="span-2"
+          style={{
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            margin: 0,
+            padding: '12px 14px 14px',
+            display: 'grid',
+            gap: 12,
+            // Fieldsets haben min-width:min-content — ohne das sprengt die
+            // Rollenliste im Grid die Dialogbreite.
+            minWidth: 0,
+          }}
+        >
+          <legend
+            style={{
+              padding: '0 6px',
+              fontSize: 'var(--text-sm)',
+              fontWeight: 600,
+              color: 'var(--text-secondary)',
+            }}
+          >
+            Wer darf diese Art beantragen?
+          </legend>
+
+          {isSickness && (
+            <Note tone="warning" icon={<ShieldAlert size={15} />}>
+              Kategorie „Krankheit“: Eine Krankmeldung darf nie blockiert werden. Die folgenden Regeln werden für diese
+              Art deshalb <strong>nicht ausgewertet</strong> — sie greifen erst, wenn Sie die Kategorie wechseln.
+            </Note>
+          )}
+
+          <Note>
+            <strong>Keine Rolle ausgewählt heißt: alle dürfen.</strong> Erst wenn mindestens eine Rolle angehakt ist,
+            beschränkt sich die Art auf Personen mit einer dieser Rollen.
+          </Note>
+
+          <div role="group" aria-labelledby={roleGroupId} style={{ display: 'grid', gap: 8 }}>
+            <div className="row row--between" style={{ alignItems: 'baseline', gap: 10 }}>
+              <span id={roleGroupId} className="hm-field__label" style={{ margin: 0 }}>
+                Rollen
+              </span>
+              {eligibility.role_ids.length > 0 && (
+                <button
+                  className="hm-btn hm-btn--sm hm-btn--ghost"
+                  onClick={() => setEligibility((e) => ({ ...e, role_ids: [] }))}
+                >
+                  Auswahl aufheben (alle dürfen)
+                </button>
+              )}
+            </div>
+            {rolesLoading ? (
+              <Spinner />
+            ) : visibleRoles.length === 0 ? (
+              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                Es sind noch keine Rollen angelegt — anzulegen unter Verwaltung → Rollen. Ohne Rollen darf jede und jeder
+                diese Art beantragen.
+              </span>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))',
+                  gap: '6px 16px',
+                  maxHeight: 176,
+                  overflowY: 'auto',
+                }}
+              >
+                {visibleRoles.map((r) => (
+                  <label className="hm-checkbox" key={r.id} title={r.description ?? undefined}>
+                    <input
+                      type="checkbox"
+                      checked={eligibility.role_ids.includes(r.id)}
+                      onChange={(e) => toggleRole(r.id, e.target.checked)}
+                    />
+                    {r.name}
+                    {r.active !== 1 && <span style={{ color: 'var(--text-muted)' }}>(deaktiviert)</span>}
+                  </label>
+                ))}
+              </div>
+            )}
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+              {eligibility.role_ids.length === 0
+                ? 'Aktuell: alle Mitarbeitenden dürfen diese Art beantragen.'
+                : `Aktuell: nur Mitarbeitende mit einer der ${eligibility.role_ids.length} gewählten Rollen dürfen beantragen.`}
+            </span>
+          </div>
+
+          <div
+            role="group"
+            aria-labelledby={ruleGroupId}
+            style={{ display: 'grid', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 12 }}
+          >
+            <span id={ruleGroupId} className="hm-field__label" style={{ margin: 0 }}>
+              Personen-Ausnahmen
+            </span>
+            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Eine Personenregel schlägt die Rollenregel: „darf“ erlaubt trotz fehlender Rolle, „darf nicht“ sperrt trotz
+              passender Rolle.
+            </span>
+            <div className="row row--wrap" style={{ alignItems: 'flex-end' }}>
+              <Field label="Person">
+                <EmployeeSelect value={pickEmployee} onChange={setPickEmployee} emptyLabel="— Person wählen —" />
+              </Field>
+              <Field label="Regel">
+                <select
+                  className="hm-select"
+                  value={pickEffect}
+                  onChange={(e) => setPickEffect(e.target.value as 'allow' | 'deny')}
+                >
+                  <option value="allow">darf</option>
+                  <option value="deny">darf nicht</option>
+                </select>
+              </Field>
+              <button className="hm-btn hm-btn--secondary" disabled={pickEmployee === null} onClick={addRule}>
+                <Plus size={15} /> Ausnahme hinzufügen
+              </button>
+            </div>
+            {eligibility.employee_rules.length === 0 ? (
+              <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                Keine Ausnahmen — es gilt allein die Rollenregel.
+              </span>
+            ) : (
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
+                {eligibility.employee_rules.map((r) => (
+                  <li
+                    key={r.employee_id}
+                    className="row row--between"
+                    style={{
+                      gap: 10,
+                      padding: '6px 8px 6px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: 'var(--bg-tint-2)',
+                    }}
+                  >
+                    <span className="row" style={{ gap: 8 }}>
+                      <Badge tone={r.effect === 'allow' ? 'green' : 'red'}>
+                        {r.effect === 'allow' ? 'darf' : 'darf nicht'}
+                      </Badge>
+                      <span>{nameOf(r.employee_id)}</span>
+                    </span>
+                    <button
+                      className="hm-btn hm-btn--sm hm-btn--ghost hm-btn--icon"
+                      aria-label={`Ausnahme für ${nameOf(r.employee_id)} entfernen`}
+                      onClick={() => removeRule(r.employee_id)}
+                    >
+                      <X size={15} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {state.id !== null && !eligibilityReady && (
+            <Note tone="warning" icon={<ShieldAlert size={15} />}>
+              {eligibilityQuery.isError ? (
+                <>
+                  Die gespeicherte Berechtigung konnte nicht geladen werden. Speichern ist gesperrt, damit bestehende
+                  Regeln nicht versehentlich überschrieben werden.{' '}
+                  <button className="hm-btn hm-btn--sm hm-btn--ghost" onClick={() => eligibilityQuery.refetch()}>
+                    Erneut laden
+                  </button>
+                </>
+              ) : (
+                'Gespeicherte Berechtigung wird geladen …'
+              )}
+            </Note>
+          )}
+        </fieldset>
       </div>
     </Modal>
   );

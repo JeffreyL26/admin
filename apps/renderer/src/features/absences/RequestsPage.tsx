@@ -8,6 +8,7 @@ import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs, type BadgeTo
 import { Modal, ConfirmDialog } from '../../components/Modal';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
+import { useAuth } from '../../auth/AuthContext';
 import { useAbsenceRequests, useAbsenceTypes, useBalances } from './api';
 import { RequestDialog } from './RequestDialog';
 
@@ -17,6 +18,19 @@ const STATUS_TONES: Record<AbsenceRequestStatus, BadgeTone> = {
   abgelehnt: 'red',
   storniert: 'neutral',
 };
+
+/**
+ * Vier-Augen-Prinzip: Das Backend weist Genehmigung und Ablehnung des eigenen
+ * Antrags mit 403 zurück (Stornieren bleibt erlaubt). Die Oberfläche blendet die
+ * betroffenen Schaltflächen deshalb aus, statt sie in einen Fehler laufen zu
+ * lassen. Admin-Konten ohne Personalprofil haben employee_id null — für sie kann
+ * es keinen eigenen Antrag geben, dort bleibt alles wie bisher.
+ */
+function useIsOwnRequest() {
+  const { user } = useAuth();
+  const ownEmployeeId = user?.employee_id ?? null;
+  return (r: AbsenceRequest) => ownEmployeeId !== null && r.employee_id === ownEmployeeId;
+}
 
 export function RequestsPage() {
   const [params, setParams] = useSearchParams();
@@ -209,41 +223,101 @@ function RejectDialog({
 
 function OpenRequestsTab() {
   const { data: requests, isLoading } = useAbsenceRequests({ status: 'beantragt' });
-  const { approve, reject } = useRequestActions();
+  const { approve, reject, cancel } = useRequestActions();
+  const isOwnRequest = useIsOwnRequest();
   const [rejecting, setRejecting] = useState<AbsenceRequest | null>(null);
+  const [cancelling, setCancelling] = useState<AbsenceRequest | null>(null);
+
+  const list = requests ?? [];
+  // Eigene Anträge bleiben sichtbar, sind für die angemeldete Person aber nichts
+  // zu Erledigendes — die Kopfzeile nennt deshalb beide Zahlen, damit niemand
+  // vergeblich auf eine Schaltfläche wartet.
+  const ownCount = list.filter(isOwnRequest).length;
 
   if (isLoading) return <Spinner center />;
   return (
     <Card flush>
-      {!requests || requests.length === 0 ? (
+      {list.length === 0 ? (
         <EmptyState
           icon={<Inbox size={40} />}
           title="Keine offenen Anträge"
           hint="Neue Anträge erscheinen hier zur Genehmigung."
         />
       ) : (
-        <RequestRows
-          requests={requests}
-          actions={(r) => (
-            <>
-              <button
-                className="hm-btn hm-btn--sm hm-btn--primary"
-                disabled={approve.isPending}
-                onClick={() => approve.mutate(r.id)}
-              >
-                <Check size={14} /> Genehmigen
-              </button>
-              <button className="hm-btn hm-btn--sm hm-btn--secondary" onClick={() => setRejecting(r)}>
-                <X size={14} /> Ablehnen
-              </button>
-            </>
+        <>
+          {ownCount > 0 && (
+            <p
+              style={{
+                margin: 0,
+                padding: '10px 16px',
+                borderBottom: '1px solid var(--border)',
+                fontSize: 'var(--text-xs)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              {list.length === 1 ? '1 offener Antrag' : `${list.length} offene Anträge`}, davon{' '}
+              {ownCount === 1 ? '1 eigener' : `${ownCount} eigene`}: Über eigene Anträge entscheidet eine andere Person
+              der HR-Administration.
+            </p>
           )}
-        />
+          <RequestRows
+            requests={list}
+            actions={(r) =>
+              isOwnRequest(r) ? (
+                <>
+                  <span
+                    style={{
+                      maxWidth: 260,
+                      textAlign: 'right',
+                      fontSize: 'var(--text-xs)',
+                      color: 'var(--text-muted)',
+                    }}
+                  >
+                    Eigener Antrag — Entscheidung durch eine andere Person der HR-Administration
+                  </span>
+                  <button
+                    className="hm-btn hm-btn--sm hm-btn--ghost"
+                    style={{ flexShrink: 0 }}
+                    onClick={() => setCancelling(r)}
+                    aria-label={`Eigenen Antrag vom ${formatDate(r.date_from)} stornieren`}
+                  >
+                    Stornieren
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className="hm-btn hm-btn--sm hm-btn--primary"
+                    disabled={approve.isPending}
+                    onClick={() => approve.mutate(r.id)}
+                  >
+                    <Check size={14} /> Genehmigen
+                  </button>
+                  <button className="hm-btn hm-btn--sm hm-btn--secondary" onClick={() => setRejecting(r)}>
+                    <X size={14} /> Ablehnen
+                  </button>
+                </>
+              )
+            }
+          />
+        </>
       )}
       <RejectDialog
         request={rejecting}
         onClose={() => setRejecting(null)}
         onReject={(id, reason) => reject.mutate({ id, reason })}
+      />
+      <ConfirmDialog
+        open={cancelling !== null}
+        title="Eigenen Antrag stornieren"
+        message={
+          cancelling
+            ? `${cancelling.type_name} (${formatDate(cancelling.date_from)} – ${formatDate(cancelling.date_to)}) wirklich stornieren?`
+            : ''
+        }
+        confirmLabel="Stornieren"
+        onConfirm={() => cancelling && cancel.mutate(cancelling.id)}
+        onClose={() => setCancelling(null)}
       />
     </Card>
   );
