@@ -25,8 +25,10 @@ export function PortalShell() {
       <header className="portal-header">
         <div className="portal-header__inner">
           <div className="portal-brand">
-            HR<span>MONIC</span>
-            <small>Portal</small>
+            <img src="/logo.png" alt="" aria-hidden="true" />
+            <span className="portal-brand__name">
+              HR<span>MONIC</span>
+            </span>
           </div>
           <nav className="portal-nav" aria-label="Hauptnavigation">
             {NAV.map((item) => (

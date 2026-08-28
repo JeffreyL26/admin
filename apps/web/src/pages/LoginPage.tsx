@@ -81,10 +81,7 @@ export function LoginPage() {
     <div className="login">
       <HarmonyBackdrop />
       <div className="login__content">
-        <div className="portal-brand portal-brand--light">
-          HR<span>MONIC</span>
-          <small>Portal</small>
-        </div>
+        <img className="login__logo" src="/logo.png" alt="HRMONIC" />
         <p className="login__claim">
           Urlaub beantragen, krankmelden, Stammdaten einsehen: <span>Ihr direkter Draht zur
           Personalabteilung.</span>
