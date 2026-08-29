@@ -11,6 +11,7 @@ process.env.HRMONIC_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../server.js');
 const { closeDb } = await import('../db/db.js');
+const { firstAdminLogin } = await import('./adminSession.js');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -34,14 +35,7 @@ const badLogin = await app.inject({
 check('Login mit falschem Passwort → 401', badLogin.statusCode === 401);
 check('Fehlerschema einheitlich', badLogin.json()?.error?.code === 'UNAUTHORIZED');
 
-const login = await app.inject({
-  method: 'POST',
-  url: '/api/auth/login',
-  payload: { email: 'admin@hrmonic.de', password: 'hrmonic2026' },
-});
-check('Login Standard-Admin', login.statusCode === 200, login.json());
-const token = login.json().token as string;
-const auth = { authorization: `Bearer ${token}` };
+const { auth } = await firstAdminLogin(app, check);
 
 const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: auth });
 check('GET /api/auth/me', me.statusCode === 200 && me.json().user.email === 'admin@hrmonic.de');

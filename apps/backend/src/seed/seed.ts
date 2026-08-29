@@ -214,9 +214,19 @@ inTransaction(() => {
   db.prepare('UPDATE teams SET lead_employee_id = ? WHERE id = ?').run(TLF, teamFrontend);
 
   // ======================= Benutzerkonten =======================
-  // Rollout-Setup: 4 Admin-Accounts für die HR-Administration (Desktop) und
-  // 4 Mitarbeitenden-Accounts für das Web-Portal. Der Standard-Admin
-  // (admin@hrmonic.de / hrmonic2026) existiert bereits über ensureDefaultAdmin().
+  // Rollout-Setup: 3 zusätzliche Admin-Accounts für die HR-Administration
+  // (Desktop) und 4 Mitarbeitenden-Accounts für das Web-Portal.
+  //
+  // NUR DEV: Diese Konten haben fest dokumentierte Passwörter. Auf einem
+  // Kundensystem darf "npm run seed" deshalb nie laufen — dort entstehen
+  // Konten über POST /api/admin/users mit serverseitig erzeugtem Passwort
+  // (siehe docs/inbetriebnahme.md).
+  //
+  // Der Standard-Admin admin@hrmonic.de existiert bereits über
+  // ensureDefaultAdmin() und behält sein ZUFÄLLIG erzeugtes Initialpasswort
+  // aus <dataDir>/initial-admin-password.txt samt Wechselzwang — seed setzt
+  // es bewusst nicht zurück, damit auch im Dev kein zweites bekanntes
+  // Vollzugriffs-Passwort entsteht.
   const account = (
     email: string,
     name: string,
@@ -803,9 +813,11 @@ const stats = {
 };
 console.log('Demo-Daten angelegt:', stats);
 console.log(`
-Benutzerkonten:
+Benutzerkonten (NUR Dev — auf Kundensystemen niemals seeden):
   HR-Administration (Desktop-App, Passwort "hrmonic2026"):
-    admin@hrmonic.de · sabine.berger@hrmonic.de · jurgen.wilms@hrmonic.de · melanie.sonntag@hrmonic.de
+    sabine.berger@hrmonic.de · jurgen.wilms@hrmonic.de · melanie.sonntag@hrmonic.de
+  admin@hrmonic.de: Zufallspasswort aus <dataDir>/initial-admin-password.txt,
+    Wechsel beim ersten Login erzwungen.
   Mitarbeitenden-Portal (Web, Passwort "portal2026"):
     deniz.aydin@hrmonic.de · marta.kowalczyk@hrmonic.de · leonie.vogt@hrmonic.de · samuel.okafor@hrmonic.de`);
 closeDb();

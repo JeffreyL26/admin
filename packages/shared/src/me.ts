@@ -20,6 +20,14 @@ export interface AuthUserDto {
   role: string;
   /** Verknüpftes Personalprofil (nur Mitarbeitenden-Accounts, sonst null). */
   employee_id: number | null;
+  /**
+   * 0/1 (SQLite kennt kein Boolean). Solange 1, lässt das Backend nur
+   * `/api/auth/me` und `/api/auth/password` durch und beantwortet alles
+   * andere mit 403 `PASSWORD_CHANGE_REQUIRED`. Beide Clients müssen darauf
+   * mit dem Passwort-setzen-Schirm reagieren, sonst läuft der Erstlogin
+   * eines neu angelegten oder zurückgesetzten Kontos ins Leere.
+   */
+  must_change_password?: number;
 }
 
 /** Eigene Stammdaten (GET /api/me/profile) — bewusst ohne Bank-/Steuerdaten. */

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb } from '../../db/db.js';
 import { parse, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { storeFile, signDownloadUrl } from '../../core/files.js';
+import { storeFile, signDownloadUrl, assertMayReadFile } from '../../core/files.js';
 import { getSetting } from '../../core/settings.js';
 import { todayIso } from '../../core/dates.js';
 import {
@@ -180,13 +180,31 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Ausgabe: kurzlebige signierte Download-URL der abgelegten Datei.
-  app.post('/api/compensation/certificates/:id/sign', async (req) => {
+  //
+  // Fachlich ein Lesevorgang; POST steht hier nur, damit der signierte Link
+  // nicht selbst in einem Query-String (und damit im Proxy-Log) landet.
+  // core/permissions.ts führt die Route deshalb in READ_ONLY_POST_ROUTES —
+  // sonst käme eine Rolle mit verguetung: 'lesen' an keine einzige
+  // Bescheinigung heran, die sie einsehen darf.
+  app.post('/api/compensation/certificates/:id/sign', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
     const certificate = getDb().prepare('SELECT * FROM certificates WHERE id = ?').get(id) as
-      | { file_id: number | null }
+      | { file_id: number | null; employee_id: number; kind: string }
       | undefined;
     if (!certificate) throw notFound('Bescheinigung nicht gefunden');
     if (!certificate.file_id) throw conflict('Für diese Bescheinigung liegt keine Datei vor');
+    // Zweite Stufe, unabhängig vom Routenpräfix: Die signierte URL ist bis zum
+    // Ablauf ein anmeldefreier Vollzugriff auf die Datei. Wer sie ausstellt,
+    // muss die Datei auch lesen dürfen — geprüft über den Fachbereich der
+    // referenzierenden Tabelle (hier 'verguetung').
+    assertMayReadFile(req, certificate.file_id);
+    // Der Link darf in keinem Cache landen (Browser, Proxy).
+    reply.header('Cache-Control', 'no-store, private');
+    audit(req, 'certificate.sign', 'certificate', id, {
+      employee_id: certificate.employee_id,
+      kind: certificate.kind,
+      file_id: certificate.file_id,
+    });
     return { url: signDownloadUrl(certificate.file_id) };
   });
 

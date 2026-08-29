@@ -32,10 +32,28 @@ const typeBodySchema = z.object({
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Farbe als Hex-Wert (#RRGGBB) angeben'),
   max_days_per_year: z.number().positive().nullable().optional(),
   active: z.boolean().optional(),
-  // Sichtbarkeit im Firmenkalender des Portals. Fehlt das Feld, gilt 'name'
-  // (Klarname) — so behalten ältere Clients die bisherige Anzeige.
+  // Sichtbarkeit im Firmenkalender des Portals. Fehlt das Feld, entscheidet
+  // die Kategorie (siehe defaultPortalVisibility) — nicht pauschal 'name'.
   portal_visibility: z.enum(['name', 'neutral']).optional(),
 });
+
+/**
+ * Vorgabe für die Portal-Sichtbarkeit, wenn der Client das Feld weglässt.
+ *
+ * SICHERHEITSENTSCHEIDUNG — bitte nicht auf ein pauschales 'name' zurückdrehen:
+ * Krankheits-Arten sind Gesundheitsdaten (Art. 9 DSGVO, besondere Kategorie).
+ * Mit 'name' zeigt der Firmenkalender des Portals (`modules/me/calendarRoutes.ts`)
+ * jeder Kollegin und jedem Kollegen den Klartext-Grund einer Abwesenheit. Der
+ * Spalten-Default der Tabelle ist historisch 'name'; ohne diese Vorgabe fiele
+ * jede NEU angelegte Krankheits-Art wieder in genau diese Lücke — auch dann,
+ * wenn ein älterer Client das Feld schlicht nicht kennt.
+ *
+ * Bewusst nur eine Vorgabe, keine Sperre: Schickt der Client ausdrücklich
+ * 'name', wird das übernommen (die Oberfläche warnt an dieser Stelle deutlich).
+ */
+function defaultPortalVisibility(category: 'urlaub' | 'krankheit' | 'sonder'): 'name' | 'neutral' {
+  return category === 'krankheit' ? 'neutral' : 'name';
+}
 
 const eligibilityBodySchema = z.object({
   role_ids: z.array(z.number().int().positive()).optional(),
@@ -178,7 +196,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         body.color,
         body.max_days_per_year ?? null,
         body.active === false ? 0 : 1,
-        body.portal_visibility ?? 'name',
+        body.portal_visibility ?? defaultPortalVisibility(body.category),
       );
     const id = Number(result.lastInsertRowid);
     audit(req, 'create', 'absence_type', id, body);
@@ -208,7 +226,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         body.color,
         body.max_days_per_year ?? null,
         body.active === false ? 0 : 1,
-        body.portal_visibility ?? 'name',
+        body.portal_visibility ?? defaultPortalVisibility(body.category),
         id,
       );
     audit(req, 'update', 'absence_type', id, body);

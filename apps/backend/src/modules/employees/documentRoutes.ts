@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, notFound, parse } from '../../core/errors.js';
+import { deleteFileIfUnreferenced } from '../../core/files.js';
 import { documentBodySchema, documentPatchSchema } from './validation.js';
 
 const listQuerySchema = z.object({
@@ -134,7 +135,9 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch('/api/documents/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
-    const existing = getDb().prepare('SELECT * FROM documents WHERE id = ?').get(id);
+    const existing = getDb().prepare('SELECT * FROM documents WHERE id = ?').get(id) as
+      | { file_id: number }
+      | undefined;
     if (!existing) throw notFound('Dokument nicht gefunden');
     const patch = parse(documentPatchSchema, req.body);
     const cols = (
@@ -144,18 +147,53 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     getDb()
       .prepare(`UPDATE documents SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
       .run(...cols.map((c) => patch[c] ?? null), id);
-    audit(req, 'update', 'document', id, { changed: patch });
+    // Wird die hinterlegte Datei ausgetauscht, verliert die alte ihren letzten
+    // Verweis. Ohne diesen Aufruf bliebe sie als Waise im Storage liegen und
+    // wäre über eine signierte URL weiter abrufbar — derselbe Befund wie beim
+    // Löschen (siehe DELETE unten).
+    const oldFileId = existing.file_id;
+    let fileDeleted = false;
+    if (patch.file_id !== undefined && patch.file_id !== oldFileId) {
+      fileDeleted = deleteFileIfUnreferenced(oldFileId);
+    }
+    audit(req, 'update', 'document', id, {
+      changed: patch,
+      ...(fileDeleted ? { replaced_file_id: oldFileId, file_deleted: true } : {}),
+    });
     return { document: getDocumentOr404(id) };
   });
 
+  /**
+   * Löscht Metadaten UND — sofern niemand sonst mehr darauf zeigt — die Datei.
+   *
+   * SICHERHEIT/DSGVO: Ohne den zweiten Schritt blieben `files`-Zeile und Blob
+   * im Storage liegen. Die Datei wäre über `POST /api/files/:id/sign` weiter
+   * signierbar und damit abrufbar — ein Löschersuchen nach Art. 17 DSGVO wäre
+   * nur vorgetäuscht, und in der Auskunft nach Art. 15 fehlte der Bestand.
+   * Bitte nicht wieder auf ein reines `DELETE FROM documents` zurückdrehen.
+   *
+   * `deleteFileIfUnreferenced` prüft ALLE Spalten, die auf `files(id)` zeigen
+   * (Liste in core/files.ts) und lässt die Datei stehen, wenn ein anderer
+   * Datensatz denselben Blob verknüpft — etwa wenn HR dieselbe hochgeladene
+   * Datei zusätzlich als Vertrag hinterlegt hat.
+   */
   app.delete('/api/documents/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const existing = getDb().prepare('SELECT title FROM documents WHERE id = ?').get(id) as
-      | { title: string }
+    const existing = getDb().prepare('SELECT title, file_id FROM documents WHERE id = ?').get(id) as
+      | { title: string; file_id: number }
       | undefined;
     if (!existing) throw notFound('Dokument nicht gefunden');
     getDb().prepare('DELETE FROM documents WHERE id = ?').run(id);
-    audit(req, 'delete', 'document', id, { title: existing.title });
+    // Reihenfolge zwingend: erst die eigene Zeile löschen, sonst hält die
+    // Referenzprüfung die Datei für weiterhin gebraucht.
+    const fileDeleted = deleteFileIfUnreferenced(existing.file_id);
+    audit(req, 'delete', 'document', id, {
+      title: existing.title,
+      file_id: existing.file_id,
+      // Nachvollziehbar machen, ob der Inhalt wirklich weg ist: `false` heißt,
+      // ein anderer Datensatz verweist noch auf dieselbe Datei.
+      file_deleted: fileDeleted,
+    });
     reply.status(204);
   });
 }

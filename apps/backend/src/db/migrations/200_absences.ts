@@ -111,4 +111,30 @@ export const absencesMigrations: Migration[] = [
       VALUES ('Home Office', 'sonder', 1, 0, 0, 1, '#3E8E7E', NULL);
     `,
   },
+  {
+    name: '202_krankheit_neutral',
+    // BITTE NICHT ZURÜCKDREHEN — Gesundheitsdaten, Art. 9 DSGVO.
+    //
+    // Der Portal-Firmenkalender (modules/me/calendarRoutes.ts) zeigt Namen und
+    // Abwesenheitsart firmenweit an und maskiert nur Arten mit
+    // portal_visibility = 'neutral'. Die Spalte wurde in 201 mit
+    // DEFAULT 'name' angelegt — NACHDEM 200 'Krankheit', 'Kind krank' und
+    // 'Mutterschutz' eingefügt hat. Alle drei haben requires_approval = 0,
+    // werden also sofort selbst genehmigt und erfüllen damit den
+    // Kalenderfilter. Ergebnis im Auslieferungszustand: jede Krankmeldung
+    // steht namentlich im Kalender der gesamten Belegschaft.
+    //
+    // Gesundheitsdaten sind besondere Kategorien personenbezogener Daten
+    // (Art. 9 Abs. 1 DSGVO) — die Kolleg:innen dürfen sehen, DASS jemand
+    // abwesend ist, nicht WARUM. Mutterschutz gehört fachlich zwar in die
+    // Kategorie 'sonder', lässt aber ebenso unmittelbar auf Gesundheits- und
+    // Schwangerschaftsdaten schließen und wird deshalb gleich behandelt.
+    //
+    // Neue Arten fangen die Route-Defaults in modules/absences/routes.ts ab
+    // (kategorieabhängiger Default); diese Migration räumt den Bestand auf.
+    sql: `
+      UPDATE absence_types SET portal_visibility = 'neutral'
+        WHERE category = 'krankheit' OR name = 'Mutterschutz';
+    `,
+  },
 ];

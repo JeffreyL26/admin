@@ -124,4 +124,36 @@ export const coreMigrations: Migration[] = [
       ) a;
     `,
   },
+  {
+    name: '003_hardening',
+    // Schema-Grundlage für den Serverbetrieb (Backend auf einem Kundenserver,
+    // erreichbar für mehrere Arbeitsplätze und das Portal). Reines Schema —
+    // die Durchsetzung liegt im globalen Hook (server.ts) und in core/auth.ts.
+    //
+    // must_change_password: Solange 1, darf das Konto ausschließlich
+    // /api/auth/me und /api/auth/password erreichen. Schützt gegen den bisher
+    // dokumentierten Standard-Admin, dessen Passwort in README/CLAUDE.md und
+    // im gebündelten server.cjs steht: sobald das Backend nicht mehr nur auf
+    // 127.0.0.1 hört, genügt sonst ein einziger Login-POST für Vollzugriff
+    // (Konten ohne admin_role_id haben Vollzugriff, siehe 002_admin_roles).
+    //
+    // sessions_valid_from: Unix-Sekunden. Ein Token, dessen `iat` älter ist,
+    // gilt nicht mehr — damit entwerten Passwortwechsel und ein späterer
+    // "Sitzungen beenden"-Knopf bereits ausgestellte JWTs. NULL = keine
+    // Sperre (Normalfall). Bewusst eine Spalte statt einer Sperrliste im
+    // Speicher: überlebt Neustarts und kostet keinen zusätzlichen Zustand.
+    //
+    // Das UPDATE trifft den Standard-Admin bestehender Installationen. Es
+    // greift auch dann, wenn dort längst ein eigenes Passwort gesetzt wurde —
+    // ein zusätzlicher Wechsel ist zumutbar, ein weiterlaufendes
+    // Dokumentationspasswort nicht. Frische Installationen haben zu diesem
+    // Zeitpunkt noch keine Zeile (ensureDefaultAdmin läuft nach migrate()).
+    sql: `
+      ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN sessions_valid_from INTEGER;
+
+      UPDATE users SET must_change_password = 1
+        WHERE email = 'admin@hrmonic.de' AND role = 'admin';
+    `,
+  },
 ];

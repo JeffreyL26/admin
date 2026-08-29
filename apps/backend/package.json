@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
+    "start:prod": "node dist/cli.cjs",
     "seed": "tsx src/seed/seed.ts",
     "seed:desktop": "tsx src/seed/seed-desktop.ts",
+    "backup": "tsx src/scripts/backup.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx src/test/smoke.ts",
     "openapi": "node scripts/merge-openapi.mjs",
-    "build": "esbuild src/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --log-level=warning && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/cli.cjs --external:better-sqlite3 --log-level=warning"
+    "build": "esbuild src/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --log-level=warning && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/cli.cjs --external:better-sqlite3 --log-level=warning && esbuild src/scripts/backup.ts --bundle --platform=node --format=cjs --outfile=dist/backup.cjs --external:better-sqlite3 --log-level=warning"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",

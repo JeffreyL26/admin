@@ -75,9 +75,24 @@ export function permissionsFor(adminRoleId: number | null | undefined): AdminPer
   ) as AdminPermissions;
 }
 
-/** Lesen genügt für GET/HEAD, alles andere verlangt Bearbeiten. */
-function neededFor(method: string): 'lesen' | 'bearbeiten' {
-  return method === 'GET' || method === 'HEAD' ? 'lesen' : 'bearbeiten';
+/**
+ * POST-Routen, die fachlich reine LESEvorgänge sind: Sie stellen eine
+ * kurzlebige signierte Download-URL aus und ändern nichts. POST steht dort nur,
+ * damit der Link nicht selbst in einem Query-String (und damit im Proxy-Log)
+ * landet. Ohne diese Ausnahme scheitert jede Nur-Lese-Rolle am Herunterladen
+ * genau der Dokumente, die sie einsehen darf.
+ *
+ * Eintragen NUR, wenn die Route wirklich nichts schreibt.
+ */
+const READ_ONLY_POST_ROUTES: ReadonlySet<string> = new Set([
+  '/api/compensation/certificates/:id/sign',
+]);
+
+/** Lesen genügt für GET/HEAD und die Signierrouten, alles andere verlangt Bearbeiten. */
+function neededFor(method: string, route: string): 'lesen' | 'bearbeiten' {
+  if (method === 'GET' || method === 'HEAD') return 'lesen';
+  if (READ_ONLY_POST_ROUTES.has(route)) return 'lesen';
+  return 'bearbeiten';
 }
 
 function areaFor(route: string): AdminArea | null {
@@ -100,13 +115,25 @@ export function assertRouteAllowed(req: FastifyRequest, permissions: AdminPermis
   const route = req.routeOptions.url ?? req.url;
   if (ALWAYS_ALLOWED.some((p) => route === p || route.startsWith(`${p}/`))) return;
 
-  const needed = neededFor(req.method);
+  const needed = neededFor(req.method, route);
 
-  if (route === '/api/files' || route.startsWith('/api/files/')) {
+  // Nur der Upload selbst, NICHT der ganze /api/files-Baum. Vorher galt der
+  // Sonderfall auch für POST /api/files/:id/sign — und weil files.id
+  // AUTOINCREMENT und damit durchzählbar ist, kam jedes Konto mit irgendeinem
+  // Bearbeitungsrecht an JEDE Datei: Entgeltbescheinigungen, Verträge,
+  // AU-Bescheinigungen, Bewerbungsunterlagen. Bitte nicht wieder auf
+  // startsWith('/api/files/') aufweichen.
+  if (route === '/api/files') {
     const anyArea = ADMIN_AREAS.some((a) => permits(permissions[a], needed));
     if (!anyArea) throw forbidden('Für diese Aktion fehlt Ihnen die Berechtigung.');
     return;
   }
+
+  // Signieren einer Datei: Der zuständige Fachbereich hängt an der Datei, nicht
+  // an der Route, und ist hier deshalb nicht bestimmbar. Die Prüfung
+  // ('lesen' im Bereich der referenzierenden Fachtabelle) macht der Handler in
+  // core/files.ts — siehe assertMayReadFile(). Diese Zeile ist kein Freibrief.
+  if (route === '/api/files/:id/sign') return;
 
   const area = areaFor(route);
   if (area === null) {

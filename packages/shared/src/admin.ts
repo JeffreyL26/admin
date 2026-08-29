@@ -209,6 +209,23 @@ export interface AdminAccount {
   admin_role_id: number | null;
   admin_role_name: string | null;
   created_at: string;
+  /**
+   * 0/1 (SQLite kennt kein Boolean). 1 = Das Konto hat noch das vom Server
+   * erzeugte Erstpasswort und erreicht bis zum Wechsel nur `/api/auth/me`
+   * und `/api/auth/password`.
+   */
+  must_change_password?: number;
+}
+
+/**
+ * Antwort auf das Anlegen eines Kontos und auf das Zurücksetzen eines
+ * Passworts. `initial_password` erzeugt der Server zufällig und gibt es
+ * GENAU EINMAL zurück — es ist nirgends gespeichert. Die Oberfläche muss es
+ * deshalb sofort anzeigen; wer es verliert, muss erneut zurücksetzen.
+ */
+export interface AdminAccountWithPassword {
+  user: AdminAccount;
+  initial_password: string;
 }
 
 /**

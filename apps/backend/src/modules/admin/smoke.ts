@@ -11,6 +11,7 @@ process.env.HRMONIC_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
+const { firstAdminLogin } = await import('../../test/adminSession.js');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -36,13 +37,7 @@ db.prepare(
    VALUES ('musterschreiben-v2.docx', 'x-2.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1300, 'def')`,
 ).run();
 
-const login = await app.inject({
-  method: 'POST',
-  url: '/api/auth/login',
-  payload: { email: 'admin@hrmonic.de', password: 'hrmonic2026' },
-});
-const token = login.json().token as string;
-const auth = { authorization: `Bearer ${token}` };
+const { token, auth } = await firstAdminLogin(app, check);
 const get = (url: string) => app.inject({ method: 'GET', url, headers: auth });
 const post = (url: string, payload?: Record<string, unknown>) =>
   app.inject({ method: 'POST', url, headers: auth, payload });

@@ -12,6 +12,7 @@ process.env.HRMONIC_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
+const { firstAdminLogin } = await import('../../test/adminSession.js');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -61,12 +62,7 @@ const empGet = (url: string) => app.inject({ method: 'GET', url, headers: empAut
 const empPost = (url: string, payload?: Record<string, unknown>) =>
   app.inject({ method: 'POST', url, headers: empAuth, payload });
 
-const loginAdmin = await app.inject({
-  method: 'POST',
-  url: '/api/auth/login',
-  payload: { email: 'admin@hrmonic.de', password: 'hrmonic2026' },
-});
-const adminAuth = { authorization: `Bearer ${loginAdmin.json().token as string}` };
+const { auth: adminAuth } = await firstAdminLogin(app, check);
 
 // -------------------------------------------------------------- Rollen-Guard ---
 const adminRouteAsEmp = await empGet('/api/absences/requests');

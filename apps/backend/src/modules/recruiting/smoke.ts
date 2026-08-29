@@ -11,6 +11,7 @@ process.env.HRMONIC_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
+const { firstAdminLogin } = await import('../../test/adminSession.js');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -30,13 +31,7 @@ db.prepare(
    VALUES (1, 'Tobias', 'Krämer', 'vollzeit', 'aktiv', 'CTO', 1)`,
 ).run();
 
-const login = await app.inject({
-  method: 'POST',
-  url: '/api/auth/login',
-  payload: { email: 'admin@hrmonic.de', password: 'hrmonic2026' },
-});
-check('Login', login.statusCode === 200);
-const auth = { authorization: `Bearer ${login.json().token as string}` };
+const { auth } = await firstAdminLogin(app, check);
 
 const noAuth = await app.inject({ method: 'GET', url: '/api/recruiting/postings' });
 check('Auth-Pflicht auf Modulrouten', noAuth.statusCode === 401);

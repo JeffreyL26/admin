@@ -58,6 +58,35 @@ export function errorHandler(error: FastifyError, req: FastifyRequest, reply: Fa
     });
     return;
   }
+  // Grenzen des Multipart-Parsers (@fastify/multipart, konfiguriert in
+  // server.ts). Ohne diese Zuordnung kommt beim Client ein nacktes 500
+  // „Interner Serverfehler" an — verifiziert für FST_FIELDS_LIMIT bei
+  // POST /api/files — und im Log liegt ein Stacktrace, obwohl es sich um
+  // eine ganz normale, vom Nutzer verursachte Eingabegrenze handelt. Ein
+  // 500 ist außerdem irreführend: Er lädt zum Wiederholen ein, was die Last
+  // nur vervielfacht.
+  const MULTIPART_LIMITS: Record<string, string> = {
+    FST_REQ_FILE_TOO_LARGE: 'Die Datei ist zu groß',
+    FST_FILES_LIMIT: 'Es kann nur eine Datei je Vorgang hochgeladen werden',
+    FST_FIELDS_LIMIT: 'Das Formular enthält zu viele Felder',
+    FST_PARTS_LIMIT: 'Das Formular enthält zu viele Teile',
+    FST_FIELD_SIZE_LIMIT: 'Ein Formularfeld ist zu groß',
+    FST_PROTO_VIOLATION: 'Das Formular enthält einen unzulässigen Feldnamen',
+    FST_INVALID_MULTIPART_CONTENT_TYPE: 'Der Inhaltstyp der Anfrage ist kein gültiges Formular',
+  };
+  const multipartMessage = error.code ? MULTIPART_LIMITS[error.code] : undefined;
+  if (multipartMessage) {
+    // 413 nur für die reine Größengrenze, sonst 400: Bei zu vielen Feldern
+    // oder Teilen ist nicht die Menge das Problem, sondern die Form.
+    const status = error.code === 'FST_REQ_FILE_TOO_LARGE' ? 413 : 400;
+    reply.status(status).send({
+      error: {
+        code: status === 413 ? 'PAYLOAD_TOO_LARGE' : 'BAD_REQUEST',
+        message: multipartMessage,
+      },
+    });
+    return;
+  }
   // SQLite-Constraint-Verletzungen als 409 statt 500 ausgeben.
   if (error.message?.includes('SQLITE_CONSTRAINT')) {
     reply.status(409).send({

@@ -12,6 +12,7 @@ process.env.HRMONIC_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
+const { firstAdminLogin } = await import('../../test/adminSession.js');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -31,13 +32,7 @@ const anna = Number(insEmp.run('Anna', 'Adler', 'Entwickler:in').lastInsertRowid
 const ben = Number(insEmp.run('Ben', 'Berg', 'Entwickler:in').lastInsertRowid);
 const clara = Number(insEmp.run('Clara', 'Cornelius', 'Designer:in').lastInsertRowid);
 
-const login = await app.inject({
-  method: 'POST',
-  url: '/api/auth/login',
-  payload: { email: 'admin@hrmonic.de', password: 'hrmonic2026' },
-});
-check('Login', login.statusCode === 200);
-const auth = { authorization: `Bearer ${login.json().token as string}` };
+const { auth } = await firstAdminLogin(app, check);
 
 // Auth-Pflicht des Moduls
 const noAuth = await app.inject({ method: 'GET', url: '/api/performance/goals' });
