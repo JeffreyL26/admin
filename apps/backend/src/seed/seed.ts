@@ -154,11 +154,22 @@ inTransaction(() => {
     { first: 'Oliver', last: 'Grunwald', type: 'vollzeit', title: 'Systemadministrator', dep: depTech, team: teamOps, loc: locMuc, hire: '2018-11-01', exit: '2026-03-31', status: 'ausgeschieden', hours: 40, leave: 30, birth: '1984-09-09', tax_class: 'I', insurance: KK[3] },
   ];
 
+  // Personalnummern chronologisch nach Eintritt — so vergeben Betriebe sie in
+  // der Regel. Bewusst mit Präfix und führenden Nullen: Genau diese Form muss
+  // erhalten bleiben (die Spalte ist TEXT, keine Zahl), und die Demo-Daten
+  // sollen das zeigen statt es zu verstecken.
+  const personalnummern = new Map<number, string>();
+  defs
+    .map((e, i) => ({ i, hire: e.hire }))
+    .sort((a, b) => a.hire.localeCompare(b.hire))
+    .forEach((x, rang) => personalnummern.set(x.i, `P-${String(rang + 1).padStart(4, '0')}`));
+
   const ids: number[] = [];
   defs.forEach((e, i) => {
     const id = insert('employees', {
       first_name: e.first,
       last_name: e.last,
+      personnel_number: personalnummern.get(i) ?? null,
       email: `${e.first.toLowerCase().normalize('NFD').replace(/[^a-z]/g, '')}.${e.last.toLowerCase().normalize('NFD').replace(/[^a-z]/g, '')}@hrmonic.de`,
       phone: `+49 89 900${String(100 + i)}`,
       birth_date: e.birth,
