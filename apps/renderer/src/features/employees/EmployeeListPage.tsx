@@ -158,13 +158,30 @@ export function EmployeeListPage() {
     }
   };
 
-  const activeFilterCount =
-    filters.status.length +
-    filters.employee_type.length +
-    filters.job_title.length +
-    filters.department_id.length +
-    filters.team_id.length +
-    filters.location_id.length;
+  /**
+   * Abweichungen von der Standardansicht — NICHT einfach alle gesetzten Werte.
+   *
+   * Die Liste startet mit status = ['aktiv'], zeigt also von Haus aus keine
+   * Ausgeschiedenen. Zählte man das als gesetzten Filter, stünde schon beim
+   * Öffnen „1 Filter zurücksetzen“, ohne dass jemand etwas eingestellt hat —
+   * und der Knopf würde ausgerechnet die sinnvolle Vorbelegung entfernen.
+   * Gezählt wird deshalb nur, was von EMPTY_FILTERS abweicht.
+   */
+  const abweichendeFilter = useMemo(() => {
+    const felder: { key: keyof EmployeeFilters; label: string }[] = [
+      { key: 'status', label: 'Status' },
+      { key: 'employee_type', label: 'Typ' },
+      { key: 'job_title', label: 'Titel' },
+      { key: 'department_id', label: 'Abteilung' },
+      { key: 'team_id', label: 'Team' },
+      { key: 'location_id', label: 'Standort' },
+    ];
+    const gleich = (a: (string | number)[], b: (string | number)[]) =>
+      a.length === b.length && [...a].sort().join('|') === [...b].sort().join('|');
+    return felder
+      .filter((f) => !gleich(filters[f.key] as (string | number)[], EMPTY_FILTERS[f.key] as (string | number)[]))
+      .map((f) => f.label);
+  }, [filters]);
 
   function cell(e: EmployeeRow, columnId: string): React.ReactNode {
     switch (columnId) {
@@ -342,21 +359,29 @@ export function EmployeeListPage() {
 
           <div style={{ flex: 1 }} />
 
-          {activeFilterCount > 0 && (
+          {abweichendeFilter.length > 0 && (
             <button
               className="hm-btn hm-btn--quiet hm-btn--sm"
+              // Nennt beim Überfahren, WELCHE Filter greifen — sonst sucht man
+              // bei sieben Auswahlfeldern, welches den Bestand ausblendet.
+              title={`Gesetzt: ${abweichendeFilter.join(', ')}. Setzt auf die Standardansicht zurück (nur aktive Mitarbeitende).`}
+              // Zurück auf die Standardansicht, nicht auf "gar kein Filter":
+              // Alles zu leeren würde Ausgeschiedene einblenden — das erwartet
+              // niemand hinter „zurücksetzen“.
               onClick={() =>
                 set({
-                  status: [],
-                  employee_type: [],
-                  job_title: [],
-                  department_id: [],
-                  team_id: [],
-                  location_id: [],
+                  status: EMPTY_FILTERS.status,
+                  employee_type: EMPTY_FILTERS.employee_type,
+                  job_title: EMPTY_FILTERS.job_title,
+                  department_id: EMPTY_FILTERS.department_id,
+                  team_id: EMPTY_FILTERS.team_id,
+                  location_id: EMPTY_FILTERS.location_id,
                 })
               }
             >
-              {activeFilterCount} Filter zurücksetzen
+              {abweichendeFilter.length === 1
+                ? `Filter „${abweichendeFilter[0]}“ zurücksetzen`
+                : `${abweichendeFilter.length} Filter zurücksetzen`}
             </button>
           )}
 
@@ -387,18 +412,25 @@ export function EmployeeListPage() {
                     {EMPLOYEE_LIST_COLUMNS.map((c) => {
                       const on = c.fixed || view.columns.includes(c.id);
                       return (
-                        <button
-                          type="button"
+                        <label
                           key={c.id}
                           className={`hm-multi__option${on ? ' hm-multi__option--on' : ''}`}
-                          disabled={c.fixed}
-                          onClick={() => !c.fixed && toggleColumn(c.id)}
                           style={c.fixed ? { opacity: 0.65, cursor: 'default' } : undefined}
+                          title={
+                            c.fixed
+                              ? 'Ohne Name und Personalnummer ließe sich eine Zeile nicht mehr zuordnen.'
+                              : undefined
+                          }
                         >
-                          <span className="hm-multi__tick">{on && '✓'}</span>
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            disabled={c.fixed}
+                            onChange={() => !c.fixed && toggleColumn(c.id)}
+                          />
                           <span className="hm-multi__text">{c.label}</span>
                           {c.fixed && <span className="hm-multi__hint">immer</span>}
-                        </button>
+                        </label>
                       );
                     })}
                   </div>

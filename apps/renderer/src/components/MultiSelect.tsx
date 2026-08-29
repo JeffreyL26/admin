@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { ChevronDown, Search, X } from 'lucide-react';
 import { Popover } from './Popover';
 
 /**
@@ -114,7 +114,11 @@ export function MultiSelect<T extends string | number>({
       </button>
 
       <Popover open={open} onClose={() => setOpen(false)} anchorRef={buttonRef} minWidth={width}>
-        <div role="listbox" aria-multiselectable="true" aria-label={allLabel}>
+        {/* Gruppe echter Kontrollkästchen statt listbox/option mit nachgebautem
+            Haken: Der Browser zeichnet und positioniert die Marke selbst
+            (accent-color), sie ist tastaturbedienbar und Screenreader nennen
+            den Zustand ohne aria-Nachhilfe. */}
+        <div role="group" aria-label={allLabel}>
           {searchable && (
             <div className="hm-multi__search">
               <Search size={14} />
@@ -134,18 +138,14 @@ export function MultiSelect<T extends string | number>({
               shown.map((o) => {
                 const on = selectedSet.has(o.value);
                 return (
-                  <button
-                    type="button"
+                  <label
                     key={String(o.value)}
                     className={`hm-multi__option${on ? ' hm-multi__option--on' : ''}`}
-                    role="option"
-                    aria-selected={on}
-                    onClick={() => toggle(o.value)}
                   >
-                    <span className="hm-multi__tick">{on && <Check size={13} />}</span>
+                    <input type="checkbox" checked={on} onChange={() => toggle(o.value)} />
                     <span className="hm-multi__text">{o.label}</span>
                     {o.hint !== undefined && <span className="hm-multi__hint">{o.hint}</span>}
-                  </button>
+                  </label>
                 );
               })
             )}

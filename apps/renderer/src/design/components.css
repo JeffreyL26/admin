@@ -720,19 +720,17 @@
 .hm-multi__option--on {
   font-weight: 600;
 }
-.hm-multi__tick {
-  display: grid;
+/* Natives Kontrollkaestchen wie im uebrigen Designsystem (.hm-checkbox):
+   Der Browser zeichnet und zentriert die Marke selbst. Ein nachgebautes
+   Kaestchen mit Icon sass sichtbar schief, weil das Icon in seiner eigenen
+   Zeichenflaeche nicht mittig liegt. */
+.hm-multi__option input[type='checkbox'] {
   flex: none;
-  place-items: center;
   width: 16px;
   height: 16px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  color: #fff;
-}
-.hm-multi__option--on .hm-multi__tick {
-  border-color: var(--brand-primary);
-  background: var(--brand-primary);
+  margin: 0;
+  accent-color: var(--brand-primary);
+  cursor: inherit;
 }
 .hm-multi__text {
   flex: 1;
