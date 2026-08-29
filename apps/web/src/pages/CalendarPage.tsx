@@ -42,8 +42,8 @@ const WEEKDAY_SHORT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const MASKED_LABEL = 'Abwesend';
 
 /** Spaltenmaße für die Mindestbreite der Matrix (siehe .pt-cal in portal.css). */
-const NAME_COL_PX = 200;
-const DAY_COL_PX = 30;
+const NAME_COL_PX = 220;
+const DAY_COL_PX = 34;
 
 /** Grenzen des Backends (calendarRoutes.ts) — außerhalb antwortet es mit 400. */
 const MIN_YEAR = 2000;
@@ -532,8 +532,13 @@ function CalendarGrid({
             return (
               <tr key={employee.id} className={`pt-cal__row${isSelf ? ' pt-cal__row--self' : ''}`}>
                 <th scope="row" className="pt-cal__name">
-                  {employee.last_name}, {employee.first_name}
-                  {isSelf && <span className="pt-cal__self-tag"> (Sie)</span>}
+                  <span className="pt-cal__avatar" aria-hidden="true">
+                    {`${employee.first_name[0] ?? ''}${employee.last_name[0] ?? ''}`.toUpperCase()}
+                  </span>
+                  <span className="pt-cal__name-text">
+                    {employee.last_name}, {employee.first_name}
+                    {isSelf && <span className="pt-cal__self-tag"> (Sie)</span>}
+                  </span>
                 </th>
                 {days.map((day) => (
                   <DayCell
@@ -568,11 +573,11 @@ function DayCell({
   closure: boolean;
 }) {
   const weekend = isWeekend(day);
-  // Freie Tage schlagen die Abwesenheit: an einem Feiertag, im Wochenende und
-  // in der Betriebsruhe ist ohnehin niemand da. So bleiben die Balken auf die
-  // tatsächlichen Arbeitstage beschränkt und die Wochenrhythmik lesbar.
-  const dayOff = weekend || !!holidayName || closure;
-  const visible = dayOff ? [] : (marks ?? []);
+  // Die Balken laufen bewusst ÜBER Wochenenden, Feiertage und Betriebsruhe
+  // hinweg: ein Zeitraum liest sich so als eine durchgehende Pille statt als
+  // zerhackte Einzeltage (Vorbild Personio). Die Spaltentönung dahinter
+  // erhält die Wochenrhythmik.
+  const visible = marks ?? [];
 
   const classes = ['pt-cal__cell'];
   if (closure) classes.push('pt-cal__cell--closure');
@@ -601,13 +606,23 @@ function DayCell({
     <td className={classes.join(' ')} title={titleParts.join(' · ')}>
       {visible.length > 0 && (
         <span className="pt-cal__marks">
-          {visible.map((mark) => (
-            <span
-              key={`${mark.entry.request_id}`}
-              className={`pt-cal__bar${mark.half ? ` pt-cal__bar--half-${mark.half}` : ''}`}
-              style={{ background: mark.entry.color }}
-            />
-          ))}
+          {visible.map((mark) => {
+            // Runde Enden nur am echten Anfang/Ende des Zeitraums — ein am
+            // Monatsrand beschnittener Balken endet flach („geht weiter").
+            const roundLeft = day === mark.entry.date_from;
+            const roundRight = day === mark.entry.date_to;
+            const classes = ['pt-cal__bar'];
+            if (roundLeft) classes.push('pt-cal__bar--start');
+            if (roundRight) classes.push('pt-cal__bar--end');
+            if (mark.half) classes.push(`pt-cal__bar--half-${mark.half}`);
+            return (
+              <span
+                key={`${mark.entry.request_id}`}
+                className={classes.join(' ')}
+                style={{ background: mark.entry.color }}
+              />
+            );
+          })}
         </span>
       )}
       {srParts.length > 0 && <span className="pt-cal__sr">{srParts.join(', ')}</span>}
