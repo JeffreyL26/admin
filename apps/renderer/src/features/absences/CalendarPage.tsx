@@ -1,7 +1,22 @@
+/**
+ * Abwesenheitskalender (Admin): Mitarbeitende × Tage als horizontale Timeline.
+ *
+ * Designentscheidungen nach dem Vorbild moderner HR-Tools (Personio u. a.):
+ * - Abwesenheiten sind EINE durchgehende Pille über alle Tage, nicht einzelne
+ *   Tageskästchen. Ragt der Zeitraum über den Monat hinaus, endet die Pille
+ *   flach statt rund — das signalisiert „geht weiter".
+ * - Genehmigt = Vollfläche, beantragt = Schraffur in der Artfarbe. Die
+ *   Schraffur bleibt auch für Farbfehlsichtige unterscheidbar (Opazität allein
+ *   wäre es nicht).
+ * - Wochenenden/Feiertage/Betriebsruhe tönen die ganze Spalte; die Pille läuft
+ *   darüber hinweg, damit der Zeitraum als ein Block lesbar bleibt.
+ * - Halbe Tage belegen die halbe Spaltenbreite (erster Tag: nachmittags →
+ *   rechte Hälfte, letzter Tag: vormittags → linke Hälfte).
+ */
 import React, { useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, CalendarX2 } from 'lucide-react';
-import { formatDate, ABSENCE_STATUS_LABELS, type CalendarEmployee } from '@hrmonic/shared';
-import { Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
+import { formatDate, ABSENCE_STATUS_LABELS, type CalendarEmployee, type CalendarAbsenceEntry } from '@hrmonic/shared';
+import { Avatar, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { useAbsenceTypes, useCalendar, useDepartments, useTeams, type CalendarData } from './api';
 
 const MONTH_NAMES = [
@@ -30,6 +45,16 @@ const isWeekendDay = (date: string) => {
   return wd === 0 || wd === 6;
 };
 
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Schraffur für beantragte Anträge — Artfarbe über abgeschwächtem Grund. */
+function pendingPattern(color: string): string {
+  return `repeating-linear-gradient(135deg, ${color} 0 4px, color-mix(in srgb, ${color} 22%, transparent) 4px 9px)`;
+}
+
 export function CalendarPage() {
   const now = new Date();
   const [view, setView] = useState<'monat' | 'jahr'>('monat');
@@ -42,6 +67,8 @@ export function CalendarPage() {
   const { data: types } = useAbsenceTypes();
   const { data: departments } = useDepartments();
   const { data: teams } = useTeams();
+
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
 
   const prev = () => {
     if (view === 'jahr') return setYear(year - 1);
@@ -56,6 +83,10 @@ export function CalendarPage() {
       setMonth(1);
       setYear(year + 1);
     } else setMonth(month + 1);
+  };
+  const goToday = () => {
+    setYear(now.getFullYear());
+    setMonth(now.getMonth() + 1);
   };
 
   return (
@@ -73,6 +104,13 @@ export function CalendarPage() {
             </span>
             <button className="hm-btn hm-btn--secondary hm-btn--icon" onClick={next} aria-label="Weiter">
               <ChevronRight size={16} />
+            </button>
+            <button
+              className="hm-btn hm-btn--secondary"
+              onClick={goToday}
+              disabled={view === 'monat' ? isCurrentMonth : year === now.getFullYear()}
+            >
+              Heute
             </button>
           </div>
         }
@@ -137,44 +175,52 @@ export function CalendarPage() {
         <YearGrid data={data} year={year} />
       )}
 
-      <Card title="Legende" style={{ marginTop: 16 }}>
-        <div className="row row--wrap" style={{ gap: 16 }}>
-          {(types ?? [])
-            .filter((t) => t.active === 1)
-            .map((t) => (
-              <span key={t.id} className="row" style={{ gap: 6, fontSize: 'var(--text-sm)' }}>
-                <span style={{ width: 12, height: 12, borderRadius: 3, background: t.color, display: 'inline-block' }} />
-                {t.name}
-              </span>
-            ))}
-          <span className="row" style={{ gap: 6, fontSize: 'var(--text-sm)' }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--gray-100)', border: '1px solid var(--border)', display: 'inline-block' }} />
-            Wochenende
-          </span>
-          <span className="row" style={{ gap: 6, fontSize: 'var(--text-sm)' }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--blue-100)', display: 'inline-block' }} />
-            Feiertag
-          </span>
-          <span className="row" style={{ gap: 6, fontSize: 'var(--text-sm)' }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: 'repeating-linear-gradient(45deg, var(--gray-100), var(--gray-100) 3px, var(--gray-300) 3px, var(--gray-300) 5px)', display: 'inline-block' }} />
-            Betriebsruhe
-          </span>
-          <span className="row" style={{ gap: 6, fontSize: 'var(--text-sm)' }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, boxShadow: 'inset 0 0 0 2px var(--danger)', display: 'inline-block' }} />
-            Konflikt (&gt; 50 % des Teams abwesend)
-          </span>
-          <span className="row" style={{ gap: 6, fontSize: 'var(--text-sm)' }}>
-            <span style={{ width: 12, height: 12, borderRadius: 3, background: 'var(--gray-400)', opacity: 0.55, display: 'inline-block' }} />
-            heller = erst beantragt
-          </span>
-        </div>
-      </Card>
+      <Legend types={types} />
     </>
+  );
+}
+
+function Legend({ types }: { types?: { id: number; name: string; color: string; active: number }[] }) {
+  const sample = (types ?? []).find((t) => t.active === 1)?.color ?? 'var(--gray-400)';
+  return (
+    <div className="hm-cal-legend">
+      {(types ?? [])
+        .filter((t) => t.active === 1)
+        .map((t) => (
+          <span key={t.id} className="hm-cal-legend__item">
+            <span className="hm-cal-legend__swatch" style={{ background: t.color }} />
+            {t.name}
+          </span>
+        ))}
+      <span className="hm-cal-legend__item">
+        <span className="hm-cal-legend__swatch" style={{ background: pendingPattern(sample) }} />
+        Beantragt (schraffiert)
+      </span>
+      <span className="hm-cal-legend__item">
+        <span className="hm-cal-legend__swatch hm-cal-legend__swatch--weekend" />
+        Wochenende
+      </span>
+      <span className="hm-cal-legend__item">
+        <span className="hm-cal-legend__swatch hm-cal-legend__swatch--holiday" />
+        Feiertag
+      </span>
+      <span className="hm-cal-legend__item">
+        <span className="hm-cal-legend__swatch hm-cal-legend__swatch--closure" />
+        Betriebsruhe
+      </span>
+      <span className="hm-cal-legend__item">
+        <span className="hm-cal-legend__swatch hm-cal-legend__swatch--conflict" />
+        Konflikt (&gt; 50 % des Teams abwesend)
+      </span>
+    </div>
   );
 }
 
 function MonthGrid({ data }: { data: CalendarData }) {
   const days = useMemo(() => eachDayLocal(data.range.from, data.range.to), [data.range]);
+  const today = todayIso();
+  const todayIndex = days.indexOf(today);
+
   const closureDays = useMemo(() => {
     const set = new Set<string>();
     for (const c of data.closures) {
@@ -197,130 +243,163 @@ function MonthGrid({ data }: { data: CalendarData }) {
     [data],
   );
 
-  const cellFor = (emp: CalendarEmployee, day: string) => {
-    const holidayName = holidayByLand.get(emp.bundesland)?.get(day);
-    const weekend = isWeekendDay(day);
-    const closure = closureDays.has(day);
-    const absence = emp.absences.find((a) => a.date_from <= day && a.date_to >= day);
-    const conflict = emp.team_id !== null && conflictByDayTeam.has(`${day}|${emp.team_id}`);
-
-    let background = 'transparent';
-    if (weekend) background = 'var(--gray-100)';
-    if (holidayName) background = 'var(--blue-100)';
-    if (closure) background = 'repeating-linear-gradient(45deg, var(--gray-100), var(--gray-100) 3px, var(--gray-300) 3px, var(--gray-300) 5px)';
-
-    const tooltipParts: string[] = [formatDate(day)];
-    if (holidayName) tooltipParts.push(`Feiertag: ${holidayName}`);
-    if (closure) tooltipParts.push('Betriebsruhe');
-    if (absence) {
-      tooltipParts.push(
-        `${absence.type_name} (${ABSENCE_STATUS_LABELS[absence.status]}) ${formatDate(absence.date_from)} – ${formatDate(absence.date_to)}`,
-      );
-      if (absence.half_day_start === 1 && absence.date_from === day) tooltipParts.push('halber Tag');
-      if (absence.half_day_end === 1 && absence.date_to === day) tooltipParts.push('halber Tag');
-    }
-    if (conflict) tooltipParts.push('Konflikt: über 50 % des Teams abwesend');
-
-    return (
-      <div
-        key={day}
-        title={tooltipParts.join(' · ')}
-        style={{
-          height: 30,
-          background,
-          borderLeft: '1px solid var(--gray-100)',
-          position: 'relative',
-          boxShadow: conflict && absence ? 'inset 0 0 0 2px var(--danger)' : undefined,
-        }}
-      >
-        {absence && !weekend && !holidayName && !closure && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: '6px 1px',
-              borderRadius: 4,
-              background: absence.color,
-              opacity: absence.status === 'beantragt' ? 0.45 : 1,
-              width:
-                (absence.half_day_start === 1 && absence.date_from === day) ||
-                (absence.half_day_end === 1 && absence.date_to === day)
-                  ? '50%'
-                  : undefined,
-              marginLeft: absence.half_day_end === 1 && absence.date_to === day && absence.date_from !== day ? 0 : undefined,
-            }}
-          />
-        )}
-      </div>
-    );
-  };
-
   return (
     <Card flush>
       <div className="hm-table-wrap">
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `200px repeat(${days.length}, minmax(24px, 1fr))`,
-            minWidth: 200 + days.length * 24,
-          }}
-        >
+        <div className="hm-cal" style={{ minWidth: 220 + days.length * 34 }}>
           {/* Kopfzeile */}
-          <div
-            style={{
-              padding: '8px 14px',
-              fontSize: 'var(--text-xs)',
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.04em',
-              color: 'var(--text-muted)',
-              borderBottom: '1px solid var(--border)',
-              background: 'var(--gray-25)',
-            }}
-          >
-            Mitarbeiter:in
-          </div>
-          {days.map((d) => (
-            <div
-              key={d}
-              title={conflictDates.has(d) ? 'An diesem Tag existiert ein Team-Konflikt' : formatDate(d)}
-              style={{
-                textAlign: 'center',
-                padding: '4px 0',
-                fontSize: 'var(--text-xs)',
-                color: isWeekendDay(d) ? 'var(--text-muted)' : 'var(--text-secondary)',
-                background: isWeekendDay(d) ? 'var(--gray-100)' : 'var(--gray-25)',
-                borderBottom: conflictDates.has(d) ? '2px solid var(--danger)' : '1px solid var(--border)',
-                borderLeft: '1px solid var(--gray-100)',
-              }}
-            >
-              <div style={{ opacity: 0.7 }}>{WEEKDAY_LETTERS[weekdayOf(d)]}</div>
-              <div style={{ fontWeight: 600 }}>{Number(d.slice(8, 10))}</div>
+          <div className="hm-cal__row hm-cal__row--head" style={{ gridTemplateColumns: `220px 1fr` }}>
+            <div className="hm-cal__namehead">Mitarbeiter:in</div>
+            <div className="hm-cal__days" style={{ gridTemplateColumns: `repeat(${days.length}, 1fr)` }}>
+              {days.map((d) => {
+                const weekend = isWeekendDay(d);
+                const isToday = d === today;
+                const conflict = conflictDates.has(d);
+                return (
+                  <div
+                    key={d}
+                    className={
+                      'hm-cal__headday' +
+                      (weekend ? ' hm-cal__headday--weekend' : '') +
+                      (isToday ? ' hm-cal__headday--today' : '')
+                    }
+                    title={conflict ? `${formatDate(d)} · An diesem Tag existiert ein Team-Konflikt` : formatDate(d)}
+                  >
+                    <span className="hm-cal__wd">{WEEKDAY_LETTERS[weekdayOf(d)]}</span>
+                    <span className={'hm-cal__dnum' + (isToday ? ' hm-cal__dnum--today' : '')}>
+                      {Number(d.slice(8, 10))}
+                    </span>
+                    {conflict && <span className="hm-cal__conflict-dot" />}
+                  </div>
+                );
+              })}
             </div>
-          ))}
+          </div>
           {/* Zeilen */}
           {data.employees.map((emp) => (
-            <React.Fragment key={emp.id}>
-              <div
-                style={{
-                  padding: '6px 14px',
-                  fontSize: 'var(--text-sm)',
-                  fontWeight: 550,
-                  borderBottom: '1px solid var(--gray-100)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  display: 'flex',
-                  alignItems: 'center',
-                }}
-              >
-                {emp.last_name}, {emp.first_name}
-              </div>
-              {days.map((d) => cellFor(emp, d))}
-            </React.Fragment>
+            <EmployeeRow
+              key={emp.id}
+              emp={emp}
+              days={days}
+              todayIndex={todayIndex}
+              holidays={holidayByLand.get(emp.bundesland)}
+              closureDays={closureDays}
+              conflictByDayTeam={conflictByDayTeam}
+            />
           ))}
         </div>
       </div>
     </Card>
+  );
+}
+
+function EmployeeRow({
+  emp,
+  days,
+  todayIndex,
+  holidays,
+  closureDays,
+  conflictByDayTeam,
+}: {
+  emp: CalendarEmployee;
+  days: string[];
+  todayIndex: number;
+  holidays?: Map<string, string>;
+  closureDays: Set<string>;
+  conflictByDayTeam: Set<string>;
+}) {
+  const n = days.length;
+  const from = days[0];
+  const to = days[n - 1];
+  const dayIndex = (d: string) => days.indexOf(d);
+
+  // Sichtbare Abwesenheiten als Pillen: Position/Breite in Prozent der Timeline.
+  const bars = emp.absences
+    .filter((a) => a.date_from <= to && a.date_to >= from)
+    .map((a) => {
+      const clippedStart = a.date_from < from;
+      const clippedEnd = a.date_to > to;
+      let start = clippedStart ? 0 : dayIndex(a.date_from);
+      let end = (clippedEnd ? n - 1 : dayIndex(a.date_to)) + 1;
+      // Halbe Tage: erster Tag nachmittags (rechte Hälfte), letzter vormittags.
+      if (!clippedStart && a.half_day_start === 1) start += 0.5;
+      if (!clippedEnd && a.half_day_end === 1) end -= 0.5;
+      return { a, start, end, clippedStart, clippedEnd };
+    });
+
+  const barTitle = (a: CalendarAbsenceEntry) => {
+    const parts = [
+      `${a.type_name} (${ABSENCE_STATUS_LABELS[a.status]})`,
+      `${formatDate(a.date_from)} – ${formatDate(a.date_to)}`,
+    ];
+    if (a.half_day_start === 1) parts.push('erster Tag halb');
+    if (a.half_day_end === 1) parts.push('letzter Tag halb');
+    return parts.join(' · ');
+  };
+
+  return (
+    <div className="hm-cal__row" style={{ gridTemplateColumns: `220px 1fr` }}>
+      <div className="hm-cal__name">
+        <Avatar name={`${emp.first_name} ${emp.last_name}`} size={28} />
+        <span className="hm-cal__name-text">
+          {emp.last_name}, {emp.first_name}
+        </span>
+      </div>
+      <div className="hm-cal__timeline">
+        <div className="hm-cal__days" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>
+          {days.map((d) => {
+            const holidayName = holidays?.get(d);
+            const weekend = isWeekendDay(d);
+            const closure = closureDays.has(d);
+            const conflict = emp.team_id !== null && conflictByDayTeam.has(`${d}|${emp.team_id}`);
+            const titleParts = [formatDate(d)];
+            if (holidayName) titleParts.push(`Feiertag: ${holidayName}`);
+            if (closure) titleParts.push('Betriebsruhe');
+            if (conflict) titleParts.push('Konflikt: über 50 % des Teams abwesend');
+            return (
+              <div
+                key={d}
+                title={titleParts.join(' · ')}
+                className={
+                  'hm-cal__cell' +
+                  (closure
+                    ? ' hm-cal__cell--closure'
+                    : holidayName
+                      ? ' hm-cal__cell--holiday'
+                      : weekend
+                        ? ' hm-cal__cell--weekend'
+                        : '') +
+                  (conflict ? ' hm-cal__cell--conflict' : '')
+                }
+              />
+            );
+          })}
+        </div>
+        {todayIndex >= 0 && (
+          <span
+            className="hm-cal__todayline"
+            style={{ left: `${((todayIndex + 0.5) / n) * 100}%` }}
+            aria-hidden="true"
+          />
+        )}
+        {bars.map(({ a, start, end, clippedStart, clippedEnd }) => (
+          <span
+            key={a.request_id}
+            className={
+              'hm-cal__bar' +
+              (clippedStart ? ' hm-cal__bar--cut-left' : '') +
+              (clippedEnd ? ' hm-cal__bar--cut-right' : '')
+            }
+            style={{
+              left: `${(start / n) * 100}%`,
+              width: `${((end - start) / n) * 100}%`,
+              background: a.status === 'beantragt' ? pendingPattern(a.color) : a.color,
+            }}
+            title={barTitle(a)}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -363,11 +442,14 @@ function YearGrid({ data, year }: { data: CalendarData; year: number }) {
               return (
                 <tr key={emp.id}>
                   <td style={{ whiteSpace: 'nowrap' }}>
-                    {emp.last_name}, {emp.first_name}
+                    <span className="row" style={{ gap: 10 }}>
+                      <Avatar name={`${emp.first_name} ${emp.last_name}`} size={24} />
+                      {emp.last_name}, {emp.first_name}
+                    </span>
                   </td>
-                  {perMonth.map((n, i) => (
+                  {perMonth.map((count, i) => (
                     <td key={i} className="num">
-                      {n > 0 ? (
+                      {count > 0 ? (
                         <span
                           style={{
                             display: 'inline-block',
@@ -375,10 +457,10 @@ function YearGrid({ data, year }: { data: CalendarData; year: number }) {
                             padding: '2px 6px',
                             borderRadius: 6,
                             fontWeight: 650,
-                            background: `rgb(8 100 198 / ${Math.min(0.12 + n * 0.045, 0.55)})`,
+                            background: `rgb(8 100 198 / ${Math.min(0.12 + count * 0.045, 0.55)})`,
                           }}
                         >
-                          {n}
+                          {count}
                         </span>
                       ) : (
                         <span style={{ color: 'var(--text-muted)' }}>·</span>

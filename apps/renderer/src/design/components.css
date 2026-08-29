@@ -762,3 +762,193 @@
 .hm-multi__reset:hover {
   color: var(--brand-primary);
 }
+
+/* ---------- Abwesenheitskalender (Timeline) ----------
+   Personio-inspiriert: durchgehende Pillen, getönte Wochenend-/Feiertagsspalten,
+   Schraffur = beantragt. Farben ausschließlich über Theme-Variablen. */
+.hm-cal {
+  font-size: var(--text-sm);
+}
+.hm-cal__row {
+  display: grid;
+  border-bottom: 1px solid var(--gray-100);
+}
+.hm-cal__row:last-child {
+  border-bottom: none;
+}
+.hm-cal__row:not(.hm-cal__row--head):hover {
+  background: var(--table-hover);
+}
+.hm-cal__row--head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--gray-25);
+  border-bottom: 1px solid var(--border);
+}
+.hm-cal__namehead {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  padding: 8px 16px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: var(--gray-25);
+  border-right: 1px solid var(--border);
+}
+.hm-cal__name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  min-height: 46px;
+  font-weight: 550;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+}
+.hm-cal__row:not(.hm-cal__row--head):hover .hm-cal__name {
+  background: var(--table-hover);
+}
+.hm-cal__name-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hm-cal__days {
+  display: grid;
+  height: 100%;
+}
+.hm-cal__timeline {
+  position: relative;
+}
+.hm-cal__headday {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  padding: 6px 0 5px;
+  position: relative;
+  border-left: 1px solid var(--gray-100);
+}
+.hm-cal__headday--weekend {
+  background: var(--gray-50);
+}
+.hm-cal__wd {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+.hm-cal__dnum {
+  font-weight: 600;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.hm-cal__dnum--today {
+  background: var(--brand-primary);
+  color: #fff;
+}
+.hm-cal__conflict-dot {
+  position: absolute;
+  bottom: 1px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.hm-cal__cell {
+  height: 46px;
+  border-left: 1px solid var(--gray-100);
+}
+.hm-cal__cell--weekend {
+  background: var(--gray-50);
+}
+.hm-cal__cell--holiday {
+  background: var(--blue-50);
+}
+.hm-cal__cell--closure {
+  background: repeating-linear-gradient(45deg, var(--gray-50), var(--gray-50) 4px, var(--gray-200) 4px, var(--gray-200) 6px);
+}
+.hm-cal__cell--conflict {
+  box-shadow: inset 0 -2px 0 var(--danger);
+}
+.hm-cal__todayline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: color-mix(in srgb, var(--brand-primary) 35%, transparent);
+  pointer-events: none;
+}
+.hm-cal__bar {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 24px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: filter 0.12s ease;
+}
+.hm-cal__bar:hover {
+  filter: brightness(0.94);
+}
+.hm-cal__bar--cut-left {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.hm-cal__bar--cut-right {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* Legende: flache Zeile unter dem Kalender, Swatches wie die Balken gerundet. */
+.hm-cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 14px;
+  padding: 0 4px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.hm-cal-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.hm-cal-legend__swatch {
+  width: 18px;
+  height: 12px;
+  border-radius: 6px;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.hm-cal-legend__swatch--weekend {
+  background: var(--gray-50);
+  border: 1px solid var(--border-strong);
+}
+.hm-cal-legend__swatch--holiday {
+  background: var(--blue-50);
+  border: 1px solid var(--blue-200);
+}
+.hm-cal-legend__swatch--closure {
+  background: repeating-linear-gradient(45deg, var(--gray-50), var(--gray-50) 4px, var(--gray-200) 4px, var(--gray-200) 6px);
+  border: 1px solid var(--border-strong);
+}
+.hm-cal-legend__swatch--conflict {
+  box-shadow: inset 0 0 0 2px var(--danger);
+}
