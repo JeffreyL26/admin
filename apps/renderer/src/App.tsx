@@ -22,9 +22,14 @@ import { router } from './router';
  *   Neues erwartet.
  * - `refetchOnReconnect`: Nach einem Netz- oder Serverausfall wird nicht
  *   stillschweigend mit veralteten Daten weitergearbeitet.
- * - `staleTime` von 15 auf 5 Sekunden: kurz genug, dass ein Reiterwechsel
- *   frische Daten bringt, lang genug, dass schnelles Hin- und Herklicken nicht
- *   jedes Mal eine Abfrage auslöst.
+ * - `staleTime` von 15 Sekunden auf 500 ms: Praktisch jeder Reiterwechsel holt
+ *   damit frische Daten — legt jemand am Nebenplatz eine Person an, steht sie
+ *   nach einem Wechsel hin und zurück in der Liste. Die halbe Sekunde bleibt
+ *   stehen, damit ein Doppel-Mount (React StrictMode, schnelles Zurückklicken)
+ *   nicht zwei identische Abfragen auslöst; das Fenster ist zu kurz, um eine
+ *   Änderung merklich zu verzögern.
+ *   Die Anzeige flackert dabei nicht: React Query liefert den Cache sofort und
+ *   lädt im Hintergrund nach.
  *
  * Bewusst KEIN Dauer-Polling: Das erzeugte Last auch dann, wenn niemand
  * hinsieht. Wer eine Seite offen stehen lässt, bekommt den neuen Stand beim
@@ -36,7 +41,7 @@ const queryClient = new QueryClient({
       retry: 1,
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
-      staleTime: 5_000,
+      staleTime: 500,
     },
   },
 });

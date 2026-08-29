@@ -18,9 +18,10 @@ import { ProfilePage } from './pages/ProfilePage';
 
 /**
  * Gleiches Aktualisierungsverhalten wie die Desktop-App (siehe dort für die
- * Begründung): Beim Zurückkehren ins Fenster und nach einem Verbindungsabriss
- * wird neu geladen, der Cache gilt nur fünf Sekunden. Im Portal zählt das
- * besonders für Anträge — über deren Genehmigung entscheidet jemand anderes.
+ * ausführliche Begründung): Beim Zurückkehren ins Fenster und nach einem
+ * Verbindungsabriss wird neu geladen, der Cache gilt nur eine halbe Sekunde.
+ * Im Portal zählt das besonders für Anträge — über deren Genehmigung
+ * entscheidet jemand anderes, und zwar in einer anderen Anwendung.
  */
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,7 +29,7 @@ const queryClient = new QueryClient({
       retry: 1,
       refetchOnWindowFocus: true,
       refetchOnReconnect: true,
-      staleTime: 5_000,
+      staleTime: 500,
     },
   },
 });
