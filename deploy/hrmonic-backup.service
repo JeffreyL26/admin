@@ -1,0 +1,55 @@
+# HRMONIC Datensicherung — einmaliger Lauf, angestoßen von hrmonic-backup.timer
+#
+# Ablage: /etc/systemd/system/hrmonic-backup.service
+# Manuell auslösen: systemctl start hrmonic-backup.service
+#
+# Das Skript darf im laufenden Betrieb starten: Es benutzt die
+# Online-Backup-API von SQLite und braucht keine Auszeit des Dienstes.
+
+[Unit]
+Description=HRMONIC Datensicherung (Datenbank, Dateien, Secret)
+Documentation=file:/opt/hrmonic/deploy/README.md
+# Nicht sichern, während der Dienst gerade neu startet oder gestoppt wurde:
+# Ohne laufenden Dienst ist die Sicherung zwar trotzdem gültig, aber ein
+# gestoppter Dienst ist meistens ein Hinweis auf einen laufenden Eingriff.
+After=hrmonic-backend.service
+
+[Service]
+Type=oneshot
+User=hrmonic
+Group=hrmonic
+WorkingDirectory=/opt/hrmonic/apps/backend
+
+EnvironmentFile=/etc/hrmonic/hrmonic.env
+
+# --keep 14: vierzehn Sicherungen bleiben liegen, ältere werden gelöscht.
+# Bei täglichem Lauf sind das zwei Wochen. Diese Aufbewahrung ersetzt KEINE
+# Auslagerung: Eine Sicherung, die nur auf demselben Server liegt, überlebt
+# weder einen Plattendefekt noch eine Verschlüsselung durch Ransomware.
+# Wie sie vom Server heruntergeholt wird, steht in deploy/README.md.
+ExecStart=/usr/bin/node /opt/hrmonic/apps/backend/dist/backup.cjs --out /var/backups/hrmonic --keep 14
+
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=false
+
+# Lesen der Datenbank verlangt SCHREIBrechte: SQLite legt im WAL-Modus für jede
+# Verbindung -shm/-wal an. /var/lib/hrmonic muss deshalb beschreibbar sein,
+# nicht nur lesbar.
+ReadWritePaths=/var/lib/hrmonic /var/backups/hrmonic
+
+# /var/backups/hrmonic wird NICHT automatisch angelegt (es liegt außerhalb von
+# StateDirectory). Einmalig:
+#   install -d -o hrmonic -g hrmonic -m 0700 /var/backups/hrmonic
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hrmonic-backup

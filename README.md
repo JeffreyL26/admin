@@ -15,8 +15,19 @@ npm run dev            # Backend auf :3001, Renderer auf :5173
 npm run dev:desktop    # zusätzlich das Electron-Fenster
 ```
 
-Erst-Login: `admin@hrmonic.de` / `hrmonic2026` — Passwort unter
-*Einstellungen → Passwort ändern* anpassen.
+Erst-Login: `admin@hrmonic.de`. Das Passwort wird beim allerersten Start
+**zufällig erzeugt** und einmalig ausgegeben — auf der Konsole und in
+`apps/backend/data/initial-admin-password.txt` (installierte App:
+`%APPDATA%\HRMONIC\data\`). Der erste Login erzwingt einen Passwortwechsel;
+danach die Datei löschen. Ein fest verdrahtetes Passwort gibt es bewusst nicht
+mehr — es stand in dieser Datei, in CLAUDE.md und im ausgelieferten Bundle und
+hätte auf einem über einen Reverse-Proxy erreichbaren Server für die
+vollständige Übernahme aller Personaldaten genügt.
+
+Für automatisierte Abläufe kann `HRMONIC_INITIAL_ADMIN_PASSWORD` das
+Initialpasswort vorgeben (nur beim allerersten Start ausgewertet, dann ohne
+Wechselzwang). **Nicht für Produktivsysteme** — dort ist das Zufallspasswort
+der richtige Weg. Vollständige Erstinbetriebnahme: `docs/inbetriebnahme.md`.
 
 Demo-Daten (Dev-Datenbank): `npm run seed`
 

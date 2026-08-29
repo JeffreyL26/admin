@@ -75,7 +75,10 @@ Smoke-Test: `npx tsx apps/backend/src/modules/me/smoke.ts` (deckt Rollen-Guard,
 Berechtigungen, Vier-Augen, Datenschutzgrenzen und Upload-Regeln ab). Neue Checks
 gehören **vor** den Widerrufsblock am Ende — der entzieht Profil und Rolle und
 löscht das Konto, danach schlägt alles fehl. Demo-Konten legt `npm run seed` an —
-vier Admins (`hrmonic2026`) und vier Portal-Konten (`portal2026`).
+vier Admins (`hrmonic2026`) und vier Portal-Konten (`portal2026`). Das ist ein
+reiner **Dev-Weg**: Auf einem Kundensystem darf `npm run seed` nie laufen,
+Portal-Konten entstehen dort über *Verwaltung → Benutzer & Rechte* mit
+serverseitig erzeugtem Erstpasswort (siehe `docs/inbetriebnahme.md`).
 
 ## Frontend-Architektur
 
@@ -172,14 +175,28 @@ Browser ── https://portal.firma.de ──> nginx/Caddy
    Beim Start prüft die App `GET /api/health` und bricht bei nicht
    erreichbarem Backend mit klarer Meldung ab statt mit leerem Fenster.
 
-   **CORS nicht vergessen:** Der Desktop-Renderer lädt über `file://` und
-   sendet deshalb `Origin: null`. Sobald `HRMONIC_CORS_ORIGIN` gesetzt ist,
-   muss `null` mit in der Liste stehen, sonst blockiert der Browserkern der
-   Desktop-App jede Anfrage:
+   **CORS nicht vergessen:** Der Desktop-Renderer lädt im Produktivbetrieb
+   über ein eigenes Schema (`hrmonic://app`, siehe `apps/desktop/src/main.ts`)
+   und sendet damit eine benannte Herkunft. Sobald `HRMONIC_CORS_ORIGIN`
+   gesetzt ist, muss dieser Wert mit in der Liste stehen, sonst blockiert der
+   Browserkern der Desktop-App jede Anfrage:
 
    ```
-   HRMONIC_CORS_ORIGIN=https://portal.firma.de,null
+   HRMONIC_CORS_ORIGIN=https://portal.firma.de,hrmonic://app
    ```
+
+   **Nicht mehr `null` eintragen.** Das früher hier dokumentierte Rezept
+   `…,null` ist der Grund, warum die Umstellung auf `hrmonic://app`
+   überhaupt nötig war: `null` ist nicht die Herkunft einer bestimmten Seite,
+   sondern der Sammelwert *jedes* opaken Kontexts (sandboxed `<iframe>`,
+   `data:`-URL, `file://`). Mit `null` in der Liste hätte faktisch jede fremde
+   Webseite auf die API zugreifen können — die Whitelist wäre so durchlässig
+   gewesen wie gar keine. `config.ts` filtert den Wert deshalb aktiv heraus
+   und warnt beim Start.
+
+   `HRMONIC_CORS_ORIGIN` niemals auf einem Arbeitsplatz setzen: Das in die
+   Desktop-App eingebettete Backend erbt die Variable und sperrt dann den
+   eigenen Renderer aus.
 
    Lokal zum Ausprobieren (beide Clients auf einer Maschine, gemeinsamer
    Datenbestand): Backend auf 3001 starten und die installierte App per

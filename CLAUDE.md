@@ -186,8 +186,20 @@ npm run build:web      # statisches Portal-Build → apps/web/dist
 npm run dist:win       # kompletter Windows-Installer (NSIS) → apps/desktop/release
 ```
 
-Login im Dev/Frischinstallation: `admin@hrmonic.de` / `hrmonic2026`.
-`npm run seed` legt zusätzlich an: drei weitere Admin-Konten
-(sabine.berger@, jurgen.wilms@, melanie.sonntag@hrmonic.de / `hrmonic2026`)
-und vier Portal-Konten (deniz.aydin@, marta.kowalczyk@, leonie.vogt@,
-samuel.okafor@hrmonic.de / `portal2026`).
+Login bei Frischinstallation: `admin@hrmonic.de` mit einem **zufällig
+erzeugten** Passwort — einmalig auf stdout und in
+`<dataDir>/initial-admin-password.txt` (0600). Der erste Login erreicht nur
+`/api/auth/me` und `/api/auth/password` (`users.must_change_password`, 403
+`PASSWORD_CHANGE_REQUIRED`) und erzwingt damit den Wechsel. Für Tests und
+skriptierte Abläufe gibt `HRMONIC_INITIAL_ADMIN_PASSWORD` das Passwort vor
+(nur beim allerersten Start ausgewertet, dann ohne Wechselzwang) —
+**nicht auf Produktivsystemen**.
+
+`npm run seed` ist **ausschließlich Dev** und legt Konten mit fest
+dokumentierten Passwörtern an: drei weitere Admin-Konten (sabine.berger@,
+jurgen.wilms@, melanie.sonntag@hrmonic.de / `hrmonic2026`) und vier
+Portal-Konten (deniz.aydin@, marta.kowalczyk@, leonie.vogt@,
+samuel.okafor@hrmonic.de / `portal2026`). Auf einem Kundensystem darf das
+niemals laufen; Konten entstehen dort über *Verwaltung → Benutzer & Rechte*
+(`POST /api/admin/users`, Passwort erzeugt der Server). Ablauf:
+`docs/inbetriebnahme.md`, Serverbetrieb: `deploy/README.md`.

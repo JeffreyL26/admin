@@ -1,0 +1,25 @@
+# Zeitplan der HRMONIC-Datensicherung
+#
+# Ablage:     /etc/systemd/system/hrmonic-backup.timer
+# Aktivieren: systemctl enable --now hrmonic-backup.timer
+# Prüfen:     systemctl list-timers hrmonic-backup.timer
+
+[Unit]
+Description=Tägliche HRMONIC-Datensicherung
+Documentation=file:/opt/hrmonic/deploy/README.md
+
+[Timer]
+# Täglich um 02:30 Ortszeit. Die Sicherung läuft im laufenden Betrieb, die
+# Uhrzeit ist trotzdem außerhalb der Arbeitszeit gewählt: Der Kopiervorgang von
+# storage/ belastet die Platte.
+OnCalendar=*-*-* 02:30:00
+# Streut den Start um bis zu 5 Minuten, damit nicht alle Timer eines Servers
+# gleichzeitig loslaufen.
+RandomizedDelaySec=300
+# War der Server zur geplanten Zeit aus, wird die Sicherung nach dem Start
+# nachgeholt.
+Persistent=true
+Unit=hrmonic-backup.service
+
+[Install]
+WantedBy=timers.target
