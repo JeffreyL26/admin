@@ -343,3 +343,4 @@ ls -ld /var/lib/hrmonic /var/lib/hrmonic/storage      # erwartet: drwx------
 | `Cannot find module 'better-sqlite3'` | `npm ci` fehlt, oder es wurde mit `--omit=dev` gebaut | Abschnitt 2.3 wiederholen |
 | Portal zeigt bei `/kalender` einen 404 | SPA-Fallback fehlt im Proxy | `try_files … /index.html` prüfen |
 | Portal meldet CORS-Fehler | API läuft nicht same-origin | `HRMONIC_CORS_ORIGIN` auf die Portal-Domain setzen (der Wert `null` ist nicht zulässig und wird ignoriert) |
+| Desktop-App kommt nicht über den Login hinaus, Portal geht | `hrmonic://app` fehlt in `HRMONIC_CORS_ORIGIN` | Eintrag ergänzen: `HRMONIC_CORS_ORIGIN=https://portal.firma.de,hrmonic://app`. Die App lädt ihre Oberfläche über ein eigenes Schema und sendet diese Herkunft; ohne den Eintrag bricht der Browserkern jede Anfrage ab. Im Serverlog ist nichts Auffälliges zu sehen — es sieht nach einem Netzwerkproblem aus. |
