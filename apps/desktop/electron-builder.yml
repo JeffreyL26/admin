@@ -7,6 +7,13 @@ copyright: © 2026 HRMONIC
 # kann die Range aus package.json nicht selbst auflösen.
 electronVersion: 38.8.6
 
+# Kein Auto-Update: die App bringt keinen electron-updater mit. Ohne diese
+# Zeile versucht electron-builder am Ende trotzdem, Update-Metadaten
+# (latest.yml) für einen aus dem Git-Remote geratenen Provider zu schreiben,
+# und bricht dabei ab — der Installer ist dann zwar fertig, der Build endet
+# aber mit Exit-Code 1.
+publish: null
+
 directories:
   output: release
   buildResources: build
