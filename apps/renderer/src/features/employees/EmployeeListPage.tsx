@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDownAZ, ArrowUpAZ, Columns3, Download, Plus, Search, UserCog, Users } from 'lucide-react';
 import {
@@ -16,6 +16,7 @@ import {
 } from '@hrmonic/shared';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, type BadgeTone } from '../../components/ui';
 import { MultiSelect } from '../../components/MultiSelect';
+import { Popover } from '../../components/Popover';
 import { useToast } from '../../components/Toast';
 import {
   EMPTY_FILTERS,
@@ -88,6 +89,7 @@ export function EmployeeListPage() {
   const [exporting, setExporting] = useState(false);
   const [view, setView] = useState<ViewConfig>(loadView);
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const columnsButtonRef = useRef<HTMLButtonElement>(null);
 
   const createOpen = searchParams.get('neu') === '1';
   const setCreateOpen = (open: boolean) => setSearchParams(open ? { neu: '1' } : {}, { replace: true });
@@ -360,6 +362,7 @@ export function EmployeeListPage() {
 
           <div className="hm-multi" style={{ width: 150 }}>
             <button
+              ref={columnsButtonRef}
               type="button"
               className="hm-multi__button"
               onClick={() => setColumnsOpen((o) => !o)}
@@ -368,16 +371,19 @@ export function EmployeeListPage() {
               <Columns3 size={14} />
               <span className="hm-multi__label">Spalten</span>
             </button>
-            {columnsOpen && (
-              <>
-                {/* Klickfänger: schließt die Spaltenauswahl beim Klick daneben. */}
-                <div
-                  style={{ position: 'fixed', inset: 0, zIndex: 39 }}
-                  onClick={() => setColumnsOpen(false)}
-                  aria-hidden="true"
-                />
-                <div className="hm-multi__panel" style={{ right: 0, left: 'auto', width: 260 }}>
-                  <div className="hm-multi__list">
+            {/* Portal statt eingebettetem Panel: Die Filterkarte hat
+                `overflow: hidden` und schnitt das Panel vorher vollständig ab.
+                Der frühere bildschirmfüllende Klickfänger entfällt damit — er
+                hat auch das Scrollen der Seite geschluckt. */}
+            <Popover
+              open={columnsOpen}
+              onClose={() => setColumnsOpen(false)}
+              anchorRef={columnsButtonRef}
+              align="right"
+              minWidth={280}
+            >
+              <div>
+                <div className="hm-multi__list">
                     {EMPLOYEE_LIST_COLUMNS.map((c) => {
                       const on = c.fixed || view.columns.includes(c.id);
                       return (
@@ -424,11 +430,10 @@ export function EmployeeListPage() {
                     className="hm-multi__reset"
                     onClick={() => setView(DEFAULT_VIEW)}
                   >
-                    Auf Standard zurücksetzen
-                  </button>
-                </div>
-              </>
-            )}
+                  Auf Standard zurücksetzen
+                </button>
+              </div>
+            </Popover>
           </div>
         </div>
       </Card>

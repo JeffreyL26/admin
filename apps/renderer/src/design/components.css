@@ -652,18 +652,27 @@
   background: var(--bg-tint-1);
   color: var(--text-primary);
 }
-.hm-multi__panel {
-  position: absolute;
-  z-index: 40;
-  top: calc(100% + 4px);
-  left: 0;
-  min-width: 100%;
-  max-width: 320px;
+/* Ausklappbares Panel — hängt per Portal am <body> (components/Popover.tsx).
+   Nicht im Elternelement positionieren: Die Filterzeile steht in einer Karte
+   mit `overflow: hidden`, die ein eingebettetes Panel abschneiden würde.
+   Der Inhalt scrollt INNERHALB des Panels; die Höhe setzt Popover je nach
+   verfügbarem Platz. */
+.hm-popover {
+  position: fixed;
+  z-index: 400;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   padding: 5px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   box-shadow: var(--shadow-lg);
+}
+.hm-popover > * {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .hm-multi__search {
   display: flex;
@@ -683,8 +692,12 @@
   font-size: var(--text-sm);
   outline: none;
 }
+/* Nimmt die verbleibende Höhe des Panels ein und scrollt darin. Kein festes
+   max-height mehr: Die nutzbare Höhe hängt davon ab, wie viel Platz unter dem
+   Auslöser bleibt — das rechnet Popover aus. */
 .hm-multi__list {
-  max-height: 260px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 .hm-multi__option {

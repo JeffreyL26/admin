@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { Popover } from './Popover';
 
 /**
  * Auswahlfeld mit Mehrfachauswahl.
@@ -8,6 +9,10 @@ import { Check, ChevronDown, Search, X } from 'lucide-react';
  * Praxis unbedienbar: Man muss Strg gedrückt halten, und die Liste frisst
  * dauerhaft Platz in der Filterzeile. Deshalb ein Knopf mit ausklappbarer
  * Ankreuzliste — Auswahl bleibt sichtbar, ohne die Zeile zu sprengen.
+ *
+ * Die Liste hängt an einem Popover (Portal am <body>), NICHT als
+ * `position: absolute` im Elternelement: Die Filterzeile steht in einer Karte
+ * mit `overflow: hidden`, die ein eingebettetes Panel abschneiden würde.
  *
  * Leere Auswahl bedeutet immer „kein Filter“, nicht „nichts anzeigen“.
  */
@@ -39,29 +44,15 @@ export function MultiSelect<T extends string | number>({
 }: Props<T>) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Schließen bei Klick daneben und mit Escape. Ohne das bleibt die Liste über
-  // der Tabelle stehen und verdeckt genau die Zeilen, die man prüfen will.
   useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (open && searchable) searchRef.current?.focus();
+    if (open && searchable) {
+      // Nach dem Positionieren fokussieren, sonst springt die Seite.
+      const id = requestAnimationFrame(() => searchRef.current?.focus());
+      return () => cancelAnimationFrame(id);
+    }
     if (!open) setTerm('');
   }, [open, searchable]);
 
@@ -84,12 +75,13 @@ export function MultiSelect<T extends string | number>({
     value.length === 0
       ? allLabel
       : value.length === 1
-        ? (options.find((o) => o.value === value[0])?.label ?? `1 ausgewählt`)
+        ? (options.find((o) => o.value === value[0])?.label ?? '1 ausgewählt')
         : `${value.length} ausgewählt`;
 
   return (
-    <div className="hm-multi" ref={wrapRef} style={{ width }}>
+    <div className="hm-multi" style={{ width }}>
       <button
+        ref={buttonRef}
         type="button"
         className={`hm-multi__button${value.length ? ' hm-multi__button--active' : ''}`}
         onClick={() => setOpen((o) => !o)}
@@ -121,8 +113,8 @@ export function MultiSelect<T extends string | number>({
         <ChevronDown size={14} className="hm-multi__chevron" />
       </button>
 
-      {open && (
-        <div className="hm-multi__panel" role="listbox" aria-multiselectable="true">
+      <Popover open={open} onClose={() => setOpen(false)} anchorRef={buttonRef} minWidth={width}>
+        <div role="listbox" aria-multiselectable="true" aria-label={allLabel}>
           {searchable && (
             <div className="hm-multi__search">
               <Search size={14} />
@@ -164,7 +156,7 @@ export function MultiSelect<T extends string | number>({
             </button>
           )}
         </div>
-      )}
+      </Popover>
     </div>
   );
 }
