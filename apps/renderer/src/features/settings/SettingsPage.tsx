@@ -5,6 +5,7 @@ import { BUNDESLAND_LABELS } from '@hrmonic/shared';
 import { api } from '../../api/client';
 import { Card, Field, PageHeader, Spinner } from '../../components/ui';
 import { useToast } from '../../components/Toast';
+import { useAuth } from '../../auth/AuthContext';
 import { applyTheme, getTheme, THEMES, type ThemeName } from '../../design/theme';
 
 interface Settings {
@@ -215,6 +216,11 @@ function ThemeCard() {
 
 function usePasswordForm() {
   const toast = useToast();
+  // Bewusst über den Auth-Kontext statt direkt über api.put: Der Wechsel
+  // entwertet serverseitig alle älteren Tokens (users.sessions_valid_from).
+  // Wer das mitgelieferte frische Token nicht übernimmt, wird beim nächsten
+  // Request mit 401 abgemeldet.
+  const { changePassword } = useAuth();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [busy, setBusy] = useState(false);
@@ -222,7 +228,7 @@ function usePasswordForm() {
   async function submit() {
     setBusy(true);
     try {
-      await api.put('/api/auth/password', { currentPassword: current, newPassword: next });
+      await changePassword(current, next);
       toast.success('Passwort geändert');
       setCurrent('');
       setNext('');

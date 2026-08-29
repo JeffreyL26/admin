@@ -16,6 +16,14 @@ interface AuthState {
   user: AuthUserDto | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  /**
+   * Passwort setzen. MUSS über den Kontext laufen und nicht direkt über
+   * `api.put('/api/auth/password')`: Der Wechsel entwertet serverseitig alle
+   * älteren Tokens (users.sessions_valid_from). Wer das zurückgelieferte
+   * frische Token nicht übernimmt, fliegt beim nächsten Request mit 401
+   * heraus — genau das passierte vor dieser Änderung.
+   */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -23,6 +31,7 @@ const AuthContext = createContext<AuthState>({
   user: null,
   loading: true,
   login: async () => {},
+  changePassword: async () => {},
   logout: () => {},
 });
 
@@ -68,7 +77,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(res.user);
   }, [queryClient]);
 
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const res = await api.put<{ ok: boolean; token: string }>('/api/auth/password', {
+      currentPassword,
+      newPassword,
+    });
+    // Erst das neue Token setzen, dann die Identität neu laden: /api/auth/me
+    // liefert danach must_change_password = 0, und der Wechselzwang-Schirm
+    // verschwindet von selbst.
+    setToken(res.token);
+    const me = await api.get<{ user: AuthUserDto }>('/api/auth/me');
+    setUser(me.user);
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, loading, login, changePassword, logout }}>
+      {children}
+    </AuthContext.Provider>
   );
 }

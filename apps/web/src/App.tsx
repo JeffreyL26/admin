@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext';
 import { ToastProvider } from './components/Toast';
 import { PortalShell } from './layout/PortalShell';
 import { LoginPage } from './pages/LoginPage';
+import { PasswordChangePage } from './pages/PasswordChangePage';
 import { OverviewPage } from './pages/OverviewPage';
 import { RequestsPage } from './pages/RequestsPage';
 import { NewRequestPage } from './pages/NewRequestPage';
@@ -15,11 +16,19 @@ import { DocumentsPage } from './pages/DocumentsPage';
 import { OrgPage } from './pages/OrgPage';
 import { ProfilePage } from './pages/ProfilePage';
 
+/**
+ * Gleiches Aktualisierungsverhalten wie die Desktop-App (siehe dort für die
+ * Begründung): Beim Zurückkehren ins Fenster und nach einem Verbindungsabriss
+ * wird neu geladen, der Cache gilt nur fünf Sekunden. Im Portal zählt das
+ * besonders für Anträge — über deren Genehmigung entscheidet jemand anderes.
+ */
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 15_000,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      staleTime: 5_000,
     },
   },
 });
@@ -58,6 +67,11 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   if (loading) return <SessionSkeleton />;
   if (!user) return <Navigate to="/anmelden" replace state={{ from: location.pathname }} />;
+  // Spiegelt die Sperre im Backend-Hook (server.ts): Bei erzwungenem
+  // Passwortwechsel beantwortet der Server jede /api/me-Route mit 403. Ohne
+  // diesen Schirm bliebe das Portal leer, ohne dass irgendwo das Passwort
+  // gesetzt werden könnte.
+  if (user.must_change_password === 1) return <PasswordChangePage />;
   return <>{children}</>;
 }
 

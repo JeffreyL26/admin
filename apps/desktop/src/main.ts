@@ -1,14 +1,148 @@
-import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 // Dev-Modus: Renderer kommt vom Vite-Dev-Server, Backend läuft separat (tsx watch).
 // Prod-Modus: Backend wird im Main-Prozess eingebettet gestartet (zufälliger Port),
-// Renderer wird als gebauter Build über file:// geladen.
+// Renderer wird als gebauter Build über das eigene Schema hrmonic://app geladen.
 const devServerUrl = process.env.ELECTRON_START_URL;
 const isDev = Boolean(devServerUrl);
 
 let mainWindow: BrowserWindow | null = null;
+
+// ---------------------------------------------------------------------------
+// Eigenes App-Schema statt file://
+// ---------------------------------------------------------------------------
+// WARUM (bitte nicht auf loadFile zurückdrehen): Eine über file:// geladene
+// Seite hat eine *opake* Herkunft und sendet deshalb `Origin: null`. Damit das
+// Backend sie akzeptiert, müsste in der CORS-Liste der Wert "null" stehen — und
+// "null" ist der Sammelwert JEDER opaken Herkunft (sandboxed iframe, data:,
+// beliebige fremde Seite). Eine Whitelist mit "null" ist so durchlässig wie gar
+// keine. Das Backend filtert "null" deshalb aktiv heraus.
+//
+// Mit einem als `standard` registrierten Schema bekommt der Renderer eine echte,
+// benennbare Herkunft: `hrmonic://app`. Genau dieser eine Wert gehört im
+// Server-Betrieb in HRMONIC_CORS_ORIGIN — neben der Portal-Domain.
+//
+// Die Privilegien im Einzelnen:
+//   standard        — echte Herkunft (Host + Pfad), Voraussetzung für den
+//                     Origin-Header, für localStorage und für relative Pfade
+//                     (Vite baut mit base: './').
+//   secure          — als vertrauenswürdig behandeln, wie bisher file://;
+//                     sonst blockiert Chromium z. B. Web-Crypto und meldet die
+//                     Seite als unsicheren Kontext.
+//   supportFetchAPI — fetch()/ES-Module dürfen aus diesem Schema laden
+//                     (der Vite-Build lädt sein Bundle als <script type=module>).
+const APP_SCHEME = 'hrmonic';
+const APP_HOST = 'app';
+const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
+
+// Muss VOR app.whenReady() laufen — danach ignoriert Chromium die Registrierung.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true },
+  },
+]);
+
+// Explizite MIME-Typen: Chromium lehnt ES-Module mit falschem Content-Type
+// strikt ab (dann bleibt das Fenster weiß). Nur die Typen, die der
+// Renderer-Build tatsächlich erzeugt.
+const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.map': 'application/json; charset=utf-8',
+};
+
+function notFound(): Response {
+  return new Response('Nicht gefunden', {
+    status: 404,
+    headers: { 'content-type': 'text/plain; charset=utf-8' },
+  });
+}
+
+/**
+ * Bedient hrmonic://app/* aus dem entpackten Renderer-Verzeichnis.
+ *
+ * Pfad-Sicherheit: Das Schema ist zwar nur für den eigenen Renderer erreichbar,
+ * die Auflösung bleibt trotzdem strikt eingesperrt — sonst wäre jede künftige
+ * Stelle, die eine URL aus fremden Daten zusammensetzt (Anhangsname, Vorlage),
+ * ein Leseprimitiv auf das gesamte Dateisystem des Arbeitsplatzes:
+ *   1. Prozentkodierung erst dekodieren, DANN auflösen — sonst schmuggelt
+ *      "%2e%2e%2f" ein ".." am URL-Parser vorbei.
+ *   2. Nach dem Auflösen prüfen, dass das Ziel unterhalb des Wurzelverzeichnisses
+ *      liegt (verhindert "..").
+ *   3. realpath und erneut prüfen (verhindert Ausbruch über einen Symlink oder
+ *      NTFS-Junction im Installationsverzeichnis).
+ * Muss NACH app.whenReady() aufgerufen werden.
+ */
+function registerAppProtocol(): void {
+  const rendererDir = path.join(__dirname, 'renderer');
+  // Wurzel selbst auflösen: Das Installationsverzeichnis kann hinter einer
+  // Junction liegen (OneDrive, umgeleitete Programmordner) — sonst schlüge der
+  // realpath-Vergleich in Schritt 3 für jede reguläre Datei fehl.
+  let root: string;
+  try {
+    root = fs.realpathSync(rendererDir);
+  } catch {
+    root = path.resolve(rendererDir);
+  }
+
+  protocol.handle(APP_SCHEME, async (request) => {
+    let url: URL;
+    try {
+      url = new URL(request.url);
+    } catch {
+      return notFound();
+    }
+    // Nur der eine Host wird bedient; hrmonic://irgendwas/ ist kein Treffer.
+    if (url.host !== APP_HOST) return notFound();
+
+    let relative: string;
+    try {
+      relative = decodeURIComponent(url.pathname);
+    } catch {
+      return notFound(); // defektes Prozent-Escape
+    }
+    if (relative === '' || relative === '/') relative = '/index.html';
+    // NUL-Bytes schneiden Pfade in nativen APIs ab und lösen sonst einen
+    // ERR_INVALID_ARG_VALUE mit Stacktrace aus.
+    if (relative.includes('\0')) return notFound();
+
+    const target = path.resolve(root, `.${relative}`);
+    if (target !== root && !target.startsWith(root + path.sep)) return notFound();
+
+    let real: string;
+    try {
+      real = fs.realpathSync(target);
+      if (!fs.statSync(real).isFile()) return notFound();
+    } catch {
+      return notFound();
+    }
+    if (real !== root && !real.startsWith(root + path.sep)) return notFound();
+
+    const response = await net.fetch(pathToFileURL(real).toString());
+    const mime = MIME_TYPES[path.extname(real).toLowerCase()];
+    if (!mime) return response;
+    const headers = new Headers(response.headers);
+    headers.set('content-type', mime);
+    return new Response(response.body, { status: response.status, headers });
+  });
+}
 
 // Gemeinsames Backend (Mehrplatz-/Server-Betrieb): Ist eine Basis-URL
 // konfiguriert, startet die App KEIN eigenes Backend, sondern arbeitet auf
@@ -87,6 +221,22 @@ async function startBackend(): Promise<string> {
   const dataDir = path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   process.env.HRMONIC_DATA_DIR = dataDir;
+
+  // Serverkonfiguration NICHT erben — hart überschreiben, bevor das Bundle
+  // geladen wird (config.ts liest die Variablen beim Import).
+  //
+  // HRMONIC_HOST: Wer die Server-Doku auf einem Arbeitsplatz nachvollzieht oder
+  // die Variable per Rollout-Skript systemweit setzt (z. B. 0.0.0.0), würde sonst
+  // das eingebettete Backend an alle Netzwerkschnittstellen binden — die lokale
+  // Personaldatenbank stünde offen im Firmennetz. Das eingebettete Backend hat
+  // genau einen Nutzer: den Renderer im selben Prozessbaum.
+  process.env.HRMONIC_HOST = '127.0.0.1';
+  // HRMONIC_CORS_ORIGIN: Eine geerbte Server-Liste enthält die Portal-Domain,
+  // aber nicht hrmonic://app — das eingebettete Backend würde seinen eigenen
+  // Renderer aussperren (leeres Fenster, keine erkennbare Ursache). Auf
+  // 127.0.0.1 ist die offene Voreinstellung unbedenklich (siehe config.ts).
+  delete process.env.HRMONIC_CORS_ORIGIN;
+
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { startServer } = require(path.join(__dirname, 'server.cjs')) as {
     startServer: (port?: number) => Promise<{ port: number }>;
@@ -162,7 +312,9 @@ async function createWindow(apiBaseUrl: string): Promise<void> {
     await mainWindow.loadURL(devServerUrl!);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    await mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+    // Kein loadFile: siehe Begründung am Schema oben. HashRouter bleibt richtig —
+    // ein Deep-Link im Pfad hätte auch hier keinen Server, der ihn beantwortet.
+    await mainWindow.loadURL(`${APP_ORIGIN}/index.html`);
   }
 }
 
@@ -215,6 +367,9 @@ if (!gotLock) {
   app.whenReady().then(async () => {
     try {
       registerIpc();
+      // Im Dev-Betrieb liefert der Vite-Server den Renderer aus; das
+      // Verzeichnis dist/renderer existiert dort gar nicht.
+      if (!isDev) registerAppProtocol();
       const apiBaseUrl = await startBackend();
       ipcMain.handle('hrmonic:apiBaseUrl', () => apiBaseUrl);
       await createWindow(apiBaseUrl);

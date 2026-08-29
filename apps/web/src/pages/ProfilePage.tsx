@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ApiRequestError } from '../api/client';
-import { useChangePassword, useMyProfile } from '../api/hooks';
+import { useMyProfile } from '../api/hooks';
+import { useAuth } from '../auth/AuthContext';
 import { Card, Field, LoadError, Skeleton } from '../components/ui';
 import { ThemeCard } from '../components/ThemeCard';
 import { useToast } from '../components/Toast';
@@ -20,34 +21,40 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+/** Mindestlänge wie in core/auth.ts (assertPasswordAcceptable). */
+const MIN_PASSWORD_CHARS = 12;
+
 function PasswordCard() {
-  const change = useChangePassword();
+  // Bewusst über den Auth-Kontext statt über useChangePassword(): Der Wechsel
+  // entwertet serverseitig alle älteren Tokens (users.sessions_valid_from).
+  // Wer das mitgelieferte frische Token nicht übernimmt, wird beim nächsten
+  // Request mit 401 abgemeldet.
+  const { changePassword } = useAuth();
   const toast = useToast();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [repeat, setRepeat] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const mismatch = next.length > 0 && repeat.length > 0 && next !== repeat;
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (mismatch || next.length < 8) return;
+    if (mismatch || next.length < MIN_PASSWORD_CHARS) return;
     setError(null);
-    change.mutate(
-      { currentPassword: current, newPassword: next },
-      {
-        onSuccess: () => {
-          toast.success('Passwort geändert');
-          setCurrent('');
-          setNext('');
-          setRepeat('');
-        },
-        onError: (err) => {
-          setError(err instanceof ApiRequestError ? err.message : 'Passwortänderung fehlgeschlagen');
-        },
-      },
-    );
+    setBusy(true);
+    try {
+      await changePassword(current, next);
+      toast.success('Passwort geändert');
+      setCurrent('');
+      setNext('');
+      setRepeat('');
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : 'Passwortänderung fehlgeschlagen');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -66,8 +73,16 @@ function PasswordCard() {
         <Field
           label="Neues Passwort"
           required
-          hint={next.length > 0 && next.length < 8 ? undefined : 'Mindestens 8 Zeichen.'}
-          error={next.length > 0 && next.length < 8 ? 'Mindestens 8 Zeichen erforderlich' : undefined}
+          hint={
+            next.length > 0 && next.length < MIN_PASSWORD_CHARS
+              ? undefined
+              : `Mindestens ${MIN_PASSWORD_CHARS} Zeichen, ohne Firmennamen oder Ihren E-Mail-Anfang.`
+          }
+          error={
+            next.length > 0 && next.length < MIN_PASSWORD_CHARS
+              ? `Mindestens ${MIN_PASSWORD_CHARS} Zeichen erforderlich`
+              : undefined
+          }
         >
           <input
             className="pt-input"
@@ -97,9 +112,11 @@ function PasswordCard() {
           <button
             type="submit"
             className="pt-btn pt-btn--secondary"
-            disabled={change.isPending || mismatch || next.length < 8 || current.length === 0}
+            disabled={
+              busy || mismatch || next.length < MIN_PASSWORD_CHARS || current.length === 0
+            }
           >
-            {change.isPending ? 'Wird gespeichert …' : 'Passwort speichern'}
+            {busy ? 'Wird gespeichert …' : 'Passwort speichern'}
           </button>
         </div>
       </form>

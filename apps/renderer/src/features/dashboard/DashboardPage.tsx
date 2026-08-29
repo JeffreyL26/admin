@@ -8,7 +8,7 @@ import { useToast } from '../../components/Toast';
 import { useDashboard, type DashboardData } from './api';
 import {
   ALL_STATS, ALL_WIDGETS, DEFAULT_CONFIG, STAT_DEFS, WIDGET_DEFS,
-  loadDashboardConfig, saveDashboardConfig,
+  loadDashboardConfig, saveDashboardConfig, statAllowed, widgetAllowed,
   type DashboardConfig, type StatKey, type WidgetKey,
 } from './dashboardConfig';
 import {
@@ -83,7 +83,22 @@ export function DashboardPage() {
 
   if (isLoading || !data) return <Spinner center />;
   const { stats } = data;
-  const hiddenWidgets = ALL_WIDGETS.filter((w) => !config.widgets.includes(w));
+
+  /**
+   * Rechtefilter: Das Backend liefert in `allowed_areas`, welche Bereiche
+   * dieses Konto lesen darf, und lässt gesperrte Blöcke aus der Antwort weg.
+   * Hier fallen die zugehörigen Widgets und Kacheln aus der Anzeige — ohne die
+   * gespeicherte Auswahl zu verändern, damit sie nach einer Rechteerweiterung
+   * unverändert zurückkommt. Das ist Kosmetik, keine Sicherheitsgrenze: die
+   * Daten kommen bereits gefiltert an.
+   */
+  const allowedAreas = new Set(data.allowed_areas ?? []);
+  const visibleWidgets = config.widgets.filter((w) => widgetAllowed(w, allowedAreas));
+  const visibleKpis = config.kpis.filter((k) => statAllowed(k, allowedAreas));
+  const selectableStats = ALL_STATS.filter((k) => statAllowed(k, allowedAreas));
+  const hiddenWidgets = ALL_WIDGETS.filter(
+    (w) => !config.widgets.includes(w) && widgetAllowed(w, allowedAreas),
+  );
 
   /** Rahmen im Bearbeitungsmodus: Greifer, gestrichelte Kontur, Entfernen-Knopf. */
   const editWrapProps = (key: WidgetKey): React.HTMLAttributes<HTMLDivElement> =>
@@ -177,11 +192,15 @@ export function DashboardPage() {
         </div>
       )}
 
-      {config.widgets.length === 0 ? (
+      {visibleWidgets.length === 0 ? (
         <Card>
           <EmptyState
             title="Ihr Dashboard ist leer"
-            hint="Fügen Sie über „Anpassen“ die Widgets hinzu, die für Sie zählen."
+            hint={
+              config.widgets.length > 0
+                ? 'Für die gewählten Widgets fehlt Ihnen die Berechtigung. Wählen Sie über „Anpassen“ andere aus.'
+                : 'Fügen Sie über „Anpassen“ die Widgets hinzu, die für Sie zählen.'
+            }
             action={
               !edit && (
                 <button className="hm-btn hm-btn--primary" onClick={() => setEdit(true)}>
@@ -193,7 +212,7 @@ export function DashboardPage() {
         </Card>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'start' }}>
-          {config.widgets.map((key) => {
+          {visibleWidgets.map((key) => {
             const def = WIDGET_DEFS[key];
 
             // KPI-Leiste: volle Breite, eigene Darstellung ohne Card-Rahmen.
@@ -213,7 +232,7 @@ export function DashboardPage() {
                   )}
                   {edit && (
                     <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                      {ALL_STATS.map((sk) => {
+                      {selectableStats.map((sk) => {
                         const sd = STAT_DEFS[sk];
                         const active = config.kpis.includes(sk);
                         return (
@@ -228,19 +247,26 @@ export function DashboardPage() {
                       })}
                     </div>
                   )}
-                  {config.kpis.length === 0 ? (
+                  {visibleKpis.length === 0 ? (
                     <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                      Keine Kennzahlen ausgewählt.
+                      {config.kpis.length > 0
+                        ? 'Für die gewählten Kennzahlen fehlt Ihnen die Berechtigung.'
+                        : 'Keine Kennzahlen ausgewählt.'}
                     </p>
                   ) : (
                     <div className="grid-stats">
-                      {config.kpis.map((sk) => {
+                      {visibleKpis.map((sk) => {
                         const sd = STAT_DEFS[sk];
+                        const value = sd.value(stats);
+                        // Doppelter Boden: Liefert das Backend den Wert wider
+                        // Erwarten nicht, bleibt die Kachel weg statt eine 0 zu
+                        // zeigen, die es so nicht gibt.
+                        if (value === undefined) return null;
                         return (
                           <StatCard
                             key={sk}
                             label={sd.label}
-                            value={sd.value(stats)}
+                            value={value}
                             sub={sd.sub?.(stats)}
                             icon={<sd.icon size={15} />}
                             onClick={edit ? undefined : () => navigate(sd.path)}

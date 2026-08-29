@@ -14,11 +14,24 @@ import type { DashboardData } from './api';
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
-function Empty({ text }: { text: string }) {
-  return <p style={{ color: 'var(--text-muted)', margin: 0 }}>{text}</p>;
+function Empty({ text, padded }: { text: string; padded?: boolean }) {
+  return <p style={{ color: 'var(--text-muted)', margin: 0, padding: padded ? 16 : 0 }}>{text}</p>;
+}
+
+/**
+ * Fehlender Block in der Dashboard-Antwort = fehlendes Leserecht: Das Backend
+ * lässt gesperrte Bereiche weg, statt sie mit 0/[] zu füllen. Deshalb hier
+ * ausdrücklich NICHT die „alles leer“-Meldung des Widgets zeigen — „Heute sind
+ * alle an Bord“ wäre eine Falschaussage, wo in Wahrheit nur die Berechtigung
+ * fehlt. Regulär blendet DashboardPage solche Widgets ohnehin aus; das hier ist
+ * der doppelte Boden.
+ */
+function Restricted({ padded }: { padded?: boolean }) {
+  return <Empty text="Für diesen Bereich fehlt Ihnen die Berechtigung." padded={padded} />;
 }
 
 export function AbsenceChartWidget({ data }: { data: DashboardData }) {
+  if (!data.absenceDaysByMonth) return <Restricted />;
   const monthData = data.absenceDaysByMonth.map((m) => ({
     name: MONTH_NAMES[Number(m.month.slice(5)) - 1],
     Tage: m.days,
@@ -39,6 +52,7 @@ export function AbsenceChartWidget({ data }: { data: DashboardData }) {
 }
 
 export function DepartmentChartWidget({ data }: { data: DashboardData }) {
+  if (!data.byDepartment) return <Restricted />;
   return (
     <div style={{ height: Math.max(160, data.byDepartment.length * 34) }}>
       <ResponsiveContainer>
@@ -55,8 +69,9 @@ export function DepartmentChartWidget({ data }: { data: DashboardData }) {
 
 /** Wird als flush-Card gerendert (Tabelle bis an den Rand) — Leertext deshalb selbst gepolstert. */
 export function AbsentTodayWidget({ data }: { data: DashboardData }) {
+  if (!data.absentToday) return <Restricted padded />;
   if (data.absentToday.length === 0) {
-    return <p style={{ color: 'var(--text-muted)', margin: 0, padding: 16 }}>Heute sind alle an Bord. 🎉</p>;
+    return <Empty text="Heute sind alle an Bord. 🎉" padded />;
   }
   return (
     <div className="hm-table-wrap" style={{ maxHeight: 240 }}>
@@ -80,6 +95,7 @@ export function AbsentTodayWidget({ data }: { data: DashboardData }) {
 }
 
 export function InterviewsWidget({ data }: { data: DashboardData }) {
+  if (!data.upcomingInterviews) return <Restricted />;
   if (data.upcomingInterviews.length === 0) return <Empty text="Keine geplanten Interviews." />;
   return (
     <div className="stack" style={{ gap: 10 }}>
@@ -99,6 +115,7 @@ export function InterviewsWidget({ data }: { data: DashboardData }) {
 }
 
 export function MeetingsWidget({ data }: { data: DashboardData }) {
+  if (!data.upcomingMeetings) return <Restricted />;
   if (data.upcomingMeetings.length === 0) return <Empty text="Keine Gespräche in den nächsten 3 Wochen." />;
   return (
     <div className="stack" style={{ gap: 10 }}>
@@ -117,6 +134,7 @@ export function MeetingsWidget({ data }: { data: DashboardData }) {
 }
 
 export function AnnouncementsWidget({ data }: { data: DashboardData }) {
+  if (!data.activeAnnouncements) return <Restricted />;
   if (data.activeAnnouncements.length === 0) return <Empty text="Keine aktiven Ankündigungen." />;
   return (
     <div className="stack" style={{ gap: 10 }}>
@@ -133,6 +151,7 @@ export function AnnouncementsWidget({ data }: { data: DashboardData }) {
 }
 
 export function SurveysWidget({ data }: { data: DashboardData }) {
+  if (!data.runningSurveys) return <Restricted />;
   if (data.runningSurveys.length === 0) return <Empty text="Keine laufenden Umfragen." />;
   return (
     <div className="stack" style={{ gap: 10 }}>
@@ -178,6 +197,7 @@ export function OnboardingWidget() {
 }
 
 export function BirthdaysWidget({ data }: { data: DashboardData }) {
+  if (!data.upcomingBirthdays) return <Restricted />;
   if (data.upcomingBirthdays.length === 0) return <Empty text="Keine Geburtstage hinterlegt." />;
   return (
     <div className="stack" style={{ gap: 10 }}>

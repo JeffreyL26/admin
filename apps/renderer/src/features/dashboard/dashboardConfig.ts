@@ -4,6 +4,7 @@ import {
   CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
   UserPlus,
 } from 'lucide-react';
+import type { AdminArea } from '@hrmonic/shared';
 import type { DashboardStats } from './api';
 
 /**
@@ -35,7 +36,13 @@ export interface StatDef {
   icon: LucideIcon;
   /** Navigationsziel beim Klick auf die Kachel. */
   path: string;
-  value: (s: DashboardStats) => number;
+  /**
+   * Rechtebereich, aus dem die Zahl stammt. Fehlt er dem Konto, liefert das
+   * Backend den Wert nicht (siehe api.ts) und die Kachel wird ausgeblendet —
+   * eine Kachel mit „0“ wäre eine Falschaussage, keine Zugriffsmeldung.
+   */
+  area: AdminArea;
+  value: (s: DashboardStats) => number | undefined;
   sub?: (s: DashboardStats) => string | undefined;
 }
 
@@ -44,19 +51,22 @@ export const STAT_DEFS: Record<StatKey, StatDef> = {
     label: 'Aktive Mitarbeitende',
     icon: Users,
     path: '/personal/mitarbeitende',
+    area: 'personal',
     value: (s) => s.headcount,
-    sub: (s) => `${s.hiresYtd} Neueintritte dieses Jahr`,
+    sub: (s) => (s.hiresYtd === undefined ? undefined : `${s.hiresYtd} Neueintritte dieses Jahr`),
   },
   absentToday: {
     label: 'Heute abwesend',
     icon: CalendarDays,
     path: '/abwesenheit/kalender',
+    area: 'abwesenheit',
     value: (s) => s.absentTodayCount,
   },
   pendingAbsences: {
     label: 'Offene Anträge',
     icon: Send,
     path: '/abwesenheit/antraege',
+    area: 'abwesenheit',
     value: (s) => s.pendingAbsences,
     sub: () => 'Abwesenheit',
   },
@@ -64,13 +74,20 @@ export const STAT_DEFS: Record<StatKey, StatDef> = {
     label: 'Fehlende AU',
     icon: Stethoscope,
     path: '/abwesenheit/krankmeldungen',
+    area: 'abwesenheit',
     value: (s) => s.missingSickNotes,
-    sub: (s) => (s.missingSickNotes > 0 ? 'Frist überschritten' : 'Alles fristgerecht'),
+    sub: (s) =>
+      s.missingSickNotes === undefined
+        ? undefined
+        : s.missingSickNotes > 0
+          ? 'Frist überschritten'
+          : 'Alles fristgerecht',
   },
   expiringDocuments: {
     label: 'Ablaufende Dokumente',
     icon: FolderClock,
     path: '/personal/dokumente',
+    area: 'personal',
     value: (s) => s.expiringDocuments,
     sub: () => 'innerhalb 30 Tagen',
   },
@@ -78,6 +95,7 @@ export const STAT_DEFS: Record<StatKey, StatDef> = {
     label: 'Gehaltsanträge',
     icon: Wallet,
     path: '/verguetung/gehaelter',
+    area: 'verguetung',
     value: (s) => s.openSalaryRequests,
     sub: () => 'zur Entscheidung',
   },
@@ -85,13 +103,16 @@ export const STAT_DEFS: Record<StatKey, StatDef> = {
     label: 'Offene Stellen',
     icon: Briefcase,
     path: '/recruiting/stellen',
+    area: 'recruiting',
     value: (s) => s.openPositions,
-    sub: (s) => `${s.activeApplications} aktive Bewerbungen`,
+    sub: (s) =>
+      s.activeApplications === undefined ? undefined : `${s.activeApplications} aktive Bewerbungen`,
   },
   upcomingInterviews: {
     label: 'Anstehende Interviews',
     icon: CalendarClock,
     path: '/recruiting/interviews',
+    area: 'recruiting',
     value: (s) => s.upcomingInterviewsCount,
   },
 };
@@ -118,24 +139,57 @@ export interface WidgetDef {
   title: string;
   description: string;
   icon: LucideIcon;
+  /**
+   * Rechtebereich der angezeigten Daten. `undefined` = kein eigener Bereich
+   * (die KPI-Leiste; deren Kacheln bringen ihren Bereich einzeln mit).
+   * Fehlt der Bereich, blendet DashboardPage das Widget vollständig aus —
+   * inklusive der Galerie „Widget hinzufügen“, sonst ließe es sich zuschalten
+   * und stünde dann leer da.
+   */
+  area?: AdminArea;
   /** true = Widget belegt die volle Breite (KPI-Leiste). */
   wide?: boolean;
 }
 
 export const WIDGET_DEFS: Record<WidgetKey, WidgetDef> = {
   kpis: { title: 'Kennzahlen', description: 'Frei wählbare KPI-Kacheln', icon: TrendingUp, wide: true },
-  'absence-chart': { title: 'Abwesenheitstage je Monat', description: 'Genehmigte Tage im Jahresverlauf', icon: CalendarDays },
-  'department-chart': { title: 'Mitarbeitende je Abteilung', description: 'Verteilung der Belegschaft', icon: Building2 },
-  'absent-today': { title: 'Heute abwesend', description: 'Wer heute nicht an Bord ist', icon: CalendarDays },
-  interviews: { title: 'Anstehende Interviews', description: 'Nächste Recruiting-Termine', icon: CalendarClock },
-  meetings: { title: 'Nächste Gespräche', description: 'Feedback-Termine der nächsten 3 Wochen', icon: MessagesSquare },
-  announcements: { title: 'Aktive Ankündigungen', description: 'Laufende Mitteilungen', icon: Megaphone },
-  surveys: { title: 'Laufende Umfragen', description: 'Teilnahmestand aktiver Umfragen', icon: BarChart3 },
-  birthdays: { title: 'Nächste Geburtstage', description: 'Wer demnächst feiert', icon: Cake },
-  onboarding: { title: 'On- & Offboarding', description: 'Wer gerade an- oder abreist', icon: UserPlus },
+  'absence-chart': { title: 'Abwesenheitstage je Monat', description: 'Genehmigte Tage im Jahresverlauf', icon: CalendarDays, area: 'abwesenheit' },
+  'department-chart': { title: 'Mitarbeitende je Abteilung', description: 'Verteilung der Belegschaft', icon: Building2, area: 'personal' },
+  'absent-today': { title: 'Heute abwesend', description: 'Wer heute nicht an Bord ist', icon: CalendarDays, area: 'abwesenheit' },
+  interviews: { title: 'Anstehende Interviews', description: 'Nächste Recruiting-Termine', icon: CalendarClock, area: 'recruiting' },
+  meetings: { title: 'Nächste Gespräche', description: 'Feedback-Termine der nächsten 3 Wochen', icon: MessagesSquare, area: 'leistung' },
+  announcements: { title: 'Aktive Ankündigungen', description: 'Laufende Mitteilungen', icon: Megaphone, area: 'kommunikation' },
+  surveys: { title: 'Laufende Umfragen', description: 'Teilnahmestand aktiver Umfragen', icon: BarChart3, area: 'kommunikation' },
+  birthdays: { title: 'Nächste Geburtstage', description: 'Wer demnächst feiert', icon: Cake, area: 'personal' },
+  // Lädt seine Daten selbst über /api/admin/onboarding — ohne 'verwaltung'
+  // antwortet das Backend mit 403 und das Widget behauptete sonst, es sei
+  // niemand im On-/Offboarding.
+  onboarding: { title: 'On- & Offboarding', description: 'Wer gerade an- oder abreist', icon: UserPlus, area: 'verwaltung' },
 };
 
 export const ALL_WIDGETS = Object.keys(WIDGET_DEFS) as WidgetKey[];
+
+// ---------------------------------------------------------------------------
+// Rechtefilter (reine Anzeige — die Sicherheitsgrenze ist das Backend)
+// ---------------------------------------------------------------------------
+
+/**
+ * Darf dieses Widget angezeigt werden? `allowed` sind die vom Backend
+ * gemeldeten lesbaren Bereiche (`allowed_areas` aus GET /api/dashboard).
+ *
+ * Wichtig: Das Ergebnis wird NICHT in die gespeicherte Konfiguration
+ * zurückgeschrieben. Bekommt das Konto den Bereich später wieder, tauchen die
+ * gewählten Widgets unverändert wieder auf.
+ */
+export function widgetAllowed(key: WidgetKey, allowed: ReadonlySet<AdminArea>): boolean {
+  const area = WIDGET_DEFS[key].area;
+  return area === undefined || allowed.has(area);
+}
+
+/** Wie widgetAllowed, für die KPI-Kacheln. */
+export function statAllowed(key: StatKey, allowed: ReadonlySet<AdminArea>): boolean {
+  return allowed.has(STAT_DEFS[key].area);
+}
 
 // ---------------------------------------------------------------------------
 // Konfiguration + Persistenz

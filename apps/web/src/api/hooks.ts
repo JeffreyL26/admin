@@ -121,12 +121,11 @@ export function useCreateSickNote() {
   });
 }
 
-export function useChangePassword() {
-  return useMutation({
-    mutationFn: (body: { currentPassword: string; newPassword: string }) =>
-      api.put<{ ok: boolean }>('/api/auth/password', body),
-  });
-}
+// useChangePassword() wurde entfernt: Der Passwortwechsel liefert ein frisches
+// Token zurück (das alte ist durch users.sessions_valid_from sofort ungültig).
+// Ein Hook, der nur mutiert, ließ den Client danach ins 401 laufen. Der
+// Wechsel läuft deshalb ausschließlich über changePassword() aus
+// auth/AuthContext, das Token und Identität mitzieht.
 
 // ---------------------------------------------------------------------------
 // Vergütung (GET /api/me/salary, /salary/history, /bonuses, /freelancer)

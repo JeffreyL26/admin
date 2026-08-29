@@ -183,6 +183,16 @@ export function TypesPage() {
                           {t.requires_proof === 1 && <Badge tone="yellow">Nachweis</Badge>}
                           {t.requires_approval === 1 && <Badge tone="navy">Genehmigung</Badge>}
                           {t.portal_visibility === 'neutral' && <Badge tone="neutral">Portal: „Abwesend“</Badge>}
+                          {/*
+                            Krankheits-Art im Klartext: in der Liste sichtbar machen,
+                            damit die Einstellung bei einer Datenschutz-Prüfung auffällt,
+                            ohne jede Art einzeln öffnen zu müssen (Art. 9 DSGVO).
+                          */}
+                          {t.category === 'krankheit' && (t.portal_visibility ?? 'name') === 'name' && (
+                            <span title="Der Firmenkalender im Portal zeigt allen Kolleg:innen den Klartext-Grund. Gesundheitsdaten sind nach Art. 9 DSGVO besonders geschützt — bitte prüfen.">
+                              <Badge tone="red">Portal: Klartext</Badge>
+                            </span>
+                          )}
                         </span>
                       </td>
                       <td className="num">{t.max_days_per_year ?? '—'}</td>
@@ -322,6 +332,7 @@ function TypeDialog({
 
   const roleGroupId = useId();
   const ruleGroupId = useId();
+  const sicknessWarningId = useId();
   const { data: roles, isLoading: rolesLoading } = useRoles();
   // Inaktive einschließen, damit auch Ausnahmen zu ausgeschiedenen Personen
   // mit Namen statt nur mit id angezeigt werden.
@@ -358,6 +369,24 @@ function TypeDialog({
   const set = (patch: Partial<TypeForm>) => setForm((f) => ({ ...f, ...patch }));
 
   const isSickness = form.category === 'krankheit';
+  // Krankheits-Art im Portal-Kalender im Klartext = Gesundheitsdatum für alle
+  // Kolleg:innen sichtbar (Art. 9 DSGVO). Nicht gesperrt, aber deutlich benannt.
+  const sicknessInClear = isSickness && form.portal_visibility === 'name';
+
+  /**
+   * Kategoriewechsel. Wird auf „Krankheit“ umgestellt, zieht die Vorgabe für die
+   * Portal-Sichtbarkeit auf „neutral“ nach — dieselbe Vorgabe, die das Backend
+   * ohne das Feld setzt (`defaultPortalVisibility` in modules/absences/routes.ts).
+   * Sonst zeigte das Formular weiter den Klartext an, während der Server etwas
+   * anderes speichert. Die Auswahl bleibt änderbar: Wer den Klartext bewusst
+   * will, stellt sie zurück und sieht dann die Warnung.
+   */
+  const changeCategory = (category: AbsenceCategory) =>
+    set(
+      category === 'krankheit' && form.portal_visibility === 'name'
+        ? { category, portal_visibility: 'neutral' }
+        : { category },
+    );
   // Bei bestehenden Arten erst speichern, wenn die gespeicherte Berechtigung
   // wirklich da ist — sonst würde ein leeres Formular sie überschreiben.
   const eligibilityReady = state.id === null || eligibilityLoadedFor === state.id;
@@ -424,7 +453,7 @@ function TypeDialog({
           <select
             className="hm-select"
             value={form.category}
-            onChange={(e) => set({ category: e.target.value as AbsenceCategory })}
+            onChange={(e) => changeCategory(e.target.value as AbsenceCategory)}
           >
             {Object.entries(ABSENCE_CATEGORY_LABELS).map(([k, label]) => (
               <option key={k} value={k}>
@@ -485,6 +514,10 @@ function TypeDialog({
             className="hm-select"
             value={form.portal_visibility}
             onChange={(e) => set({ portal_visibility: e.target.value as PortalVisibility })}
+            aria-describedby={sicknessInClear ? sicknessWarningId : undefined}
+            // Die riskante Kombination (Krankheit + Klartext) auch am Feld selbst
+            // markieren, nicht nur im Hinweiskasten darunter.
+            style={sicknessInClear ? { borderColor: 'var(--warning)' } : undefined}
           >
             {(Object.entries(PORTAL_VISIBILITY_LABELS) as [PortalVisibility, string][]).map(([value, label]) => (
               <option key={value} value={value}>
@@ -501,11 +534,30 @@ function TypeDialog({
           </Note>
         </div>
         {isSickness && (
-          <div className="span-2">
-            <Note tone="warning" icon={<ShieldAlert size={15} />}>
-              Gesundheitsdaten gelten als besonders schutzwürdig. Viele Häuser stellen Krankheits-Arten deshalb auf
-              „{PORTAL_VISIBILITY_LABELS.neutral}“ — die Entscheidung liegt bei Ihnen.
-            </Note>
+          <div className="span-2" id={sicknessWarningId}>
+            {sicknessInClear ? (
+              // Sachlich, nicht bevormundend: Die Auswahl bleibt möglich, aber
+              // niemand soll Gesundheitsdaten versehentlich veröffentlichen.
+              <Note tone="warning" icon={<ShieldAlert size={15} />}>
+                <strong>Achtung — Gesundheitsdaten im Firmenkalender.</strong> Mit „{PORTAL_VISIBILITY_LABELS.name}“
+                sieht <em>jede Person im Portal</em>, dass eine Kollegin oder ein Kollege krank ist. Krankheitsdaten
+                gehören nach Art. 9 DSGVO zu den besonderen Kategorien personenbezogener Daten; ihre Offenlegung
+                gegenüber der Belegschaft braucht eine tragfähige Grundlage. Treffen Sie diese Entscheidung bewusst und
+                stimmen Sie sie mit Datenschutz und Mitbestimmung ab.{' '}
+                <button
+                  className="hm-btn hm-btn--sm hm-btn--secondary"
+                  style={{ marginTop: 6 }}
+                  onClick={() => set({ portal_visibility: 'neutral' })}
+                >
+                  Auf „{PORTAL_VISIBILITY_LABELS.neutral}“ stellen
+                </button>
+              </Note>
+            ) : (
+              <Note icon={<ShieldAlert size={15} />}>
+                Empfohlene Einstellung für Krankheits-Arten: Der Firmenkalender zeigt nur, dass jemand abwesend ist.
+                Der Grund bleibt — wie bei Gesundheitsdaten nach Art. 9 DSGVO geboten — für Kolleg:innen verborgen.
+              </Note>
+            )}
           </div>
         )}
 
