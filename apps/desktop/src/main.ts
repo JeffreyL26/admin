@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } from 'electro
 import path from 'node:path';
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { MIN_SERVER_VERSION, isAtLeast } from '@hrmonic/shared';
 
 // Dev-Modus: Renderer kommt vom Vite-Dev-Server, Backend läuft separat (tsx watch).
 // Prod-Modus: Backend wird im Main-Prozess eingebettet gestartet (zufälliger Port),
@@ -10,6 +11,14 @@ const devServerUrl = process.env.ELECTRON_START_URL;
 const isDev = Boolean(devServerUrl);
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * Startabbruch mit einer für Nutzer gedachten Meldung. Der Fehlerdialog zeigt
+ * für diese Klasse nur den Text: Ein nicht erreichbarer oder zu alter Server
+ * ist kein Absturz, sondern ein Zustand, den der Satz erklären muss — ein
+ * Stacktrace davor macht ihn für die Person am Arbeitsplatz unlesbar.
+ */
+class StartupError extends Error {}
 
 // ---------------------------------------------------------------------------
 // Eigenes App-Schema statt file://
@@ -193,17 +202,41 @@ function normalizeApiBase(raw: string): string {
 // Früh und mit klarer Meldung scheitern statt mit leerem Fenster: ein nicht
 // erreichbares Backend ist im Server-Betrieb der wahrscheinlichste Fehler.
 async function assertReachable(base: string): Promise<void> {
+  let health: { version?: unknown };
   try {
     const res = await fetch(`${base}/api/health`, {
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    health = (await res.json()) as { version?: unknown };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(
+    throw new StartupError(
       `Das HRMONIC-Backend unter ${base} ist nicht erreichbar (${reason}).\n\n` +
         `Prüfen Sie, ob der Dienst läuft und ob die Adresse in\n${configFilePath()}\n` +
         `bzw. in der Umgebungsvariable HRMONIC_API_BASE stimmt.`,
+    );
+  }
+
+  // Gegenrichtung zum Client-Check im Backend: Hat sich diese App per Update
+  // selbst überholt, während das Server-Update noch aussteht, bricht der Start
+  // hier ab — sonst liefe sie gegen eine API, die ihre Felder noch nicht kennt.
+  // Der Abgleich läuft nur im Serverbetrieb; beim eingebetteten Backend
+  // stammen beide Seiten aus demselben Installer und können nicht driften.
+  const serverVersion = typeof health.version === 'string' ? health.version : null;
+  if (!serverVersion) {
+    throw new StartupError(
+      `Das Backend unter ${base} meldet keine Version und ist damit älter als diese App.\n\n` +
+        `Bitte spielen Sie zuerst das Server-Update ein. Die Reihenfolge ist immer:\n` +
+        `erst der Server, dann die Arbeitsplätze.`,
+    );
+  }
+  if (!isAtLeast(serverVersion, MIN_SERVER_VERSION)) {
+    throw new StartupError(
+      `Das Backend unter ${base} läuft auf Version ${serverVersion}, diese App verlangt ` +
+        `mindestens ${MIN_SERVER_VERSION} (App-Version: ${app.getVersion()}).\n\n` +
+        `Bitte spielen Sie zuerst das Server-Update ein. Die Reihenfolge ist immer:\n` +
+        `erst der Server, dann die Arbeitsplätze.`,
     );
   }
 }
@@ -266,7 +299,13 @@ async function createWindow(apiBaseUrl: string): Promise<void> {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      additionalArguments: [`--hrmonic-api-base=${apiBaseUrl}`],
+      additionalArguments: [
+        `--hrmonic-api-base=${apiBaseUrl}`,
+        // app.getVersion() liest die Version aus der gepackten package.json.
+        // Das Preload kann das nicht selbst: Dort ist npm_package_version nur
+        // im Dev-Betrieb gesetzt und in der installierten App leer.
+        `--hrmonic-app-version=${app.getVersion()}`,
+      ],
     },
   });
 
@@ -381,7 +420,11 @@ if (!gotLock) {
       const { dialog } = await import('electron');
       dialog.showErrorBox(
         'HRMONIC konnte nicht gestartet werden',
-        err instanceof Error ? err.stack ?? err.message : String(err),
+        err instanceof StartupError
+          ? err.message
+          : err instanceof Error
+            ? err.stack ?? err.message
+            : String(err),
       );
       app.quit();
     }

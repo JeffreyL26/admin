@@ -1,0 +1,170 @@
+# HRMONIC — Reverse-Proxy (Caddy 2) — WINDOWS
+#
+# Diese Datei ist die Windows-Fassung von ../Caddyfile. Inhaltlich identisch;
+# abweichend sind nur Pfade und die Befehle zum Prüfen/Neuladen. Änderungen an
+# den Sicherheitskopfzeilen, der CSP oder der X-Forwarded-For-Zeile IMMER in
+# BEIDEN Dateien nachziehen — die Begründungen stehen dort ausführlich.
+#
+# Ablage: C:\ProgramData\Caddy\Caddyfile
+# Prüfen: caddy validate --config C:\ProgramData\Caddy\Caddyfile
+# Laden:  nssm restart Caddy      (bzw. Restart-Service Caddy)
+#
+# VOR DEM AUSROLLEN ERSETZEN:
+#   kunde.hrmonic.de            → Domain des Kunden
+#   it@firma.de                 → Postfach für Let's-Encrypt-Benachrichtigungen
+#   C:/ProgramData/HRMONIC/web  → Zielverzeichnis des Portal-Builds
+#
+# Caddy besorgt und erneuert das Zertifikat selbst. Dafür müssen Port 80 UND
+# 443 aus dem Internet erreichbar sein (Port 80 für die ACME-Prüfung).
+#
+# Vorwärtsschrägstriche in den Pfaden sind Absicht: Caddy versteht sie unter
+# Windows, und ein einzelner Rückstrich würde als Escape gelesen.
+#
+# Warum Caddy und nicht IIS: Caddy ist eine einzelne Exe, holt und erneuert das
+# Zertifikat ohne Zusatzwerkzeug und benutzt dieselbe Konfigurationsdatei wie
+# die Linux-Variante. IIS mit ARR verlangt zwei Zusatzmodule und die
+# Sicherheitskopfzeilen von Hand — bei identischem Ergebnis.
+{
+	email it@firma.de
+
+	# Vertrauenswürdige Vorschalt-Proxys. Steht Caddy direkt am Internet, ist
+	# die Liste leer zu lassen — dann glaubt Caddy keinem fremden
+	# X-Forwarded-For. Nur ergänzen, wenn davor noch ein Loadbalancer sitzt.
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+kunde.hrmonic.de {
+	# -----------------------------------------------------------------------
+	# Zugriffsprotokoll OHNE Query-String
+	# -----------------------------------------------------------------------
+	# Wogegen das schützt: Download-Links werden signiert und tragen die
+	# Signatur im Query-String (?expires=…&sig=…). Ohne den Filter stünden die
+	# Links auf Verträge und AU-Bescheinigungen im Klartext im Logfile — und
+	# Logfiles wandern erfahrungsgemäß weiter als die Daten selbst.
+	# Der regexp-Filter schneidet alles ab dem Fragezeichen weg (das Fragezeichen
+	# steht als Zeichenklasse [?] da, damit die Caddyfile-Auswertung von
+	# Rückstrichen keine Rolle spielt).
+	log {
+		output file C:/ProgramData/HRMONIC/logs/caddy-access.log {
+			roll_size 20MiB
+			roll_keep 10
+		}
+		format filter {
+			wrap console
+			fields {
+				request>uri regexp "[?].*$" ""
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+			}
+		}
+	}
+
+	# -----------------------------------------------------------------------
+	# Sicherheitskopfzeilen
+	# -----------------------------------------------------------------------
+	header {
+		# HSTS: Der Browser spricht diese Domain danach nur noch über HTTPS an.
+		# Erst einschalten, wenn TLS steht — die Zusage gilt zwei Jahre.
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		X-Frame-Options "DENY"
+
+		# CSP für das Portal-Build, belegt am tatsächlichen Vite-Ergebnis:
+		#   script-src 'self'        genau eine Modul-Datei, kein Inline-Skript
+		#   style-src 'unsafe-inline' React setzt Stile zur Laufzeit; betrifft
+		#                            nur Stile, Skripte bleiben streng
+		#   font-src 'self'          Inter liegt als woff2 im Build, keine
+		#                            externe Schriftquelle
+		#   connect-src 'self'       API läuft same-origin über diesen Proxy
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+		# Serverkennung nicht ausplaudern.
+		-Server
+	}
+
+	# -----------------------------------------------------------------------
+	# API
+	# -----------------------------------------------------------------------
+	handle /api/* {
+		# HR-Uploads (Verträge, Zeugnisse) dürfen bis 50 MB groß sein;
+		# Portal-Uploads sind vom Backend selbst auf 10 MB begrenzt.
+		request_body {
+			max_size 55MB
+		}
+
+		reverse_proxy 127.0.0.1:3001 {
+			# X-Forwarded-For wird ÜBERSCHRIEBEN, nicht ergänzt. Caddy hängt
+			# standardmäßig an, was der Client mitgeschickt hat. Das Backend
+			# läuft mit trustProxy und nimmt den ersten Eintrag als Herkunft —
+			# ein vom Client erfundener Wert davor würde die Login-Drosselung
+			# aushebeln, weil sich der Angreifer je Versuch eine neue Herkunft
+			# ausdenken kann. Diese Zeile nicht entfernen.
+			header_up X-Forwarded-For {remote_host}
+
+			transport http {
+				# Das Backend bricht Anfragen nach 60 s selbst ab
+				# (requestTimeout). Die Grenzen hier liegen darüber, damit im
+				# Fehlerfall die Meldung des Backends ankommt.
+				dial_timeout 5s
+				read_timeout 75s
+				write_timeout 75s
+			}
+		}
+	}
+
+	# -----------------------------------------------------------------------
+	# Statisches Portal-Build (apps/web/dist)
+	# -----------------------------------------------------------------------
+	handle {
+		root * C:/ProgramData/HRMONIC/web
+
+		# Asset-Dateinamen enthalten einen Inhalts-Hash und sind unveränderlich.
+		header /assets/* Cache-Control "public, max-age=31536000, immutable"
+		# index.html dagegen nie zwischenspeichern, sonst zeigt der Browser nach
+		# einem Update weiter auf die alten Asset-Dateien.
+		header /index.html Cache-Control "no-cache"
+
+		# Das Portal benutzt BrowserRouter: /kalender, /dokumente usw. sind
+		# keine Dateien. Ohne diese Umschreibung liefert ein Neuladen einen 404.
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Zweite Schicht gegen Passwort-Durchprobieren (optional, Zusatzmodul nötig)
+# ---------------------------------------------------------------------------
+# Caddy bringt KEINE Ratenbegrenzung mit. Die eigentliche Drosselung sitzt im
+# Backend (je Konto und je IP, gleitendes Fenster) — die Vorschaltung hier
+# entlastet zusätzlich den Node-Prozess, der je Anmeldeversuch rund 65 ms mit
+# bcrypt rechnet und dabei blockiert.
+#
+# Wer diese Schicht will, baut Caddy einmalig mit dem Modul neu:
+#   xcaddy build --with github.com/mholt/caddy-ratelimit
+#   Copy-Item .\caddy.exe 'C:\Program Files\Caddy\caddy.exe' -Force
+#
+# Danach im globalen Block ergänzen:
+#   order rate_limit before basic_auth
+#
+# und im Site-Block vor `handle /api/*` einfügen:
+#   rate_limit {
+#     zone hrmonic_login {
+#       match {
+#         path /api/auth/login
+#       }
+#       key    {remote_host}
+#       events 60
+#       window 1m
+#     }
+#   }
+#
+# 60 Ereignisse pro Minute klingen großzügig, sind es aber nicht: Hinter dem
+# Firmen-NAT teilen sich ALLE Arbeitsplätze eine IP. Ein knapper Wert sperrt
+# morgens das ganze Haus aus.
+#
+# Wer kein Zusatzmodul bauen will, laesst diese Schicht weg: Die eigentliche
+# Drosselung sitzt ohnehin im Backend. (Die nginx-Variante der Linux-Doku ist
+# unter Windows keine sinnvolle Alternative.)

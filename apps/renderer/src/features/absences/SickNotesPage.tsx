@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
-import { formatDate, SICK_PAY_LIMIT_DAYS, type SickNote } from '@hrmonic/shared';
+import { formatDate, todayIsoLocal, SICK_PAY_LIMIT_DAYS, type SickNote } from '@hrmonic/shared';
 import { api, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
@@ -10,23 +10,19 @@ import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { useMissingSickNotes, useSickNotes } from './api';
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 /** AU-Status: fehlt / fristgerecht / verspätet / überfällig. */
 function certificateBadge(note: SickNote) {
   if (note.certificate_file_id) {
     const late = note.received_date && note.received_date > note.certificate_due_date;
     return late ? <Badge tone="yellow">verspätet eingegangen</Badge> : <Badge tone="green">fristgerecht</Badge>;
   }
-  if (note.certificate_due_date < todayIso()) return <Badge tone="red">überfällig</Badge>;
+  if (note.certificate_due_date < todayIsoLocal()) return <Badge tone="red">überfällig</Badge>;
   return <Badge tone="neutral">fehlt noch</Badge>;
 }
 
 /** Bereits angefallene Fehltage; laufende Erkrankungen und überzogene Entgeltfortzahlung markieren. */
 function missedDaysCell(note: SickNote) {
-  const ongoing = note.date_to !== undefined && note.date_to >= todayIso();
+  const ongoing = note.date_to !== undefined && note.date_to >= todayIsoLocal();
   return (
     <span className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
       {(note.days_absent_so_far ?? 0).toLocaleString('de-DE')}
@@ -266,7 +262,7 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
         date_to: dateTo,
         child_sick: childSick,
         certificate_file_id: certificateFileId,
-        received_date: certificateFileId ? receivedDate || todayIso() : null,
+        received_date: certificateFileId ? receivedDate || todayIsoLocal() : null,
         follow_up_of_id: followUpOf,
       });
     },
@@ -347,7 +343,7 @@ function UploadCertificateDialog({ note, onClose }: { note: SickNote | null; onC
   const toast = useToast();
   const qc = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
-  const [receivedDate, setReceivedDate] = useState(todayIso());
+  const [receivedDate, setReceivedDate] = useState(todayIsoLocal());
 
   const save = useMutation({
     mutationFn: async () => {

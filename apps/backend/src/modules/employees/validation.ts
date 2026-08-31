@@ -5,8 +5,11 @@ import {
   type EmployeeType,
 } from '@hrmonic/shared';
 import { badRequest } from '../../core/errors.js';
+import { isoDateString } from '../../core/validation.js';
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum im Format JJJJ-MM-TT erwartet');
+// Kalenderprüfung inklusive (core/validation.ts) — ein Regex allein ließe
+// '2026-02-31' durch, was in der Vertragsanlage bis zum 500er führt.
+const isoDate = isoDateString;
 
 const employeeTypeEnum = z.enum([
   'vollzeit',
@@ -99,6 +102,29 @@ export function assertTypeRules(employee: Record<string, unknown>): void {
       `Für den Typ „${type}“ sind maximal ${rule.maxWeeklyHours} Wochenstunden zulässig`,
       { field: 'weekly_hours', max: rule.maxWeeklyHours },
     );
+  }
+}
+
+/**
+ * Reihenfolge-Prüfung Eintritt/Austritt — bewusst NICHT Teil von
+ * assertTypeRules: Die läuft auf dem gemergten Datensatz auch bei Änderungen,
+ * die die Datumsfelder gar nicht anfassen (z. B. ein Telefonnummer-Patch),
+ * und würde Bestandszeilen mit Altlast (exit < hire) für jede unbeteiligte
+ * Änderung sperren — in der Massenbearbeitung bräche eine einzige
+ * Altlast-Zeile den ganzen Batch. Deshalb nur aufrufen, wenn der
+ * Schreibvorgang hire_date oder exit_date tatsächlich setzt; erwartet dann
+ * den vollständig gemergten Datensatz (bei PATCH: Bestand + Änderung), damit
+ * die Regel auch greift, wenn nur eines der beiden Daten geändert wird.
+ * Ein Datensatz mit Austritt vor Eintritt fällt sonst still aus jeder
+ * Anspruchs- und Abrechnungslogik.
+ */
+export function assertExitNotBeforeHire(employee: Record<string, unknown>): void {
+  const hire = employee.hire_date;
+  const exit = employee.exit_date;
+  if (typeof hire === 'string' && typeof exit === 'string' && hire && exit && exit < hire) {
+    throw badRequest('Das Austrittsdatum darf nicht vor dem Eintrittsdatum liegen', {
+      field: 'exit_date',
+    });
   }
 }
 

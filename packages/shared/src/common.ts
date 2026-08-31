@@ -24,6 +24,17 @@ export function formatEuro(cents: number): string {
   return (cents / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
 }
 
+/**
+ * Heutiges Datum als ISO-String in der LOKALEN Zeitzone.
+ * `new Date().toISOString()` liefert UTC — in Deutschland ist das zwischen
+ * 0 und 1/2 Uhr nachts noch der Vortag; Vorgabedaten und Fristenvergleiche
+ * müssen deshalb hierüber laufen.
+ */
+export function todayIsoLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /** ISO-Datum (YYYY-MM-DD) → deutsche Anzeige (TT.MM.JJJJ). */
 export function formatDate(iso: string | null | undefined): string {
   if (iso === null || iso === undefined || iso === '') return '—';

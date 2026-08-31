@@ -403,22 +403,52 @@ function EmployeeRow({
   );
 }
 
-/** Jahresansicht: Mitarbeitende × Monate mit aggregierten Abwesenheitstagen (Werktage). */
+/** Jahresansicht: Mitarbeitende × Monate mit aggregierten Abwesenheitstagen —
+ * gezählt wie überall sonst (days_counted): ohne Wochenenden, Feiertage des
+ * jeweiligen Bundeslands und Betriebsruhe, sonst widerspricht die Summenspalte
+ * den Salden und der Antragsliste. */
 function YearGrid({ data, year }: { data: CalendarData; year: number }) {
-  const monthDays = (emp: CalendarEmployee, month: number): number => {
-    const mm = String(month).padStart(2, '0');
-    const from = `${year}-${mm}-01`;
-    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
-    const to = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
-    let count = 0;
-    for (const a of emp.absences) {
-      if (a.date_from > to || a.date_to < from) continue;
-      for (const d of eachDayLocal(a.date_from < from ? from : a.date_from, a.date_to > to ? to : a.date_to)) {
-        if (!isWeekendDay(d)) count++;
-      }
+  const closureDays = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of data.closures) {
+      const from = c.date_from < data.range.from ? data.range.from : c.date_from;
+      const to = c.date_to > data.range.to ? data.range.to : c.date_to;
+      for (const d of eachDayLocal(from, to)) set.add(d);
     }
-    return count;
-  };
+    return set;
+  }, [data]);
+  const holidaysByLand = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const [land, list] of Object.entries(data.holidays)) {
+      map.set(land, new Set(list.map((h) => h.date)));
+    }
+    return map;
+  }, [data]);
+
+  const rows = useMemo(() => {
+    const monthDays = (emp: CalendarEmployee, month: number): number => {
+      const mm = String(month).padStart(2, '0');
+      const from = `${year}-${mm}-01`;
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      const to = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
+      const holidays = holidaysByLand.get(emp.bundesland);
+      // Tagesgenau über ein Set statt je Antrag zählen: Krankmeldungen dürfen
+      // genehmigten Urlaub überlappen — pro Antrag summiert zählte ein voll
+      // überlagerter Urlaub doppelt (10 Tage Urlaub + Krankmeldung = 20).
+      const counted = new Set<string>();
+      for (const a of emp.absences) {
+        if (a.date_from > to || a.date_to < from) continue;
+        for (const d of eachDayLocal(a.date_from < from ? from : a.date_from, a.date_to > to ? to : a.date_to)) {
+          if (!isWeekendDay(d) && !closureDays.has(d) && !holidays?.has(d)) counted.add(d);
+        }
+      }
+      return counted.size;
+    };
+    return data.employees.map((emp) => {
+      const perMonth = Array.from({ length: 12 }, (_, i) => monthDays(emp, i + 1));
+      return { emp, perMonth, total: perMonth.reduce((a, b) => a + b, 0) };
+    });
+  }, [data, year, closureDays, holidaysByLand]);
 
   return (
     <Card flush>
@@ -436,9 +466,7 @@ function YearGrid({ data, year }: { data: CalendarData; year: number }) {
             </tr>
           </thead>
           <tbody>
-            {data.employees.map((emp) => {
-              const perMonth = Array.from({ length: 12 }, (_, i) => monthDays(emp, i + 1));
-              const total = perMonth.reduce((a, b) => a + b, 0);
+            {rows.map(({ emp, perMonth, total }) => {
               return (
                 <tr key={emp.id}>
                   <td style={{ whiteSpace: 'nowrap' }}>

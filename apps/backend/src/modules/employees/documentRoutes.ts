@@ -31,8 +31,11 @@ const DOC_SELECT = `
          f.original_name, f.mime_type, f.size_bytes,
          e.first_name || ' ' || e.last_name AS employee_name,
          EXISTS(SELECT 1 FROM documents s WHERE s.supersedes_id = d.id) AS is_superseded,
+         -- 'localtime': date('now') wäre das UTC-Datum und zwischen 0 und 2 Uhr
+         -- deutscher Zeit noch der Vortag — days_until_expiry wiche dann um
+         -- einen Tag von der übrigen (lokalen) Datumslogik ab (todayIso()).
          CASE WHEN d.expiry_date IS NOT NULL
-              THEN CAST(julianday(d.expiry_date) - julianday(date('now')) AS INTEGER)
+              THEN CAST(julianday(d.expiry_date) - julianday(date('now', 'localtime')) AS INTEGER)
          END AS days_until_expiry
   FROM documents d
   JOIN files f ON f.id = d.file_id
@@ -80,7 +83,9 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       .prepare(
         `${DOC_SELECT}
          WHERE d.expiry_date IS NOT NULL
-           AND date(d.expiry_date) <= date('now', '+' || d.reminder_days || ' days')
+           -- 'localtime' wie bei days_until_expiry (DOC_SELECT): sonst wichen
+           -- Zähler und Erinnerungsliste zwischen 0 und 2 Uhr voneinander ab.
+           AND date(d.expiry_date) <= date('now', 'localtime', '+' || d.reminder_days || ' days')
            AND NOT EXISTS(SELECT 1 FROM documents s WHERE s.supersedes_id = d.id)
          ORDER BY d.expiry_date ASC`,
       )

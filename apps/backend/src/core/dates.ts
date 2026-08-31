@@ -1,8 +1,10 @@
 /** Datumshelfer — alle Datumswerte in DB und API sind ISO-Strings (YYYY-MM-DD). */
 
-export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+/**
+ * Heutiges Datum in LOKALER Serverzeit (Serverzeit = Firmenzeit) — delegiert
+ * an @hrmonic/shared; das Warum (UTC wäre nachts noch der Vortag) steht dort.
+ */
+export { todayIsoLocal as todayIso } from '@hrmonic/shared';
 
 export function addDaysIso(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);

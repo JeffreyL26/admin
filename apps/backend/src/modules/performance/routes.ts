@@ -4,6 +4,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, notFound, conflict } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { todayIso, addDaysIso } from '../../core/dates.js';
+import { isoDateString } from '../../core/validation.js';
 import type { Goal, ReviewCriterion, ReviewScore, Review, TrainingDueEntry } from '@hrmonic/shared';
 
 // Modul: Leistungsverwaltung & Entwicklung — Ziele/OKR, Beurteilungen,
@@ -13,9 +14,9 @@ import type { Goal, ReviewCriterion, ReviewScore, Review, TrainingDueEntry } fro
 // Helfer
 // ---------------------------------------------------------------------------
 
-const isoDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum im Format JJJJ-MM-TT erwartet');
+// Kalenderprüfung inklusive (core/validation.ts) — ein Regex allein ließe
+// '2026-02-31' durch.
+const isoDate = isoDateString;
 
 const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
 

@@ -1,13 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
-import { parse, badRequest, conflict, notFound } from '../../core/errors.js';
+import { parse, badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
 import { audit, auditTrail } from '../../core/audit.js';
 import { todayIso, isValidIsoDate } from '../../core/dates.js';
 import { SALARY_COMPONENT_KINDS } from '@hrmonic/shared';
 import {
   componentsAt,
-  currentMonthlyGross,
   getEmployee,
   insertSalaryComponent,
   monthlyCents,
@@ -71,17 +70,26 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
       .all() as { employee_id: number; last_change: string }[];
     const lastByEmployee = new Map(lastChanges.map((r) => [r.employee_id, r.last_change]));
     return {
-      salaries: employees.map((e) => ({
-        employee_id: e.id,
-        first_name: e.first_name,
-        last_name: e.last_name,
-        employee_type: e.employee_type,
-        status: e.status,
-        job_title: e.job_title,
-        monthly_gross_cents: currentMonthlyGross(e, today),
-        component_count: componentsAt(e.id, today).length,
-        last_change: lastByEmployee.get(e.id) ?? null,
-      })),
+      salaries: employees.map((e) => {
+        // Eine Abfrage je Person: Summe und Zähler teilen sich das Ergebnis —
+        // currentMonthlyGross würde componentsAt intern ein zweites Mal
+        // identisch ausführen (2N statt N Queries über die ganze Belegschaft).
+        const components = componentsAt(e.id, today);
+        return {
+          employee_id: e.id,
+          first_name: e.first_name,
+          last_name: e.last_name,
+          employee_type: e.employee_type,
+          status: e.status,
+          job_title: e.job_title,
+          monthly_gross_cents: components.reduce(
+            (sum, c) => sum + monthlyCents(c.kind, c.amount_cents, e.weekly_hours),
+            0,
+          ),
+          component_count: components.length,
+          last_change: lastByEmployee.get(e.id) ?? null,
+        };
+      }),
     };
   });
 
@@ -236,11 +244,21 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
           effective_date: string;
           reason: string;
           status: string;
+          requested_by_user_id: number | null;
         }
       | undefined;
     if (!request) throw notFound('Änderungsantrag nicht gefunden');
     if (request.status !== 'beantragt') {
       throw conflict('Der Antrag wurde bereits entschieden');
+    }
+    // Vier-Augen-Prinzip wie bei den Abwesenheiten (assertNotOwnRequest):
+    // Wer den Antrag gestellt hat, genehmigt ihn nicht selbst — sonst wäre der
+    // Workflow gegenüber dem Direktweg wirkungslos. Ablehnen bleibt erlaubt:
+    // Das ist ein Rückzug, kein Entscheid zugunsten der eigenen Sache.
+    if (body.decision === 'genehmigt' && request.requested_by_user_id === req.user.id) {
+      throw forbidden(
+        'Eigene Gehaltsänderungsanträge dürfen nicht selbst genehmigt werden. Bitte lassen Sie den Antrag von einer anderen Person der HR-Administration prüfen.',
+      );
     }
     const oldAmount = currentAmountCents(
       request.employee_id,

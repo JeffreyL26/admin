@@ -11,7 +11,7 @@
  * durch die besuchten Monate blättert. Ohne (oder mit unbrauchbaren)
  * Parametern zeigt die Seite den laufenden Monat, ohne die URL zu beschreiben.
  */
-import { useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { MeCalendarEmployee, MeCalendarEntry, OrgTreeNode } from '@hrmonic/shared';
 import { useMyCalendar, useMyOrgTree, useMyProfile } from '../api/hooks';
@@ -149,6 +149,20 @@ function flattenDepartments(nodes: OrgTreeNode[], into: Map<number, string>): Ma
   return into;
 }
 
+/**
+ * Entkoppelt die Namenssuche vom Matrix-Render: ohne Entprellung filtert jeder
+ * Tastenanschlag die komplette N×31-Tabelle neu — auf Mittelklasse-Smartphones
+ * spürbares Eingabe-Lag.
+ */
+function useDebounced(value: string, delayMs = 250): string {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 function readMonthParams(params: URLSearchParams): { year: number; month: number } | null {
   const year = Number(params.get('jahr'));
   const month = Number(params.get('monat'));
@@ -176,6 +190,7 @@ export function CalendarPage() {
   const { data: org } = useMyOrgTree();
 
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounced(search);
   const [department, setDepartment] = useState('alle');
 
   /** Monatswechsel legt einen History-Eintrag an — der Zurück-Knopf blättert. */
@@ -268,7 +283,7 @@ export function CalendarPage() {
   }, [rows, departmentNames]);
 
   const filtered = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase('de-DE');
+    const needle = debouncedSearch.trim().toLocaleLowerCase('de-DE');
     return rows.filter((row) => {
       if (department !== 'alle' && String(row.employee.department_id) !== department) return false;
       if (!needle) return true;
@@ -278,7 +293,7 @@ export function CalendarPage() {
         `${row.employee.last_name} ${row.employee.first_name}`.toLocaleLowerCase('de-DE');
       return name.includes(needle) || reversed.includes(needle);
     });
-  }, [rows, search, department]);
+  }, [rows, debouncedSearch, department]);
 
   const absenceCount = filtered.reduce((sum, row) => sum + row.employee.absences.length, 0);
 
@@ -468,7 +483,10 @@ export function CalendarPage() {
 // Matrix
 // ---------------------------------------------------------------------------
 
-function CalendarGrid({
+// memo: Während des Tippens im Suchfeld rendert die Seite bei jedem Anschlag —
+// die Matrix selbst ändert sich aber erst, wenn die entprellte Suche `filtered`
+// tatsächlich verändert. Alle Props sind primitiv oder useMemo-stabil.
+const CalendarGrid = memo(function CalendarGrid({
   rows,
   days,
   today,
@@ -557,9 +575,12 @@ function CalendarGrid({
       </table>
     </div>
   );
-}
+});
 
-function DayCell({
+// memo: Ändert sich die Zeilenauswahl, bleiben die Zellreferenzen der übrigen
+// Zeilen stabil (rows/byDay kommen aus useMemo) — ohne memo baut jede Filterung
+// Tooltip- und Screenreader-Strings für alle ~6 000 Zellen neu.
+const DayCell = memo(function DayCell({
   day,
   today,
   marks,
@@ -628,7 +649,7 @@ function DayCell({
       {srParts.length > 0 && <span className="pt-cal__sr">{srParts.join(', ')}</span>}
     </td>
   );
-}
+});
 
 /** Ladezustand: Platzhalterzeilen statt Spinner, wie überall im Portal. */
 function GridSkeleton() {

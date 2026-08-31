@@ -5,10 +5,19 @@ import { contextBridge, ipcRenderer } from 'electron';
 const apiArg = process.argv.find((a) => a.startsWith('--hrmonic-api-base='));
 const apiBaseUrl = apiArg?.split('=')[1] ?? 'http://127.0.0.1:3001';
 
+// Ebenso deterministisch vom Main-Prozess (app.getVersion()). Vorher stand hier
+// process.env.npm_package_version — das ist ausschließlich im Dev-Betrieb
+// gesetzt: In der installierten App griff still der Rückfallwert, sodass jede
+// Version sich als 1.0.0 ausgab. Für den Versionsabgleich mit dem Server wäre
+// das genau die falsche Auskunft. slice statt split('='), weil die Basis-URL
+// selbst ein '=' enthalten kann.
+const VERSION_ARG = '--hrmonic-app-version=';
+const appVersion = process.argv.find((a) => a.startsWith(VERSION_ARG))?.slice(VERSION_ARG.length) ?? '0.0.0';
+
 contextBridge.exposeInMainWorld('hrmonic', {
   apiBaseUrl,
   platform: process.platform,
-  appVersion: process.env.npm_package_version ?? '1.0.0',
+  appVersion,
 
   // Fenster-Controls der eigenen Titelleiste.
   window: {

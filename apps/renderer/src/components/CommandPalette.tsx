@@ -4,8 +4,10 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { CornerDownLeft, FileText, Megaphone, Search, User } from 'lucide-react';
 import { api } from '../api/client';
+import { useAuth } from '../auth/AuthContext';
 import { NAV_SECTIONS } from '../layout/nav';
 import { Avatar } from './ui';
+import { useDebounced } from './useDebounced';
 
 /**
  * Globale Befehlspalette (Strg+K): Navigation zu jedem Menüpunkt plus Suche
@@ -21,25 +23,21 @@ interface PaletteItem {
   to: string;
 }
 
-function useDebounced(value: string, delayMs = 220): string {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(t);
-  }, [value, delayMs]);
-  return debounced;
-}
-
+// Der wirksame Rechtebereich eines Eintrags kommt wie in der Sidebar aus dem
+// Eintrag selbst oder ersatzweise aus seinem Abschnitt.
 const NAV_ITEMS = NAV_SECTIONS.flatMap((s) =>
-  s.items.map((i) => ({ ...i, section: s.title ?? '' })),
+  s.items.map((i) => ({ ...i, section: s.title ?? '', area: i.area ?? s.area })),
 );
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate();
+  const { can } = useAuth();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
-  const q = useDebounced(query.trim());
+  // 220 ms statt des 250-ms-Standards des gemeinsamen Hooks: Die Palette
+  // behält ihr bisheriges, etwas knapperes Delay bei.
+  const q = useDebounced(query.trim(), 220);
 
   useEffect(() => {
     if (open) {
@@ -54,7 +52,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       api.get<{ employees: { id: number; first_name: string; last_name: string; job_title: string | null }[] }>(
         `/api/employees?fields=lite&search=${encodeURIComponent(q)}`,
       ),
-    enabled: open && q.length >= 2,
+    // Rechte-Gate wie beim Backend-Hook: Ohne Lesenrecht antwortete die Suche
+    // ohnehin nur mit 403 — die Abfrage gar nicht erst starten.
+    enabled: open && q.length >= 2 && can('personal'),
     select: (d) => d.employees.slice(0, 6),
   });
   const { data: documents } = useQuery({
@@ -63,23 +63,27 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       api.get<{ documents: { id: number; title: string; category: string; first_name?: string | null; last_name?: string | null }[] }>(
         `/api/documents?search=${encodeURIComponent(q)}`,
       ),
-    enabled: open && q.length >= 2,
+    enabled: open && q.length >= 2 && can('personal'),
     select: (d) => d.documents.slice(0, 5),
   });
   const { data: announcements } = useQuery({
     queryKey: ['palette', 'announcements'],
     queryFn: () =>
       api.get<{ announcements: { id: number; title: string }[] }>('/api/communication/announcements'),
-    enabled: open && q.length >= 2,
+    enabled: open && q.length >= 2 && can('kommunikation'),
     select: (d) => d.announcements,
   });
 
   const items = useMemo<PaletteItem[]>(() => {
     const lower = q.toLowerCase();
     const result: PaletteItem[] = [];
+    // Dieselbe Regel wie in der Sidebar (AppShell): Gesperrte Bereiche werden
+    // gar nicht erst angeboten — sonst führte die Palette geradewegs auf
+    // Seiten, deren Abfragen allesamt in 403 laufen.
+    const allowedNav = NAV_ITEMS.filter((n) => (n.area ? can(n.area) : true));
     const navMatches = q
-      ? NAV_ITEMS.filter((n) => n.label.toLowerCase().includes(lower) || n.section.toLowerCase().includes(lower))
-      : NAV_ITEMS;
+      ? allowedNav.filter((n) => n.label.toLowerCase().includes(lower) || n.section.toLowerCase().includes(lower))
+      : allowedNav;
     for (const n of navMatches.slice(0, q ? 5 : 8)) {
       result.push({
         key: `nav-${n.path}`,
@@ -120,7 +124,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       });
     }
     return result;
-  }, [q, employees, documents, announcements]);
+  }, [q, employees, documents, announcements, can]);
 
   const clamped = Math.min(selected, Math.max(0, items.length - 1));
 

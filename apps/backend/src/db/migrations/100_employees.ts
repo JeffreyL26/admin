@@ -232,4 +232,18 @@ export const employeesMigrations: Migration[] = [
         ON employees(personnel_number) WHERE personnel_number IS NOT NULL;
     `,
   },
+  {
+    // Die Dokumentenliste wertet supersedes_id doppelt je Ergebniszeile aus
+    // (korreliertes EXISTS für is_superseded plus der Default-Filter „nur
+    // aktuelle Versionen" in documentRoutes.ts). Ohne Index scannt jedes
+    // dieser Subselects die komplette Tabelle — die Liste wächst quadratisch
+    // mit dem Archivbestand. Partiell, weil die Subselects auf
+    // s.supersedes_id = d.id nie NULL-Zeilen treffen und die meisten
+    // Dokumente keine Neuversion haben — der Index bleibt so klein.
+    name: '105_documents_supersedes_index',
+    sql: `
+      CREATE INDEX idx_documents_supersedes
+        ON documents(supersedes_id) WHERE supersedes_id IS NOT NULL;
+    `,
+  },
 ];

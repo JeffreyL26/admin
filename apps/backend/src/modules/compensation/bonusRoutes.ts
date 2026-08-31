@@ -64,6 +64,29 @@ function withPayout(bonus: BonusRow): BonusRow & {
   return { ...bonus, payout_cents: payout, goal };
 }
 
+/**
+ * Vom Abrechnungslauf eingefrorener Auszahlungsbetrag dieses Bonus, falls für
+ * den Auszahlungsmonat bereits ein Lauf existiert (payroll_items.bonuses_json).
+ * Der DATEV-/CSV-Export übermittelt genau diesen Snapshot an den Steuerberater
+ * — ändert sich der Zielfortschritt danach, muss der beim Auszahlen
+ * eingefrorene Betrag trotzdem dem exportierten entsprechen. Deshalb hat der
+ * Snapshot Vorrang vor der Live-Berechnung aus dem Ziel.
+ */
+function snapshotPayoutCents(bonus: BonusRow): number | null {
+  const item = getDb()
+    .prepare(
+      `SELECT i.bonuses_json FROM payroll_items i
+       JOIN payroll_runs r ON r.id = i.run_id
+       WHERE r.month = ? AND i.employee_id = ?`,
+    )
+    .get([bonus.payout_month, bonus.employee_id]) as { bonuses_json: string } | undefined;
+  if (!item) return null;
+  const entry = (JSON.parse(item.bonuses_json) as { id: number; payout_cents: number }[]).find(
+    (b) => b.id === bonus.id,
+  );
+  return entry?.payout_cents ?? null;
+}
+
 export async function bonusRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/compensation/bonuses', async (req) => {
     const { status, employee_id } = req.query as { status?: string; employee_id?: string };
@@ -157,7 +180,9 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
     }
     let frozenAmount = bonus.amount_cents;
     if (body.status === 'ausgezahlt' && bonus.goal_id && bonus.amount_cents === null) {
-      frozenAmount = goalPayoutCents(bonus.target_amount_cents ?? 0, goalById(bonus.goal_id));
+      frozenAmount =
+        snapshotPayoutCents(bonus) ??
+        goalPayoutCents(bonus.target_amount_cents ?? 0, goalById(bonus.goal_id));
     }
     db.prepare('UPDATE bonuses SET status = ?, amount_cents = ? WHERE id = ?').run(
       body.status,

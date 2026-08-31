@@ -5,12 +5,15 @@ import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { signDownloadUrl } from '../../core/files.js';
 import { todayIso } from '../../core/dates.js';
+import { isoDateString } from '../../core/validation.js';
 
 // ---------------------------------------------------------------------------
 // Gemeinsame Helfer
 // ---------------------------------------------------------------------------
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum im Format JJJJ-MM-TT erwartet');
+// Kalenderprüfung inklusive (core/validation.ts) — ein Regex allein ließe
+// '2026-02-31' durch.
+const isoDate = isoDateString;
 // Interview-Zeitpunkt: Datum optional mit Uhrzeit ('YYYY-MM-DD' oder 'YYYY-MM-DD HH:MM').
 const isoDateTime = z
   .string()
@@ -35,6 +38,21 @@ function daysBetween(fromIso: string, toIso: string): number {
   const b = Date.parse(`${toIso.slice(0, 10)}T00:00:00Z`);
   if (Number.isNaN(a) || Number.isNaN(b)) return 0;
   return Math.max(0, Math.round((b - a) / 86_400_000));
+}
+
+/**
+ * Datumsanteil eines DB-Zeitstempels in LOKALER Zeit. stage_changed_at kommt
+ * aus datetime('now') und ist UTC, todayIso() dagegen lokal — ohne Umrechnung
+ * wäre days_in_stage bei Stufenwechseln zwischen 0 und 2 Uhr deutscher Zeit
+ * dauerhaft um +1 zu hoch (der UTC-Datumsanteil ist dann noch der Vortag).
+ * Reine Datumswerte ('YYYY-MM-DD', z. B. applied_at) tragen keine Zeitzone
+ * und bleiben unverändert.
+ */
+function localDatePart(ts: string): string {
+  if (ts.length <= 10) return ts.slice(0, 10);
+  const d = new Date(`${ts.replace(' ', 'T')}Z`);
+  if (Number.isNaN(d.getTime())) return ts.slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,7 +279,7 @@ function applicationRow(id: number): Record<string, unknown> {
 
 function enrichApplication(row: Record<string, unknown>): Record<string, unknown> {
   const stageChanged = String(row.stage_changed_at ?? row.applied_at ?? todayIso());
-  return { ...row, days_in_stage: daysBetween(stageChanged, todayIso()) };
+  return { ...row, days_in_stage: daysBetween(localDatePart(stageChanged), todayIso()) };
 }
 
 function logEvent(
@@ -303,22 +321,36 @@ const INTERVIEW_SELECT = `
   JOIN job_postings p ON p.id = a.posting_id
 `;
 
-function interviewToJson(row: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Namen aller in den Zeilen referenzierten Interviewer:innen in EINER Query —
+ * eine employees-Abfrage je Interviewzeile wäre bei ungefilterten Listen ein
+ * N+1 über die gesamte Interview-Historie.
+ */
+function interviewerNames(rows: Record<string, unknown>[]): Map<number, string> {
+  const ids = [
+    ...new Set(rows.flatMap((r) => JSON.parse(String(r.interviewer_ids ?? '[]')) as number[])),
+  ];
+  if (ids.length === 0) return new Map();
+  const placeholders = ids.map(() => '?').join(', ');
+  const found = getDb()
+    .prepare(
+      `SELECT id, (first_name || ' ' || last_name) AS name FROM employees WHERE id IN (${placeholders})`,
+    )
+    .all(ids) as { id: number; name: string }[];
+  return new Map(found.map((r) => [r.id, r.name]));
+}
+
+function interviewToJson(
+  row: Record<string, unknown>,
+  names: Map<number, string>,
+): Record<string, unknown> {
   const ids = JSON.parse(String(row.interviewer_ids ?? '[]')) as number[];
-  let names: string[] = [];
-  if (ids.length > 0) {
-    const placeholders = ids.map(() => '?').join(', ');
-    const rows = getDb()
-      .prepare(
-        `SELECT (first_name || ' ' || last_name) AS name FROM employees WHERE id IN (${placeholders})`,
-      )
-      .all(...ids) as { name: string }[];
-    names = rows.map((r) => r.name);
-  }
   return {
     ...row,
     interviewer_ids: ids,
-    interviewer_names: names,
+    interviewer_names: ids
+      .map((id) => names.get(id))
+      .filter((n): n is string => n !== undefined),
     scorecard: JSON.parse(String(row.scorecard ?? '[]')),
   };
 }
@@ -373,7 +405,32 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
                   WHEN 'entwurf' THEN 2 WHEN 'besetzt' THEN 3 ELSE 4 END, p.updated_at DESC`,
       )
       .all(...params) as PostingRow[];
-    const postings = rows.map((r) => postingWithCounts(r.id));
+    // Zähler gesammelt statt postingWithCounts je Zeile — das lüde jede
+    // bereits vorliegende Zeile erneut und machte aus der Liste 2N+1 Queries.
+    const counts = getDb()
+      .prepare(
+        `SELECT posting_id,
+                COUNT(*) AS application_count,
+                SUM(CASE WHEN status = 'aktiv' THEN 1 ELSE 0 END) AS active_count,
+                SUM(CASE WHEN status = 'eingestellt' THEN 1 ELSE 0 END) AS hired_count
+         FROM applications GROUP BY posting_id`,
+      )
+      .all() as {
+      posting_id: number;
+      application_count: number;
+      active_count: number | null;
+      hired_count: number | null;
+    }[];
+    const countsByPosting = new Map(counts.map((c) => [c.posting_id, c]));
+    const postings = rows.map((r) => {
+      const c = countsByPosting.get(r.id);
+      return {
+        ...r,
+        application_count: c?.application_count ?? 0,
+        active_count: c?.active_count ?? 0,
+        hired_count: c?.hired_count ?? 0,
+      };
+    });
     return { postings };
   });
 
@@ -670,12 +727,13 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
       .prepare(`${INTERVIEW_SELECT} WHERE i.application_id = ? ORDER BY i.scheduled_at DESC`)
       .all(id) as Record<string, unknown>[];
     const cvId = application.cv_file_id as number | null;
+    const names = interviewerNames(interviews);
     return {
       application: {
         ...application,
         cv_url: cvId ? signDownloadUrl(cvId) : null,
         events,
-        interviews: interviews.map(interviewToJson),
+        interviews: interviews.map((i) => interviewToJson(i, names)),
       },
     };
   });
@@ -994,7 +1052,8 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
          ORDER BY i.scheduled_at ${q.upcoming ? 'ASC' : 'DESC'}`,
       )
       .all(...params) as Record<string, unknown>[];
-    return { interviews: rows.map(interviewToJson) };
+    const names = interviewerNames(rows);
+    return { interviews: rows.map((r) => interviewToJson(r, names)) };
   });
 
   const interviewBodySchema = z.object({
@@ -1034,7 +1093,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
       string,
       unknown
     >;
-    return { interview: interviewToJson(row) };
+    return { interview: interviewToJson(row, interviewerNames([row])) };
   });
 
   app.put('/api/recruiting/interviews/:id', async (req) => {
@@ -1078,7 +1137,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     }
     audit(req, 'update', 'interview', id, { status: body.status });
     const row = getDb().prepare(`${INTERVIEW_SELECT} WHERE i.id = ?`).get(id) as Record<string, unknown>;
-    return { interview: interviewToJson(row) };
+    return { interview: interviewToJson(row, interviewerNames([row])) };
   });
 
   app.delete('/api/recruiting/interviews/:id', async (req, reply) => {

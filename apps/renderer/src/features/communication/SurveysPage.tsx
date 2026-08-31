@@ -26,6 +26,7 @@ import {
   SURVEY_QUESTION_KIND_LABELS,
   SURVEY_STATUS_LABELS,
   formatDate,
+  todayIsoLocal,
   type SurveyQuestionKind,
   type SurveyStatus,
 } from '@hrmonic/shared';
@@ -68,8 +69,8 @@ const emptyDraft = (): DraftSurvey => ({
   title: '',
   description: '',
   audience: { audience_type: 'alle', audience_id: null },
-  date_from: new Date().toISOString().slice(0, 10),
-  date_to: new Date().toISOString().slice(0, 10),
+  date_from: todayIsoLocal(),
+  date_to: todayIsoLocal(),
   min_participants: '',
   questions: [{ kind: 'skala', text: '', options: '', scale_max: 5 }],
 });

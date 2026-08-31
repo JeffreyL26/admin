@@ -7,11 +7,15 @@ import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../
 import { holidaysForYear, type Bundesland } from '../../core/holidays.js';
 import { getSetting } from '../../core/settings.js';
 import {
+  assertBalanceCovers,
+  assertSpanWithinLimit,
   bundeslandForEmployee,
+  closureDates,
   computeBalance,
   countAbsenceDays,
   createRequest,
   type AbsenceTypeRow as TypeRow,
+  type BalanceRequestRow,
   type EmployeeRow,
 } from './service.js';
 
@@ -75,6 +79,14 @@ const requestBodySchema = z.object({
   half_day_start: z.boolean().optional(),
   half_day_end: z.boolean().optional(),
   comment: z.string().trim().max(2000).optional(),
+  // Nur die HR darf die Saldoprüfung übersteuern; das Portal-Schema
+  // (me/routes.ts) kennt das Feld bewusst nicht.
+  override_balance: z.boolean().optional(),
+});
+
+/** Body ist optional — bestehende Clients schicken keinen. */
+const approveBodySchema = z.object({
+  override_balance: z.boolean().optional(),
 });
 
 const sickNoteBodySchema = z.object({
@@ -367,6 +379,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       throw badRequest('employee_id, date_from und date_to sind erforderlich');
     }
     if (q.date_to < q.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
+    assertSpanWithinLimit(q.date_from, q.date_to);
     const land = bundeslandForEmployee(employeeId);
     const days = countAbsenceDays({
       land,
@@ -401,6 +414,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
 
   app.post('/api/absences/requests/:id/approve', async (req) => {
     const id = Number((req.params as { id: string }).id);
+    const body = parse(approveBodySchema, req.body ?? {});
     const row = db().prepare('SELECT * FROM absence_requests WHERE id = ?').get(id) as
       | RequestRow
       | undefined;
@@ -409,6 +423,27 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       throw conflict(`Nur beantragte Anträge können genehmigt werden (Status: ${row.status})`);
     }
     assertNotOwnRequest(req, row);
+    // Saldo-Neuprüfung: Seit der Antragstellung können andere Anträge
+    // genehmigt worden sein. assertBalanceCovers nimmt den eigenen Antrag aus
+    // der Rechnung — als 'beantragt' steckt er schon in der Planung.
+    if (!body.override_balance) {
+      const type = db().prepare('SELECT * FROM absence_types WHERE id = ?').get(row.type_id) as
+        | TypeRow
+        | undefined;
+      if (type) {
+        assertBalanceCovers(
+          row.employee_id,
+          type,
+          {
+            date_from: row.date_from,
+            date_to: row.date_to,
+            half_day_start: row.half_day_start === 1,
+            half_day_end: row.half_day_end === 1,
+          },
+          row.id,
+        );
+      }
+    }
     const userId = (req.user as { id?: number }).id ?? null;
     db()
       .prepare(
@@ -416,7 +451,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
          WHERE id = ?`,
       )
       .run(userId, id);
-    audit(req, 'approve', 'absence_request', id);
+    audit(req, 'approve', 'absence_request', id, body.override_balance ? { override_balance: true } : undefined);
     return { request: db().prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(id) };
   });
 
@@ -481,15 +516,56 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
   app.get('/api/absences/balances/:year', async (req) => {
     const y = Number((req.params as { year: string }).year);
     if (!Number.isInteger(y) || y < 2000 || y > 2100) throw badRequest('Ungültiges Jahr');
+    // Den Rechen-Kontext EINMAL für alle laden statt mehrerer Queries je
+    // Person: Die Route rechnet synchron im einzigen Node-Prozess und
+    // blockierte sonst bei großer Belegschaft alle parallelen Requests
+    // (im Serverbetrieb auch das Portal). Das Bundesland kommt direkt mit
+    // der Belegschaft — ein zweiter Lauf über dieselbe Tabelle entfällt.
+    const defaultLand = getSetting('defaultBundesland');
     const employees = db()
-      .prepare("SELECT * FROM employees WHERE status = 'aktiv' ORDER BY last_name, first_name")
-      .all() as EmployeeRow[];
+      .prepare(
+        `SELECT e.*, COALESCE(l.bundesland, ?) AS bundesland
+         FROM employees e
+         LEFT JOIN locations l ON l.id = e.location_id
+         WHERE e.status = 'aktiv'
+         ORDER BY e.last_name, e.first_name`,
+      )
+      .all(defaultLand) as (EmployeeRow & { bundesland: Bundesland })[];
+
+    // Gesamtspanne = weiteste Übertrags-Kette (computeBalance geht maximal
+    // 5 Jahre zurück); je Person überzählige Zeilen clippen sich dort zu 0.
+    const spanFrom = `${y - 5}-01-01`;
+    const spanTo = `${y}-12-31`;
+    const closures = closureDates(spanFrom, spanTo);
+    const requestRows = db()
+      .prepare(
+        `SELECT r.employee_id, r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status
+         FROM absence_requests r
+         JOIN absence_types t ON t.id = r.type_id
+         WHERE t.affects_balance = 1 AND r.status IN ('genehmigt', 'beantragt')
+           AND r.date_from <= ? AND r.date_to >= ?`,
+      )
+      .all([spanTo, spanFrom]) as (BalanceRequestRow & { employee_id: number })[];
+    const requestsByEmployee = new Map<number, BalanceRequestRow[]>();
+    for (const r of requestRows) {
+      const list = requestsByEmployee.get(r.employee_id);
+      if (list) list.push(r);
+      else requestsByEmployee.set(r.employee_id, [r]);
+    }
+
+    const carryoverDeadline = getSetting('carryoverDeadline');
+    const today = todayIso();
     const balances = employees.map((e) => ({
-      ...computeBalance(e, y),
+      ...computeBalance(e, y, today, {
+        land: e.bundesland,
+        carryoverDeadline,
+        closures,
+        requests: requestsByEmployee.get(e.id) ?? [],
+      }),
       first_name: e.first_name,
       last_name: e.last_name,
     }));
-    return { balances, carryover_deadline: `${y}-${getSetting('carryoverDeadline')}` };
+    return { balances, carryover_deadline: `${y}-${carryoverDeadline}` };
   });
 
   // -------------------------------------------------------- Krankmeldungen ---
@@ -862,11 +938,20 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       .filter((c) => c.team_size > 1 && c.ratio > CONFLICT_THRESHOLD)
       .sort((a, b) => a.date.localeCompare(b.date));
 
+    // Einmal gruppieren statt filter() je Person — die Jahresansicht ist hier
+    // der Normalfall, und Mitarbeitende × Abwesenheiten wüchse quadratisch.
+    const absencesByEmployee = new Map<number, typeof absences>();
+    for (const a of absences) {
+      const list = absencesByEmployee.get(a.employee_id);
+      if (list) list.push(a);
+      else absencesByEmployee.set(a.employee_id, [a]);
+    }
+
     return {
       range: { from, to },
       employees: employees.map((e) => ({
         ...e,
-        absences: absences.filter((a) => a.employee_id === e.id),
+        absences: absencesByEmployee.get(e.id) ?? [],
       })),
       holidays,
       closures,

@@ -3,13 +3,19 @@ import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalendarPlus, Check, Inbox, X } from 'lucide-react';
 import { formatDate, ABSENCE_STATUS_LABELS, type AbsenceRequest, type AbsenceRequestStatus } from '@hrmonic/shared';
-import { api } from '../../api/client';
+import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs, type BadgeTone } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
-import { useAbsenceRequests, useAbsenceTypes, useBalances } from './api';
+import {
+  balanceExceededQuestion,
+  useAbsenceRequests,
+  useAbsenceTypes,
+  useBalances,
+  type BalanceExceededDetails,
+} from './api';
 import { RequestDialog } from './RequestDialog';
 
 const STATUS_TONES: Record<AbsenceRequestStatus, BadgeTone> = {
@@ -69,7 +75,9 @@ export function RequestsPage() {
   );
 }
 
-function useRequestActions() {
+function useRequestActions(
+  onBalanceExceeded?: (info: BalanceExceededDetails & { id: number }) => void,
+) {
   const toast = useToast();
   const qc = useQueryClient();
   const done = (msg: string) => () => {
@@ -78,9 +86,18 @@ function useRequestActions() {
   };
   const fail = (e: Error) => toast.error(e.message);
   const approve = useMutation({
-    mutationFn: (id: number) => api.post(`/api/absences/requests/${id}/approve`),
+    mutationFn: ({ id, override = false }: { id: number; override?: boolean }) =>
+      api.post(`/api/absences/requests/${id}/approve`, override ? { override_balance: true } : undefined),
     onSuccess: done('Antrag genehmigt'),
-    onError: fail,
+    // BALANCE_EXCEEDED ist kein Fehler, sondern eine Rückfrage: erst die
+    // ausdrückliche Bestätigung schickt den Request mit override_balance erneut.
+    onError: (e: Error, vars) => {
+      if (onBalanceExceeded && e instanceof ApiRequestError && e.code === 'BALANCE_EXCEEDED') {
+        onBalanceExceeded({ ...(e.details as BalanceExceededDetails), id: vars.id });
+        return;
+      }
+      fail(e);
+    },
   });
   const reject = useMutation({
     mutationFn: ({ id, reason }: { id: number; reason: string }) =>
@@ -176,6 +193,15 @@ function RejectDialog({
   onReject: (id: number, reason: string) => void;
 }) {
   const [reason, setReason] = useState('');
+  // Der Dialog bleibt gemountet (Modal rendert bei open=false nur null) — eine
+  // beim Abbrechen getippte Begründung darf beim nächsten Antrag nicht wieder
+  // vorbefüllt sein, sonst landet sie am falschen Antrag.
+  const [lastRequestId, setLastRequestId] = useState<number | null>(null);
+  const requestId = request?.id ?? null;
+  if (requestId !== lastRequestId) {
+    setLastRequestId(requestId);
+    setReason('');
+  }
   return (
     <Modal
       title="Antrag ablehnen"
@@ -223,7 +249,8 @@ function RejectDialog({
 
 function OpenRequestsTab() {
   const { data: requests, isLoading } = useAbsenceRequests({ status: 'beantragt' });
-  const { approve, reject, cancel } = useRequestActions();
+  const [balanceWarning, setBalanceWarning] = useState<(BalanceExceededDetails & { id: number }) | null>(null);
+  const { approve, reject, cancel } = useRequestActions(setBalanceWarning);
   const isOwnRequest = useIsOwnRequest();
   const [rejecting, setRejecting] = useState<AbsenceRequest | null>(null);
   const [cancelling, setCancelling] = useState<AbsenceRequest | null>(null);
@@ -289,7 +316,7 @@ function OpenRequestsTab() {
                   <button
                     className="hm-btn hm-btn--sm hm-btn--primary"
                     disabled={approve.isPending}
-                    onClick={() => approve.mutate(r.id)}
+                    onClick={() => approve.mutate({ id: r.id })}
                   >
                     <Check size={14} /> Genehmigen
                   </button>
@@ -318,6 +345,15 @@ function OpenRequestsTab() {
         confirmLabel="Stornieren"
         onConfirm={() => cancelling && cancel.mutate(cancelling.id)}
         onClose={() => setCancelling(null)}
+      />
+      <ConfirmDialog
+        open={balanceWarning !== null}
+        title="Urlaubssaldo wird überzogen"
+        message={balanceWarning ? balanceExceededQuestion(balanceWarning, 'genehmigen') : ''}
+        confirmLabel="Trotzdem genehmigen"
+        danger={false}
+        onConfirm={() => balanceWarning && approve.mutate({ id: balanceWarning.id, override: true })}
+        onClose={() => setBalanceWarning(null)}
       />
     </Card>
   );

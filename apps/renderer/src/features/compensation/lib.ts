@@ -1,3 +1,4 @@
+import { todayIsoLocal } from '@hrmonic/shared';
 import { API_BASE } from '../../api/client';
 import type { BadgeTone } from '../../components/ui';
 
@@ -23,8 +24,9 @@ export function formatMonth(month: string | null | undefined): string {
   return `${m}/${y}`;
 }
 
+// Lokal statt UTC: am Monatsersten vor 1/2 Uhr nachts wäre sonst der Vormonat vorausgewählt.
 export function currentMonth(): string {
-  return new Date().toISOString().slice(0, 7);
+  return todayIsoLocal().slice(0, 7);
 }
 
 /** Datei-Download eines auth-pflichtigen GET-Endpunkts (Exporte). */

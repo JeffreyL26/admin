@@ -124,8 +124,24 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
 const num = (s: string): number | null => (s.trim() === '' ? null : Number(s.replace(',', '.')));
 const str = (s: string): string | null => (s.trim() === '' ? null : s.trim());
 
-/** Formular → API-Payload (snake_case, '' → null, Zahlen konvertiert). */
-export function formToPayload(f: EmployeeFormState): Record<string, unknown> {
+/**
+ * Formular → API-Payload (snake_case, '' → null, Zahlen konvertiert).
+ *
+ * Mit `base` (Stand, auf dem die Eingaben basieren) bleiben nur die tatsächlich
+ * geänderten Felder übrig. Das verkleinert die Kollisionsfläche im
+ * Mehrplatzbetrieb: Zwei Arbeitsplätze geraten nur noch aneinander, wenn sie
+ * dasselbe Feld anfassen — nicht schon beim selben Datensatz.
+ */
+export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): Record<string, unknown> {
+  if (base) {
+    // Vergleich auf Payload-Ebene (nach trim/Zahl-Konvertierung), damit z. B.
+    // ein angehängtes Leerzeichen nicht als Änderung zählt.
+    const payload = formToPayload(f);
+    const basePayload = formToPayload(base);
+    return Object.fromEntries(
+      Object.entries(payload).filter(([key, value]) => value !== basePayload[key]),
+    );
+  }
   return {
     first_name: f.first_name.trim(),
     last_name: f.last_name.trim(),

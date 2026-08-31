@@ -64,12 +64,42 @@ function bussUndBettag(year: number): string {
 
 const ALL: Bundesland[] = Object.keys(BUNDESLAENDER) as Bundesland[];
 
+// Feiertage sind rein (Jahr, Land)-deterministisch — es gibt keine Settings-
+// Abhängigkeit, der Cache braucht also nie eine Invalidierung und bleibt winzig
+// (16 Länder × genutzte Jahre × ≤19 Einträge). Ohne ihn baute jede Tagesprüfung
+// der Saldo-Rechnung die komplette Jahresliste inkl. Osterformel neu auf.
+// Aufrufer behandeln das zurückgegebene Array als unveränderlich.
+const yearCache = new Map<string, Holiday[]>();
+const byDateCache = new Map<string, Map<string, Holiday>>();
+
+// Jahreszahlen kommen teils aus Nutzereingaben (Kalender-Range, Vorschau) —
+// ohne Fenster ließe sich der Prozess-Cache mit beliebigen 4-stelligen Jahren
+// unbegrenzt aufblähen. Außerhalb wird ungecacht gerechnet.
+const MEMO_YEAR_MIN = 1950;
+const MEMO_YEAR_MAX = 2150;
+
 export function holidaysForYear(year: number, land: Bundesland): Holiday[] {
+  if (year < MEMO_YEAR_MIN || year > MEMO_YEAR_MAX) return buildHolidays(year, land);
+  const key = `${year}|${land}`;
+  let cached = yearCache.get(key);
+  if (!cached) {
+    cached = buildHolidays(year, land);
+    yearCache.set(key, cached);
+  }
+  return cached;
+}
+
+function buildHolidays(year: number, land: Bundesland): Holiday[] {
   const easter = easterSunday(year);
   const list: { date: string; name: string; laender: Bundesland[] }[] = [
     { date: `${year}-01-01`, name: 'Neujahr', laender: ALL },
     { date: `${year}-01-06`, name: 'Heilige Drei Könige', laender: ['BW', 'BY', 'ST'] },
-    { date: `${year}-03-08`, name: 'Internationaler Frauentag', laender: year >= 2023 ? ['BE', 'MV'] : ['BE'] },
+    // Berlin führte den Frauentag 2019 ein, MV folgte 2023.
+    {
+      date: `${year}-03-08`,
+      name: 'Internationaler Frauentag',
+      laender: year >= 2023 ? ['BE', 'MV'] : year >= 2019 ? ['BE'] : [],
+    },
     { date: shift(easter, -2), name: 'Karfreitag', laender: ALL },
     { date: shift(easter, 0), name: 'Ostersonntag', laender: ['BB'] },
     { date: shift(easter, 1), name: 'Ostermontag', laender: ALL },
@@ -81,12 +111,17 @@ export function holidaysForYear(year: number, land: Bundesland): Holiday[] {
     { date: `${year}-08-15`, name: 'Mariä Himmelfahrt', laender: ['SL'] },
     { date: `${year}-09-20`, name: 'Weltkindertag', laender: year >= 2019 ? ['TH'] : [] },
     { date: `${year}-10-03`, name: 'Tag der Deutschen Einheit', laender: ALL },
+    // 2017 war der Reformationstag zum 500. Jubiläum einmalig bundesweit
+    // Feiertag; die Nordländer und HB machten ihn erst ab 2018 dauerhaft.
     {
       date: `${year}-10-31`,
       name: 'Reformationstag',
-      laender: year >= 2018
-        ? ['BB', 'HB', 'HH', 'MV', 'NI', 'SN', 'ST', 'SH', 'TH']
-        : ['BB', 'MV', 'SN', 'ST', 'TH'],
+      laender:
+        year === 2017
+          ? ALL
+          : year >= 2018
+            ? ['BB', 'HB', 'HH', 'MV', 'NI', 'SN', 'ST', 'SH', 'TH']
+            : ['BB', 'MV', 'SN', 'ST', 'TH'],
     },
     { date: `${year}-11-01`, name: 'Allerheiligen', laender: ['BW', 'BY', 'NW', 'RP', 'SL'] },
     { date: bussUndBettag(year), name: 'Buß- und Bettag', laender: ['SN'] },
@@ -101,5 +136,14 @@ export function holidaysForYear(year: number, land: Bundesland): Holiday[] {
 
 export function isHoliday(date: string, land: Bundesland): Holiday | undefined {
   const year = Number(date.slice(0, 4));
-  return holidaysForYear(year, land).find((h) => h.date === date);
+  if (year < MEMO_YEAR_MIN || year > MEMO_YEAR_MAX) {
+    return holidaysForYear(year, land).find((h) => h.date === date);
+  }
+  const key = `${year}|${land}`;
+  let byDate = byDateCache.get(key);
+  if (!byDate) {
+    byDate = new Map(holidaysForYear(year, land).map((h) => [h.date, h]));
+    byDateCache.set(key, byDate);
+  }
+  return byDate.get(date);
 }

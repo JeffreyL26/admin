@@ -264,6 +264,21 @@ function downloadTtlMs(): number {
 }
 
 /**
+ * Der mime_type kommt beim Upload ungeprüft vom Client (Multipart-Header) und
+ * geht beim Download als Content-Type wieder hinaus. Header-Injection ist
+ * durch Fastify ausgeschlossen, aber ein leerer oder missgebildeter Wert im
+ * Content-Type lädt Browser zum Sniffen ein. Alles, was nicht wie
+ * „typ/subtyp“ aussieht, wird deshalb als generischer Binärstrom ausgeliefert
+ * — die Prüfung sitzt an der Auslieferung, damit sie auch Bestandszeilen
+ * trifft, die vor ihr gespeichert wurden.
+ */
+function plausibleMimeType(mime: string): string {
+  return /^[\w!#$&^.+-]{1,64}\/[\w!#$&^.+-]{1,64}$/.test(mime)
+    ? mime
+    : 'application/octet-stream';
+}
+
+/**
  * Wirft 403, wenn das Konto die Datei nicht lesen darf.
  *
  * Warum diese Prüfung nicht in permissions.ts passieren kann: Der Fachbereich
@@ -364,7 +379,12 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     const filePath = path.join(config.storageDir, record.stored_name);
     if (!fs.existsSync(filePath)) throw notFound('Dateiinhalt fehlt im Storage');
     reply
-      .header('Content-Type', record.mime_type)
+      .header('Content-Type', plausibleMimeType(record.mime_type))
+      // nosniff gehört an die Route selbst, nicht nur in die Proxy-Konfigs
+      // (deploy/): Im eingebetteten Desktop-Betrieb gibt es keinen Proxy, der
+      // den Header ergänzt — ohne ihn dürfte der Browser den (clientseitig
+      // gemeldeten) Content-Type wegraten.
+      .header('X-Content-Type-Options', 'nosniff')
       // Personaldaten gehören in keinen Zwischenspeicher: 'private' hält sie
       // aus gemeinsam genutzten Proxy-Caches, 'no-store' auch aus dem
       // Browser-Cache des Arbeitsplatzes.

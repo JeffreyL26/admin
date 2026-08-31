@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import bcrypt from 'bcryptjs';
 
 process.env.HRMONIC_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hrmonic-comp-smoke-'));
 process.env.HRMONIC_LOG_LEVEL = 'silent';
@@ -166,10 +167,31 @@ const request = await app.inject({
 check('Änderungsantrag → 201', request.statusCode === 201, request.json());
 const requestId = request.json().request.id as number;
 
-const decide = await app.inject({
+// Vier-Augen-Prinzip: Wer den Antrag gestellt hat, genehmigt ihn nicht selbst.
+const selfDecide = await app.inject({
   method: 'POST',
   url: `/api/compensation/change-requests/${requestId}/decide`,
   headers: auth,
+  payload: { decision: 'genehmigt', decision_note: 'Passt zum Budget' },
+});
+check('Selbstgenehmigung des eigenen Antrags → 403', selfDecide.statusCode === 403, selfDecide.json());
+
+// Zweites Admin-Konto direkt in die Wegwerf-DB (wie me/smoke.ts) — die
+// Entscheidung braucht seit dem Vier-Augen-Prinzip eine andere Person.
+db.prepare("INSERT INTO users (email, name, password_hash, role) VALUES ('zweit@test.de', 'Zweit Admin', ?, 'admin')").run(
+  bcrypt.hashSync('geheim123', 10),
+);
+const secondLogin = await app.inject({
+  method: 'POST',
+  url: '/api/auth/login',
+  payload: { email: 'zweit@test.de', password: 'geheim123' },
+});
+const auth2 = { authorization: `Bearer ${secondLogin.json().token as string}` };
+
+const decide = await app.inject({
+  method: 'POST',
+  url: `/api/compensation/change-requests/${requestId}/decide`,
+  headers: auth2,
   payload: { decision: 'genehmigt', decision_note: 'Passt zum Budget' },
 });
 check('Genehmigung → Status genehmigt', decide.statusCode === 200 && decide.json().request.status === 'genehmigt');

@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type {
   ContractDto,
   DocumentDto,
@@ -133,6 +133,9 @@ export function useEmployeeList(filters: EmployeeFilters) {
     queryKey: ['employees', 'list', filters],
     queryFn: () => api.get<{ employees: EmployeeRow[] }>(`/api/employees${filtersToQuery(filters)}`),
     select: (d) => d.employees,
+    // Jeder Filterwechsel ist ein neuer Query-Key ohne Daten — ohne Platzhalter
+    // fiele die Tabelle bei jedem Suchanschlag auf den Spinner zurück.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -234,15 +237,63 @@ export async function downloadEmployeesCsv(filters: EmployeeFilters): Promise<vo
   URL.revokeObjectURL(url);
 }
 
-/** Signierte URL für Bild-Anzeige (z. B. Mitarbeiterfoto). */
-export function usePhotoUrl(fileId: number | null | undefined) {
+/**
+ * Beim Verdrängen aus dem Cache die Object-URL wieder freigeben, sonst hält
+ * der Browser die Bild-Bytes bis zum Neustart. Einmal je QueryClient
+ * registriert — die App hat genau einen, das WeakSet fängt Strict-Mode-
+ * Doppelaufrufe ab.
+ */
+const photoCleanupRegistered = new WeakSet<QueryClient>();
+function ensurePhotoCleanup(qc: QueryClient): void {
+  if (photoCleanupRegistered.has(qc)) return;
+  photoCleanupRegistered.add(qc);
+  qc.getQueryCache().subscribe((event) => {
+    if (event.type !== 'removed') return;
+    const key = event.query.queryKey;
+    if (key[0] === 'files' && key[1] === 'photo' && typeof event.query.state.data === 'string') {
+      URL.revokeObjectURL(event.query.state.data);
+    }
+  });
+}
+
+/**
+ * Bild-Anzeige (z. B. Mitarbeiterfoto) als Object-URL.
+ *
+ * Bewusst NICHT die signierte URL cachen: Der Server deckelt deren Gültigkeit
+ * hart auf 60 Sekunden (core/files.ts) — eine gecachte URL wäre beim nächsten
+ * Mount längst abgelaufen und das <img> zeigt ein kaputtes Bild. Der Link wird
+ * deshalb sofort konsumiert und das BILD gehalten. staleTime Infinity stimmt,
+ * weil sich der Inhalt einer files-Zeile nie ändert — ein neues Foto bekommt
+ * eine neue photo_file_id und damit einen neuen Key. Fokus-Refetches laden so
+ * auch keine Bild-Bytes mehr nach.
+ *
+ * `signedUrl`: Liefert der Server die signierte URL bereits in seiner Antwort
+ * mit (z. B. `photo_url` im Mitarbeiterverzeichnis), wird sie direkt konsumiert
+ * statt selbst zu signieren. Das eigene Signieren (`POST /api/files/:id/sign`)
+ * verlangt personal:lesen — ein Admin mit nur kommunikation:lesen sähe sonst
+ * statt der Fotos nur Initialen plus 403- und Audit-Rauschen je Foto.
+ */
+export function usePhotoUrl(fileId: number | null | undefined, signedUrl?: string | null) {
+  const qc = useQueryClient();
+  ensurePhotoCleanup(qc);
   return useQuery({
-    queryKey: ['files', 'sign', fileId],
+    // Bewusst derselbe Key wie ohne signedUrl: gecacht wird das BILD je Datei —
+    // Verzeichnis und Personalakte teilen sich so denselben Blob.
+    queryKey: ['files', 'photo', fileId],
     queryFn: async () => {
-      const { url } = await api.post<{ url: string }>(`/api/files/${fileId}/sign`);
-      return `${API_BASE}${url}`;
+      const url = signedUrl ?? (await api.post<{ url: string }>(`/api/files/${fileId}/sign`)).url;
+      const res = await fetch(`${API_BASE}${url}`);
+      if (!res.ok) throw new Error('Foto konnte nicht geladen werden');
+      return URL.createObjectURL(await res.blob());
     },
     enabled: !!fileId,
-    staleTime: 4 * 60 * 1000,
+    staleTime: Infinity,
+    // 15 statt 60 Minuten: Hier liegen Blobs in Originalgröße im Speicher —
+    // nach einem Verzeichnisbesuch sonst eine Stunde lang sämtliche Fotos.
+    gcTime: 15 * 60 * 1000,
+    // Kein globaler Fehler-Toast: Der Avatar fällt gewollt auf Initialen
+    // zurück, und der plain Error des Blob-Fetch würde sonst als „Server
+    // nicht erreichbar“ fehlgedeutet.
+    meta: { silentError: true },
   });
 }

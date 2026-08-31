@@ -115,10 +115,12 @@ export function ContractModal({
           </button>
           <button
             className="hm-btn hm-btn--primary"
-            disabled={!form.valid_from || save.isPending}
+            // Auch während des Dokument-Uploads sperren: Ein Klick in dieser
+            // Lücke speicherte den Vertrag sonst still ohne document_file_id.
+            disabled={!form.valid_from || save.isPending || uploading}
             onClick={() => save.mutate()}
           >
-            {save.isPending ? 'Wird gespeichert…' : 'Speichern'}
+            {save.isPending ? 'Wird gespeichert…' : uploading ? 'Dokument wird hochgeladen…' : 'Speichern'}
           </button>
         </>
       }
@@ -210,6 +212,13 @@ export function ContractModal({
               try {
                 const res = await uploadFile(file);
                 set({ document_file_id: res.file.id });
+              } catch (err) {
+                // Die gewählte Datei ist nie im Backend angekommen — bliebe
+                // sie im Picker stehen, sähe der Dialog nach hinterlegtem
+                // Dokument aus. document_file_id bleibt unangetastet (bei
+                // einer Korrektur zeigt es weiter auf das bestehende Dokument).
+                setDocFile(null);
+                toast.error(err instanceof Error ? err.message : 'Upload fehlgeschlagen');
               } finally {
                 setUploading(false);
               }

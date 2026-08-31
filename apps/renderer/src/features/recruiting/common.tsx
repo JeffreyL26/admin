@@ -7,7 +7,7 @@ import {
 import {
   APPLICATION_STATUS_LABELS, APPLICATION_EVENT_LABELS, CANDIDATE_SOURCE_LABELS,
   INTERVIEW_KIND_LABELS, INTERVIEW_STATUS_LABELS, INTERVIEW_RECOMMENDATION_LABELS,
-  EMPLOYEE_TYPE_LABELS, formatDate, formatEuro,
+  EMPLOYEE_TYPE_LABELS, formatDate, formatEuro, todayIsoLocal,
   type ApplicationStatus, type InterviewKind, type InterviewRecommendation,
   type InterviewStatus, type EmployeeType, type ScorecardEntry, type InterviewDto,
 } from '@hrmonic/shared';
@@ -182,7 +182,7 @@ export function InterviewEditor({
         setFeedback(interview.feedback ?? '');
       } else {
         setKind('telefon');
-        setScheduledAt(new Date().toISOString().slice(0, 10));
+        setScheduledAt(todayIsoLocal());
         setTime('10:00');
         setDuration('60');
         setLocation('');
@@ -398,7 +398,7 @@ function HireDialog({
   if (open !== lastOpen) {
     setLastOpen(open);
     if (open) {
-      setHireDate(application.available_from ?? new Date().toISOString().slice(0, 10));
+      setHireDate(application.available_from ?? todayIsoLocal());
       setType('vollzeit');
       setWeeklyHours('40');
       setLeave('30');
@@ -756,7 +756,7 @@ export function NewApplicationModal({
       setCandidateId(presetCandidateId ?? '');
       setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setHeadline('');
       setSource('website');
-      setAppliedAt(new Date().toISOString().slice(0, 10));
+      setAppliedAt(todayIsoLocal());
       setRating(null);
       setCoverLetter('');
     }

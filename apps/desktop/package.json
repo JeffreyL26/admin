@@ -15,6 +15,7 @@
     "dist:linux": "node scripts/reset-native.mjs && electron-builder --linux"
   },
   "dependencies": {
+    "@hrmonic/shared": "*",
     "better-sqlite3": "^12.4.1"
   },
   "devDependencies": {
