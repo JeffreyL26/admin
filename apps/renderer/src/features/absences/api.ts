@@ -10,6 +10,25 @@ import type {
 } from '@hrmonic/shared';
 import { api } from '../../api/client';
 
+/** 409-Details des Backends, wenn ein Antrag den Urlaubssaldo überziehen würde. */
+export interface BalanceExceededDetails {
+  year: number;
+  remaining: number;
+  requested_days: number;
+}
+
+/**
+ * Rückfragetext zu BALANCE_EXCEEDED — zentral formuliert, damit Erfassen
+ * (RequestDialog) und Genehmigen (RequestsPage) nicht auseinanderdriften.
+ * `verb` benennt die bestätigende Aktion („erfassen“ bzw. „genehmigen“).
+ */
+export function balanceExceededQuestion(details: BalanceExceededDetails, verb: string): string {
+  return (
+    `Restanspruch ${details.remaining.toLocaleString('de-DE')} Tage im Jahr ${details.year}, ` +
+    `beantragt ${details.requested_days.toLocaleString('de-DE')} Tage — trotzdem ${verb}?`
+  );
+}
+
 export function useAbsenceTypes() {
   return useQuery({
     queryKey: ['absences', 'types'],
@@ -101,30 +120,11 @@ export function useClosures() {
 }
 
 /**
- * Abteilungen/Teams fürs Kalender-Filtern. Die Endpunkte gehören dem
- * Personal-Modul; solange sie fehlen, degradieren die Filter zu leeren Listen.
+ * Abteilungen/Teams fürs Kalender-Filtern gehören dem Personal-Modul — dessen
+ * Hooks werden wiederverwendet, damit Cache und ['org']-Invalidierung (OrgPage)
+ * zusammenfallen statt unter einem zweiten Key zu doppeln und nachzuhinken.
  */
-export function useDepartments() {
-  return useQuery({
-    queryKey: ['departments', 'for-absences'],
-    queryFn: () =>
-      api
-        .get<{ departments: { id: number; name: string }[] }>('/api/departments')
-        .catch(() => ({ departments: [] as { id: number; name: string }[] })),
-    select: (d) => d.departments,
-  });
-}
-
-export function useTeams() {
-  return useQuery({
-    queryKey: ['teams', 'for-absences'],
-    queryFn: () =>
-      api
-        .get<{ teams: { id: number; name: string; department_id: number | null }[] }>('/api/teams')
-        .catch(() => ({ teams: [] as { id: number; name: string; department_id: number | null }[] })),
-    select: (d) => d.teams,
-  });
-}
+export { useDepartments, useTeams } from '../employees/api';
 
 /** Live-Vorschau der gezählten Tage für Antrags-/Krankmeldungsdialoge. */
 export function useDaysPreview(

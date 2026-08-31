@@ -4,6 +4,7 @@ import { Megaphone, Paperclip, Pencil, Plus, Trash2, Download } from 'lucide-rea
 import {
   ANNOUNCEMENT_STATUS_LABELS,
   formatDate,
+  todayIsoLocal,
   type AnnouncementStatus,
 } from '@hrmonic/shared';
 import { api, downloadFile, uploadFile } from '../../api/client';
@@ -33,7 +34,7 @@ const emptyEditor = (): EditorState => ({
   title: '',
   body: '',
   audience: { audience_type: 'alle', audience_id: null },
-  publish_at: new Date().toISOString().slice(0, 10),
+  publish_at: todayIsoLocal(),
   expires_at: '',
   requires_ack: false,
   attachments: [],

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../../api/client';
-import { Modal } from '../../components/Modal';
+import { api, ApiRequestError } from '../../api/client';
+import { ConfirmDialog, Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
-import { useAbsenceTypes, useDaysPreview } from './api';
+import { balanceExceededQuestion, useAbsenceTypes, useDaysPreview, type BalanceExceededDetails } from './api';
 
 /** Dialog "Neuer Abwesenheitsantrag" (HR erfasst stellvertretend). */
 export function RequestDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -21,8 +21,16 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [halfStart, setHalfStart] = useState(false);
   const [halfEnd, setHalfEnd] = useState(false);
   const [comment, setComment] = useState('');
+  const [balanceWarning, setBalanceWarning] = useState<BalanceExceededDetails | null>(null);
 
-  const preview = useDaysPreview(employeeId, dateFrom, dateTo, halfStart, halfEnd);
+  const sameDay = dateFrom !== '' && dateFrom === dateTo;
+  // Bei einem eintägigen Zeitraum sind "erster" und "letzter" Tag derselbe —
+  // das Backend lehnt beide Häkchen ab. Wie im Portal zählt dann nur der halbe
+  // Start; sonst bliebe nach einer Datumsänderung die ungültige Kombination
+  // stehen, obwohl die Checkbox-Handler sie beim Anhaken ausschließen.
+  const effectiveHalfEnd = halfEnd && !sameDay;
+
+  const preview = useDaysPreview(employeeId, dateFrom, dateTo, halfStart, effectiveHalfEnd);
 
   const reset = () => {
     setEmployeeId(null);
@@ -32,18 +40,20 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
     setHalfStart(false);
     setHalfEnd(false);
     setComment('');
+    setBalanceWarning(null);
   };
 
   const create = useMutation({
-    mutationFn: () =>
+    mutationFn: (overrideBalance: boolean) =>
       api.post('/api/absences/requests', {
         employee_id: employeeId,
         type_id: typeId,
         date_from: dateFrom,
         date_to: dateTo,
         half_day_start: halfStart,
-        half_day_end: halfEnd,
+        half_day_end: effectiveHalfEnd,
         comment: comment.trim() || undefined,
+        ...(overrideBalance ? { override_balance: true } : {}),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['absences'] });
@@ -53,13 +63,21 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
       reset();
       onClose();
     },
-    onError: (e: Error) => toast.error(e.message),
+    // BALANCE_EXCEEDED ist kein Fehler, sondern eine Rückfrage: erst die
+    // ausdrückliche Bestätigung schickt den Request mit override_balance erneut.
+    onError: (e: Error) => {
+      if (e instanceof ApiRequestError && e.code === 'BALANCE_EXCEEDED') {
+        setBalanceWarning(e.details as BalanceExceededDetails);
+        return;
+      }
+      toast.error(e.message);
+    },
   });
 
   const valid = !!employeeId && !!typeId && !!dateFrom && !!dateTo && dateFrom <= dateTo;
-  const sameDay = dateFrom !== '' && dateFrom === dateTo;
 
   return (
+    <>
     <Modal
       title="Neuer Abwesenheitsantrag"
       open={open}
@@ -72,7 +90,7 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
           <button
             className="hm-btn hm-btn--primary"
             disabled={!valid || create.isPending}
-            onClick={() => create.mutate()}
+            onClick={() => create.mutate(false)}
           >
             Antrag erfassen
           </button>
@@ -108,21 +126,16 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
           <input
             type="checkbox"
             checked={halfStart}
-            onChange={(e) => {
-              setHalfStart(e.target.checked);
-              if (sameDay && e.target.checked) setHalfEnd(false);
-            }}
+            onChange={(e) => setHalfStart(e.target.checked)}
           />
           Erster Tag nur halb
         </label>
         <label className="hm-checkbox">
           <input
             type="checkbox"
-            checked={halfEnd}
-            onChange={(e) => {
-              setHalfEnd(e.target.checked);
-              if (sameDay && e.target.checked) setHalfStart(false);
-            }}
+            checked={effectiveHalfEnd}
+            disabled={sameDay}
+            onChange={(e) => setHalfEnd(e.target.checked)}
           />
           Letzter Tag nur halb
         </label>
@@ -155,5 +168,15 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
           : 'Wählen Sie Mitarbeiter:in und Zeitraum für die Tage-Vorschau.'}
       </div>
     </Modal>
+    <ConfirmDialog
+      open={balanceWarning !== null}
+      title="Urlaubssaldo wird überzogen"
+      message={balanceWarning ? balanceExceededQuestion(balanceWarning, 'erfassen') : ''}
+      confirmLabel="Trotzdem erfassen"
+      danger={false}
+      onConfirm={() => create.mutate(true)}
+      onClose={() => setBalanceWarning(null)}
+    />
+    </>
   );
 }

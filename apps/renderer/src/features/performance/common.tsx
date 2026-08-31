@@ -1,11 +1,12 @@
 import React from 'react';
 import type { BadgeTone } from '../../components/ui';
-import type {
-  GoalStatus,
-  ReviewStatus,
-  ReviewCycleStatus,
-  TrainingRegistrationStatus,
-  FeedbackMeetingStatus,
+import {
+  todayIsoLocal,
+  type GoalStatus,
+  type ReviewStatus,
+  type ReviewCycleStatus,
+  type TrainingRegistrationStatus,
+  type FeedbackMeetingStatus,
 } from '@hrmonic/shared';
 
 /** Gemeinsame Kleinteile des Leistungs-Moduls. */
@@ -81,5 +82,5 @@ export const SKILL_LEVEL_COLORS: Record<number, { bg: string; fg: string }> = {
 };
 
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIsoLocal();
 }

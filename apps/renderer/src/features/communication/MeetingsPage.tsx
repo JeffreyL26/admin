@@ -5,6 +5,7 @@ import {
   MEETING_OCCASION_LABELS,
   MEETING_VISIBILITY_LABELS,
   formatDate,
+  todayIsoLocal,
   type MeetingOccasion,
   type MeetingVisibility,
 } from '@hrmonic/shared';
@@ -28,7 +29,7 @@ interface DraftMeeting {
 
 const emptyDraft = (): DraftMeeting => ({
   employee_id: null,
-  meeting_date: new Date().toISOString().slice(0, 10),
+  meeting_date: todayIsoLocal(),
   occasion: 'einzelgespraech',
   participants: '',
   content: '',
@@ -36,8 +37,6 @@ const emptyDraft = (): DraftMeeting => ({
   follow_up_date: '',
   visibility: 'nur_hr',
 });
-
-const todayIso = () => new Date().toISOString().slice(0, 10);
 
 function MeetingEditor({
   open,
@@ -219,7 +218,7 @@ export function MeetingsPage() {
     setEditorOpen(true);
   };
 
-  const followUpDue = (m: Meeting) => m.follow_up_date !== null && m.follow_up_date <= todayIso();
+  const followUpDue = (m: Meeting) => m.follow_up_date !== null && m.follow_up_date <= todayIsoLocal();
 
   return (
     <>

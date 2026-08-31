@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  ArrowLeft, Download, FileClock, FilePlus2, FileText, Pencil, Plus, Trash2, Users,
+  AlertTriangle, ArrowLeft, Download, FileClock, FilePlus2, FileText, Pencil, Plus, Trash2, Users,
 } from 'lucide-react';
 import {
   CONTRACT_TYPE_LABELS,
@@ -12,7 +12,7 @@ import {
   formatDate,
   type ContractDto,
 } from '@hrmonic/shared';
-import { api, downloadFile } from '../../api/client';
+import { ApiRequestError, api, downloadFile } from '../../api/client';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
@@ -76,7 +76,10 @@ export function EmployeeDetailPage() {
         onChange={setTab}
       />
       <div style={{ marginTop: 16 }}>
-        {tab === 'stammdaten' && <MasterDataTab employee={e} />}
+        {/* key: Ein Personenwechsel setzt das Formular immer frisch auf — auch
+            mitten in einer offenen Bearbeitung. Der dirty-Schutz im Tab gilt
+            nur für Refetches DERSELBEN Person. */}
+        {tab === 'stammdaten' && <MasterDataTab key={e.id} employee={e} />}
         {tab === 'vertrag' && <ContractsTab employeeId={employeeId} />}
         {tab === 'dokumente' && <DocumentsTab employeeId={employeeId} />}
         {tab === 'organisation' && <OrgTab employee={e} reportingLine={data.reporting_line} />}
@@ -98,10 +101,23 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
   const [form, setForm] = useState<EmployeeFormState>(() => employeeToForm(employee));
   const [dirty, setDirty] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Stand, auf dem die aktuellen Eingaben basieren: liefert das Feld-Diff beim
+  // Speichern und den expected_updated_at-Wert für die optimistische Sperre.
+  const [base, setBase] = useState(() => ({
+    updated_at: employee.updated_at,
+    form: employeeToForm(employee),
+  }));
+  const [conflictMessage, setConflictMessage] = useState<string | null>(null);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
 
   useEffect(() => {
+    // Fokus-Refetches (staleTime 500 ms, Mehrplatzbetrieb) geben `employee`
+    // laufend neue Identitäten. Bei offenen Eingaben darf das Formular dem
+    // Server NICHT folgen — sonst verschwindet Getipptes kommentarlos.
+    if (dirtyRef.current) return;
     setForm(employeeToForm(employee));
-    setDirty(false);
+    setBase({ updated_at: employee.updated_at, form: employeeToForm(employee) });
   }, [employee]);
 
   const set = (patch: Partial<EmployeeFormState>) => {
@@ -109,16 +125,55 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
     setDirty(true);
   };
 
+  // Ausdrückliche Nutzeraktion — nur hier dürfen offene Eingaben verworfen werden.
+  const adoptServerState = () => {
+    setConflictMessage(null);
+    setForm(employeeToForm(employee));
+    setBase({ updated_at: employee.updated_at, form: employeeToForm(employee) });
+    setDirty(false);
+    qc.invalidateQueries({ queryKey: ['employees', 'detail', employee.id] });
+  };
+
   const save = useMutation({
-    mutationFn: () => api.patch(`/api/employees/${employee.id}`, formToPayload(form)),
-    onSuccess: () => {
+    mutationFn: async (): Promise<{ employee: EmployeeRow }> => {
+      const changes = formToPayload(form, base.form);
+      // Zurückgetippte Eingaben ergeben ein leeres Diff — nichts zu speichern.
+      if (Object.keys(changes).length === 0) return { employee };
+      return api.patch<{ employee: EmployeeRow }>(`/api/employees/${employee.id}`, {
+        ...changes,
+        expected_updated_at: base.updated_at,
+      });
+    },
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       qc.invalidateQueries({ queryKey: ['org'] });
       toast.success('Stammdaten gespeichert');
+      setConflictMessage(null);
       setDirty(false);
+      // Snapshot direkt aus der PATCH-Antwort setzen statt auf den Refetch zu
+      // warten — sonst trüge ein schneller Folge-Save den alten updated_at.
+      setForm(employeeToForm(res.employee));
+      setBase({ updated_at: res.employee.updated_at, form: employeeToForm(res.employee) });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      if (e instanceof ApiRequestError && e.status === 409) {
+        // Die Eingaben bleiben stehen; ob neu geladen wird, entscheidet die
+        // Person im Banner — nie automatisch.
+        setConflictMessage(e.message);
+        return;
+      }
+      toast.error(e.message);
+    },
   });
+
+  // Ein Refetch hat während der Bearbeitung einen neueren Stand gebracht:
+  // vorwarnen, damit der 409 beim Speichern nicht überraschend kommt.
+  // Nur „neuer als“, nicht „ungleich“: Direkt nach dem Speichern setzt die
+  // PATCH-Antwort base.updated_at sofort, während der `employee`-Prop bis zum
+  // Refetch den ÄLTEREN Cache-Stand trägt — bloße Ungleichheit zeigte dann
+  // fälschlich „zwischenzeitlich geändert“. Das Format 'YYYY-MM-DD HH:MM:SS'
+  // sortiert lexikografisch korrekt.
+  const remoteChanged = dirty && employee.updated_at > base.updated_at;
 
   const remove = useMutation({
     mutationFn: () => api.delete(`/api/employees/${employee.id}`),
@@ -132,6 +187,20 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
 
   return (
     <div className="stack">
+      {conflictMessage ? (
+        <Notice tone="danger">
+          {conflictMessage} „Neu laden“ ersetzt das Formular durch den aktuellen Serverstand — Ihre nicht
+          gespeicherten Eingaben gehen dabei verloren.{' '}
+          <button className="hm-btn hm-btn--sm hm-btn--secondary" style={{ marginTop: 6 }} onClick={adoptServerState}>
+            Personalakte neu laden
+          </button>
+        </Notice>
+      ) : remoteChanged ? (
+        <Notice tone="warning">
+          Dieser Datensatz wurde zwischenzeitlich geändert. Ihre Eingaben bleiben erhalten — beim Speichern wird
+          geprüft, ob sich die Änderungen überschneiden.
+        </Notice>
+      ) : null}
       <Card title="Person & Kontakt">
         <PersonFields form={form} set={set} />
       </Card>
@@ -160,6 +229,33 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
         onConfirm={() => remove.mutate()}
         onClose={() => setConfirmDelete(false)}
       />
+    </div>
+  );
+}
+
+/** Hinweis-/Konfliktbanner der Stammdaten-Maske (Töne aus den Theme-Variablen). */
+function Notice({ tone, children }: { tone: 'warning' | 'danger'; children: React.ReactNode }) {
+  const accent = tone === 'danger' ? 'var(--danger)' : 'var(--warning)';
+  return (
+    <div
+      role={tone === 'danger' ? 'alert' : 'status'}
+      style={{
+        display: 'flex',
+        gap: 9,
+        alignItems: 'flex-start',
+        padding: '9px 12px',
+        borderRadius: 'var(--radius-sm)',
+        borderLeft: `3px solid ${accent}`,
+        background: tone === 'danger' ? 'var(--danger-bg)' : 'var(--warning-bg)',
+        color: 'var(--text-secondary)',
+        fontSize: 'var(--text-sm)',
+        lineHeight: 1.5,
+      }}
+    >
+      <span style={{ color: accent, flexShrink: 0, marginTop: 1 }} aria-hidden="true">
+        <AlertTriangle size={15} />
+      </span>
+      <span>{children}</span>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
 import {
   formatDate,
   formatEuro,
+  todayIsoLocal,
   FREELANCER_INVOICE_STATUS_LABELS,
   FREELANCER_RATE_UNIT_LABELS,
   type FreelancerInvoiceStatus,
@@ -517,7 +518,7 @@ function InvoicesTab() {
                             className="hm-btn hm-btn--primary hm-btn--sm"
                             onClick={() => {
                               setPayFor(i);
-                              setPaidDate(new Date().toISOString().slice(0, 10));
+                              setPaidDate(todayIsoLocal());
                             }}
                           >
                             Als bezahlt markieren

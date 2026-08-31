@@ -3,11 +3,11 @@
  * (Arbeitstage Mo–Fr minus Feiertage des Mitarbeiter-Bundeslands minus
  * Betriebsruhe, halbe Tage an Randtagen) und Urlaubssaldo-Berechnung.
  */
-import { getDb } from '../../db/db.js';
+import { getDb, inTransaction } from '../../db/db.js';
 import { eachDay, isWeekend, todayIso } from '../../core/dates.js';
 import { isHoliday, type Bundesland } from '../../core/holidays.js';
 import { getSetting } from '../../core/settings.js';
-import { badRequest, conflict, forbidden } from '../../core/errors.js';
+import { AppError, badRequest, conflict, forbidden } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 
 export interface EmployeeRow {
@@ -90,12 +90,28 @@ export function roundHalf(x: number): number {
   return Math.round(x * 2) / 2;
 }
 
-interface BalanceRequestRow {
+export interface BalanceRequestRow {
   date_from: string;
   date_to: string;
   half_day_start: number;
   half_day_end: number;
   status: string;
+}
+
+/**
+ * Vorgeladener Kontext für Sammel-Aufrufe (z. B. die Saldo-Übersicht über die
+ * gesamte Belegschaft): erspart die Queries je Person, die den synchronen
+ * Prozess sonst für alle parallelen Requests blockieren. `closures` und
+ * `requests` dürfen ein Superset (größerer Zeitraum bzw. eigener Antrag
+ * ausgenommen) sein — Zeiträume außerhalb der Jahresfenster zählen über das
+ * Clipping als 0. Einzel-Aufrufe lassen den Kontext einfach weg.
+ */
+export interface BalanceContext {
+  land?: Bundesland;
+  /** Verfallsstichtag "MM-TT" (getSetting('carryoverDeadline')). */
+  carryoverDeadline?: string;
+  closures?: Set<string>;
+  requests?: BalanceRequestRow[];
 }
 
 export interface BalanceResult {
@@ -124,29 +140,36 @@ export interface BalanceResult {
  *
  * Jahresübergreifende Anträge werden tagesgenau auf die Jahre aufgeteilt.
  */
-export function computeBalance(emp: EmployeeRow, year: number, today = todayIso()): BalanceResult {
+export function computeBalance(
+  emp: EmployeeRow,
+  year: number,
+  today = todayIso(),
+  ctx?: BalanceContext,
+): BalanceResult {
   const db = getDb();
   const annual = emp.annual_leave_days ?? 0;
-  const land = bundeslandForEmployee(emp.id);
-  const deadlineMmDd = getSetting('carryoverDeadline');
+  const land = ctx?.land ?? bundeslandForEmployee(emp.id);
+  const deadlineMmDd = ctx?.carryoverDeadline ?? getSetting('carryoverDeadline');
 
   const hireYear = emp.hire_date ? Number(emp.hire_date.slice(0, 4)) : null;
   const startYear = Math.max(hireYear ?? year - 1, year - 5);
 
   const spanFrom = `${startYear}-01-01`;
   const spanTo = `${year}-12-31`;
-  const closures = closureDates(spanFrom, spanTo);
+  const closures = ctx?.closures ?? closureDates(spanFrom, spanTo);
 
-  const rows = db
-    .prepare(
-      `SELECT r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status
-       FROM absence_requests r
-       JOIN absence_types t ON t.id = r.type_id
-       WHERE r.employee_id = ? AND t.affects_balance = 1
-         AND r.status IN ('genehmigt', 'beantragt')
-         AND r.date_from <= ? AND r.date_to >= ?`,
-    )
-    .all(emp.id, spanTo, spanFrom) as BalanceRequestRow[];
+  const rows =
+    ctx?.requests ??
+    (db
+      .prepare(
+        `SELECT r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status
+         FROM absence_requests r
+         JOIN absence_types t ON t.id = r.type_id
+         WHERE r.employee_id = ? AND t.affects_balance = 1
+           AND r.status IN ('genehmigt', 'beantragt')
+           AND r.date_from <= ? AND r.date_to >= ?`,
+      )
+      .all([emp.id, spanTo, spanFrom]) as BalanceRequestRow[]);
 
   const days = (r: BalanceRequestRow, clipFrom: string, clipTo: string) =>
     countAbsenceDays({
@@ -326,6 +349,112 @@ export function allowedTypeIdsFor(employeeId: number): Set<number> {
   return allowed;
 }
 
+/**
+ * Obergrenze der Spanne je Antrag/Vorschau in der HR-Erfassung. Schutz des
+ * synchronen Backends vor absurden Zeiträumen (ein Jahres-Tippfehler wie
+ * "20260" reicht, um die tageweise Zählung minutenlang laufen zu lassen und
+ * damit ALLE parallelen Requests zu blockieren). Großzügiger als die
+ * 731-Tage-Grenze des Portals, damit lange Elternzeit-Ketten erfassbar bleiben.
+ */
+const MAX_REQUEST_SPAN_DAYS = 5 * 366;
+
+export function assertSpanWithinLimit(dateFrom: string, dateTo: string): void {
+  const span =
+    Math.round(
+      (Date.parse(`${dateTo}T00:00:00Z`) - Date.parse(`${dateFrom}T00:00:00Z`)) / 86_400_000,
+    ) + 1;
+  if (span > MAX_REQUEST_SPAN_DAYS) {
+    throw badRequest('Der Zeitraum ist zu lang (maximal 5 Jahre)');
+  }
+}
+
+/**
+ * Kontingentprüfung: Der Antrag darf den Restanspruch keines betroffenen
+ * Kalenderjahres ins Minus ziehen (jahresübergreifend wird je Jahr geclippt
+ * gezählt). computeBalance rechnet bereits beantragte Tage als geplant ein —
+ * der neue Antrag kommt obendrauf. Kategorie 'krankheit' ist ausgenommen:
+ * Krankmeldungen dürfen nie an einer Saldoprüfung scheitern.
+ *
+ * `excludeRequestId` dient der Neuprüfung bei der Genehmigung (der Saldo kann
+ * sich seit Antragstellung geändert haben): Der zu genehmigende Antrag steckt
+ * als 'beantragt' schon in der Planung und zählte sonst doppelt.
+ *
+ * `pre` reicht bereits geladene Werte des Aufrufers weiter (createRequest hat
+ * Bundesland und Zeitraum-Betriebsruhe ohnehin in der Hand) — sonst wird
+ * selbst geladen.
+ */
+export function assertBalanceCovers(
+  employeeId: number,
+  type: AbsenceTypeRow,
+  span: { date_from: string; date_to: string; half_day_start?: boolean; half_day_end?: boolean },
+  excludeRequestId?: number,
+  pre?: { land?: Bundesland; closures?: Set<string> },
+): void {
+  if (type.affects_balance !== 1 || type.category === 'krankheit') return;
+  const db = getDb();
+  const emp = db.prepare('SELECT * FROM employees WHERE id = ?').get(employeeId) as
+    | EmployeeRow
+    | undefined;
+  if (!emp) return; // Existenz haben die Routen bereits geprüft
+  const fromYear = Number(span.date_from.slice(0, 4));
+  const toYear = Number(span.date_to.slice(0, 4));
+  const today = todayIso();
+
+  // Den vollständigen Rechen-Kontext EINMAL vor dem Jahres-Loop aufbauen:
+  // ohne ihn lüde computeBalance je geprüftem Jahr Bundesland, Verfalls-
+  // stichtag, Betriebsruhe und Anträge der gesamten Übertrags-Kette erneut.
+  // Betriebsruhe und Anträge sind ein Superset über alle geprüften Jahre samt
+  // maximaler Übertrags-Kette (computeBalance geht höchstens 5 Jahre zurück);
+  // überzählige Tage/Zeilen clippen sich dort zu 0.
+  const land = pre?.land ?? bundeslandForEmployee(employeeId);
+  const chainFrom = `${fromYear - 5}-01-01`;
+  const chainTo = `${toYear}-12-31`;
+  const chainClosures = closureDates(chainFrom, chainTo);
+  const requestParams: unknown[] = [employeeId, chainTo, chainFrom];
+  let requestSql = `SELECT r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status
+       FROM absence_requests r
+       JOIN absence_types t ON t.id = r.type_id
+       WHERE r.employee_id = ? AND t.affects_balance = 1
+         AND r.status IN ('genehmigt', 'beantragt')
+         AND r.date_from <= ? AND r.date_to >= ?`;
+  if (excludeRequestId !== undefined) {
+    requestSql += ' AND r.id != ?';
+    requestParams.push(excludeRequestId);
+  }
+  const ctx: BalanceContext = {
+    land,
+    carryoverDeadline: getSetting('carryoverDeadline'),
+    closures: chainClosures,
+    requests: db.prepare(requestSql).all(requestParams) as BalanceRequestRow[],
+  };
+  // Betriebsruhe des Antragszeitraums selbst: vom Aufrufer übernommen, sonst
+  // deckt das Ketten-Superset sie mit ab (countAbsenceDays fragt nur `has`).
+  const spanClosures = pre?.closures ?? chainClosures;
+
+  for (let y = fromYear; y <= toYear; y++) {
+    const requested = countAbsenceDays({
+      land,
+      dateFrom: span.date_from,
+      dateTo: span.date_to,
+      halfDayStart: span.half_day_start,
+      halfDayEnd: span.half_day_end,
+      clipFrom: `${y}-01-01`,
+      clipTo: `${y}-12-31`,
+      closures: spanClosures,
+    });
+    if (requested <= 0) continue;
+    const balance = computeBalance(emp, y, today, ctx);
+    if (balance.remaining - requested < 0) {
+      throw new AppError(
+        409,
+        'BALANCE_EXCEEDED',
+        `Der Urlaubsanspruch für ${y} reicht nicht aus (Restanspruch: ${balance.remaining} Tage, beantragt: ${requested} Tage)`,
+        { year: y, remaining: balance.remaining, requested_days: requested },
+      );
+    }
+  }
+}
+
 export interface CreateRequestBody {
   employee_id: number;
   type_id: number;
@@ -334,13 +463,19 @@ export interface CreateRequestBody {
   half_day_start?: boolean;
   half_day_end?: boolean;
   comment?: string;
+  /**
+   * Überspringt die Saldoprüfung (BALANCE_EXCEEDED) — nur die HR-Erfassung
+   * reicht das Feld durch, das Portal nimmt es bewusst nicht an. Die
+   * Übersteuerung landet im Audit-Detail.
+   */
+  override_balance?: boolean;
 }
 
 /**
  * Legt einen Antrag an (gemeinsam für HR-Erfassung, Krankmeldungen und den
  * Self-Service des Web-Portals): Überlappungsprüfung, Tageszählung,
- * Jahres-Obergrenze der Art, Auto-Genehmigung bei Arten ohne
- * Genehmigungspflicht.
+ * Jahres-Obergrenze der Art, Saldoprüfung (nur bei Auto-Genehmigung, s. u.),
+ * Auto-Genehmigung bei Arten ohne Genehmigungspflicht.
  */
 export function createRequest(
   req: Parameters<typeof audit>[0],
@@ -355,83 +490,141 @@ export function createRequest(
   // Weg vergessen. Geprüft wird ausschließlich die Neuanlage: bestehende
   // Anträge bleiben gültig, wenn eine Berechtigung später entzogen wird.
   assertTypeAllowed(body.employee_id, type);
+  assertSpanWithinLimit(body.date_from, body.date_to);
 
-  const overlapping = db
-    .prepare(
-      `SELECT r.id, r.date_from, r.date_to, t.name AS type_name FROM absence_requests r
-       JOIN absence_types t ON t.id = r.type_id
-       WHERE r.employee_id = ? AND r.status IN ('beantragt', 'genehmigt')
-         AND r.date_from <= ? AND r.date_to >= ?`,
-    )
-    .get(body.employee_id, body.date_to, body.date_from) as
-    | { id: number; date_from: string; date_to: string; type_name: string }
-    | undefined;
-  if (overlapping) {
-    throw conflict(
-      `Überschneidung mit bestehender Abwesenheit (${overlapping.type_name}, ${overlapping.date_from} bis ${overlapping.date_to})`,
-    );
+  // Ein "halber Tag am Ende" eines eintägigen Antrags IST der halbe Tag am
+  // Beginn — ohne Normalisierung zöge countAbsenceDays nichts ab (der
+  // End-Abzug greift nur bei date_to !== date_from) und der gewollte Halbtag
+  // würde still als voller Tag gezählt und persistiert.
+  if (body.date_from === body.date_to && body.half_day_end) {
+    body = { ...body, half_day_start: true, half_day_end: false };
   }
 
-  const land = bundeslandForEmployee(body.employee_id);
-  const days = countAbsenceDays({
-    land,
-    dateFrom: body.date_from,
-    dateTo: body.date_to,
-    halfDayStart: body.half_day_start,
-    halfDayEnd: body.half_day_end,
-    closures: closureDates(body.date_from, body.date_to),
-  });
-  if (days <= 0) {
-    throw badRequest('Der Zeitraum enthält keine zu zählenden Arbeitstage (Wochenende, Feiertage oder Betriebsruhe)');
-  }
-
-  if (type.max_days_per_year !== null) {
-    // Jahreszuordnung über das Startdatum des Antrags (bewusste Vereinfachung).
-    const year = body.date_from.slice(0, 4);
-    const usedRow = db
+  // Prüfen und Schreiben in EINER Transaktion. Heute schützt bereits die
+  // Ein-Prozess-Synchronität (kein await zwischen Prüfung und INSERT) vor
+  // verschränkten Anträgen — die Transaktion sichert genau diese Invariante
+  // ab, damit ein später eingeschobenes await oder ein zweiter Prozess auf
+  // derselben DB keine stillen Doppelbuchungen ermöglicht. Die
+  // Krankmeldungs-Routen verschachteln das (better-sqlite3 nutzt Savepoints).
+  return inTransaction(() => {
+    const overlapping = db
       .prepare(
-        `SELECT COALESCE(SUM(days_counted), 0) AS used FROM absence_requests
-         WHERE employee_id = ? AND type_id = ? AND status IN ('beantragt', 'genehmigt')
-           AND substr(date_from, 1, 4) = ?`,
+        `SELECT r.id, r.date_from, r.date_to, t.name AS type_name, t.category AS type_category
+         FROM absence_requests r
+         JOIN absence_types t ON t.id = r.type_id
+         WHERE r.employee_id = ? AND r.status IN ('beantragt', 'genehmigt')
+           AND r.date_from <= ? AND r.date_to >= ?`,
       )
-      .get(body.employee_id, body.type_id, year) as { used: number };
-    if (usedRow.used + days > type.max_days_per_year) {
+      .all([body.employee_id, body.date_to, body.date_from]) as {
+      id: number;
+      date_from: string;
+      date_to: string;
+      type_name: string;
+      type_category: string;
+    }[];
+    // „Krank im Urlaub" (§ 9 BUrlG): Eine Krankmeldung muss sich mit Urlaub
+    // oder Sonderabwesenheit überschneiden dürfen, sonst wäre der Fall gar
+    // nicht erfassbar. Der überlappte Urlaub wird bewusst NICHT automatisch
+    // gekürzt oder geteilt — die Gutschrift nach § 9 BUrlG setzt die Prüfung
+    // der AU-Bescheinigung voraus und bleibt eine Entscheidung der HR; die
+    // überlappten Anträge stehen dafür im Audit-Detail. Zwei Krankheits-
+    // Zeiträume schließen sich weiterhin aus (Folgebescheinigungen laufen
+    // über follow_up_of_id).
+    const sick = type.category === 'krankheit';
+    const blocking = sick
+      ? overlapping.filter((o) => o.type_category === 'krankheit')
+      : overlapping;
+    if (blocking.length > 0) {
+      const o = blocking[0];
       throw conflict(
-        `Jahresobergrenze für "${type.name}" überschritten (maximal ${type.max_days_per_year} Tage, bereits ${usedRow.used} erfasst)`,
+        `Überschneidung mit bestehender Abwesenheit (${o.type_name}, ${o.date_from} bis ${o.date_to})`,
       );
     }
-  }
+    const overlapped = sick ? overlapping : [];
 
-  const userId = (req.user as { id?: number } | undefined)?.id ?? null;
-  const autoApprove = type.requires_approval === 0;
-  const result = db
-    .prepare(
-      `INSERT INTO absence_requests
-       (employee_id, type_id, date_from, date_to, half_day_start, half_day_end, days_counted,
-        status, comment, decided_by_user_id, decided_at, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${autoApprove ? "datetime('now')" : 'NULL'}, ?)`,
-    )
-    .run(
-      body.employee_id,
-      body.type_id,
-      body.date_from,
-      body.date_to,
-      body.half_day_start ? 1 : 0,
-      body.half_day_end ? 1 : 0,
-      days,
-      autoApprove ? 'genehmigt' : 'beantragt',
-      body.comment ?? null,
-      autoApprove ? userId : null,
-      userId,
-    );
-  const id = Number(result.lastInsertRowid);
-  audit(req, 'create', 'absence_request', id, {
-    employee_id: body.employee_id,
-    type: type.name,
-    date_from: body.date_from,
-    date_to: body.date_to,
-    days_counted: days,
-    status: autoApprove ? 'genehmigt' : 'beantragt',
+    const land = bundeslandForEmployee(body.employee_id);
+    const closures = closureDates(body.date_from, body.date_to);
+    const days = countAbsenceDays({
+      land,
+      dateFrom: body.date_from,
+      dateTo: body.date_to,
+      halfDayStart: body.half_day_start,
+      halfDayEnd: body.half_day_end,
+      closures,
+    });
+    if (days <= 0) {
+      throw badRequest('Der Zeitraum enthält keine zu zählenden Arbeitstage (Wochenende, Feiertage oder Betriebsruhe)');
+    }
+
+    if (type.max_days_per_year !== null) {
+      // Jahreszuordnung über das Startdatum des Antrags (bewusste Vereinfachung).
+      const year = body.date_from.slice(0, 4);
+      const usedRow = db
+        .prepare(
+          `SELECT COALESCE(SUM(days_counted), 0) AS used FROM absence_requests
+           WHERE employee_id = ? AND type_id = ? AND status IN ('beantragt', 'genehmigt')
+             AND substr(date_from, 1, 4) = ?`,
+        )
+        .get([body.employee_id, body.type_id, year]) as { used: number };
+      if (usedRow.used + days > type.max_days_per_year) {
+        throw conflict(
+          `Jahresobergrenze für "${type.name}" überschritten (maximal ${type.max_days_per_year} Tage, bereits ${usedRow.used} erfasst)`,
+        );
+      }
+    }
+
+    // Saldoprüfung nur bei Auto-Genehmigung: Ein genehmigungspflichtiger
+    // Antrag ist zunächst nur ein Wunsch — dort passiert die Saldo-Kontrolle
+    // bei der Genehmigung (der approve-Handler in routes.ts prüft erneut).
+    // Griffe sie schon hier, könnte niemand mit einem offenen Antrag einen
+    // Alternativ-Zeitraum einreichen, weil 'beantragt' im Saldo bereits als
+    // geplant zählt.
+    const autoApprove = type.requires_approval === 0;
+    if (autoApprove && !body.override_balance) {
+      assertBalanceCovers(body.employee_id, type, body, undefined, { land, closures });
+    }
+
+    const userId = (req.user as { id?: number } | undefined)?.id ?? null;
+    const result = db
+      .prepare(
+        `INSERT INTO absence_requests
+         (employee_id, type_id, date_from, date_to, half_day_start, half_day_end, days_counted,
+          status, comment, decided_by_user_id, decided_at, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${autoApprove ? "datetime('now')" : 'NULL'}, ?)`,
+      )
+      .run(
+        body.employee_id,
+        body.type_id,
+        body.date_from,
+        body.date_to,
+        body.half_day_start ? 1 : 0,
+        body.half_day_end ? 1 : 0,
+        days,
+        autoApprove ? 'genehmigt' : 'beantragt',
+        body.comment ?? null,
+        autoApprove ? userId : null,
+        userId,
+      );
+    const id = Number(result.lastInsertRowid);
+    audit(req, 'create', 'absence_request', id, {
+      employee_id: body.employee_id,
+      type: type.name,
+      date_from: body.date_from,
+      date_to: body.date_to,
+      days_counted: days,
+      status: autoApprove ? 'genehmigt' : 'beantragt',
+      ...(body.override_balance ? { override_balance: true } : {}),
+      ...(overlapped.length > 0
+        ? {
+            overlapped_requests: overlapped.map((o) => ({
+              id: o.id,
+              type: o.type_name,
+              date_from: o.date_from,
+              date_to: o.date_to,
+            })),
+          }
+        : {}),
+    });
+    return id;
   });
-  return id;
 }

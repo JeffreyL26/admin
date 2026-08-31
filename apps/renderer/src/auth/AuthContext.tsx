@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { FULL_ACCESS, permits, type AdminArea, type AdminPermissions } from '@hrmonic/shared';
 import { api, hasToken, setToken, setUnauthorizedHandler } from '../api/client';
 
@@ -69,12 +70,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [permissions, setPermissions] = useState<AdminPermissions>(FULL_ACCESS);
   const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
     setPermissions(FULL_ACCESS);
-  }, []);
+    // Gecachte Personaldaten dürfen einen Kontowechsel am selben Gerät nicht
+    // überleben — mit den abgestuften Admin-Rollen sähe das nächste Konto sonst
+    // minutenlang Daten aus Bereichen, die ihm gar nicht zustehen.
+    queryClient.clear();
+  }, [queryClient]);
 
   useEffect(() => {
     setUnauthorizedHandler(logout);
@@ -101,10 +107,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       { email, password },
     );
     if (res.user.role !== 'admin') throw new Error(ADMIN_ONLY_MESSAGE);
+    // Auch hier leeren: Nicht jedes Sitzungsende läuft durch logout() — so gilt
+    // die Regel unabhängig davon, wie die vorherige Sitzung endete.
+    queryClient.clear();
     setToken(res.token);
     setUser(res.user);
     setPermissions(res.permissions ?? FULL_ACCESS);
-  }, []);
+  }, [queryClient]);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     const res = await api.put<{ ok: boolean; token: string }>('/api/auth/password', {

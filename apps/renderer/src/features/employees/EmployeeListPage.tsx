@@ -18,6 +18,7 @@ import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, type BadgeTone } 
 import { MultiSelect } from '../../components/MultiSelect';
 import { Popover } from '../../components/Popover';
 import { useToast } from '../../components/Toast';
+import { useDebounced } from '../../components/useDebounced';
 import {
   EMPTY_FILTERS,
   downloadEmployeesCsv,
@@ -84,6 +85,12 @@ export function EmployeeListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState<EmployeeFilters>(EMPTY_FILTERS);
+  // Das Suchfeld tippt in lokalen State; erst der debouncte Wert wandert in
+  // die Filter (und damit in den Query-Key). Ohne Tipppause ginge pro
+  // Tastenanschlag ein LIKE-Scan an das synchrone Backend und blockierte dort
+  // alle anderen Arbeitsplätze mit.
+  const [searchInput, setSearchInput] = useState(EMPTY_FILTERS.search);
+  const debouncedSearch = useDebounced(searchInput);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -112,6 +119,28 @@ export function EmployeeListPage() {
     setFilters((f) => ({ ...f, ...patch }));
     setSelected(new Set());
   };
+
+  useEffect(() => {
+    setFilters((f) => (f.search === debouncedSearch ? f : { ...f, search: debouncedSearch }));
+    // Auswahl wie bei jedem anderen Filterwechsel verwerfen — sie bezöge sich
+    // sonst auf Zeilen, die gar nicht mehr sichtbar sind.
+    setSelected((s) => (s.size ? new Set<number>() : s));
+  }, [debouncedSearch]);
+
+  useEffect(() => {
+    // keepPreviousData zeigt während des Fetch noch die ALTEN Zeilen — dort
+    // angehakte IDs können in der neuen Antwort fehlen, blieben aber in
+    // `selected` stehen; eine Massenbearbeitung träfe dann unsichtbare
+    // Personen. Die Auswahl wird deshalb bei jeder Antwort auf die tatsächlich
+    // gelieferten IDs beschnitten.
+    if (!employees) return;
+    setSelected((s) => {
+      if (s.size === 0) return s;
+      const current = new Set(employees.map((e) => e.id));
+      const next = new Set([...s].filter((id) => current.has(id)));
+      return next.size === s.size ? s : next;
+    });
+  }, [employees]);
 
   const visible = useMemo(() => {
     const chosen = new Set(view.columns);
@@ -268,8 +297,8 @@ export function EmployeeListPage() {
               className="hm-input"
               style={{ paddingLeft: 34 }}
               placeholder="Suchen (Name, E-Mail, Ort, IBAN, …)"
-              value={filters.search}
-              onChange={(e) => set({ search: e.target.value })}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
             />
           </div>
 

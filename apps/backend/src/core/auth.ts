@@ -266,6 +266,34 @@ async function throttleLogin(req: FastifyRequest): Promise<void> {
   }
 }
 
+/**
+ * Fehlversuchs-Schlüssel für den Passwortwechsel — gleiche Mechanik und Map
+ * wie beim Login, aber pro Konto-ID: Die Route ist nur angemeldet erreichbar,
+ * der Absender ist also bereits ein konkretes Konto (bzw. dessen abgegriffenes
+ * Token, das das Passwort selbst nicht kennt). Ohne Schranke ließe sich das
+ * aktuelle Passwort unbegrenzt durchprobieren und der bcrypt-Vergleich als
+ * Event-Loop-DoS gegen alle Arbeitsplätze samt Portal missbrauchen.
+ */
+function pwChangeKey(userId: number): string {
+  return `pwchange:${userId}`;
+}
+
+/**
+ * preHandler von PUT /api/auth/password: läuft wie throttleLogin VOR dem
+ * bcrypt-Vergleich im Handler — eine Prüfung danach würde die DoS-Wirkung
+ * nicht entschärfen. Der globale Auth-Hook (onRequest) ist zu diesem
+ * Zeitpunkt bereits gelaufen, req.user ist also gesetzt.
+ */
+async function throttlePasswordChange(req: FastifyRequest): Promise<void> {
+  if (countFailures(pwChangeKey(req.user.id), Date.now()) < MAX_FAILURES_PER_EMAIL) return;
+  req.log.warn({ userId: req.user.id }, 'Passwortwechsel gesperrt: zu viele Fehlversuche');
+  throw new AppError(
+    429,
+    'TOO_MANY_REQUESTS',
+    'Zu viele fehlgeschlagene Versuche. Bitte versuchen Sie es in einigen Minuten erneut.',
+  );
+}
+
 // --------------------------------------------------------------------------
 // Passwortregeln (S9)
 // --------------------------------------------------------------------------
@@ -404,7 +432,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     permissions: permissionsFor(req.user.admin_role_id),
   }));
 
-  app.put('/api/auth/password', async (req) => {
+  app.put('/api/auth/password', { preHandler: throttlePasswordChange }, async (req) => {
     const body = parse(
       // Regeln bewusst nicht im Schema — siehe assertPasswordAcceptable.
       z.object({ currentPassword: z.string(), newPassword: z.string() }),
@@ -415,18 +443,31 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       | { email: string; password_hash: string }
       | undefined;
     // Auch hier gegen den Dummy-Hash vergleichen, damit ein zwischenzeitlich
-    // gelöschtes Konto nicht an der Antwortzeit erkennbar ist.
-    const currentMatches = bcrypt.compareSync(
+    // gelöschtes Konto nicht an der Antwortzeit erkennbar ist. Asynchrone
+    // bcrypt-API: compareSync würde die volle Rechenzeit (~65 ms) am Stück im
+    // einzigen Node-Prozess verbringen — bcryptjs zerlegt die Arbeit asynchron
+    // in Event-Loop-Häppchen, dazwischen kommen andere Requests zum Zug.
+    const currentMatches = await bcrypt.compare(
       body.currentPassword,
       row?.password_hash ?? DUMMY_PASSWORD_HASH,
     );
     if (!row || !currentMatches) {
+      // Nur der falsche aktuelle Passwort-Versuch zählt — Verstöße gegen die
+      // Passwortregeln weiter unten sperrten sonst legitime Nutzer aus, die
+      // mehrfach an der Richtlinie scheitern.
+      noteFailure(pwChangeKey(req.user.id), MAX_FAILURES_PER_EMAIL, Date.now());
+      req.log.warn({ userId: req.user.id }, 'Passwortwechsel fehlgeschlagen');
+      // Wie beim Login: im Serverbetrieb die einzige dauerhafte Spur, wenn
+      // jemand mit einem abgegriffenen Token das Passwort durchprobiert.
+      audit(req, 'passwortwechsel_fehlgeschlagen', 'user', req.user.id, { ip: req.ip });
       throw badRequest('Das aktuelle Passwort ist falsch');
     }
+    loginFailures.delete(pwChangeKey(req.user.id));
     assertPasswordAcceptable(body.newPassword, row.email);
-    if (bcrypt.compareSync(body.newPassword, row.password_hash)) {
+    if (await bcrypt.compare(body.newPassword, row.password_hash)) {
       throw badRequest('Das neue Passwort muss sich vom bisherigen unterscheiden');
     }
+    const newHash = await bcrypt.hash(body.newPassword, 10);
 
     // sessions_valid_from in Unix-SEKUNDEN (gleiche Einheit wie das JWT-Feld
     // iat). Alle älteren Tokens gelten damit ab sofort als ungültig — ein
@@ -436,9 +477,22 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     // laufenden Sekunde überlebte ein Token, das in derselben Sekunde
     // ausgestellt wurde, den Wechsel.
     const validFrom = nextSessionsValidFrom();
-    db.prepare(
-      'UPDATE users SET password_hash = ?, must_change_password = 0, sessions_valid_from = ? WHERE id = ?',
-    ).run(bcrypt.hashSync(body.newPassword, 10), validFrom, req.user.id);
+    // TOCTOU-Schutz: Durch das asynchrone bcrypt liegen awaits zwischen dem
+    // Lesen der users-Zeile und diesem UPDATE. Ein paralleler
+    // Admin-Passwort-Reset (neuer Hash, must_change_password = 1) könnte
+    // dazwischen laufen und würde hier kommentarlos überschrieben — der
+    // Wechselzwang wäre ausgehebelt. Das UPDATE greift deshalb nur, wenn die
+    // Zeile noch genau den Hash trägt, gegen den oben verglichen wurde.
+    const info = db
+      .prepare(
+        'UPDATE users SET password_hash = ?, must_change_password = 0, sessions_valid_from = ? WHERE id = ? AND password_hash = ?',
+      )
+      .run(newHash, validFrom, req.user.id, row.password_hash);
+    if (info.changes === 0) {
+      // Die Zeile hat sich zwischenzeitlich geändert — das eben geprüfte
+      // "aktuelle Passwort" ist damit nicht mehr das aktuelle.
+      throw badRequest('Das aktuelle Passwort ist falsch');
+    }
     audit(req, 'passwort_geaendert', 'user', req.user.id);
 
     // Frisches Token mitliefern: Das alte ist durch sessions_valid_from soeben

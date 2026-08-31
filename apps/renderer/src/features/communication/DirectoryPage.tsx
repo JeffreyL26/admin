@@ -6,19 +6,33 @@ import {
   DIRECTORY_FIELD_LABELS,
   type DirectoryFieldKey,
 } from '@hrmonic/shared';
-import { API_BASE } from '../../api/client';
 import { Avatar, Badge, EmptyState, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import { useDebounced } from '../../components/useDebounced';
+import { usePhotoUrl } from '../employees/api';
 import { useDirectory, useDirectoryFields, useOrg, useSaveDirectoryFields } from './api';
 
-function useDebounced(value: string, delayMs = 300): string {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delayMs);
-    return () => clearTimeout(t);
-  }, [value, delayMs]);
-  return debounced;
+/**
+ * Eigener Baustein, weil je Karte ein Hook nötig ist. Die vom Server je
+ * Antwort mitsignierte photo_url wird EINMAL konsumiert und das Bild im
+ * Foto-Cache gehalten (usePhotoUrl, Key = photo_file_id) — die URL selbst ist
+ * nur 60 s gültig und no-store, direkt im <img> lud jeder Fokus-Refetch
+ * sämtliche Fotos in Originalgröße neu. Nicht clientseitig nachsignieren:
+ * Das verlangt personal:lesen, das Verzeichnis aber nur kommunikation:lesen.
+ * Schlägt das Laden fehl, fällt der Avatar auf die Initialen zurück.
+ */
+function DirectoryAvatar({
+  name,
+  photoFileId,
+  signedUrl,
+}: {
+  name: string;
+  photoFileId: number | null | undefined;
+  signedUrl: string | null | undefined;
+}) {
+  const photo = usePhotoUrl(photoFileId, signedUrl);
+  return <Avatar name={name} size={48} src={photo.data} />;
 }
 
 function FieldVisibilityDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -196,11 +210,7 @@ export function DirectoryPage() {
               >
                 <div className="hm-card__body" style={{ padding: 16 }}>
                   <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
-                    <Avatar
-                      name={name}
-                      size={48}
-                      src={e.photo_url ? `${API_BASE}${e.photo_url}` : undefined}
-                    />
+                    <DirectoryAvatar name={name} photoFileId={e.photo_file_id} signedUrl={e.photo_url} />
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontWeight: 650 }}>{name}</div>
                       {fields?.job_title && (

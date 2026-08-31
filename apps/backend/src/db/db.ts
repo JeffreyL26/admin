@@ -8,6 +8,12 @@ export function getDb(): Database.Database {
     db = new Database(config.dbPath);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
+    // Das Backup-Skript (scripts/backup.ts, systemd-Timer) öffnet im laufenden
+    // Betrieb eine zweite Verbindung auf dieselbe Datenbank. Kollidiert ein
+    // WAL-Checkpoint mit deren Snapshot, soll er kurz warten statt sofort mit
+    // SQLITE_BUSY zu scheitern — explizit gesetzt statt auf die Vorgabe von
+    // better-sqlite3 zu vertrauen.
+    db.pragma('busy_timeout = 5000');
   }
   return db;
 }

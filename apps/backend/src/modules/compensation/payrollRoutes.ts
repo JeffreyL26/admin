@@ -98,11 +98,26 @@ function absenceIntervals(kindFilter: 'unbezahlt' | 'krank'): Map<number, Absenc
     }
     if (typeCond === '1=0') return result;
 
+    // Kinderkrankentage laufen über Kinderkrankengeld und zählen NICHT in die
+    // 6-Wochen-Entgeltfortzahlung — das Abwesenheitsmodul weist sie über
+    // sick_notes.child_sick getrennt aus (dort fließen sie ebenfalls nicht in
+    // sick_pay_exceeded ein). Ohne diesen Ausschluss verschmölze die
+    // 42-Tage-Kette eigene Erkrankung und „Kind krank" (beide matchen
+    // LIKE '%krank%') und das Flag lohnfortzahlung_ende erschiene zu früh.
+    let childSickCond = '';
+    if (kindFilter === 'krank' && cols.includes('id') && tableExists('sick_notes')) {
+      const sCols = tableColumns('sick_notes');
+      if (sCols.includes('absence_request_id') && sCols.includes('child_sick')) {
+        childSickCond = ` AND NOT EXISTS (SELECT 1 FROM sick_notes sn
+           WHERE sn.absence_request_id = r.id AND sn.child_sick = 1)`;
+      }
+    }
+
     const rows = getDb()
       .prepare(
         `SELECT r.employee_id, r.${startCol} AS start, r.${endCol} AS end
          FROM absence_requests r ${join}
-         WHERE ${statusCond} AND (${typeCond})`,
+         WHERE ${statusCond} AND (${typeCond})${childSickCond}`,
       )
       .all() as { employee_id: number; start: string; end: string }[];
     for (const row of rows) {
@@ -175,15 +190,61 @@ function assembleMonth(month: string): AssembledItem[] {
   const unpaidByEmployee = absenceIntervals('unbezahlt');
   const sickByEmployee = absenceIntervals('krank');
 
+  // Sammelabfragen statt drei Queries je Person (Muster wie absenceIntervals):
+  // better-sqlite3 läuft synchron im einzigen Node-Prozess — während der
+  // Zusammenstellung wartet jeder andere Request, auch das Portal. Die
+  // Gruppierung im Speicher hält die Reihenfolge der ORDER-BY-Klauseln, auf
+  // die die Auswertung unten (neueste Zeile je Art) angewiesen ist.
+  const componentsByEmployee = new Map<number, SalaryComponentRow[]>();
+  const componentRows = db
+    .prepare(
+      `SELECT * FROM salary_components
+       WHERE valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?)
+       ORDER BY kind, valid_from DESC`,
+    )
+    .all([end, start]) as SalaryComponentRow[];
+  for (const r of componentRows) {
+    const list = componentsByEmployee.get(r.employee_id) ?? [];
+    list.push(r);
+    componentsByEmployee.set(r.employee_id, list);
+  }
+
+  interface MonthBonusRow {
+    id: number;
+    employee_id: number;
+    kind: string;
+    title: string;
+    amount_cents: number | null;
+    target_amount_cents: number | null;
+    goal_id: number | null;
+  }
+  const bonusesByEmployee = new Map<number, MonthBonusRow[]>();
+  const monthBonusRows = db
+    .prepare(`SELECT * FROM bonuses WHERE payout_month = ? AND status = 'freigegeben'`)
+    .all(month) as MonthBonusRow[];
+  for (const b of monthBonusRows) {
+    const list = bonusesByEmployee.get(b.employee_id) ?? [];
+    list.push(b);
+    bonusesByEmployee.set(b.employee_id, list);
+  }
+
+  const changedEmployeeIds = new Set(
+    (
+      db
+        .prepare(
+          `SELECT DISTINCT c.employee_id FROM salary_components c
+           WHERE c.valid_from >= ? AND c.valid_from <= ?
+             AND EXISTS (SELECT 1 FROM salary_components p
+                         WHERE p.employee_id = c.employee_id AND p.kind = c.kind
+                           AND p.valid_from < c.valid_from)`,
+        )
+        .all([start, end]) as { employee_id: number }[]
+    ).map((r) => r.employee_id),
+  );
+
   return employees.map((e) => {
     // Im Monat aktive Komponenten; je Art nur die neueste Zeile (voller Monatswert).
-    const rows = db
-      .prepare(
-        `SELECT * FROM salary_components
-         WHERE employee_id = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?)
-         ORDER BY kind, valid_from DESC`,
-      )
-      .all(e.id, end, start) as SalaryComponentRow[];
+    const rows = componentsByEmployee.get(e.id) ?? [];
     const byKind = new Map<string, SalaryComponentRow>();
     for (const r of rows) if (!byKind.has(r.kind)) byKind.set(r.kind, r);
     const components = [...byKind.values()].map((c) => ({
@@ -195,18 +256,7 @@ function assembleMonth(month: string): AssembledItem[] {
     const gross = components.reduce((s, c) => s + c.monthly_cents, 0);
 
     // Freigegebene Boni mit payout_month = Monat.
-    const bonusRows = db
-      .prepare(
-        `SELECT * FROM bonuses WHERE employee_id = ? AND payout_month = ? AND status = 'freigegeben'`,
-      )
-      .all(e.id, month) as {
-      id: number;
-      kind: string;
-      title: string;
-      amount_cents: number | null;
-      target_amount_cents: number | null;
-      goal_id: number | null;
-    }[];
+    const bonusRows = bonusesByEmployee.get(e.id) ?? [];
     const bonuses = bonusRows.map((b) => ({
       id: b.id,
       kind: b.kind,
@@ -221,17 +271,7 @@ function assembleMonth(month: string): AssembledItem[] {
     const flags: PayrollFlag[] = [];
     if (e.hire_date && e.hire_date >= start && e.hire_date <= end) flags.push('neueintritt');
     if (e.exit_date && e.exit_date >= start && e.exit_date <= end) flags.push('austritt');
-    const changed = db
-      .prepare(
-        `SELECT 1 FROM salary_components c
-         WHERE c.employee_id = ? AND c.valid_from >= ? AND c.valid_from <= ?
-           AND EXISTS (SELECT 1 FROM salary_components p
-                       WHERE p.employee_id = c.employee_id AND p.kind = c.kind
-                         AND p.valid_from < c.valid_from)
-         LIMIT 1`,
-      )
-      .get(e.id, start, end);
-    if (changed) flags.push('gehaltsaenderung');
+    if (changedEmployeeIds.has(e.id)) flags.push('gehaltsaenderung');
 
     let unpaidDays = 0;
     for (const iv of unpaidByEmployee.get(e.id) ?? []) {

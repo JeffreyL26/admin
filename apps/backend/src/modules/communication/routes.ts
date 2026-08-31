@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { AppError, badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
+import { todayIso } from '../../core/dates.js';
 import { getSetting } from '../../core/settings.js';
 import { signDownloadUrl } from '../../core/files.js';
+import { isoDateString } from '../../core/validation.js';
 import {
   audienceShape,
   audienceName,
@@ -17,17 +19,92 @@ import {
 // Gemeinsame Helfer
 // ---------------------------------------------------------------------------
 
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum im Format JJJJ-MM-TT erwartet');
+// Kalenderprüfung inklusive (core/validation.ts) — ein Regex allein ließe
+// '2026-02-31' durch, gespeichert verfälscht das die String-Vergleiche in
+// announcementStatus & Co.
+const isoDate = isoDateString;
 const idParam = z.object({ id: z.coerce.number().int().positive() });
-
-/** Heutiges Datum als ISO-String in lokaler Zeit (Serverzeit = Firmenzeit). */
-function todayIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 function userId(req: { user: unknown }): number | null {
   return (req.user as { id?: number } | undefined)?.id ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Zielgruppen-Auflösung für Listen
+// ---------------------------------------------------------------------------
+
+/**
+ * Vorgeladene Zielgruppen-Daten für die Listen-Endpunkte. audienceName() und
+ * countAudience() feuern je Aufruf eigene Queries — in den Listen
+ * (Ankündigungen, Umfragen) wären das zwei bis drei Queries PRO ZEILE, und
+ * die Listen wachsen über die Betriebsjahre unbegrenzt. Die Lookup-Tabellen
+ * sind dagegen winzig; eine Handvoll Sammelabfragen ersetzt so hunderte
+ * Einzelqueries, die den synchronen Event-Loop am Stück blockieren würden.
+ * Die Einzel-Routen (GET :id, POST, PUT) bleiben bei der Query-Variante.
+ */
+interface AudienceLookup {
+  names: Record<Exclude<AudienceType, 'alle'>, Map<number, string>>;
+  counts: Record<Exclude<AudienceType, 'alle'>, Map<number, number>>;
+  total: number;
+}
+
+function loadAudienceLookup(): AudienceLookup {
+  const db = getDb();
+  const nameMap = (table: string): Map<number, string> =>
+    new Map(
+      (db.prepare(`SELECT id, name FROM ${table}`).all() as { id: number; name: string }[]).map(
+        (r) => [r.id, r.name] as const,
+      ),
+    );
+  const countMap = (column: string): Map<number, number> =>
+    new Map(
+      (
+        db
+          .prepare(
+            `SELECT ${column} AS id, COUNT(*) AS c FROM employees
+             WHERE status = 'aktiv' AND ${column} IS NOT NULL GROUP BY ${column}`,
+          )
+          .all() as { id: number; c: number }[]
+      ).map((r) => [r.id, r.c] as const),
+    );
+  return {
+    names: {
+      abteilung: nameMap('departments'),
+      team: nameMap('teams'),
+      standort: nameMap('locations'),
+    },
+    counts: {
+      abteilung: countMap('department_id'),
+      team: countMap('team_id'),
+      standort: countMap('location_id'),
+    },
+    total: (
+      db.prepare("SELECT COUNT(*) AS c FROM employees WHERE status = 'aktiv'").get() as {
+        c: number;
+      }
+    ).c,
+  };
+}
+
+/** Gleiche Semantik wie audienceName()/countAudience(), nur aus den Maps. */
+function resolveAudience(
+  lookup: AudienceLookup,
+  audienceType: AudienceType,
+  audienceId: number | null,
+): { audience_name: string | null; recipients: number } {
+  if (audienceType === 'alle') return { audience_name: null, recipients: lookup.total };
+  if (audienceId === null) return { audience_name: null, recipients: 0 };
+  return {
+    audience_name: lookup.names[audienceType].get(audienceId) ?? null,
+    recipients: lookup.counts[audienceType].get(audienceId) ?? 0,
+  };
+}
+
+/** Zähler je Fremdschlüssel in einer Query — GROUP BY statt COUNT je Zeile. */
+function countsBy(sql: string): Map<number, number> {
+  return new Map(
+    (getDb().prepare(sql).all() as { id: number; c: number }[]).map((r) => [r.id, r.c] as const),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -150,18 +227,33 @@ function questionToJson(q: QuestionRow) {
   };
 }
 
-function surveyToJson(s: SurveyRow) {
-  const participantCount = (
-    getDb().prepare('SELECT COUNT(*) AS c FROM survey_participations WHERE survey_id = ?').get(s.id) as {
-      c: number;
-    }
-  ).c;
+/** Kontext der Listen-Route — siehe AudienceLookup. */
+interface SurveyListContext {
+  participantCounts: Map<number, number>;
+  audience: AudienceLookup;
+  defaultMinParticipants: number;
+}
+
+function surveyToJson(s: SurveyRow, ctx?: SurveyListContext) {
+  const participantCount = ctx
+    ? (ctx.participantCounts.get(s.id) ?? 0)
+    : (
+        getDb()
+          .prepare('SELECT COUNT(*) AS c FROM survey_participations WHERE survey_id = ?')
+          .get(s.id) as { c: number }
+      ).c;
+  const audience = ctx
+    ? resolveAudience(ctx.audience, s.audience_type, s.audience_id)
+    : {
+        audience_name: audienceName(s.audience_type, s.audience_id),
+        recipients: countAudience(s.audience_type, s.audience_id),
+      };
   return {
     ...s,
-    audience_name: audienceName(s.audience_type, s.audience_id),
-    recipients: countAudience(s.audience_type, s.audience_id),
+    ...audience,
     participant_count: participantCount,
-    effective_min_participants: s.min_participants ?? getSetting('surveyMinParticipants'),
+    effective_min_participants:
+      s.min_participants ?? ctx?.defaultMinParticipants ?? getSetting('surveyMinParticipants'),
   };
 }
 
@@ -199,19 +291,31 @@ function announcementStatus(a: Pick<AnnouncementRow, 'publish_at' | 'expires_at'
   return 'aktiv';
 }
 
-function announcementToJson(a: AnnouncementRow) {
-  const db = getDb();
-  const ackCount = (
-    db.prepare('SELECT COUNT(*) AS c FROM announcement_acks WHERE announcement_id = ?').get(a.id) as {
-      c: number;
-    }
-  ).c;
+/** Kontext der Listen-Route — siehe AudienceLookup. */
+interface AnnouncementListContext {
+  ackCounts: Map<number, number>;
+  audience: AudienceLookup;
+}
+
+function announcementToJson(a: AnnouncementRow, ctx?: AnnouncementListContext) {
+  const ackCount = ctx
+    ? (ctx.ackCounts.get(a.id) ?? 0)
+    : (
+        getDb()
+          .prepare('SELECT COUNT(*) AS c FROM announcement_acks WHERE announcement_id = ?')
+          .get(a.id) as { c: number }
+      ).c;
+  const audience = ctx
+    ? resolveAudience(ctx.audience, a.audience_type, a.audience_id)
+    : {
+        audience_name: audienceName(a.audience_type, a.audience_id),
+        recipients: countAudience(a.audience_type, a.audience_id),
+      };
   return {
     ...a,
     requires_ack: a.requires_ack === 1,
     status: announcementStatus(a),
-    audience_name: audienceName(a.audience_type, a.audience_id),
-    recipients: countAudience(a.audience_type, a.audience_id),
+    ...audience,
     ack_count: ackCount,
   };
 }
@@ -445,7 +549,13 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     const rows = getDb()
       .prepare('SELECT * FROM announcements ORDER BY publish_at DESC, id DESC')
       .all() as AnnouncementRow[];
-    return { announcements: rows.map(announcementToJson) };
+    const ctx: AnnouncementListContext = {
+      ackCounts: countsBy(
+        'SELECT announcement_id AS id, COUNT(*) AS c FROM announcement_acks GROUP BY announcement_id',
+      ),
+      audience: loadAudienceLookup(),
+    };
+    return { announcements: rows.map((a) => announcementToJson(a, ctx)) };
   });
 
   app.get('/api/communication/announcements/:id', async (req) => {
@@ -546,7 +656,15 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
   // ------------------------------------------------------------------ Umfragen
   app.get('/api/communication/surveys', async () => {
     const rows = getDb().prepare('SELECT * FROM surveys ORDER BY date_from DESC, id DESC').all() as SurveyRow[];
-    return { surveys: rows.map(surveyToJson) };
+    const ctx: SurveyListContext = {
+      participantCounts: countsBy(
+        'SELECT survey_id AS id, COUNT(*) AS c FROM survey_participations GROUP BY survey_id',
+      ),
+      audience: loadAudienceLookup(),
+      // Einmal je Request statt je Zeile — getSetting liest ungecacht aus der DB.
+      defaultMinParticipants: getSetting('surveyMinParticipants'),
+    };
+    return { surveys: rows.map((s) => surveyToJson(s, ctx)) };
   });
 
   app.get('/api/communication/surveys/:id', async (req) => {

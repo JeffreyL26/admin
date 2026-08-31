@@ -5,6 +5,7 @@ import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import {
   EMPLOYEE_COLUMNS,
+  assertExitNotBeforeHire,
   assertTypeRules,
   bulkBodySchema,
   employeeBodySchema,
@@ -42,6 +43,17 @@ const SORT_COLUMNS = {
   job_title: 'e.job_title COLLATE NOCASE',
   department: 'd.name COLLATE NOCASE',
 } as const;
+
+/**
+ * Optimistische Sperre für den Stammdaten-PATCH: Der Client schickt den
+ * `updated_at`-Stand mit, auf dem seine Eingaben basieren. Ohne den Vergleich
+ * überschreiben sich zwei parallel editierende Arbeitsplätze kommentarlos
+ * (Lost Update). Das Feld ist bewusst KEIN Spaltenkandidat — EMPLOYEE_COLUMNS
+ * kennt es nicht, employeePatchSchema streift es ab.
+ */
+const concurrencySchema = z.object({
+  expected_updated_at: z.string().nullish(),
+});
 
 const listQuerySchema = z.object({
   search: z.string().trim().optional(),
@@ -278,6 +290,10 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/employees', async (req, reply) => {
     const body = parse(employeeBodySchema, req.body);
     assertTypeRules(body);
+    // Beim Anlegen kommen beide Datumsfelder frisch aus der Eingabe — hier
+    // darf die Reihenfolge-Prüfung immer laufen (sie greift nur, wenn beide
+    // gesetzt sind).
+    assertExitNotBeforeHire(body);
     assertPersonnelNumberFree(body.personnel_number);
     const cols = EMPLOYEE_COLUMNS.filter((c) => body[c] !== undefined);
     const info = getDb()
@@ -297,10 +313,25 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       | Record<string, unknown>
       | undefined;
     if (!existing) throw notFound('Mitarbeiter:in nicht gefunden');
+    // Der Vergleich VOR dem UPDATE genügt: better-sqlite3 arbeitet synchron im
+    // einzigen Prozess, zwischen Lesen und Schreiben läuft kein zweiter Request.
+    const { expected_updated_at } = parse(concurrencySchema, req.body);
+    if (expected_updated_at != null && expected_updated_at !== existing.updated_at) {
+      throw conflict(
+        'Der Datensatz wurde zwischenzeitlich von jemand anderem geändert. Bitte laden Sie die Personalakte neu und übernehmen Sie Ihre Änderungen erneut.',
+      );
+    }
     const patch = parse(employeePatchSchema, req.body);
     const cols = EMPLOYEE_COLUMNS.filter((c) => patch[c] !== undefined);
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
     assertTypeRules({ ...existing, ...patch });
+    // Nur prüfen, wenn das Patch eines der Datumsfelder tatsächlich setzt:
+    // Eine Bestandszeile mit Altlast (exit < hire) bleibt sonst für jede
+    // unbeteiligte Änderung (z. B. Telefonnummer) gesperrt — das Feld-Diffing
+    // des Clients schickt unveränderte Datumsfelder gar nicht mehr mit.
+    if (patch.hire_date !== undefined || patch.exit_date !== undefined) {
+      assertExitNotBeforeHire({ ...existing, ...patch });
+    }
     assertPersonnelNumberFree(patch.personnel_number, id);
     getDb()
       .prepare(
