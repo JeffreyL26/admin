@@ -98,6 +98,36 @@ function stamp(now: Date): string {
   );
 }
 
+/**
+ * Restore-Schritte für das MANIFEST — plattformabhängig.
+ *
+ * Das Skript selbst läuft auf beiden Systemen unverändert (reines Node), die
+ * Anleitung daneben tat es nicht: Sie nannte fest systemctl, chown und
+ * /var/lib/hrmonic. Auf einem Windows-Server erklärte die Sicherung damit
+ * einen Weg, den es dort nicht gibt — und zwar genau in dem Moment, in dem
+ * jemand unter Druck davorsteht.
+ */
+function restoreSteps(): string[] {
+  if (process.platform === 'win32') {
+    return [
+      '  nssm stop HRMONIC',
+      '  Rename-Item C:\\ProgramData\\HRMONIC\\data data.alt',
+      '  New-Item -ItemType Directory C:\\ProgramData\\HRMONIC\\data',
+      '  Copy-Item hrmonic.db, secret.key, storage -Destination C:\\ProgramData\\HRMONIC\\data -Recurse',
+      '  powershell -File <Programmverzeichnis>\\deploy\\windows\\harden-data-dir.ps1',
+      '  nssm start HRMONIC',
+    ];
+  }
+  return [
+    '  systemctl stop hrmonic-backend',
+    '  mv /var/lib/hrmonic /var/lib/hrmonic.alt',
+    '  install -d -o hrmonic -g hrmonic -m 0700 /var/lib/hrmonic',
+    '  cp -a hrmonic.db storage secret.key /var/lib/hrmonic/',
+    '  chown -R hrmonic:hrmonic /var/lib/hrmonic && chmod -R go-rwx /var/lib/hrmonic',
+    '  systemctl start hrmonic-backend',
+  ];
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ['KB', 'MB', 'GB', 'TB'];
@@ -272,12 +302,7 @@ async function main(): Promise<void> {
       '  secret.key  JWT-/Signatur-Secret',
       '',
       'Restore (Dienst muss gestoppt sein):',
-      '  systemctl stop hrmonic-backend',
-      '  mv /var/lib/hrmonic /var/lib/hrmonic.alt',
-      '  install -d -o hrmonic -g hrmonic -m 0700 /var/lib/hrmonic',
-      '  cp -a hrmonic.db storage secret.key /var/lib/hrmonic/',
-      '  chown -R hrmonic:hrmonic /var/lib/hrmonic && chmod -R go-rwx /var/lib/hrmonic',
-      '  systemctl start hrmonic-backend',
+      ...restoreSteps(),
       '',
       'Achtung: Vorhandene .db-wal/.db-shm des alten Standes NICHT mitkopieren.',
       'Ausführliche Fassung: docs/inbetriebnahme.md, Abschnitt "Restore-Probe".',
