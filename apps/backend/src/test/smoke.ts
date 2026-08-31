@@ -12,6 +12,8 @@ process.env.HRMONIC_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../server.js');
 const { closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
+const { CLIENT_VERSION_HEADER, SERVER_VERSION_HEADER, MIN_CLIENT_VERSION } =
+  await import('@hrmonic/shared');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -23,6 +25,52 @@ const app = await buildServer();
 
 const health = await app.inject({ method: 'GET', url: '/api/health' });
 check('Health-Check', health.statusCode === 200);
+
+// Versionsabgleich (core/version.ts). Der Gate kann im Serverbetrieb jeden
+// Arbeitsplatz aussperren — die Grenzfälle gehören deshalb abgesichert:
+// Die Ausnahme für /api/health muss bleiben (sonst kann eine abgewiesene App
+// die Ursache nicht lesen), und ein fehlender Header darf NICHT sperren
+// (Portal, Monitoring, curl schicken keinen).
+const clientHeader = (v: string) => ({ [CLIENT_VERSION_HEADER]: v });
+check('Health nennt seine Version', health.json().version === MIN_CLIENT_VERSION, health.json());
+check('Serverversion als Header', health.headers[SERVER_VERSION_HEADER] !== undefined);
+
+const oldClient = await app.inject({
+  method: 'GET',
+  url: '/api/settings',
+  headers: clientHeader('0.9.9'),
+});
+check('Zu alter Client → 426', oldClient.statusCode === 426, oldClient.json());
+check('… mit Code CLIENT_TOO_OLD', oldClient.json().error?.code === 'CLIENT_TOO_OLD');
+
+const oldLogin = await app.inject({
+  method: 'POST',
+  url: '/api/auth/login',
+  headers: clientHeader('0.9.9'),
+  payload: { email: 'admin@hrmonic.de', password: 'egal' },
+});
+check('Zu alter Client auch am Login → 426', oldLogin.statusCode === 426, oldLogin.statusCode);
+
+const oldHealth = await app.inject({
+  method: 'GET',
+  url: '/api/health',
+  headers: clientHeader('0.9.9'),
+});
+check('Health bleibt für alte Clients offen', oldHealth.statusCode === 200, oldHealth.statusCode);
+
+const junkClient = await app.inject({
+  method: 'GET',
+  url: '/api/settings',
+  headers: clientHeader('kaputt'),
+});
+check('Unlesbare Version fällt zu (426)', junkClient.statusCode === 426, junkClient.statusCode);
+
+const currentClient = await app.inject({
+  method: 'GET',
+  url: '/api/settings',
+  headers: clientHeader(MIN_CLIENT_VERSION),
+});
+check('Aktueller Client passiert (401, nicht 426)', currentClient.statusCode === 401, currentClient.statusCode);
 
 const noAuth = await app.inject({ method: 'GET', url: '/api/settings' });
 check('Auth-Pflicht greift', noAuth.statusCode === 401, noAuth.json());

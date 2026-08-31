@@ -4,6 +4,8 @@
  *   (Backend läuft eingebettet auf zufälligem 127.0.0.1-Port)
  * - Browser-Dev: http://127.0.0.1:3001
  */
+import { CLIENT_VERSION_HEADER } from '@hrmonic/shared';
+
 declare global {
   interface Window {
     hrmonic?: {
@@ -35,6 +37,14 @@ declare global {
 export const IS_ELECTRON = Boolean(window.hrmonic?.window);
 
 export const API_BASE = window.hrmonic?.apiBaseUrl ?? 'http://127.0.0.1:3001';
+
+/**
+ * Version dieser App für den Abgleich mit dem Backend (core/version.ts).
+ * Im Browser-Dev fehlt window.hrmonic — dann geht der Header nicht mit, und
+ * das Backend prüft folgerichtig nichts. Das ist gewollt: Geprüft wird, wer
+ * sich als Client zu erkennen gibt.
+ */
+const CLIENT_VERSION = window.hrmonic?.appVersion;
 
 let authToken: string | null = localStorage.getItem('hrmonic.token');
 
@@ -70,6 +80,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     method,
     headers: {
       ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(CLIENT_VERSION ? { [CLIENT_VERSION_HEADER]: CLIENT_VERSION } : {}),
       ...(body !== undefined && !isForm ? { 'Content-Type': 'application/json' } : {}),
     },
     body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),

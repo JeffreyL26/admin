@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import { MIN_CLIENT_VERSION, SERVER_VERSION_HEADER } from '@hrmonic/shared';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import { config, hardenDataPermissions } from './config.js';
@@ -11,6 +12,7 @@ import { fileRoutes } from './core/files.js';
 import { settingsRoutes } from './core/settingsRoutes.js';
 import { dashboardRoutes } from './core/dashboardRoutes.js';
 import { assertRouteAllowed, permissionsFor } from './core/permissions.js';
+import { APP_VERSION, assertClientSupported } from './core/version.js';
 import { registerModules } from './modules/index.js';
 
 /**
@@ -64,6 +66,19 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   app.setErrorHandler(errorHandler);
+
+  // Versionsabgleich VOR allem anderen — vor der Authentifizierung und auch
+  // auf öffentlichen Routen. Eine zu alte App soll schon beim Login eine
+  // verständliche Meldung bekommen und nicht erst danach an einer Maske
+  // scheitern, die halb funktioniert.
+  //
+  // Die Serverversion geht auf jeder Antwort mit hinaus: So merkt ein Client
+  // einen Serverwechsel im laufenden Betrieb, ohne /api/health abzufragen.
+  app.addHook('onRequest', async (req, reply) => {
+    reply.header(SERVER_VERSION_HEADER, APP_VERSION);
+    if ((req.routeOptions.url ?? req.url) === '/api/health') return;
+    assertClientSupported(req);
+  });
 
   // Zugriffsprüfung passiert immer hier im Backend — der Client ist keine
   // Sicherheitsgrenze. Routen sind nur öffentlich, wenn sie explizit
@@ -131,9 +146,13 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   });
 
+  // Öffentlich und bewusst ohne Versionsprüfung: Genau hier erfährt eine
+  // abgewiesene App, welche Version der Server hat und welche er verlangt.
   app.get('/api/health', { config: { public: true } }, async () => ({
     ok: true,
     name: 'HRMONIC Backend',
+    version: APP_VERSION,
+    min_client_version: MIN_CLIENT_VERSION,
   }));
 
   await app.register(authRoutes);
