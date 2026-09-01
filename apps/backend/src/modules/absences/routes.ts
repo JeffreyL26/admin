@@ -856,7 +856,8 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         : (db()
             .prepare(
               `SELECT r.id AS request_id, r.employee_id, r.type_id, t.name AS type_name,
-                      t.color, r.status, r.date_from, r.date_to, r.half_day_start, r.half_day_end
+                      t.color, r.status, r.date_from, r.date_to, r.half_day_start, r.half_day_end,
+                      r.days_counted
                FROM absence_requests r
                JOIN absence_types t ON t.id = r.type_id
                WHERE r.status IN ('beantragt', 'genehmigt')
@@ -875,6 +876,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
             date_to: string;
             half_day_start: number;
             half_day_end: number;
+            days_counted: number;
           }[]);
 
     // Feiertage je vorkommendem Bundesland, beschnitten auf den Zeitraum.

@@ -57,8 +57,12 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   (`features/<modul>/routes.tsx` ersetzt die Platzhalter komplett).
 - Gemeinsame Bausteine nutzen, nicht duplizieren: `components/ui.tsx`
   (Card, Field, Tabs, Badge, StatCard, PageHeader, EmptyState, Spinner, Avatar),
-  `components/Modal.tsx`, `components/Toast.tsx`, `components/EmployeeSelect.tsx`,
+  `components/Modal.tsx`, `components/Toast.tsx`, `components/Popover.tsx`,
+  `components/Tooltip.tsx`, `components/EmployeeSelect.tsx`,
   CSS-Klassen `hm-*` aus `design/components.css`.
+- Tooltips ausschließlich über `components/Tooltip.tsx`, nie per `title`-Attribut
+  (Details und Begründung: CLAUDE.md → Konventionen → Tooltips). Inhalt als
+  `.hm-tooltip__title` + `.hm-tooltip__line`, Werte mit „·“ getrennt.
 - Datenzugriff über `api` aus `api/client.ts` + TanStack Query.
 - **Keine neuen npm-Abhängigkeiten.** Verfügbar: react, react-router-dom,
   @tanstack/react-query, lucide-react, recharts, @hrmonic/shared.

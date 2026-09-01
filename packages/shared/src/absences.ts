@@ -148,6 +148,8 @@ export interface CalendarAbsenceEntry {
   date_to: string;
   half_day_start: number;
   half_day_end: number;
+  /** Gezählte Tage wie in der Antragsliste (ohne Wochenenden/Feiertage/Betriebsruhe, halbe Tage 0,5). */
+  days_counted: number;
 }
 
 export interface CalendarEmployee {

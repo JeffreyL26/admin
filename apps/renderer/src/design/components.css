@@ -902,9 +902,23 @@
   border-radius: 12px;
   box-shadow: var(--shadow-sm);
   transition: filter 0.12s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 8px;
 }
 .hm-cal__bar:hover {
   filter: brightness(0.94);
+}
+.hm-cal__bar-label {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
 }
 .hm-cal__bar--cut-left {
   border-top-left-radius: 0;
@@ -913,6 +927,59 @@
 .hm-cal__bar--cut-right {
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
+}
+
+/* ---------- Tooltip (Portal, components/Tooltip.tsx) ----------
+   Ersetzt das native title-Attribut. Farben ausschließlich über die
+   Theme-Tokens --tooltip-bg/--tooltip-text; z-index über Toast (400), weil ein
+   Tooltip zur Interaktionsschicht gehört und nie hinter einem Dialog liegen darf. */
+.hm-tooltip {
+  position: fixed;
+  z-index: 500;
+  display: grid;
+  gap: 2px;
+  max-width: 280px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-text);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+  animation: hm-tooltip-in 0.12s ease-out;
+}
+.hm-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: var(--hm-tooltip-arrow-x, 50%);
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  background: inherit;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+.hm-tooltip--below::before {
+  bottom: auto;
+  top: -4px;
+}
+.hm-tooltip__title {
+  font-weight: 650;
+}
+.hm-tooltip__line {
+  opacity: 0.88;
+}
+@keyframes hm-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Legende: flache Zeile unter dem Kalender, Swatches wie die Balken gerundet. */

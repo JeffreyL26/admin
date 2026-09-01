@@ -137,4 +137,17 @@ export const absencesMigrations: Migration[] = [
         WHERE category = 'krankheit' OR name = 'Mutterschutz';
     `,
   },
+  {
+    // Urlaub bekommt die Signalfarbe von "genehmigt"/Erfolg (--success, siehe
+    // design/tokens.css), damit sie sofort als "positiv/gebucht" lesbar ist.
+    // Sabbatical trug bislang fast dieselbe Grün-/Petrol-Nuance wie Home
+    // Office (#4A8F7B vs. #3E8E7E) — im Kalenderbalken kaum zu unterscheiden.
+    // Es übernimmt deshalb Urlaubs bisheriges Blau: ein Farbtausch statt einer
+    // neu erfundenen Farbe, damit die Palette in sich stimmig bleibt.
+    name: '203_absence_type_colors',
+    sql: `
+      UPDATE absence_types SET color = '#178A4C' WHERE name = 'Urlaub';
+      UPDATE absence_types SET color = '#0864C6' WHERE name = 'Sabbatical';
+    `,
+  },
 ];

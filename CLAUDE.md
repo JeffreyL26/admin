@@ -119,6 +119,16 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   vier Themes: `apps/web/src/design/tokens.css` + `theme.ts` spiegeln die
   Renderer-Werte 1:1 (Wahl im Portal unter Profil → Darstellung) —
   Token-Änderungen immer in BEIDEN tokens.css nachziehen.
+- **Tooltips:** nie das native `title`-Attribut (OS-Optik, nicht themebar,
+  träge, unstrukturiert), sondern `components/Tooltip.tsx`. Es rendert per
+  Portal an `<body>` mit `position: fixed` und wird deshalb — wie `Popover` —
+  von keinem `overflow: hidden` abgeschnitten. Farben ausschließlich über
+  `--tooltip-bg`/`--tooltip-text` (je Theme, in beiden tokens.css). Inhalt
+  strukturiert statt Fließtext: `.hm-tooltip__title` (Was) + `.hm-tooltip__line`
+  (Details), Werte mit „·“ getrennt, keine Sätze. Nur dort einsetzen, wo er
+  etwas sagt, was die Fläche nicht schon zeigt (kein Datums-Tooltip auf jeder
+  Kalenderzelle). `title` bleibt allein für Nicht-React-Ausgaben (SVG-Export).
+  Bestehende `title`-Attribute werden beim nächsten Anfassen der Datei migriert.
 
 ## Modul-Erweiterungspunkte (parallel konfliktfrei)
 

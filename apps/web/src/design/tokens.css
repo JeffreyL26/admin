@@ -86,6 +86,9 @@
   --nav-active-bg: linear-gradient(135deg, rgb(17 121 221 / 0.92), rgb(8 100 198 / 0.72));
   --toast-bg: var(--gray-900);
   --toast-text: #fff;
+  /* Tooltip: Marken-Navy als Fläche; Rosé/Silber erben ihr --brand-navy mit. */
+  --tooltip-bg: var(--brand-navy);
+  --tooltip-text: var(--text-on-dark);
   --focus-ring: rgb(8 100 198 / 0.13);
   --table-hover: #f2f7fe;
 
@@ -164,6 +167,10 @@
      (identische Entscheidung wie in der Desktop-App). */
   --toast-bg: #24405f;
   --toast-text: #eef4fb;
+  /* --brand-navy ist im Dunkel-Theme ein helles Blau — als Tooltip-Fläche zu
+     kontrastarm für hellen Text; deshalb die Toast-Fläche. */
+  --tooltip-bg: #24405f;
+  --tooltip-text: #eef4fb;
   --focus-ring: rgb(59 143 228 / 0.28);
   --table-hover: #182f52;
 }
