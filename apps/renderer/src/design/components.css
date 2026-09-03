@@ -920,6 +920,16 @@
   text-overflow: ellipsis;
   pointer-events: none;
 }
+/* Beantragt (schraffiert): weiße Schrift mit schwarzem Umriss, damit sie auf
+   den hellen Zwischenstreifen ebenso lesbar bleibt wie auf der Artfarbe.
+   paint-order zeichnet den Umriss HINTER der Füllung, sonst frisst der
+   Strich die Buchstaben auf; text-shadow fängt Umgebungen ohne paint-order ab. */
+.hm-cal__bar-label--outlined {
+  color: #fff;
+  -webkit-text-stroke: 2px #000;
+  paint-order: stroke fill;
+  text-shadow: 0 0 2px #000;
+}
 .hm-cal__bar--cut-left {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;

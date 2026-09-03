@@ -635,11 +635,17 @@ function EmployeeRow({
                 background: a.status === 'beantragt' ? pendingPattern(a.color) : a.color,
               }}
             >
-              {showLabel && (
-                <span className="hm-cal__bar-label" style={{ color: readableTextColor(a.color) }}>
-                  {a.type_name}
-                </span>
-              )}
+              {showLabel &&
+                (a.status === 'beantragt' ? (
+                  // Auf der Schraffur wechselt der Grund alle 4 px zwischen Artfarbe
+                  // und fast transparent — keine einzelne Textfarbe ist darauf
+                  // lesbar. Deshalb weiß mit schwarzem Umriss statt Kontrastwahl.
+                  <span className="hm-cal__bar-label hm-cal__bar-label--outlined">{a.type_name}</span>
+                ) : (
+                  <span className="hm-cal__bar-label" style={{ color: readableTextColor(a.color) }}>
+                    {a.type_name}
+                  </span>
+                ))}
             </span>
           </Tooltip>
         ))}
