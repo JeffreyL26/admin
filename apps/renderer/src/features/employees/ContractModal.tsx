@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CONTRACT_TYPE_LABELS, type ContractDto, type ContractType } from '@hrmonic/shared';
+import { CONTRACT_TYPE_LABELS, type ContractDto, type ContractType } from '@ohrganize/shared';
 import { api, uploadFile } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';
@@ -127,8 +127,8 @@ export function ContractModal({
     >
       {!correct && (
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
-          Eine bestehende offene Version wird automatisch zum Vortag des neuen Beginns geschlossen —
-          die Historie bleibt vollständig erhalten.
+          Eine bestehende offene Version wird automatisch zum Vortag des neuen Beginns geschlossen.
+          Die Historie bleibt vollständig erhalten.
         </p>
       )}
       <div className="hm-form-grid">

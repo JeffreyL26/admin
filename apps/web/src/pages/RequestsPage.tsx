@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { AbsenceRequest } from '@hrmonic/shared';
+import type { AbsenceRequest } from '@ohrganize/shared';
 import { ApiRequestError } from '../api/client';
 import { useCancelRequest, useMyRequests } from '../api/hooks';
 import { Card, EmptyState, LoadError, Skeleton, StatusChip } from '../components/ui';

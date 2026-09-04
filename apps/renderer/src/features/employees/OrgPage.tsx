@@ -4,7 +4,7 @@ import {
   Building2, Check, Download, MapPin, Maximize2, Network, Pencil, Plus, Trash2,
   Users, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
-import { BUNDESLAND_LABELS, type BundeslandCode, type OrgTreeNode } from '@hrmonic/shared';
+import { BUNDESLAND_LABELS, type BundeslandCode, type OrgTreeNode } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
@@ -20,7 +20,7 @@ export function OrgPage() {
     <>
       <PageHeader
         title="Organisation"
-        subtitle="Abteilungen, Teams und Standorte — Struktur per Drag-and-Drop anpassen."
+        subtitle="Abteilungen, Teams und Standorte. Struktur per Drag-and-Drop anpassen."
       />
       <Tabs
         tabs={[
@@ -188,7 +188,7 @@ function StructureTab() {
         <EmptyState
           icon={<Building2 size={40} />}
           title="Noch keine Organisationsstruktur"
-          hint="Legen Sie die erste Abteilung an — Teams und Unterabteilungen folgen darunter."
+          hint="Legen Sie die erste Abteilung an. Teams und Unterabteilungen folgen darunter."
         />
       ) : (
         <>

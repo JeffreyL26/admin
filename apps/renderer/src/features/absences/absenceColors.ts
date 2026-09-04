@@ -13,7 +13,7 @@ import { useCallback, useEffect, useState } from 'react';
  * folgt weiterhin dem Standard — ändert die HR die Standardfarbe, kommt das
  * hier automatisch an, solange sie nicht lokal überschrieben ist.
  */
-const STORAGE_KEY = 'hrmonic.absenceColors';
+const STORAGE_KEY = 'ohrganize.absenceColors';
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 export type ColorOverrides = Record<number, string>;

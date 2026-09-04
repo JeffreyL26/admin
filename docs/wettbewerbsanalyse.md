@@ -1,12 +1,12 @@
 # Wettbewerbsanalyse & Ausbau: Recruiting-Modul
 
-Vergleich von HRMONIC mit den gängigen HR-Verwaltungs-/Personalportalen
+Vergleich von oHRganize mit den gängigen HR-Verwaltungs-/Personalportalen
 (Personio, rexx systems, SAP SuccessFactors, HeavenHR, Sage HR, BambooHR).
 Ziel: Schwächen erkennen und den größten Rückstand mit mehr Tiefe schließen.
 
-## 1. Ausgangslage: Wo HRMONIC bereits stark ist
+## 1. Ausgangslage: Wo oHRganize bereits stark ist
 
-| Bereich | HRMONIC | Personio & Co. | Bewertung |
+| Bereich | oHRganize | Personio & Co. | Bewertung |
 |---|---|---|---|
 | Stammdaten / Personalakte | Vollständig (inkl. Vertragshistorie, versionierte Dokumente, Volltextsuche) | ✓ | **Gleichauf** |
 | Abwesenheit & Urlaub | Anträge, Genehmigung, AU-Fristen, Betriebsruhe, Feiertage je Bundesland | ✓ | **Gleichauf** |

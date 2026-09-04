@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Richtet die taegliche HRMONIC-Sicherung als geplante Aufgabe ein.
-  Gegenstueck zu hrmonic-backup.service + hrmonic-backup.timer.
+  Richtet die taegliche oHRganize-Sicherung als geplante Aufgabe ein.
+  Gegenstueck zu ohrganize-backup.service + ohrganize-backup.timer.
 
 .DESCRIPTION
   Das Sicherungsskript (dist/backup.cjs) ist reines Node und laeuft auf Windows
@@ -9,7 +9,7 @@
   braucht KEINE Auszeit des Dienstes.
 
   Warum die Aufgabe als SYSTEM laeuft und nicht als Dienstkonto:
-  Ein virtuelles Dienstkonto (NT SERVICE\HRMONIC) laesst sich in der
+  Ein virtuelles Dienstkonto (NT SERVICE\oHRganize) laesst sich in der
   Aufgabenplanung nicht zuverlaessig als Prinzipal hinterlegen. SYSTEM ist das
   Windows-Gegenstueck zu root und hat durch harden-data-dir.ps1 ohnehin
   Vollzugriff auf Daten- und Sicherungsverzeichnis. Das ist mehr Recht als
@@ -27,10 +27,10 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$TaskName   = 'HRMONIC-Sicherung',
-  [string]$InstallDir = 'C:\Program Files\HRMONIC',
-  [string]$BackupDir  = 'C:\ProgramData\HRMONIC\backups',
-  [string]$DataDir    = 'C:\ProgramData\HRMONIC\data',
+  [string]$TaskName   = 'oHRganize-Sicherung',
+  [string]$InstallDir = 'C:\Program Files\oHRganize',
+  [string]$BackupDir  = 'C:\ProgramData\oHRganize\backups',
+  [string]$DataDir    = 'C:\ProgramData\oHRganize\data',
   [int]   $Keep       = 14,
   [string]$At         = '02:30'
 )
@@ -53,7 +53,7 @@ if (-not (Test-Path -LiteralPath $script)) {
 
 New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
 
-# HRMONIC_DATA_DIR muss die Aufgabe selbst mitbringen: Sie erbt die Umgebung
+# OHRGANIZE_DATA_DIR muss die Aufgabe selbst mitbringen: Sie erbt die Umgebung
 # des Dienstes nicht. Zeigt sie auf ein anderes Verzeichnis als der Dienst,
 # bricht der Lauf laut ab - backup.ts prueft config.dbPath und beendet sich mit
 # Exit 1 und der Meldung "Keine Datenbank unter ... gefunden". Der Fehler faellt
@@ -62,7 +62,7 @@ New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
 # gibt es schlicht keine Sicherung.
 #
 # WARUM UEBER cmd.exe UND NICHT UEBER EINE MASCHINENVARIABLE: Frueher setzte
-# dieses Skript HRMONIC_DATA_DIR maschinenweit. Damit zeigte JEDER Node-Prozess
+# dieses Skript OHRGANIZE_DATA_DIR maschinenweit. Damit zeigte JEDER Node-Prozess
 # auf dem Server auf die Produktivdatenbank - ein versehentlich gestarteter
 # zweiter cli.cjs oder ein Seed-Lauf haette die echte Personalakte getroffen.
 # Ausserdem uebernimmt der Aufgabenplanungsdienst eine frisch gesetzte
@@ -80,7 +80,7 @@ New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
 # empfohlene Schreibweise: Die Anfuehrungszeichen landen NICHT im Wert.
 # Der Exit-Code bleibt erhalten - cmd /c gibt den des letzten Befehls zurueck.
 $backupCommand =
-  "set `"HRMONIC_DATA_DIR=$DataDir`" && " +
+  "set `"OHRGANIZE_DATA_DIR=$DataDir`" && " +
   "`"$($node.Source)`" `"$script`" --out `"$BackupDir`" --keep $Keep"
 
 $action = New-ScheduledTaskAction `
@@ -112,26 +112,26 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 
 Register-ScheduledTask `
   -TaskName    $TaskName `
-  -Description 'Taegliche HRMONIC-Datensicherung (Datenbank, Dateien, Secret)' `
+  -Description 'Taegliche oHRganize-Datensicherung (Datenbank, Dateien, Secret)' `
   -Action      $action `
   -Trigger     $trigger `
   -Principal   $principal `
   -Settings    $settings | Out-Null
 
 Write-Host "Aufgabe '$TaskName' eingerichtet: taeglich $At (+ bis zu 5 min Streuung)."
-Write-Host "Datenverzeichnis der Aufgabe: $DataDir (muss HRMONIC_DATA_DIR aus hrmonic.env entsprechen)."
+Write-Host "Datenverzeichnis der Aufgabe: $DataDir (muss OHRGANIZE_DATA_DIR aus ohrganize.env entsprechen)."
 
 # Hinweis fuer Server, die noch von einer aelteren Fassung dieses Skripts
 # stammen: Die damals gesetzte Maschinenvariable wird hier bewusst NICHT
 # geloescht - sie koennte inzwischen von Hand gesetzt worden sein, und ein
 # Skript, das ungefragt Maschinenvariablen entfernt, ist unangenehmer als der
 # Hinweis. Der Betreiber entscheidet.
-$staleMachineVar = [Environment]::GetEnvironmentVariable('HRMONIC_DATA_DIR', 'Machine')
+$staleMachineVar = [Environment]::GetEnvironmentVariable('OHRGANIZE_DATA_DIR', 'Machine')
 if ($staleMachineVar) {
-  Write-Warning ("Maschinenvariable HRMONIC_DATA_DIR ist gesetzt ($staleMachineVar). " +
+  Write-Warning ("Maschinenvariable OHRGANIZE_DATA_DIR ist gesetzt ($staleMachineVar). " +
     'Die Aufgabe braucht sie nicht mehr. Solange sie steht, zeigt JEDER Node-Prozess ' +
     'auf dem Server auf die Produktivdatenbank - Empfehlung: entfernen mit ' +
-    "[Environment]::SetEnvironmentVariable('HRMONIC_DATA_DIR', `$null, 'Machine')")
+    "[Environment]::SetEnvironmentVariable('OHRGANIZE_DATA_DIR', `$null, 'Machine')")
 }
 
 Write-Host ''

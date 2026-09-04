@@ -5,7 +5,7 @@ import { parse, badRequest, notFound, conflict } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { todayIso, addDaysIso } from '../../core/dates.js';
 import { isoDateString } from '../../core/validation.js';
-import type { Goal, ReviewCriterion, ReviewScore, Review, TrainingDueEntry } from '@hrmonic/shared';
+import type { Goal, ReviewCriterion, ReviewScore, Review, TrainingDueEntry } from '@ohrganize/shared';
 
 // Modul: Leistungsverwaltung & Entwicklung — Ziele/OKR, Beurteilungen,
 // Entwicklungspläne & Karrierepfade, Skills, Trainings, Feedback-Zyklen.

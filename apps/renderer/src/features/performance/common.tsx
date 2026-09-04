@@ -7,7 +7,7 @@ import {
   type ReviewCycleStatus,
   type TrainingRegistrationStatus,
   type FeedbackMeetingStatus,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 
 /** Gemeinsame Kleinteile des Leistungs-Moduls. */
 

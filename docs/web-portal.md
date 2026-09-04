@@ -22,7 +22,7 @@ ausschließlich in der Desktop-App und entscheidet dort über die Anträge.
   oder Kontolöschung wirken damit sofort — wichtig für ein internetseitig
   erreichbares Portal, nicht erst nach Ablauf der Token-Laufzeit (Vorgabe
   **1 Stunde**, `tokenTtl` in `apps/backend/src/config.ts`, überschreibbar mit
-  `HRMONIC_TOKEN_TTL`).
+  `OHRGANIZE_TOKEN_TTL`).
 - Die Self-Service-Routen begrenzen Zeitspannen auf zwei Jahre
   (`MAX_SPAN_DAYS` in `modules/me/routes.ts`) — Schutz der synchronen
   Tageszählung vor absurden Spannen; längere Abwesenheiten erfasst die HR.
@@ -77,7 +77,7 @@ Smoke-Test: `npx tsx apps/backend/src/modules/me/smoke.ts` (deckt Rollen-Guard,
 Berechtigungen, Vier-Augen, Datenschutzgrenzen und Upload-Regeln ab). Neue Checks
 gehören **vor** den Widerrufsblock am Ende — der entzieht Profil und Rolle und
 löscht das Konto, danach schlägt alles fehl. Demo-Konten legt `npm run seed` an —
-vier Admins (`hrmonic2026`) und vier Portal-Konten (`portal2026`). Das ist ein
+vier Admins (`ohrganize2026`) und vier Portal-Konten (`portal2026`). Das ist ein
 reiner **Dev-Weg**: Auf einem Kundensystem darf `npm run seed` nie laufen,
 Portal-Konten entstehen dort über *Verwaltung → Benutzer & Rechte* mit
 serverseitig erzeugtem Erstpasswort (siehe `docs/inbetriebnahme.md`).
@@ -90,14 +90,14 @@ serverseitig erzeugtem Erstpasswort (siehe `docs/inbetriebnahme.md`).
   die file://-Zwänge des Desktop-Renderers gelten hier nicht.
 - API-Basis: `VITE_API_BASE`, sonst im Dev `http://127.0.0.1:3001`, im
   Prod-Build **same-origin** (`''`) — gedacht für den Reverse-Proxy-Deploy unten.
-  Token liegt unter `localStorage['hrmonic.portal.token']`.
+  Token liegt unter `localStorage['ohrganize.portal.token']`.
 - Gestaltung: Farbwelt, Typografie (Inter Variable, gleiche Größenskala),
   Radien, Schatten und Komponenten-Rezepte (Karten, Gradient-Primärbuttons,
   Tabellenköpfe, Badges) wie die Desktop-App — beide Clients sollen als ein
   Produkt wirken. Alle vier Farbschemata (Hell/Dunkel/Rosé/Silber) sind
   vorhanden: `src/design/tokens.css` und `theme.ts` spiegeln die
   Renderer-Werte 1:1 (Sync-Pflicht, siehe CLAUDE.md); die Wahl liegt im
-  Portal unter Profil → „Darstellung" (localStorage `hrmonic.theme`, pro
+  Portal unter Profil → „Darstellung" (localStorage `ohrganize.theme`, pro
   Gerät und Origin). Seit dem Self-Service-Ausbau trägt das Portal wie die
   Desktop-App eine **linke Seitenleiste** (`.portal-sidebar`, Verlauf und
   Linkoptik 1:1 aus `renderer/src/design/layout.css`). Zwei Abweichungen sind
@@ -130,18 +130,18 @@ Portal-Build aus und reicht `/api/*` durch. Referenzaufbau (eine Maschine):
 
 ```
 Browser ── https://portal.firma.de ──> nginx/Caddy
-                    ├── /api/*  → http://127.0.0.1:3001   (HRMONIC Backend)
+                    ├── /api/*  → http://127.0.0.1:3001   (oHRganize Backend)
                     └── /*      → apps/web/dist            (SPA-Fallback auf index.html)
 ```
 
 1. Build: `npm run build:web` → `apps/web/dist` (statisch, beliebig hostbar).
 2. Backend als Dienst: `npm run build -w apps/backend`, dann
    `node apps/backend/dist/cli.cjs` (z. B. via systemd) mit:
-   - `HRMONIC_DATA_DIR=/var/lib/hrmonic` — Datenbank, Dateien, Secret
-   - `HRMONIC_PORT=3001`
-   - `HRMONIC_HOST` nur setzen, wenn Proxy und Backend nicht auf derselben
+   - `OHRGANIZE_DATA_DIR=/var/lib/ohrganize` — Datenbank, Dateien, Secret
+   - `OHRGANIZE_PORT=3001`
+   - `OHRGANIZE_HOST` nur setzen, wenn Proxy und Backend nicht auf derselben
      Maschine laufen (Standard bleibt bewusst `127.0.0.1`).
-   - `HRMONIC_CORS_ORIGIN=https://portal.firma.de` — Pflicht, sobald das Portal
+   - `OHRGANIZE_CORS_ORIGIN=https://portal.firma.de` — Pflicht, sobald das Portal
      NICHT same-origin über den Proxy läuft; same-origin braucht kein CORS.
 3. Caddy-Beispiel:
 
@@ -151,7 +151,7 @@ Browser ── https://portal.firma.de ──> nginx/Caddy
        reverse_proxy 127.0.0.1:3001
      }
      handle {
-       root * /srv/hrmonic-web
+       root * /srv/ohrganize-web
        try_files {path} /index.html
        file_server
      }
@@ -169,26 +169,26 @@ Browser ── https://portal.firma.de ──> nginx/Caddy
 
    | Quelle | Wofür |
    |---|---|
-   | `HRMONIC_API_BASE=https://portal.firma.de` | skriptierter Rollout, Verknüpfung, MDM |
-   | `%APPDATA%\HRMONIC\config.json` → `{ "apiBaseUrl": "https://portal.firma.de" }` | IT-Konfiguration je Installation |
+   | `OHRGANIZE_API_BASE=https://portal.firma.de` | skriptierter Rollout, Verknüpfung, MDM |
+   | `%APPDATA%\oHRganize\config.json` → `{ "apiBaseUrl": "https://portal.firma.de" }` | IT-Konfiguration je Installation |
 
    Ohne Konfiguration bleibt alles wie bisher: eingebettetes Backend mit
-   lokaler Datenbank in `%APPDATA%\HRMONIC\data` (Einzelplatz-Betrieb).
+   lokaler Datenbank in `%APPDATA%\oHRganize\data` (Einzelplatz-Betrieb).
    Beim Start prüft die App `GET /api/health` und bricht bei nicht
    erreichbarem Backend mit klarer Meldung ab statt mit leerem Fenster.
 
    **CORS nicht vergessen:** Der Desktop-Renderer lädt im Produktivbetrieb
-   über ein eigenes Schema (`hrmonic://app`, siehe `apps/desktop/src/main.ts`)
-   und sendet damit eine benannte Herkunft. Sobald `HRMONIC_CORS_ORIGIN`
+   über ein eigenes Schema (`ohrganize://app`, siehe `apps/desktop/src/main.ts`)
+   und sendet damit eine benannte Herkunft. Sobald `OHRGANIZE_CORS_ORIGIN`
    gesetzt ist, muss dieser Wert mit in der Liste stehen, sonst blockiert der
    Browserkern der Desktop-App jede Anfrage:
 
    ```
-   HRMONIC_CORS_ORIGIN=https://portal.firma.de,hrmonic://app
+   OHRGANIZE_CORS_ORIGIN=https://portal.firma.de,ohrganize://app
    ```
 
    **Nicht mehr `null` eintragen.** Das früher hier dokumentierte Rezept
-   `…,null` ist der Grund, warum die Umstellung auf `hrmonic://app`
+   `…,null` ist der Grund, warum die Umstellung auf `ohrganize://app`
    überhaupt nötig war: `null` ist nicht die Herkunft einer bestimmten Seite,
    sondern der Sammelwert *jedes* opaken Kontexts (sandboxed `<iframe>`,
    `data:`-URL, `file://`). Mit `null` in der Liste hätte faktisch jede fremde
@@ -196,7 +196,7 @@ Browser ── https://portal.firma.de ──> nginx/Caddy
    gewesen wie gar keine. `config.ts` filtert den Wert deshalb aktiv heraus
    und warnt beim Start.
 
-   `HRMONIC_CORS_ORIGIN` niemals auf einem Arbeitsplatz setzen: Das in die
+   `OHRGANIZE_CORS_ORIGIN` niemals auf einem Arbeitsplatz setzen: Das in die
    Desktop-App eingebettete Backend erbt die Variable und sperrt dann den
    eigenen Renderer aus.
 

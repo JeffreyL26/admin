@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ADMIN_AREAS, permits, type AdminArea } from '@hrmonic/shared';
+import { ADMIN_AREAS, permits, type AdminArea } from '@ohrganize/shared';
 import { getDb } from '../db/db.js';
 import { permissionsFor } from './permissions.js';
 import { todayIso, addDaysIso } from './dates.js';

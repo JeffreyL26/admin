@@ -51,7 +51,7 @@ export function migrate(): void {
     const unknown = [...applied].filter((name) => !known.has(name)).sort();
     if (unknown.length > 0) {
       throw new Error(
-        'Die Datenbank wurde bereits von einer neueren HRMONIC-Version migriert. ' +
+        'Die Datenbank wurde bereits von einer neueren oHRganize-Version migriert. ' +
           `Unbekannte Migrationen: ${unknown.join(', ')}. ` +
           'Diese Version darf nicht gegen dieses Schema laufen — bitte die neuere ' +
           'Version wieder einspielen oder ein Backup zurückspielen (siehe docs/inbetriebnahme.md).',

@@ -11,7 +11,7 @@ export const API_BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
   (import.meta.env.DEV ? 'http://127.0.0.1:3001' : '');
 
-const TOKEN_KEY = 'hrmonic.portal.token';
+const TOKEN_KEY = 'ohrganize.portal.token';
 
 let authToken: string | null = localStorage.getItem(TOKEN_KEY);
 

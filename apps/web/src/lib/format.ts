@@ -1,4 +1,4 @@
-import { formatDate } from '@hrmonic/shared';
+import { formatDate } from '@ohrganize/shared';
 
 export { formatDate };
 

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalendarPlus, Check, Inbox, X } from 'lucide-react';
-import { formatDate, ABSENCE_STATUS_LABELS, type AbsenceRequest, type AbsenceRequestStatus } from '@hrmonic/shared';
+import { formatDate, ABSENCE_STATUS_LABELS, type AbsenceRequest, type AbsenceRequestStatus } from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs, type BadgeTone } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';

@@ -10,7 +10,7 @@
  */
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import type { MeDocument } from '@hrmonic/shared';
+import type { MeDocument } from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, notFound, parse } from '../../core/errors.js';
@@ -96,7 +96,7 @@ if (MAX_FIELDS >= UPLOAD_LIMITS.fields) {
   );
 }
 
-/** Nur die Felder aus @hrmonic/shared MeDocument — keine internen Spalten. */
+/** Nur die Felder aus @ohrganize/shared MeDocument — keine internen Spalten. */
 const ME_DOC_SELECT = `
   SELECT d.id, d.category, d.title, d.note, d.expiry_date, d.version, d.source, d.created_at,
          f.original_name, f.mime_type, f.size_bytes

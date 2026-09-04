@@ -29,7 +29,7 @@ import {
   todayIsoLocal,
   type SurveyQuestionKind,
   type SurveyStatus,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { ApiRequestError, api } from '../../api/client';
 import { Badge, EmptyState, Field, PageHeader, Spinner, type BadgeTone } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
@@ -349,7 +349,7 @@ function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; on
           .map(([question_id, value]) => ({ question_id: Number(question_id), value })),
       }),
     onSuccess: () => {
-      toast.success('Antwort erfasst — anonym gespeichert');
+      toast.success('Antwort erfasst und anonym gespeichert');
       invalidate('surveys');
       onClose();
     },
@@ -492,7 +492,7 @@ function ResultsDialog({ survey, onClose }: { survey: Survey | null; onClose: ()
         <EmptyState
           icon={<Lock size={40} />}
           title={`Ergebnisse werden ab ${lockInfo.required} Teilnahmen angezeigt`}
-          hint={`Bisher ${lockInfo.current} ${lockInfo.current === 1 ? 'Teilnahme' : 'Teilnahmen'} — es ${lockInfo.missing === 1 ? 'fehlt noch 1 Teilnahme' : `fehlen noch ${lockInfo.missing} Teilnahmen`}. Zum Schutz der Anonymität werden vorher keine Teilergebnisse angezeigt.`}
+          hint={`Bisher ${lockInfo.current} ${lockInfo.current === 1 ? 'Teilnahme' : 'Teilnahmen'}: Es ${lockInfo.missing === 1 ? 'fehlt noch 1 Teilnahme' : `fehlen noch ${lockInfo.missing} Teilnahmen`}. Zum Schutz der Anonymität werden vorher keine Teilergebnisse angezeigt.`}
         />
       ) : results ? (
         <div className="stack" style={{ gap: 20 }}>

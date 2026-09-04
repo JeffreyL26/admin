@@ -4,7 +4,7 @@ import { UserSearch, Plus, Pencil, Trash2, Search, FileText } from 'lucide-react
 import {
   CANDIDATE_SOURCE_LABELS, APPLICATION_STATUS_LABELS, formatDate,
   type CandidateSource,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Avatar, Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';

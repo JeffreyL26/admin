@@ -10,7 +10,7 @@
  * eigenen Abteilung und die Bedienung per Finger.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { OrgTreeNode } from '@hrmonic/shared';
+import type { OrgTreeNode } from '@ohrganize/shared';
 import { useMyOrgTree, useMyProfile } from '../api/hooks';
 import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
 import { useOrgChartColors, type OrgChartColors } from '../features/org/chartColors';

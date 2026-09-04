@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { Field } from '../../components/ui';
 import { ApiRequestError } from '../../api/client';
-import logo from '../../assets/logo.png';
+import logo from '../../assets/logo-full.png';
 
 /**
  * Erzwungener Passwortwechsel.
@@ -52,11 +52,11 @@ export function PasswordChangePage() {
   return (
     <div className="login">
       <form className="login__card" onSubmit={submit}>
-        <img className="login__logo" src={logo} alt="HRMONIC" />
+        <img className="login__logo" src={logo} alt="oHRganize" />
         <h1 className="login__title">Passwort vergeben</h1>
         <p className="login__subtitle">
           Für <strong>{user?.email}</strong> ist noch ein Erstpasswort hinterlegt. Bitte vergeben
-          Sie jetzt ein eigenes — bis dahin ist der Zugang gesperrt.
+          Sie jetzt ein eigenes. Bis dahin ist der Zugang gesperrt.
         </p>
         <Field label="Aktuelles Passwort" hint="Das Erstpasswort aus der Inbetriebnahme" required>
           <input

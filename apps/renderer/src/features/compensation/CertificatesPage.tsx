@@ -7,7 +7,7 @@ import {
   formatDate,
   type CertificateKind,
   type CertificateStatus,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, API_BASE, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
@@ -166,7 +166,7 @@ export function CertificatesPage() {
           <EmptyState
             icon={<FileBadge size={40} />}
             title="Keine Bescheinigungen vorhanden"
-            hint="Erstellen Sie eine Bescheinigung — sie wird automatisch generiert und abgelegt."
+            hint="Erstellen Sie eine Bescheinigung. Sie wird automatisch generiert und abgelegt."
             action={
               <button className="hm-btn hm-btn--primary" onClick={() => setCreateOpen(true)}>
                 <Plus size={16} /> Bescheinigung erstellen

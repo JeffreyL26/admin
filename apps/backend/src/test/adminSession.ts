@@ -2,13 +2,13 @@
  * Erstanmeldung des Standard-Admins für die Smoke-Tests.
  *
  * WARUM ES DIESE DATEI GIBT: Bis zur Server-Härtung legte `ensureDefaultAdmin()`
- * das Konto `admin@hrmonic.de` mit dem fest verdrahteten Passwort
- * 'hrmonic2026' an — nachzulesen in README, CLAUDE.md und im gebündelten
+ * das Konto `admin@hrmonic.de` (damaliger Markenname) mit dem fest verdrahteten
+ * Passwort 'hrmonic2026' an — nachzulesen in README, CLAUDE.md und im gebündelten
  * server.cjs. Jede Smoke-Suite hat sich damit angemeldet. Seit M1 erzeugt das
  * Backend stattdessen ein Zufallspasswort, schreibt es mit 0600 neben
  * secret.key und erzwingt den Wechsel (`users.must_change_password`).
  *
- * Der bequeme Weg wäre gewesen, in jeder Suite HRMONIC_INITIAL_ADMIN_PASSWORD
+ * Der bequeme Weg wäre gewesen, in jeder Suite OHRGANIZE_INITIAL_ADMIN_PASSWORD
  * zu setzen — dann liefe der Test an genau der Sperre vorbei, die für den
  * Kunden neu und heikel ist. Stattdessen geht diese Hilfsfunktion den echten
  * Weg der Erstinbetriebnahme (docs/inbetriebnahme.md, Schritt 1-2):
@@ -27,7 +27,7 @@ import { config } from '../config.js';
 /**
  * Passwort, das die Smoke-Tests nach dem erzwungenen Wechsel setzen.
  * Muss die Regeln aus core/auth.ts erfüllen: mindestens 12 Zeichen, höchstens
- * 72 Byte, und weder "hrmonic" (Produkt- und Firmenname) noch "admin"
+ * 72 Byte, und weder "ohrganize" (Produkt- und Firmenname) noch "admin"
  * (E-Mail-Lokalteil) noch eine gängige Tastenfolge enthalten.
  */
 export const SMOKE_ADMIN_PASSWORD = 'Smoke-Kennwort-4711!';
@@ -44,14 +44,14 @@ export interface AdminSession {
  * Gibt den Header für alle weiteren Requests der Suite zurück.
  */
 export async function firstAdminLogin(app: FastifyInstance, check: CheckFn): Promise<AdminSession> {
-  // Betreibervorgabe (HRMONIC_INITIAL_ADMIN_PASSWORD) hat Vorrang; ohne sie
+  // Betreibervorgabe (OHRGANIZE_INITIAL_ADMIN_PASSWORD) hat Vorrang; ohne sie
   // steht das generierte Passwort in der Datei neben secret.key.
   let initialPassword = config.initialAdminPassword;
   if (!initialPassword) {
     if (!fs.existsSync(config.initialPasswordPath)) {
       throw new Error(
         `Initialpasswort nicht gefunden: ${config.initialPasswordPath}. ` +
-          'Erwartet wird eine frische Wegwerf-Datenbank (HRMONIC_DATA_DIR).',
+          'Erwartet wird eine frische Wegwerf-Datenbank (OHRGANIZE_DATA_DIR).',
       );
     }
     initialPassword = fs.readFileSync(config.initialPasswordPath, 'utf8').trim();
@@ -60,7 +60,7 @@ export async function firstAdminLogin(app: FastifyInstance, check: CheckFn): Pro
   const login = await app.inject({
     method: 'POST',
     url: '/api/auth/login',
-    payload: { email: 'admin@hrmonic.de', password: initialPassword },
+    payload: { email: 'admin@ohrganize.de', password: initialPassword },
   });
   check('Erstanmeldung mit generiertem Initialpasswort', login.statusCode === 200, login.json());
   if (login.statusCode !== 200) {

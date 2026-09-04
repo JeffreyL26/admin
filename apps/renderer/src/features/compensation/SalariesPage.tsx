@@ -9,7 +9,7 @@ import {
   SALARY_COMPONENT_LABELS,
   type EmployeeType,
   type SalaryComponentKind,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
@@ -176,7 +176,7 @@ function ChangeRequestDialog({
             onChange={(e) => setEffectiveDate(e.target.value)}
           />
         </Field>
-        <Field label="Begründung" required span2 hint="Pflichtfeld — wird im Audit-Log dokumentiert">
+        <Field label="Begründung" required span2 hint="Pflichtfeld (wird im Audit-Log dokumentiert)">
           <textarea
             className="hm-textarea"
             rows={3}

@@ -1,4 +1,4 @@
-# HRMONIC — Systemwissen
+# oHRganize — Systemwissen
 
 HR-Verwaltungssoftware für den deutschsprachigen Markt. Desktop-App (Electron) für
 HR-Administrator:innen und Mitarbeitenden-Web-Portal (Self-Service) auf demselben
@@ -68,16 +68,16 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   `absence_requests.employee_id`). `cancel` bleibt erlaubt (Rückzug, kein
   Entscheid), ebenso die Auto-Genehmigung bei `requires_approval = 0` — die
   genehmigt technisch immer „selbst". **Achtung Einzelbetrieb:** Eine
-  Frischinstallation hat nur `admin@hrmonic.de`; dessen eigener Antrag ist dann
+  Frischinstallation hat nur `admin@ohrganize.de`; dessen eigener Antrag ist dann
   von niemandem entscheidbar. Ein zweites Admin-Konto ist Voraussetzung.
 - **Desktop-Embedding:** `desktop/src/main.ts` ruft `startServer(0)` aus dem
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
-  `additionalArguments` an das Preload-Skript → `window.hrmonic.apiBaseUrl`.
+  `additionalArguments` an das Preload-Skript → `window.ohrganize.apiBaseUrl`.
   Im Dev-Betrieb läuft das Backend separat auf 3001 (`npm run dev`).
 - **Kein natives Menü:** Das Fenster ist rahmenlos (`titleBarStyle: 'hidden'`,
   auf macOS `hiddenInset`), `Menu.setApplicationMenu(null)`. Die eigene
   Titelleiste (`renderer/src/layout/TitleBar.tsx`) bringt App-Menü und
-  Fenster-Controls mit; Aktionen laufen über IPC (`window.hrmonic.window` /
+  Fenster-Controls mit; Aktionen laufen über IPC (`window.ohrganize.window` /
   `.app`, definiert im Preload). Tastaturkürzel (Strg+K/1–6/±/0, F11) sind in
   `AppShell.tsx` im Renderer registriert, da es kein Menü mehr für Accelerators
   gibt. Datei-Uploads nutzen die Dropzone `components/FilePicker.tsx`
@@ -91,14 +91,14 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
 - **Sprache:** UI-Texte Deutsch, Code-Bezeichner Englisch. API-Fehlermeldungen
   Deutsch (sie werden dem Nutzer direkt angezeigt).
 - **Datumswerte:** überall ISO-Strings `YYYY-MM-DD` (DB, API); Anzeige über
-  `formatDate` aus `@hrmonic/shared` (TT.MM.JJJJ).
+  `formatDate` aus `@ohrganize/shared` (TT.MM.JJJJ).
 - **Geld:** Integer-Cent in DB und API; Anzeige über `formatEuro`.
 - **Fehler:** einheitliches Schema `{ error: { code, message, details? } }`
   (`core/errors.ts`). Eingaben mit `parse(zodSchema, req.body)` validieren.
 - **Audit:** Änderungen mit Begründungspflicht (z. B. Gehalt) schreiben über
   `core/audit.ts` ins zentrale `audit_log`.
 - **Mitarbeiterliste:** Spaltenauswahl und Format der Betriebszugehörigkeit
-  liegen pro Gerät im localStorage (`hrmonic.employeeList`) — wie die
+  liegen pro Gerät im localStorage (`ohrganize.employeeList`) — wie die
   Dashboard-Konfiguration eine Arbeitsplatz-, keine Firmeneinstellung. Die
   Spaltendefinition steht in `EMPLOYEE_LIST_COLUMNS` (`shared/employees.ts`);
   `fixed: true` (Name, Personalnummer) bleibt immer sichtbar. Alle Auswahlfilter
@@ -108,12 +108,12 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   der Wert geht direkt ins SQL. `personnel_number` ist bewusst **nicht** Teil
   von `fields=lite`: Diese schlanke Form ist Kontrakt für andere Module.
 - **Dashboard ist personalisierbar:** Widgets/KPI-Kacheln sind pro Gerät wählbar
-  und anordenbar; Registry + localStorage-Persistenz (`hrmonic.dashboard`) in
+  und anordenbar; Registry + localStorage-Persistenz (`ohrganize.dashboard`) in
   `renderer/src/features/dashboard/dashboardConfig.ts`. Neue Module registrieren
   ihre Dashboard-Widgets dort (Default-Sichtbarkeit bewusst kuratiert klein).
 - **Themes:** Vier Farbschemata (Hell/Dunkel/Rosé/Silber) leben ausschließlich
   als CSS-Variablen-Blöcke in `design/tokens.css` (`:root[data-theme='…']`),
-  Umschaltung über `design/theme.ts` (localStorage `hrmonic.theme`). Neue
+  Umschaltung über `design/theme.ts` (localStorage `ohrganize.theme`). Neue
   UI-Farben deshalb NIE hartkodieren, sondern immer über bestehende Variablen —
   im Dunkel-Theme ist die Grau-Rampe invertiert (gray-25 = dunkelste Fläche).
   SVG-Exporte (Organigramm) lösen Variablen zur Renderzeit über
@@ -181,8 +181,8 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   `src/index.ts` ist der CLI-Einstieg mit Selbststart und wird separat zu
   `cli.cjs` gebündelt. Nicht verwechseln — Details in docs/entscheidungen.md.
 - **Zwei getrennte Datenbanken:** Die Dev-DB liegt in `apps/backend/data`
-  (`npm run seed`), die **installierte App** in `%APPDATA%\HRMONIC\data` (aus
-  Electrons userData, abgeleitet vom `productName` "HRMONIC"). `npm run seed`
+  (`npm run seed`), die **installierte App** in `%APPDATA%\oHRganize\data` (aus
+  Electrons userData, abgeleitet vom `productName` "oHRganize"). `npm run seed`
   füllt NUR die Dev-DB; für die installierte App `npm run seed:desktop -- --force`
   (App vorher schließen — SQLite-Dateisperre). Ein frisch installiertes Programm
   startet absichtlich leer (nur Admin-Login).
@@ -198,28 +198,28 @@ npm run build:web      # statisches Portal-Build → apps/web/dist
 npm run dist:win       # kompletter Windows-Installer (NSIS) → apps/desktop/release
 ```
 
-Login bei Frischinstallation: `admin@hrmonic.de` mit einem **zufällig
+Login bei Frischinstallation: `admin@ohrganize.de` mit einem **zufällig
 erzeugten** Passwort — einmalig auf stdout und in
 `<dataDir>/initial-admin-password.txt` (0600). Der erste Login erreicht nur
 `/api/auth/me` und `/api/auth/password` (`users.must_change_password`, 403
 `PASSWORD_CHANGE_REQUIRED`) und erzwingt damit den Wechsel. Für Tests und
-skriptierte Abläufe gibt `HRMONIC_INITIAL_ADMIN_PASSWORD` das Passwort vor
+skriptierte Abläufe gibt `OHRGANIZE_INITIAL_ADMIN_PASSWORD` das Passwort vor
 (nur beim allerersten Start ausgewertet, dann ohne Wechselzwang) —
 **nicht auf Produktivsystemen**.
 
 `npm run seed` ist **ausschließlich Dev** und legt Konten mit fest
 dokumentierten Passwörtern an: drei weitere Admin-Konten (sabine.berger@,
-jurgen.wilms@, melanie.sonntag@hrmonic.de / `hrmonic2026`) und vier
+jurgen.wilms@, melanie.sonntag@ohrganize.de / `ohrganize2026`) und vier
 Portal-Konten (deniz.aydin@, marta.kowalczyk@, leonie.vogt@,
-samuel.okafor@hrmonic.de / `portal2026`). Auf einem Kundensystem darf das
+samuel.okafor@ohrganize.de / `portal2026`). Auf einem Kundensystem darf das
 niemals laufen; Konten entstehen dort über *Verwaltung → Benutzer & Rechte*
 (`POST /api/admin/users`, Passwort erzeugt der Server). Ablauf:
 `docs/inbetriebnahme.md`, Serverbetrieb: `deploy/README.md`.
 
 Das ist seit dem Deploy-Audit **technisch gesperrt**, nicht mehr nur
-dokumentiert: `seed.ts` bricht ab, sobald `HRMONIC_DATA_DIR` gesetzt ist und
+dokumentiert: `seed.ts` bricht ab, sobald `OHRGANIZE_DATA_DIR` gesetzt ist und
 nicht auf das Dev-Verzeichnis `apps/backend/data` zeigt. Grund: Auf einem
 frischen Kundenserver ist die Datenbank leer, die alte Sperre („es existieren
 schon Mitarbeitende") griff dort gerade nicht. Einziger Ausweg ist
-`HRMONIC_ALLOW_SEED=1` — das setzt `seed-desktop.ts` selbst, weil es
+`OHRGANIZE_ALLOW_SEED=1` — das setzt `seed-desktop.ts` selbst, weil es
 absichtlich auf das userData-Verzeichnis der installierten App zeigt.

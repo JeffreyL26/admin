@@ -49,7 +49,7 @@ export function PasswordChangePage() {
   return (
     <div className="login">
       <div className="login__content">
-        <img className="login__logo" src="/logo.png" alt="HRMONIC" />
+        <img className="login__logo" src="/logo-full.png" alt="oHRganize" />
         <form className="login-card" onSubmit={submit}>
           <div>
             <h1 className="login-card__title">Passwort vergeben</h1>

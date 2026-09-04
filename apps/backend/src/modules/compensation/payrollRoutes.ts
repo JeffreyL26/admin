@@ -4,7 +4,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { parse, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { getSetting } from '../../core/settings.js';
-import { MINIJOB_LIMIT_CENTS, type PayrollFlag } from '@hrmonic/shared';
+import { MINIJOB_LIMIT_CENTS, type PayrollFlag } from '@ohrganize/shared';
 import {
   assertMonth,
   goalById,

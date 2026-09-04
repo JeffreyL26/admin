@@ -23,12 +23,12 @@ Erwartete Antwort — vier Felder, `version` ist die installierte Ausgabe,
 `min_client_version` die älteste noch bediente Desktop-App:
 
 ```json
-{"ok":true,"name":"HRMONIC Backend","version":"1.0.1","min_client_version":"1.0.0"}
+{"ok":true,"name":"oHRganize Backend","version":"1.0.1","min_client_version":"1.0.0"}
 ```
 
 **Zeitbedarf:** rund 60 Minuten, plus die Restore-Probe.
 
-> **Ein Satz vorweg:** In HRMONIC liegen Gehälter, Bankverbindungen,
+> **Ein Satz vorweg:** In oHRganize liegen Gehälter, Bankverbindungen,
 > Krankmeldungen und AU-Bescheinigungen. Krankheitsdaten sind besonders
 > geschützt (Art. 9 DSGVO). Die Punkte 1, 2 und 7 sind deshalb keine
 > Empfehlungen, sondern Bedingungen für den Produktivbetrieb.
@@ -40,14 +40,14 @@ Befehlsblock steht, sind beide Fassungen angegeben. Die Kurzübersicht:
 
 | Aufgabe | Linux | Windows Server |
 |---|---|---|
-| Protokoll lesen | `journalctl -u hrmonic-backend` | `Get-Content 'C:\ProgramData\HRMONIC\logs\backend.log'` |
+| Protokoll lesen | `journalctl -u ohrganize-backend` | `Get-Content 'C:\ProgramData\oHRganize\logs\backend.log'` |
 | Datei anzeigen | `cat <Datei>` | `Get-Content <Datei>` |
 | Datei löschen | `rm <Datei>` | `Remove-Item <Datei>` |
 | Rechte prüfen | `ls -ld <Verzeichnis>` | `icacls <Verzeichnis>` |
-| Sicherung prüfen | `systemctl list-timers hrmonic-backup.timer` | `Get-ScheduledTaskInfo -TaskName 'HRMONIC-Sicherung'` |
-| Dienst steuern | `systemctl stop/start hrmonic-backend` | `nssm stop/start HRMONIC` |
+| Sicherung prüfen | `systemctl list-timers ohrganize-backup.timer` | `Get-ScheduledTaskInfo -TaskName 'oHRganize-Sicherung'` |
+| Dienst steuern | `systemctl stop/start ohrganize-backend` | `nssm stop/start oHRganize` |
 | HTTP-Abruf | `curl` | `Invoke-RestMethod` / `Invoke-WebRequest` |
-| Datenverzeichnis | `/var/lib/hrmonic` | `C:\ProgramData\HRMONIC\data` |
+| Datenverzeichnis | `/var/lib/ohrganize` | `C:\ProgramData\oHRganize\data` |
 
 > **Windows PowerShell 5.1 und Fehlerstatus:** `Invoke-RestMethod` und
 > `Invoke-WebRequest` werfen bei HTTP 4xx/5xx eine **Ausnahme**, statt den
@@ -60,23 +60,23 @@ Befehlsblock steht, sind beide Fassungen angegeben. Die Kurzübersicht:
 
 ## 1. Erstes Anmelden mit dem generierten Initialpasswort
 
-Beim allerersten Start hat HRMONIC das Konto `admin@hrmonic.de` angelegt und
+Beim allerersten Start hat oHRganize das Konto `admin@ohrganize.de` angelegt und
 dafür ein **Zufallspasswort** erzeugt. Es steht an zwei Stellen:
 
 ```bash
 # Linux — im Journal des ersten Starts
-journalctl -u hrmonic-backend | grep -A 5 'Erstinbetriebnahme'
+journalctl -u ohrganize-backend | grep -A 5 'Erstinbetriebnahme'
 
 # und in einer Datei mit Rechten 0600 neben secret.key
-cat /var/lib/hrmonic/initial-admin-password.txt
+cat /var/lib/ohrganize/initial-admin-password.txt
 ```
 
 ```powershell
 # Windows — im Dienstprotokoll des ersten Starts (NSSM schreibt stdout dorthin)
-Select-String -Path 'C:\ProgramData\HRMONIC\logs\backend*.log' -Pattern 'Erstinbetriebnahme' -Context 0,5
+Select-String -Path 'C:\ProgramData\oHRganize\logs\backend*.log' -Pattern 'Erstinbetriebnahme' -Context 0,5
 
 # und in der Datei neben secret.key
-Get-Content 'C:\ProgramData\HRMONIC\data\initial-admin-password.txt'
+Get-Content 'C:\ProgramData\oHRganize\data\initial-admin-password.txt'
 ```
 
 Es gibt **kein** dokumentiertes Standardpasswort mehr. Falls in einer älteren
@@ -86,8 +86,8 @@ nicht; die Zeile ist veraltet.
 Die HR-Administration meldet sich über die **Desktop-App** an, nicht über das
 Portal (das Portal ist ausschließlich der Self-Service für Mitarbeitende).
 Die App muss dafür auf den Server zeigen — entweder über die Umgebungsvariable
-`HRMONIC_API_BASE=https://portal.firma.de` oder über
-`%APPDATA%\HRMONIC\config.json` mit `{ "apiBaseUrl": "https://portal.firma.de" }`
+`OHRGANIZE_API_BASE=https://portal.firma.de` oder über
+`%APPDATA%\oHRganize\config.json` mit `{ "apiBaseUrl": "https://portal.firma.de" }`
 (Einzelheiten in [`web-portal.md`](web-portal.md)).
 
 Ohne installierte App lässt sich der Zugang auch direkt prüfen:
@@ -96,12 +96,12 @@ Ohne installierte App lässt sich der Zugang auch direkt prüfen:
 # Linux
 curl -sS -X POST https://portal.firma.de/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@hrmonic.de","password":"<Initialpasswort>"}'
+  -d '{"email":"admin@ohrganize.de","password":"<Initialpasswort>"}'
 ```
 
 ```powershell
 # Windows
-$body = @{ email = 'admin@hrmonic.de'; password = '<Initialpasswort>' } | ConvertTo-Json
+$body = @{ email = 'admin@ohrganize.de'; password = '<Initialpasswort>' } | ConvertTo-Json
 Invoke-RestMethod -Method Post -Uri 'https://portal.firma.de/api/auth/login' `
   -ContentType 'application/json' -Body $body
 ```
@@ -117,18 +117,18 @@ Initialpasswort ist also kein Dauerzugang, auch wenn es jemand mitgelesen hat.
 
 Regeln: mindestens 12 Zeichen, höchstens 72 Byte (Umlaute zählen doppelt),
 nicht das alte Passwort, und keine offensichtlichen Varianten von Firmenname,
-„hrmonic" oder dem eigenen E-Mail-Namen.
+„ohrganize" oder dem eigenen E-Mail-Namen.
 
 Nach dem Wechsel:
 
 ```bash
 # Linux
-rm /var/lib/hrmonic/initial-admin-password.txt
+rm /var/lib/ohrganize/initial-admin-password.txt
 ```
 
 ```powershell
 # Windows
-Remove-Item 'C:\ProgramData\HRMONIC\data\initial-admin-password.txt'
+Remove-Item 'C:\ProgramData\oHRganize\data\initial-admin-password.txt'
 ```
 
 **Windows: das Erstprotokoll muss ebenfalls weg.** Das Initialpasswort wird beim
@@ -139,9 +139,9 @@ denselben Text in eine Protokolldatei, die es **geöffnet hält**. Sie lässt si
 deshalb erst nach dem Anhalten des Dienstes löschen:
 
 ```powershell
-nssm stop HRMONIC
-Remove-Item 'C:\ProgramData\HRMONIC\logs\backend*.log'
-nssm start HRMONIC
+nssm stop oHRganize
+Remove-Item 'C:\ProgramData\oHRganize\logs\backend*.log'
+nssm start oHRganize
 ```
 
 (`backend*.log` statt `backend.log`: NSSM rotiert die Datei und legt dabei
@@ -152,9 +152,9 @@ davon stehen.)
 - [ ] `initial-admin-password.txt` gelöscht.
 - [ ] **Windows:** Dienst angehalten, `backend*.log` gelöscht, Dienst wieder
       gestartet.
-- [ ] Falls `HRMONIC_INITIAL_ADMIN_PASSWORD` für die Provisionierung gesetzt
-      war: Zeile aus `/etc/hrmonic/hrmonic.env` bzw.
-      `C:\ProgramData\HRMONIC\hrmonic.env` entfernt und Dienst neu gestartet
+- [ ] Falls `OHRGANIZE_INITIAL_ADMIN_PASSWORD` für die Provisionierung gesetzt
+      war: Zeile aus `/etc/ohrganize/ohrganize.env` bzw.
+      `C:\ProgramData\oHRganize\ohrganize.env` entfernt und Dienst neu gestartet
       (sonst steht das Passwort dauerhaft im Klartext auf dem Server).
       **Unter Windows reicht ein Dienstneustart dafür nicht** — NSSM hält die
       Werte in der Registry; erst `install-service.ps1` erneut ausführen.
@@ -162,16 +162,16 @@ davon stehen.)
 ## 3. Eigene Konten anlegen — nicht über `npm run seed`
 
 **`npm run seed` ist ausschließlich für die Entwicklung.** Es legt Konten mit
-den überall dokumentierten Passwörtern `hrmonic2026` und `portal2026` an. Auf
+den überall dokumentierten Passwörtern `ohrganize2026` und `portal2026` an. Auf
 einem Produktivsystem darf es **nie** laufen — auch nicht „einmal kurz zum
 Ausprobieren".
 
 Das Skript setzt das inzwischen selbst durch: Es bricht ab, sobald
-`HRMONIC_DATA_DIR` gesetzt ist und nicht auf das Entwicklungsverzeichnis zeigt —
+`OHRGANIZE_DATA_DIR` gesetzt ist und nicht auf das Entwicklungsverzeichnis zeigt —
 also auf jedem Server, der nach dieser Anleitung eingerichtet wurde. Die frühere
 Sperre („es existieren schon Mitarbeitende") half genau dort nicht, wo es darauf
 ankam: auf einem frisch installierten, noch leeren System. Der einzige Ausweg
-ist die Variable `HRMONIC_ALLOW_SEED=1`; sie gehört auf ein Kundensystem nicht.
+ist die Variable `OHRGANIZE_ALLOW_SEED=1`; sie gehört auf ein Kundensystem nicht.
 Nicht betroffen ist `npm run seed:desktop`, das die Freigabe für das
 Datenverzeichnis der installierten App selbst setzt.
 
@@ -192,7 +192,7 @@ Konten entstehen stattdessen in der Desktop-App unter
 - [ ] Für jede Person der HR-Administration ein **persönliches** Konto —
       keine gemeinsam genutzten Zugänge (das Audit-Log wird sonst wertlos).
 - [ ] `npm run seed` wurde auf diesem System nie ausgeführt, und
-      `HRMONIC_ALLOW_SEED` ist nirgends gesetzt (weder in `hrmonic.env` noch als
+      `OHRGANIZE_ALLOW_SEED` ist nirgends gesetzt (weder in `ohrganize.env` noch als
       Umgebungsvariable des Servers).
 
 ## 4. Admin-Rollen zuweisen — sonst hat jeder Vollzugriff
@@ -221,13 +221,13 @@ Konto eine davon zugewiesen.
 ## 5. Standard-Admin abbauen
 
 Sobald mindestens ein **persönliches** Konto mit Vollzugriff existiert und
-damit erfolgreich angemeldet wurde, wird `admin@hrmonic.de` nicht mehr
-gebraucht. Es unter Verwaltung → Benutzer & Rechte löschen. HRMONIC legt es
+damit erfolgreich angemeldet wurde, wird `admin@ohrganize.de` nicht mehr
+gebraucht. Es unter Verwaltung → Benutzer & Rechte löschen. oHRganize legt es
 nur dann neu an, wenn überhaupt **kein** Konto mehr existiert — es kommt also
 nicht von selbst zurück.
 
 - [ ] Persönliches Vollzugriffs-Konto vorhanden und getestet.
-- [ ] `admin@hrmonic.de` gelöscht (oder bewusst behalten, mit eigenem starkem
+- [ ] `admin@ohrganize.de` gelöscht (oder bewusst behalten, mit eigenem starkem
       Passwort und dokumentiertem Grund).
 
 ## 6. Firmeneinstellungen setzen
@@ -237,7 +237,7 @@ Ergebnisse erzeugen:
 
 | Einstellung | Auslieferung | Wirkung, wenn sie stehen bleibt |
 |---|---|---|
-| Firmenname | `HRMONIC GmbH` | steht auf Bescheinigungen und in Vorlagen |
+| Firmenname | `oHRganize GmbH` | steht auf Bescheinigungen und in Vorlagen |
 | Standard-Bundesland | `BY` | falsche Feiertage in Urlaubsberechnung und Kalender |
 | Verfallsdatum Resturlaub | `31.03.` | Resturlaub verfällt zum falschen Termin |
 | DATEV-Berater-/Mandantennummer | `1000001` / `10001` | Lohnexport landet beim falschen Mandanten |
@@ -276,7 +276,7 @@ Portal-Konten (Rolle `mitarbeiter`) entstehen denselben Weg wie in Punkt 3,
 mit verknüpftem Personalprofil. Bewährtes Vorgehen:
 
 1. Erst die Personalprofile in der Desktop-App anlegen. **Einen Import gibt es
-   nicht** — HRMONIC kennt nur den CSV-*Export* der Mitarbeitendenliste; die
+   nicht** — oHRganize kennt nur den CSV-*Export* der Mitarbeitendenliste; die
    Profile werden von Hand erfasst. Das ist bei der Zeitplanung einzurechnen.
 2. Dann die Portal-Konten — zunächst nur für eine kleine Testgruppe.
 3. Nach der Rückmeldung der Testgruppe der Rest.
@@ -295,18 +295,18 @@ Nach [`../deploy/README.md`](../deploy/README.md), Abschnitt 5 (Linux) bzw.
 
 ```bash
 # Linux — Zeitplan aktiv?
-systemctl list-timers hrmonic-backup.timer
+systemctl list-timers ohrganize-backup.timer
 ```
 
 ```powershell
 # Windows — Zeitplan aktiv? LastTaskResult 0 = durchgelaufen
-Get-ScheduledTaskInfo -TaskName 'HRMONIC-Sicherung'
-Get-ChildItem 'C:\ProgramData\HRMONIC\backups' | Sort-Object LastWriteTime -Descending | Select-Object -First 3
+Get-ScheduledTaskInfo -TaskName 'oHRganize-Sicherung'
+Get-ChildItem 'C:\ProgramData\oHRganize\backups' | Sort-Object LastWriteTime -Descending | Select-Object -First 3
 ```
 
 - [ ] Zeitplan aktiv (Timer bzw. geplante Aufgabe) und mit einem
       erfolgreichen Lauf hinterlegt.
-- [ ] Ein Lauf erfolgreich, Verzeichnis enthält `hrmonic.db`, `storage/`,
+- [ ] Ein Lauf erfolgreich, Verzeichnis enthält `ohrganize.db`, `storage/`,
       `secret.key`, `MANIFEST.txt`.
 - [ ] Auslagerung auf ein zweites System eingerichtet (eine Sicherung neben den
       Daten schützt vor keinem der Fälle, für die man sichert).
@@ -330,11 +330,11 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://portal.firma.de/api/employees
 
 # Falsches Passwort wird protokolliert (erwartet: eine Warnzeile)
 curl -sS -X POST https://portal.firma.de/api/auth/login \
-  -H 'Content-Type: application/json' -d '{"email":"admin@hrmonic.de","password":"falsch"}'
-journalctl -u hrmonic-backend -n 20 --no-pager | grep -i login
+  -H 'Content-Type: application/json' -d '{"email":"admin@ohrganize.de","password":"falsch"}'
+journalctl -u ohrganize-backend -n 20 --no-pager | grep -i login
 
 # Rechte im Datenverzeichnis (erwartet: drwx------)
-ls -ld /var/lib/hrmonic /var/lib/hrmonic/storage
+ls -ld /var/lib/ohrganize /var/lib/ohrganize/storage
 ```
 
 **Windows Server:** Dieselben Prüfungen. Alles, was einen **Fehlerstatus**
@@ -376,27 +376,27 @@ try {
 # Zu alte Desktop-App wird abgewiesen (erwartet: 426)
 try {
   Invoke-WebRequest 'https://portal.firma.de/api/employees' -UseBasicParsing `
-    -Headers @{ 'x-hrmonic-client-version' = '0.0.1' } | Out-Null
+    -Headers @{ 'x-ohrganize-client-version' = '0.0.1' } | Out-Null
   'FEHLER: alte Client-Version nicht abgewiesen'
 } catch {
   $_.Exception.Response.StatusCode.value__
 }
 
 # Falsches Passwort wird protokolliert (erwartet: 401, danach eine Warnzeile)
-$body = @{ email = 'admin@hrmonic.de'; password = 'falsch' } | ConvertTo-Json
+$body = @{ email = 'admin@ohrganize.de'; password = 'falsch' } | ConvertTo-Json
 try {
   Invoke-RestMethod -Method Post -Uri 'https://portal.firma.de/api/auth/login' `
     -ContentType 'application/json' -Body $body | Out-Null
 } catch {
   $_.Exception.Response.StatusCode.value__
 }
-Select-String -Path 'C:\ProgramData\HRMONIC\logs\backend*.log' -Pattern 'Anmeldung fehlgeschlagen' |
+Select-String -Path 'C:\ProgramData\oHRganize\logs\backend*.log' -Pattern 'Anmeldung fehlgeschlagen' |
   Select-Object -Last 3
 
 # Rechte im Datenverzeichnis (erwartet: NUR SYSTEM, Administratoren,
-# NT SERVICE\HRMONIC — kein "Benutzer"/"Users")
-icacls 'C:\ProgramData\HRMONIC\data'
-icacls 'C:\ProgramData\HRMONIC\data\storage'
+# NT SERVICE\oHRganize — kein "Benutzer"/"Users")
+icacls 'C:\ProgramData\oHRganize\data'
+icacls 'C:\ProgramData\oHRganize\data\storage'
 ```
 
 > Die Weiterleitungsprüfung ist die einzige, die je nach PowerShell-Ausgabe
@@ -419,9 +419,9 @@ icacls 'C:\ProgramData\HRMONIC\data\storage'
 
 | Rhythmus | Aufgabe (Linux) | Aufgabe (Windows) |
 |---|---|---|
-| täglich (automatisch) | Sicherung; bei Fehlschlag meldet sich systemd — `systemctl status hrmonic-backup` | Sicherung; Ergebnis über `Get-ScheduledTaskInfo -TaskName 'HRMONIC-Sicherung'` (`LastTaskResult` = 0) |
-| wöchentlich | Journal auf gehäufte Anmeldefehler durchsehen | `Select-String -Path 'C:\ProgramData\HRMONIC\logs\backend*.log' -Pattern 'Anmeldung fehlgeschlagen'` |
+| täglich (automatisch) | Sicherung; bei Fehlschlag meldet sich systemd — `systemctl status ohrganize-backup` | Sicherung; Ergebnis über `Get-ScheduledTaskInfo -TaskName 'oHRganize-Sicherung'` (`LastTaskResult` = 0) |
+| wöchentlich | Journal auf gehäufte Anmeldefehler durchsehen | `Select-String -Path 'C:\ProgramData\oHRganize\logs\backend*.log' -Pattern 'Anmeldung fehlgeschlagen'` |
 | monatlich | Kontenliste durchgehen: ausgeschiedene Personen, Rollen noch passend? | dito |
 | halbjährlich | Restore-Probe | Restore-Probe (`deploy/windows/README.md`) |
 | bei jedem Update | Sicherung vorher, Journal nachher (`deploy/README.md`, Abschnitt 6) | Sicherung vorher, `backend.log` nachher (`deploy/windows/README.md`, Abschnitt 6) |
-| nach jeder Rechteänderung am Server | `ls -ld /var/lib/hrmonic` | `icacls 'C:\ProgramData\HRMONIC\data'` — anders als unter Linux zieht der Dienststart die Rechte **nicht** von selbst zurecht |
+| nach jeder Rechteänderung am Server | `ls -ld /var/lib/ohrganize` | `icacls 'C:\ProgramData\oHRganize\data'` — anders als unter Linux zieht der Dienststart die Rechte **nicht** von selbst zurecht |

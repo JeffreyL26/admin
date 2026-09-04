@@ -7,7 +7,7 @@ import type {
   InterviewDto,
   JobPostingDto,
   RecruitingStageDto,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 
 // ---------------------------------------------------------------------------
 // Angereicherte Client-Typen

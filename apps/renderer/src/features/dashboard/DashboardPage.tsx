@@ -223,7 +223,7 @@ export function DashboardPage() {
                   {edit && (
                     <div className="row row--between" style={{ marginBottom: 8 }}>
                       <span className="row" style={{ gap: 6, fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                        <GripVertical size={15} style={{ color: 'var(--gray-400)' }} /> Kennzahlen — Kacheln wählen:
+                        <GripVertical size={15} style={{ color: 'var(--gray-400)' }} /> Kennzahlen wählen:
                       </span>
                       <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" title="Widget entfernen" onClick={() => removeWidget(key)}>
                         <X size={14} />

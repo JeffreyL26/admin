@@ -6,7 +6,7 @@ import { PageHeader, Card, EmptyState, Spinner, Badge, Field, Tabs } from '../..
 import { Modal, ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
-import type { Skill, SkillGapEntry } from '@hrmonic/shared';
+import type { Skill, SkillGapEntry } from '@ohrganize/shared';
 import { SKILL_LEVEL_COLORS } from './common';
 
 interface MatrixData {

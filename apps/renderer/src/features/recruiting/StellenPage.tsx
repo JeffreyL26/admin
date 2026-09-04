@@ -5,7 +5,7 @@ import {
   JOB_POSTING_STATUS_LABELS, JOB_POSTING_TRANSITIONS, EMPLOYEE_TYPE_LABELS,
   formatEuro, formatDate,
   type JobPostingStatus, type EmployeeType,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, StatCard } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';

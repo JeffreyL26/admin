@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil, Plus, Search, ShieldCheck, Trash2, Users } from 'lucide-react';
-import { formatDate, type Role, type RoleMember } from '@hrmonic/shared';
+import { formatDate, type Role, type RoleMember } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
@@ -92,7 +92,7 @@ export function RolesPage() {
     <>
       <PageHeader
         title="Rollen"
-        subtitle="Fachrollen der Organisation — Grundlage dafür, wer welche Abwesenheitsart beantragen darf."
+        subtitle="Fachrollen der Organisation. Grundlage dafür, wer welche Abwesenheitsart beantragen darf."
         actions={
           <button
             className="hm-btn hm-btn--primary"

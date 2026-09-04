@@ -1,14 +1,14 @@
 /**
  * Smoke-Test Modul Personalverwaltung & Stammdaten.
  * Aufruf: npx tsx apps/backend/src/modules/employees/smoke.ts
- * Wegwerf-DB via HRMONIC_DATA_DIR (Muster: src/test/smoke.ts).
+ * Wegwerf-DB via OHRGANIZE_DATA_DIR (Muster: src/test/smoke.ts).
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-process.env.HRMONIC_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hrmonic-employees-smoke-'));
-process.env.HRMONIC_LOG_LEVEL = 'silent';
+process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-employees-smoke-'));
+process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../../server.js');
 const { closeDb } = await import('../../db/db.js');
@@ -291,7 +291,7 @@ check(
 );
 
 // ---------- Dokumente (Upload + FTS + Ablauf) ----------
-const boundary = '----hrmonicSmokeBoundary';
+const boundary = '----ohrganizeSmokeBoundary';
 const filePart = (name: string, content: string) =>
   Buffer.from(
     `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: application/pdf\r\n\r\n${content}\r\n--${boundary}--\r\n`,
@@ -421,7 +421,7 @@ check('Employees-Routen sind auth-pflichtig', noAuth.statusCode === 401);
 await app.close();
 closeDb();
 try {
-  fs.rmSync(process.env.HRMONIC_DATA_DIR!, { recursive: true, force: true });
+  fs.rmSync(process.env.OHRGANIZE_DATA_DIR!, { recursive: true, force: true });
 } catch {
   // Windows/WAL-Reste im Tempdir sind unkritisch.
 }

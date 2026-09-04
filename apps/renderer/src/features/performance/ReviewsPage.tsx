@@ -21,7 +21,7 @@ import {
   type ReviewKind,
   type ReviewScore,
   type ReviewTemplate,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { CYCLE_STATUS_TONES, REVIEW_STATUS_TONES } from './common';
 
 export function ReviewsPage() {

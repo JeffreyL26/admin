@@ -7,7 +7,7 @@ import type {
   CalendarEmployee,
   CompanyClosure,
   SickNote,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 
 /** 409-Details des Backends, wenn ein Antrag den Urlaubssaldo überziehen würde. */

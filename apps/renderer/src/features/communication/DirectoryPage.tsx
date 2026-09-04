@@ -5,7 +5,7 @@ import {
   DIRECTORY_FIELD_KEYS,
   DIRECTORY_FIELD_LABELS,
   type DirectoryFieldKey,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { Avatar, Badge, EmptyState, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';

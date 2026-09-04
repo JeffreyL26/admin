@@ -6,7 +6,7 @@ import {
   formatDate,
   type HrTemplate,
   type HrTemplateCategory,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, downloadFile, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';

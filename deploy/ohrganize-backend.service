@@ -1,46 +1,46 @@
-# HRMONIC Backend — systemd-Dienst
+# oHRganize Backend — systemd-Dienst
 #
-# Ablage:      /etc/systemd/system/hrmonic-backend.service
+# Ablage:      /etc/systemd/system/ohrganize-backend.service
 # Einrichtung: deploy/README.md
 # Erstlauf:    docs/inbetriebnahme.md
 #
 # Annahmen (an einer Stelle ändern, dann überall):
-#   Programm:          /opt/hrmonic            (ausgecheckter/entpackter Stand)
-#   Daten:             /var/lib/hrmonic        (Datenbank, storage/, secret.key)
-#   Konfiguration:     /etc/hrmonic/hrmonic.env
-#   Dienstbenutzer:    hrmonic:hrmonic         (Systemkonto ohne Login-Shell)
+#   Programm:          /opt/ohrganize            (ausgecheckter/entpackter Stand)
+#   Daten:             /var/lib/ohrganize        (Datenbank, storage/, secret.key)
+#   Konfiguration:     /etc/ohrganize/ohrganize.env
+#   Dienstbenutzer:    ohrganize:ohrganize       (Systemkonto ohne Login-Shell)
 
 [Unit]
-Description=HRMONIC Backend (HR-Verwaltung, REST-API)
-Documentation=file:/opt/hrmonic/deploy/README.md
+Description=oHRganize Backend (HR-Verwaltung, REST-API)
+Documentation=file:/opt/ohrganize/deploy/README.md
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=hrmonic
-Group=hrmonic
-WorkingDirectory=/opt/hrmonic/apps/backend
+User=ohrganize
+Group=ohrganize
+WorkingDirectory=/opt/ohrganize/apps/backend
 
 # dist/cli.cjs entsteht aus `npm run build -w apps/backend`. Es ist der
 # CLI-Einstieg mit Selbststart und Signal-Handling — NICHT dist/server.cjs,
 # das ist das Embedding-Bundle der Desktop-App und startet nichts.
 # better-sqlite3 ist im Bundle als --external markiert und muss deshalb in
 # node_modules neben dem Programmverzeichnis liegen (npm ci, siehe README).
-ExecStart=/usr/bin/node /opt/hrmonic/apps/backend/dist/cli.cjs
+ExecStart=/usr/bin/node /opt/ohrganize/apps/backend/dist/cli.cjs
 
-EnvironmentFile=/etc/hrmonic/hrmonic.env
+EnvironmentFile=/etc/ohrganize/ohrganize.env
 
-# StateDirectory legt /var/lib/hrmonic beim Start an (falls nicht vorhanden),
+# StateDirectory legt /var/lib/ohrganize beim Start an (falls nicht vorhanden),
 # setzt den Eigentümer auf den Dienstbenutzer und macht es trotz
-# ProtectSystem=strict beschreibbar. HRMONIC_DATA_DIR in der env-Datei muss auf
+# ProtectSystem=strict beschreibbar. OHRGANIZE_DATA_DIR in der env-Datei muss auf
 # denselben Pfad zeigen.
-StateDirectory=hrmonic
+StateDirectory=ohrganize
 StateDirectoryMode=0700
 
 # 0077 => neu erzeugte Dateien 0600, Verzeichnisse 0700.
 # Wogegen das schützt: In storage/ liegen AU-Bescheinigungen, Verträge und
-# Entgeltbescheinigungen als blanke Dateien, in hrmonic.db die komplette
+# Entgeltbescheinigungen als blanke Dateien, in ohrganize.db die komplette
 # Personalakte. Mit dem Node-Standard (0644/0755) darf jedes lokale Konto auf
 # dem Server mitlesen — Monitoring-Agent, Webserver-Benutzer, jede Shell.
 # Das Backend zieht die Rechte zusätzlich selbst nach (config.ts,
@@ -72,22 +72,22 @@ MemoryDenyWriteExecute=false
 # ProtectSystem=strict macht das gesamte Dateisystem außer /dev, /proc und /sys
 # schreibgeschützt. Beschreibbar bleibt nur das Datenverzeichnis (StateDirectory
 # erlaubt es bereits; hier noch einmal ausdrücklich, damit ein abweichendes
-# HRMONIC_DATA_DIR sofort auffällt).
-ReadWritePaths=/var/lib/hrmonic
+# OHRGANIZE_DATA_DIR sofort auffällt).
+ReadWritePaths=/var/lib/ohrganize
 
 Restart=on-failure
 RestartSec=5
 
 # Beim Stoppen schickt systemd SIGTERM. index.ts schließt daraufhin den Server
 # und führt einen WAL-Checkpoint aus (sonst stehen die jüngsten Änderungen nur
-# in hrmonic.db-wal). Der Handler bricht selbst nach 10 s ab, TimeoutStopSec
+# in ohrganize.db-wal). Der Handler bricht selbst nach 10 s ab, TimeoutStopSec
 # liegt bewusst darüber.
 KillSignal=SIGTERM
 TimeoutStopSec=20
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=hrmonic-backend
+SyslogIdentifier=ohrganize-backend
 
 [Install]
 WantedBy=multi-user.target

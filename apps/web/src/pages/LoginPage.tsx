@@ -19,7 +19,7 @@ function wavePath(cy: number, amplitude: number, wavelength: number, phase: numb
 /**
  * Ruhige Ebene hinter dem Login-Text: die Teilschwingungen einer Grundwelle
  * (Wellenlängen 1/2, 1/4, 1/6, 1/8 des Zyklus — eine harmonische Reihe, die
- * Marke heißt nicht zufällig HRMONIC). Jede Stimme driftet in eigenem Tempo;
+ * ein Echo des ursprünglichen Markennamens oHRganize). Jede Stimme driftet in eigenem Tempo;
  * weil alle Wellenlängen den Zyklus teilen, läuft die Animation nahtlos.
  */
 function HarmonyBackdrop() {
@@ -81,7 +81,7 @@ export function LoginPage() {
     <div className="login">
       <HarmonyBackdrop />
       <div className="login__content">
-        <img className="login__logo" src="/logo.png" alt="HRMONIC" />
+        <img className="login__logo" src="/logo-full.png" alt="oHRganize" />
         <p className="login__claim">
           Urlaub beantragen, krankmelden, Stammdaten einsehen: <span>Ihr direkter Draht zur
           Personalabteilung.</span>

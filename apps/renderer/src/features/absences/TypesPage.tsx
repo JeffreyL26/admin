@@ -11,7 +11,7 @@ import {
   type CompanyClosure,
   type PortalVisibility,
   type Role,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';
@@ -50,7 +50,7 @@ const EMPTY_ELIGIBILITY: AbsenceTypeEligibility = { role_ids: [], employee_rules
 /**
  * Die HR-Liste (GET /api/absences/types) liefert die Zuordnung nur zur Anzeige
  * mit — sie filtert bewusst nicht. Das Backend benennt die Rollen-Allowlist
- * dort `eligible_role_ids`; `AbsenceType.role_ids` aus @hrmonic/shared wird
+ * dort `eligible_role_ids`; `AbsenceType.role_ids` aus @ohrganize/shared wird
  * zusätzlich gelesen, falls die beiden Namen später angeglichen werden.
  */
 type TypeListRow = AbsenceType & {
@@ -189,7 +189,7 @@ export function TypesPage() {
                             ohne jede Art einzeln öffnen zu müssen (Art. 9 DSGVO).
                           */}
                           {t.category === 'krankheit' && (t.portal_visibility ?? 'name') === 'name' && (
-                            <span title="Der Firmenkalender im Portal zeigt allen Kolleg:innen den Klartext-Grund. Gesundheitsdaten sind nach Art. 9 DSGVO besonders geschützt — bitte prüfen.">
+                            <span title="Der Firmenkalender im Portal zeigt allen Kolleg:innen den Klartext-Grund. Gesundheitsdaten sind nach Art. 9 DSGVO besonders geschützt. Bitte prüfen.">
                               <Badge tone="red">Portal: Klartext</Badge>
                             </span>
                           )}
@@ -267,7 +267,7 @@ export function TypesPage() {
         title="Abwesenheitsart löschen"
         message={
           deleting
-            ? `Die Art "${deleting.name}" wird gelöscht. Wird sie bereits verwendet, schlägt das Löschen fehl — deaktivieren Sie sie dann stattdessen über "Bearbeiten".`
+            ? `Die Art "${deleting.name}" wird gelöscht. Wird sie bereits verwendet, schlägt das Löschen fehl. Deaktivieren Sie sie dann stattdessen über "Bearbeiten".`
             : ''
         }
         onConfirm={() => deleting && remove.mutate(deleting.id)}
@@ -508,7 +508,7 @@ function TypeDialog({
         <Field
           label="Sichtbarkeit im Mitarbeitenden-Portal"
           span2
-          hint="Gilt für den Firmenkalender im Portal — für die eigene Abwesenheit sieht die Person die Art immer im Klartext."
+          hint="Gilt für den Firmenkalender im Portal. Für die eigene Abwesenheit sieht die Person die Art immer im Klartext."
         >
           <select
             className="hm-select"
@@ -530,7 +530,7 @@ function TypeDialog({
           <Note>
             <strong>{PORTAL_VISIBILITY_LABELS.name}:</strong> Kolleg:innen sehen im Firmenkalender den Namen der Art
             (z. B. „Home Office“). <strong>{PORTAL_VISIBILITY_LABELS.neutral}:</strong> Sie sehen nur, <em>dass</em> jemand
-            abwesend ist — der Grund bleibt verborgen.
+            abwesend ist. Der Grund bleibt verborgen.
           </Note>
         </div>
         {isSickness && (
@@ -539,7 +539,7 @@ function TypeDialog({
               // Sachlich, nicht bevormundend: Die Auswahl bleibt möglich, aber
               // niemand soll Gesundheitsdaten versehentlich veröffentlichen.
               <Note tone="warning" icon={<ShieldAlert size={15} />}>
-                <strong>Achtung — Gesundheitsdaten im Firmenkalender.</strong> Mit „{PORTAL_VISIBILITY_LABELS.name}“
+                <strong>Achtung: Gesundheitsdaten im Firmenkalender.</strong> Mit „{PORTAL_VISIBILITY_LABELS.name}“
                 sieht <em>jede Person im Portal</em>, dass eine Kollegin oder ein Kollege krank ist. Krankheitsdaten
                 gehören nach Art. 9 DSGVO zu den besonderen Kategorien personenbezogener Daten; ihre Offenlegung
                 gegenüber der Belegschaft braucht eine tragfähige Grundlage. Treffen Sie diese Entscheidung bewusst und
@@ -589,7 +589,7 @@ function TypeDialog({
           {isSickness && (
             <Note tone="warning" icon={<ShieldAlert size={15} />}>
               Kategorie „Krankheit“: Eine Krankmeldung darf nie blockiert werden. Die folgenden Regeln werden für diese
-              Art deshalb <strong>nicht ausgewertet</strong> — sie greifen erst, wenn Sie die Kategorie wechseln.
+              Art deshalb <strong>nicht ausgewertet</strong>. Sie greifen erst, wenn Sie die Kategorie wechseln.
             </Note>
           )}
 
@@ -616,7 +616,7 @@ function TypeDialog({
               <Spinner />
             ) : visibleRoles.length === 0 ? (
               <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                Es sind noch keine Rollen angelegt — anzulegen unter Verwaltung → Rollen. Ohne Rollen darf jede und jeder
+                Es sind noch keine Rollen angelegt. Anzulegen unter Verwaltung → Rollen. Ohne Rollen darf jede und jeder
                 diese Art beantragen.
               </span>
             ) : (
@@ -681,7 +681,7 @@ function TypeDialog({
             </div>
             {eligibility.employee_rules.length === 0 ? (
               <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                Keine Ausnahmen — es gilt allein die Rollenregel.
+                Keine Ausnahmen: Es gilt allein die Rollenregel.
               </span>
             ) : (
               <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>

@@ -3,13 +3,13 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 
 // Datenverzeichnis: im Dev-Betrieb ./data neben dem Backend, im Desktop-Betrieb
-// wird HRMONIC_DATA_DIR von Electron auf app.getPath('userData') gesetzt.
-const dataDir = process.env.HRMONIC_DATA_DIR
-  ? path.resolve(process.env.HRMONIC_DATA_DIR)
+// wird OHRGANIZE_DATA_DIR von Electron auf app.getPath('userData') gesetzt.
+const dataDir = process.env.OHRGANIZE_DATA_DIR
+  ? path.resolve(process.env.OHRGANIZE_DATA_DIR)
   : path.resolve(import.meta.dirname ?? process.cwd(), '../../..', 'apps/backend/data');
 
 // mode 0o700 statt des Node-Defaults 0o755: Im Datenverzeichnis liegen die
-// komplette Personalakte (hrmonic.db), jeder hochgeladene Dateiinhalt und das
+// komplette Personalakte (ohrganize.db), jeder hochgeladene Dateiinhalt und das
 // Signatur-Secret. Auf einem gemeinsam genutzten Kundenserver hätte 0o755 jedem
 // lokalen Konto (Webserver-User, Monitoring-Agent, Praktikant mit Shell)
 // Lesezugriff auf Gehälter und AU-Bescheinigungen gegeben.
@@ -18,7 +18,7 @@ fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
 const storageDir = path.join(dataDir, 'storage');
 fs.mkdirSync(storageDir, { recursive: true, mode: 0o700 });
 
-const dbPath = path.join(dataDir, 'hrmonic.db');
+const dbPath = path.join(dataDir, 'ohrganize.db');
 const secretPath = path.join(dataDir, 'secret.key');
 /** Ablage des generierten Initialpassworts (siehe core/auth.ts, ensureDefaultAdmin). */
 const initialPasswordPath = path.join(dataDir, 'initial-admin-password.txt');
@@ -70,14 +70,14 @@ function loadOrCreateSecret(): string {
 const startupWarnings: string[] = [];
 
 // Standard 127.0.0.1 (Desktop-Embedding). Für den Server-Deploy hinter
-// einem Reverse-Proxy HRMONIC_HOST setzen (z. B. 0.0.0.0 im Container).
-const host = process.env.HRMONIC_HOST ?? '127.0.0.1';
+// einem Reverse-Proxy OHRGANIZE_HOST setzen (z. B. 0.0.0.0 im Container).
+const host = process.env.OHRGANIZE_HOST ?? '127.0.0.1';
 /** Adressen, bei denen das Backend ausschließlich lokal erreichbar ist. */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
 const boundToLoopbackOnly = LOOPBACK_HOSTS.has(host);
 
 function readCorsOrigins(): string[] {
-  const raw = (process.env.HRMONIC_CORS_ORIGIN ?? '')
+  const raw = (process.env.OHRGANIZE_CORS_ORIGIN ?? '')
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
@@ -92,10 +92,10 @@ function readCorsOrigins(): string[] {
   const cleaned = raw.filter((o) => o.toLowerCase() !== 'null');
   if (cleaned.length < raw.length) {
     startupWarnings.push(
-      'HRMONIC_CORS_ORIGIN enthielt den Wert "null" — er wurde ignoriert. "null" ist die ' +
+      'OHRGANIZE_CORS_ORIGIN enthielt den Wert "null" — er wurde ignoriert. "null" ist die ' +
         'Herkunft jedes opaken Kontexts (sandboxed iframe, data:, file://) und würde die ' +
         'Origin-Liste wirkungslos machen. Der Desktop-Client meldet sich mit einem eigenen ' +
-        'Schema (hrmonic://app); dieses gehört bei Bedarf ausdrücklich in die Liste.',
+        'Schema (ohrganize://app); dieses gehört bei Bedarf ausdrücklich in die Liste.',
     );
   }
   return cleaned;
@@ -113,14 +113,14 @@ const corsOrigins = readCorsOrigins();
 if (!boundToLoopbackOnly && corsOrigins.length === 0) {
   throw new Error(
     [
-      `HRMONIC_HOST ist auf "${host}" gesetzt — das Backend wäre damit über das Netz erreichbar,`,
-      'aber HRMONIC_CORS_ORIGIN ist leer. Ohne Origin-Liste würde CORS jede fremde Herkunft',
+      `OHRGANIZE_HOST ist auf "${host}" gesetzt — das Backend wäre damit über das Netz erreichbar,`,
+      'aber OHRGANIZE_CORS_ORIGIN ist leer. Ohne Origin-Liste würde CORS jede fremde Herkunft',
       'zulassen. Bitte die erlaubten Herkünfte kommasepariert setzen, z. B.:',
-      '  HRMONIC_CORS_ORIGIN=https://portal.firma.de,hrmonic://app',
-      'Die Desktop-App gehört mit in die Liste: Sie sendet die Herkunft "hrmonic://app".',
+      '  OHRGANIZE_CORS_ORIGIN=https://portal.firma.de,ohrganize://app',
+      'Die Desktop-App gehört mit in die Liste: Sie sendet die Herkunft "ohrganize://app".',
       'Fehlt der Eintrag, kommt aus der HR-Administration keine einzige Anfrage durch.',
       'Der Wert "null" ist nicht zulässig (er erlaubt faktisch jede Herkunft).',
-      'Für den reinen Ein-Rechner-Betrieb HRMONIC_HOST weglassen oder auf 127.0.0.1 setzen.',
+      'Für den reinen Ein-Rechner-Betrieb OHRGANIZE_HOST weglassen oder auf 127.0.0.1 setzen.',
     ].join('\n'),
   );
 }
@@ -130,24 +130,24 @@ if (!boundToLoopbackOnly && corsOrigins.length === 0) {
 // lädt heute noch über file:// und sendet damit Origin "null".
 //
 // ABHÄNGIGKEIT: Der Desktop-Client wird parallel auf ein eigenes Schema
-// (hrmonic://app statt file://) umgestellt. Danach sendet auch der Renderer
+// (ohrganize://app statt file://) umgestellt. Danach sendet auch der Renderer
 // eine benannte Herkunft und kann in einem Server-Deploy regulär in
-// HRMONIC_CORS_ORIGIN aufgenommen werden. Bis dahin gilt: HRMONIC_CORS_ORIGIN
+// OHRGANIZE_CORS_ORIGIN aufgenommen werden. Bis dahin gilt: OHRGANIZE_CORS_ORIGIN
 // niemals auf einem Arbeitsplatz setzen — das eingebettete Backend erbt die
 // Variable und würde den eigenen Renderer aussperren.
 const corsOrigin: boolean | string[] = corsOrigins.length > 0 ? corsOrigins : true;
 
 // Token-Laufzeit. Frühere 12h waren im reinen Einzelplatzbetrieb vertretbar;
 // im Serverbetrieb ist ein abgegriffenes Token einen halben Arbeitstag gültig.
-// Über HRMONIC_TOKEN_TTL anpassbar (Format wie bei @fastify/jwt: "30m", "8h",
+// Über OHRGANIZE_TOKEN_TTL anpassbar (Format wie bei @fastify/jwt: "30m", "8h",
 // "7d" oder eine Sekundenzahl).
 const TOKEN_TTL_PATTERN = /^(\d+|\d+(?:\.\d+)?\s*(?:s|m|h|d))$/i;
-const tokenTtlRaw = (process.env.HRMONIC_TOKEN_TTL ?? '').trim();
+const tokenTtlRaw = (process.env.OHRGANIZE_TOKEN_TTL ?? '').trim();
 if (tokenTtlRaw && !TOKEN_TTL_PATTERN.test(tokenTtlRaw)) {
   // Fail closed statt still zu ignorieren: Ein von @fastify/jwt nicht
   // verstandener Wert führt zu Tokens ganz OHNE Ablauf.
   throw new Error(
-    `HRMONIC_TOKEN_TTL="${tokenTtlRaw}" ist ungültig. Erlaubt sind eine Sekundenzahl ` +
+    `OHRGANIZE_TOKEN_TTL="${tokenTtlRaw}" ist ungültig. Erlaubt sind eine Sekundenzahl ` +
       'oder Angaben wie "30m", "1h", "8h", "7d".',
   );
 }
@@ -156,12 +156,12 @@ const tokenTtl = tokenTtlRaw || '1h';
 /**
  * Optionales Initialpasswort für den Standard-Admin (nur bei der allerersten
  * Inbetriebnahme ausgewertet, siehe core/auth.ts). Ist die Variable gesetzt,
- * übernimmt HRMONIC den Wert unverändert und verlangt KEINEN sofortigen
+ * übernimmt oHRganize den Wert unverändert und verlangt KEINEN sofortigen
  * Wechsel — die Verantwortung liegt dann bewusst beim Betreiber
  * (Provisionierung per Konfigurationsmanagement, automatisierte Tests).
  * Ohne die Variable wird ein Zufallspasswort erzeugt und ein Wechsel erzwungen.
  */
-const initialAdminPassword = (process.env.HRMONIC_INITIAL_ADMIN_PASSWORD ?? '').trim() || null;
+const initialAdminPassword = (process.env.OHRGANIZE_INITIAL_ADMIN_PASSWORD ?? '').trim() || null;
 
 // Bestandsinstallationen sofort nachziehen (die Datenbank wird erst später
 // geöffnet; server.ts ruft die Funktion nach migrate() ein zweites Mal auf).
@@ -176,7 +176,7 @@ export const config = {
   host,
   /** true, wenn das Backend ausschließlich lokal erreichbar ist. */
   boundToLoopbackOnly,
-  port: Number(process.env.HRMONIC_PORT ?? 3001),
+  port: Number(process.env.OHRGANIZE_PORT ?? 3001),
   corsOrigin,
   secret: loadOrCreateSecret(),
   tokenTtl,

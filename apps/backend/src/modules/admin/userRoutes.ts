@@ -30,7 +30,7 @@ import {
   type AdminArea,
   type AdminPermissions,
   type PermissionLevel,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';

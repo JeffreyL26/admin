@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-process.env.HRMONIC_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hrmonic-admin-'));
-process.env.HRMONIC_LOG_LEVEL = 'silent';
+process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-admin-'));
+process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
@@ -148,7 +148,7 @@ check('Vorlage löschen → 204', delTpl.statusCode === 204);
 await app.close();
 closeDb();
 try {
-  fs.rmSync(process.env.HRMONIC_DATA_DIR!, { recursive: true, force: true });
+  fs.rmSync(process.env.OHRGANIZE_DATA_DIR!, { recursive: true, force: true });
 } catch {
   // Windows/WAL-Reste sind unkritisch.
 }

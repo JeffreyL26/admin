@@ -130,7 +130,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
     const id = Number((req.params as { id: string }).id);
     const existing = getContract(id);
     if (existing.valid_to !== null) {
-      throw conflict('Nur die offene Vertragsversion kann korrigiert werden — geschlossene Versionen sind Historie');
+      throw conflict('Nur die offene Vertragsversion kann korrigiert werden. Geschlossene Versionen sind Historie');
     }
     const patch = parse(contractPatchSchema, req.body);
     const cols = CONTRACT_COLUMNS.filter((c) => patch[c] !== undefined);

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { HrTemplate, OnboardingProcess, OnboardingTask } from '@hrmonic/shared';
+import type { HrTemplate, OnboardingProcess, OnboardingTask } from '@ohrganize/shared';
 import { api } from '../../api/client';
 
 export function useHrTemplates(search: string, category: string) {

@@ -13,7 +13,7 @@ import {
   type AdminPermissions,
   type AdminRole,
   type PermissionLevel,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
@@ -266,7 +266,7 @@ function AccountsTab() {
           <ShieldAlert size={14} style={{ flex: 'none', marginTop: 1 }} />
           <span>
             Passwörter werden nie eingegeben, sondern vom Server erzeugt und genau einmal angezeigt.
-            Die eigene Rolle lässt sich hier nicht ändern und das eigene Konto nicht löschen — sonst
+            Die eigene Rolle lässt sich hier nicht ändern und das eigene Konto nicht löschen. Sonst
             wäre jede Einschränkung mit einem Klick aufgehoben. Ebenso bleibt immer mindestens ein
             Konto mit Benutzerverwaltung übrig.
           </span>
@@ -465,7 +465,7 @@ function AccountDialog({
           color: 'var(--text-secondary)',
         }}
       >
-        Ein Passwort geben Sie hier nicht ein. HRMONIC erzeugt ein Erstpasswort, zeigt es Ihnen
+        Ein Passwort geben Sie hier nicht ein. oHRganize erzeugt ein Erstpasswort, zeigt es Ihnen
         einmalig an und verlangt beim ersten Login den Wechsel.
       </p>
     </Modal>
@@ -560,7 +560,7 @@ function InitialPasswordDialog({
       >
         <ShieldAlert size={16} style={{ flex: 'none', marginTop: 2 }} />
         <span>
-          Dieses Passwort wird <strong>nur jetzt</strong> angezeigt — HRMONIC speichert es nicht im
+          Dieses Passwort wird <strong>nur jetzt</strong> angezeigt — oHRganize speichert es nicht im
           Klartext. Geben Sie es der Person über einen anderen Kanal als die E-Mail-Adresse weiter.
           Beim ersten Login muss sie ein eigenes Passwort vergeben. Ist es verloren, setzen Sie es
           einfach erneut zurück.

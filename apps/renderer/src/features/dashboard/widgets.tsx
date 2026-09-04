@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import {
   formatDate, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, ONBOARDING_KIND_LABELS,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { useOnboardingProcesses } from '../admin/api';
 import type { DashboardData } from './api';
 

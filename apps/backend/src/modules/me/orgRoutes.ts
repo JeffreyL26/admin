@@ -6,7 +6,7 @@
  * damit beide Clients nie auseinanderlaufen (Entscheidung D11 der Spezifikation).
  */
 import type { FastifyPluginAsync } from 'fastify';
-import type { OrgTreeNode } from '@hrmonic/shared';
+import type { OrgTreeNode } from '@ohrganize/shared';
 import { buildOrgTree } from '../employees/orgRoutes.js';
 import { requireEmployee } from './lib.js';
 

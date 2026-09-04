@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 // Der API-Port wird vom Main-Prozess deterministisch via additionalArguments
 // übergeben (im Prod-Betrieb ist es ein zufälliger freier Port).
-const apiArg = process.argv.find((a) => a.startsWith('--hrmonic-api-base='));
+const apiArg = process.argv.find((a) => a.startsWith('--ohrganize-api-base='));
 const apiBaseUrl = apiArg?.split('=')[1] ?? 'http://127.0.0.1:3001';
 
 // Ebenso deterministisch vom Main-Prozess (app.getVersion()). Vorher stand hier
@@ -11,10 +11,10 @@ const apiBaseUrl = apiArg?.split('=')[1] ?? 'http://127.0.0.1:3001';
 // Version sich als 1.0.0 ausgab. Für den Versionsabgleich mit dem Server wäre
 // das genau die falsche Auskunft. slice statt split('='), weil die Basis-URL
 // selbst ein '=' enthalten kann.
-const VERSION_ARG = '--hrmonic-app-version=';
+const VERSION_ARG = '--ohrganize-app-version=';
 const appVersion = process.argv.find((a) => a.startsWith(VERSION_ARG))?.slice(VERSION_ARG.length) ?? '0.0.0';
 
-contextBridge.exposeInMainWorld('hrmonic', {
+contextBridge.exposeInMainWorld('ohrganize', {
   apiBaseUrl,
   platform: process.platform,
   appVersion,

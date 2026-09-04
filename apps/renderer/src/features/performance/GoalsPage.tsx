@@ -13,7 +13,7 @@ import {
   type Goal,
   type GoalKind,
   type GoalStatus,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { ProgressBar, GOAL_STATUS_TONES } from './common';
 
 const emptyForm = {

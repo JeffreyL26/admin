@@ -2,11 +2,11 @@ import { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } from 'electro
 import path from 'node:path';
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { MIN_SERVER_VERSION, isAtLeast } from '@hrmonic/shared';
+import { MIN_SERVER_VERSION, isAtLeast } from '@ohrganize/shared';
 
 // Dev-Modus: Renderer kommt vom Vite-Dev-Server, Backend läuft separat (tsx watch).
 // Prod-Modus: Backend wird im Main-Prozess eingebettet gestartet (zufälliger Port),
-// Renderer wird als gebauter Build über das eigene Schema hrmonic://app geladen.
+// Renderer wird als gebauter Build über das eigene Schema ohrganize://app geladen.
 const devServerUrl = process.env.ELECTRON_START_URL;
 const isDev = Boolean(devServerUrl);
 
@@ -31,8 +31,8 @@ class StartupError extends Error {}
 // keine. Das Backend filtert "null" deshalb aktiv heraus.
 //
 // Mit einem als `standard` registrierten Schema bekommt der Renderer eine echte,
-// benennbare Herkunft: `hrmonic://app`. Genau dieser eine Wert gehört im
-// Server-Betrieb in HRMONIC_CORS_ORIGIN — neben der Portal-Domain.
+// benennbare Herkunft: `ohrganize://app`. Genau dieser eine Wert gehört im
+// Server-Betrieb in OHRGANIZE_CORS_ORIGIN — neben der Portal-Domain.
 //
 // Die Privilegien im Einzelnen:
 //   standard        — echte Herkunft (Host + Pfad), Voraussetzung für den
@@ -43,7 +43,7 @@ class StartupError extends Error {}
 //                     Seite als unsicheren Kontext.
 //   supportFetchAPI — fetch()/ES-Module dürfen aus diesem Schema laden
 //                     (der Vite-Build lädt sein Bundle als <script type=module>).
-const APP_SCHEME = 'hrmonic';
+const APP_SCHEME = 'ohrganize';
 const APP_HOST = 'app';
 const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 
@@ -85,7 +85,7 @@ function notFound(): Response {
 }
 
 /**
- * Bedient hrmonic://app/* aus dem entpackten Renderer-Verzeichnis.
+ * Bedient ohrganize://app/* aus dem entpackten Renderer-Verzeichnis.
  *
  * Pfad-Sicherheit: Das Schema ist zwar nur für den eigenen Renderer erreichbar,
  * die Auflösung bleibt trotzdem strikt eingesperrt — sonst wäre jede künftige
@@ -118,7 +118,7 @@ function registerAppProtocol(): void {
     } catch {
       return notFound();
     }
-    // Nur der eine Host wird bedient; hrmonic://irgendwas/ ist kein Treffer.
+    // Nur der eine Host wird bedient; ohrganize://irgendwas/ ist kein Treffer.
     if (url.host !== APP_HOST) return notFound();
 
     let relative: string;
@@ -157,8 +157,8 @@ function registerAppProtocol(): void {
 // konfiguriert, startet die App KEIN eigenes Backend, sondern arbeitet auf
 // demselben Server wie das Mitarbeitenden-Portal — beide Clients sehen damit
 // dieselben Daten. Zwei Quellen, Umgebungsvariable schlägt Datei:
-//   HRMONIC_API_BASE=https://portal.firma.de        (skriptierter Rollout)
-//   %APPDATA%\HRMONIC\config.json → { "apiBaseUrl": "…" }  (IT-Konfiguration)
+//   OHRGANIZE_API_BASE=https://portal.firma.de        (skriptierter Rollout)
+//   %APPDATA%\oHRganize\config.json → { "apiBaseUrl": "…" }  (IT-Konfiguration)
 // Ohne Konfiguration bleibt es beim eingebetteten Backend mit lokaler
 // Datenbank — der Einzelplatz-Betrieb ändert sich dadurch nicht.
 function configFilePath(): string {
@@ -166,7 +166,7 @@ function configFilePath(): string {
 }
 
 function readConfiguredApiBase(): string | null {
-  const fromEnv = process.env.HRMONIC_API_BASE?.trim();
+  const fromEnv = process.env.OHRGANIZE_API_BASE?.trim();
   if (fromEnv) return fromEnv;
 
   const cfgPath = configFilePath();
@@ -227,7 +227,7 @@ function normalizeApiBase(raw: string): string {
         `Im Netzbetrieb ist deshalb https:// vorgeschrieben; http:// bleibt allein ` +
         `lokalen Testadressen (localhost, 127.0.0.1, ::1) vorbehalten.\n\n` +
         `Bitte tragen Sie die Adresse mit https:// ein (z. B. https://portal.firma.de) — in\n` +
-        `${configFilePath()}\nbzw. in der Umgebungsvariable HRMONIC_API_BASE.`,
+        `${configFilePath()}\nbzw. in der Umgebungsvariable OHRGANIZE_API_BASE.`,
     );
   }
   return raw.replace(/\/+$/, '');
@@ -262,7 +262,7 @@ const CONNECTION_HINTS: Record<string, string> = {
     'Die Namensauflösung (DNS) antwortet nicht. Prüfen Sie die Netzwerkverbindung des Arbeitsplatzes und die Erreichbarkeit des DNS-Servers.',
   // Transport
   ECONNREFUSED:
-    'Der Server ist erreichbar, weist die Verbindung auf diesem Port aber ab. Läuft der HRMONIC-Dienst, und stimmt der Port in der Adresse?',
+    'Der Server ist erreichbar, weist die Verbindung auf diesem Port aber ab. Läuft der oHRganize-Dienst, und stimmt der Port in der Adresse?',
   ETIMEDOUT:
     'Der Server antwortet nicht innerhalb der Wartezeit. Meist blockiert eine Firewall oder ein Proxy den Port, oder die Adresse gehört zu einem nicht erreichbaren Netz.',
 };
@@ -312,10 +312,10 @@ async function assertReachable(base: string): Promise<void> {
   } catch (err) {
     const { reason, hint } = describeConnectionFailure(err);
     throw new StartupError(
-      `Das HRMONIC-Backend unter ${base} ist nicht erreichbar (${reason}).\n\n` +
+      `Das oHRganize-Backend unter ${base} ist nicht erreichbar (${reason}).\n\n` +
         (hint ? `${hint}\n\n` : '') +
         `Prüfen Sie, ob der Dienst läuft und ob die Adresse in\n${configFilePath()}\n` +
-        `bzw. in der Umgebungsvariable HRMONIC_API_BASE stimmt.`,
+        `bzw. in der Umgebungsvariable OHRGANIZE_API_BASE stimmt.`,
     );
   }
 
@@ -354,22 +354,22 @@ async function startBackend(): Promise<string> {
 
   const dataDir = path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
-  process.env.HRMONIC_DATA_DIR = dataDir;
+  process.env.OHRGANIZE_DATA_DIR = dataDir;
 
   // Serverkonfiguration NICHT erben — hart überschreiben, bevor das Bundle
   // geladen wird (config.ts liest die Variablen beim Import).
   //
-  // HRMONIC_HOST: Wer die Server-Doku auf einem Arbeitsplatz nachvollzieht oder
+  // OHRGANIZE_HOST: Wer die Server-Doku auf einem Arbeitsplatz nachvollzieht oder
   // die Variable per Rollout-Skript systemweit setzt (z. B. 0.0.0.0), würde sonst
   // das eingebettete Backend an alle Netzwerkschnittstellen binden — die lokale
   // Personaldatenbank stünde offen im Firmennetz. Das eingebettete Backend hat
   // genau einen Nutzer: den Renderer im selben Prozessbaum.
-  process.env.HRMONIC_HOST = '127.0.0.1';
-  // HRMONIC_CORS_ORIGIN: Eine geerbte Server-Liste enthält die Portal-Domain,
-  // aber nicht hrmonic://app — das eingebettete Backend würde seinen eigenen
+  process.env.OHRGANIZE_HOST = '127.0.0.1';
+  // OHRGANIZE_CORS_ORIGIN: Eine geerbte Server-Liste enthält die Portal-Domain,
+  // aber nicht ohrganize://app — das eingebettete Backend würde seinen eigenen
   // Renderer aussperren (leeres Fenster, keine erkennbare Ursache). Auf
   // 127.0.0.1 ist die offene Voreinstellung unbedenklich (siehe config.ts).
-  delete process.env.HRMONIC_CORS_ORIGIN;
+  delete process.env.OHRGANIZE_CORS_ORIGIN;
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { startServer } = require(path.join(__dirname, 'server.cjs')) as {
@@ -386,11 +386,11 @@ async function createWindow(apiBaseUrl: string): Promise<void> {
     height: 920,
     minWidth: 1100,
     minHeight: 700,
-    title: 'HRMONIC',
+    title: 'oHRganize',
     backgroundColor: '#0f2f5f',
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
     show: false,
-    // Rahmenlos: HRMONIC bringt seine eigene, zur UI passende Titelleiste mit.
+    // Rahmenlos: oHRganize bringt seine eigene, zur UI passende Titelleiste mit.
     // Auf macOS bleiben die Ampel-Buttons erhalten (hiddenInset), auf Windows/
     // Linux zeichnet der Renderer eigene Fenster-Controls.
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
@@ -401,11 +401,11 @@ async function createWindow(apiBaseUrl: string): Promise<void> {
       contextIsolation: true,
       nodeIntegration: false,
       additionalArguments: [
-        `--hrmonic-api-base=${apiBaseUrl}`,
+        `--ohrganize-api-base=${apiBaseUrl}`,
         // app.getVersion() liest die Version aus der gepackten package.json.
         // Das Preload kann das nicht selbst: Dort ist npm_package_version nur
         // im Dev-Betrieb gesetzt und in der installierten App leer.
-        `--hrmonic-app-version=${app.getVersion()}`,
+        `--ohrganize-app-version=${app.getVersion()}`,
       ],
     },
   });
@@ -511,7 +511,7 @@ if (!gotLock) {
       // Verzeichnis dist/renderer existiert dort gar nicht.
       if (!isDev) registerAppProtocol();
       const apiBaseUrl = await startBackend();
-      ipcMain.handle('hrmonic:apiBaseUrl', () => apiBaseUrl);
+      ipcMain.handle('ohrganize:apiBaseUrl', () => apiBaseUrl);
       await createWindow(apiBaseUrl);
 
       app.on('activate', () => {
@@ -520,7 +520,7 @@ if (!gotLock) {
     } catch (err) {
       const { dialog } = await import('electron');
       dialog.showErrorBox(
-        'HRMONIC konnte nicht gestartet werden',
+        'oHRganize konnte nicht gestartet werden',
         err instanceof StartupError
           ? err.message
           : err instanceof Error

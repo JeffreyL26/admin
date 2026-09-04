@@ -2,9 +2,9 @@
 
 /**
  * Heutiges Datum in LOKALER Serverzeit (Serverzeit = Firmenzeit) — delegiert
- * an @hrmonic/shared; das Warum (UTC wäre nachts noch der Vortag) steht dort.
+ * an @ohrganize/shared; das Warum (UTC wäre nachts noch der Vortag) steht dort.
  */
-export { todayIsoLocal as todayIso } from '@hrmonic/shared';
+export { todayIsoLocal as todayIso } from '@ohrganize/shared';
 
 export function addDaysIso(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);

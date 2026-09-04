@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Plus, KanbanSquare, GripVertical } from 'lucide-react';
-import { formatDate, type RecruitingStageDto } from '@hrmonic/shared';
+import { formatDate, type RecruitingStageDto } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { useToast } from '../../components/Toast';
 import { PageHeader, Spinner, Avatar, EmptyState, Card } from '../../components/ui';

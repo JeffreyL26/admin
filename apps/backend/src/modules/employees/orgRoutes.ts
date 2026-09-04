@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { OrgTreeNode } from '@hrmonic/shared';
+import type { OrgTreeNode } from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
@@ -24,7 +24,7 @@ interface TeamRow {
 }
 
 // Die Baumform teilen sich Backend, Renderer und Portal — sie lebt daher in
-// @hrmonic/shared. Re-Export, damit bestehende Importpfade gültig bleiben.
+// @ohrganize/shared. Re-Export, damit bestehende Importpfade gültig bleiben.
 export type { OrgTreeNode };
 
 function loadDepartments(): DepartmentRow[] {

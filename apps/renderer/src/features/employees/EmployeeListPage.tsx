@@ -13,7 +13,7 @@ import {
   type EmployeeStatus,
   type EmployeeType,
   type SeniorityFormat,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, type BadgeTone } from '../../components/ui';
 import { MultiSelect } from '../../components/MultiSelect';
 import { Popover } from '../../components/Popover';
@@ -48,7 +48,7 @@ export const TYPE_TONES: Record<EmployeeType, BadgeTone> = {
  * Firmenstammdatum — sie liegen deshalb wie die Dashboard-Konfiguration lokal
  * je Gerät und nicht in der Datenbank.
  */
-const VIEW_KEY = 'hrmonic.employeeList';
+const VIEW_KEY = 'ohrganize.employeeList';
 
 interface ViewConfig {
   columns: string[];
@@ -506,7 +506,7 @@ export function EmployeeListPage() {
           <EmptyState
             icon={<Users size={40} />}
             title="Keine Mitarbeitenden gefunden"
-            hint="Passen Sie Suche oder Filter an — oder legen Sie die erste Person an."
+            hint="Passen Sie Suche oder Filter an. Alternativ legen Sie die erste Person an."
             action={
               <button className="hm-btn hm-btn--primary" onClick={() => setCreateOpen(true)}>
                 <Plus size={16} /> Mitarbeiter:in anlegen

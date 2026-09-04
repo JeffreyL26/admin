@@ -11,7 +11,7 @@ export function PlaceholderPage({ title }: { title: string }) {
         <EmptyState
           icon={<Construction size={40} />}
           title="Dieses Modul ist in Arbeit"
-          hint="Die Funktion wird in einem der nächsten Schritte implementiert."
+          hint="Diese Funktion wird in einem Update zur Verfügung gestellt."
         />
       </div>
     </>

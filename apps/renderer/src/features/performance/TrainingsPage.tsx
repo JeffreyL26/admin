@@ -10,7 +10,7 @@ import {
   type TrainingDueEntry,
   type TrainingRegistration,
   type TrainingRegistrationStatus,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, downloadFile, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';

@@ -12,7 +12,7 @@ import {
   formatDate,
   formatEuro,
   type CertificateKind,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { componentsAt, getEmployee, monthlyCents, type EmployeeRow } from './lib.js';
 
 const certificateSchema = z.object({

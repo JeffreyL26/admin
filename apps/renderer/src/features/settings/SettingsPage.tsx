@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
-import { BUNDESLAND_LABELS } from '@hrmonic/shared';
+import { BUNDESLAND_LABELS } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Card, Field, PageHeader, Spinner } from '../../components/ui';
 import { useToast } from '../../components/Toast';
@@ -51,7 +51,7 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Einstellungen" subtitle="Unternehmensweite Konfiguration von HRMONIC." />
+      <PageHeader title="Einstellungen" subtitle="Unternehmensweite Konfiguration von oHRganize." />
       <div className="stack" style={{ maxWidth: 760 }}>
         <ThemeCard />
         <Card title="Unternehmen">

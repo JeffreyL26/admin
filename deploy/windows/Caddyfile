@@ -1,4 +1,4 @@
-# HRMONIC — Reverse-Proxy (Caddy 2) — WINDOWS
+# oHRganize — Reverse-Proxy (Caddy 2) — WINDOWS
 #
 # Diese Datei ist die Windows-Fassung von ../Caddyfile. Inhaltlich identisch;
 # abweichend sind nur Pfade und die Befehle zum Prüfen/Neuladen. Änderungen an
@@ -12,7 +12,7 @@
 # VOR DEM AUSROLLEN ERSETZEN:
 #   portal.example.invalid            → Domain des Kunden
 #   it@firma.de                 → Postfach für Let's-Encrypt-Benachrichtigungen
-#   C:/ProgramData/HRMONIC/web  → Zielverzeichnis des Portal-Builds
+#   C:/ProgramData/oHRganize/web  → Zielverzeichnis des Portal-Builds
 #
 # In dieser Fassung besorgt und erneuert Caddy das Zertifikat selbst über
 # Let's Encrypt. Dafür müssen Port 80 UND 443 aus dem Internet erreichbar sein
@@ -56,7 +56,7 @@ portal.example.invalid {
 	# -----------------------------------------------------------------------
 	# OHNE `tls`-Direktive versucht Caddy automatisch ACME (Let's Encrypt).
 	# Das setzt einen aus dem Internet erreichbaren, öffentlich auflösbaren
-	# Namen voraus und schlägt für interne Namen (hrmonic.firma.local, reine
+	# Namen voraus und schlägt für interne Namen (ohrganize.firma.local, reine
 	# LAN-Installationen) zwangsläufig fehl — Let's Encrypt kann nichts
 	# bestätigen, was es nicht erreicht. Für den reinen Firmennetzbetrieb
 	# deshalb eine der beiden folgenden Varianten einkommentieren.
@@ -69,7 +69,7 @@ portal.example.invalid {
 	#     Das Ablaufdatum gehört in den Betriebskalender — läuft es ab, meldet
 	#     sich am Montagmorgen niemand mehr an.
 	#     Vorwärtsschrägstriche wie überall in dieser Datei (siehe oben).
-	# tls C:/ProgramData/HRMONIC/tls/portal.crt C:/ProgramData/HRMONIC/tls/portal.key
+	# tls C:/ProgramData/oHRganize/tls/portal.crt C:/ProgramData/oHRganize/tls/portal.key
 	#
 	# (b) Caddys eigene interne CA (kein Zertifikat zu beschaffen, Erneuerung
 	#     übernimmt Caddy):
@@ -93,7 +93,7 @@ portal.example.invalid {
 	# steht als Zeichenklasse [?] da, damit die Caddyfile-Auswertung von
 	# Rückstrichen keine Rolle spielt).
 	log {
-		output file C:/ProgramData/HRMONIC/logs/caddy-access.log {
+		output file C:/ProgramData/oHRganize/logs/caddy-access.log {
 			roll_size 20MiB
 			roll_keep 10
 		}
@@ -176,7 +176,7 @@ portal.example.invalid {
 	# Statisches Portal-Build (apps/web/dist)
 	# -----------------------------------------------------------------------
 	handle {
-		root * C:/ProgramData/HRMONIC/web
+		root * C:/ProgramData/oHRganize/web
 
 		# Asset-Dateinamen enthalten einen Inhalts-Hash und sind unveränderlich.
 		header /assets/* Cache-Control "public, max-age=31536000, immutable"
@@ -208,7 +208,7 @@ portal.example.invalid {
 #
 # und im Site-Block vor `handle /api/*` einfügen:
 #   rate_limit {
-#     zone hrmonic_login {
+#     zone ohrganize_login {
 #       match {
 #         path /api/auth/login
 #       }

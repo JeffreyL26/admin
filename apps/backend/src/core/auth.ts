@@ -67,7 +67,7 @@ declare module 'fastify' {
  * damit lässt sich die Liste gültiger Konten auslesen, ohne ein einziges
  * Passwort zu kennen. Der Vergleich läuft deshalb IMMER, auch ins Leere.
  */
-const DUMMY_PASSWORD_HASH = bcrypt.hashSync('hrmonic-nicht-vergeben', 10);
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('ohrganize-nicht-vergeben', 10);
 
 function signToken(app: FastifyInstance, user: AuthUser): Promise<string> {
   return Promise.resolve(
@@ -119,7 +119,7 @@ function issueIat(sessionsValidFrom: number | null | undefined): number {
  * erreichbar ist. Stattdessen:
  *   - ohne Vorgabe: Zufallspasswort, einmalige Ausgabe nach stdout und in eine
  *     Datei mit 0600 neben secret.key, Konto mit must_change_password = 1;
- *   - mit HRMONIC_INITIAL_ADMIN_PASSWORD: bewusste Betreibervorgabe (z. B. aus
+ *   - mit OHRGANIZE_INITIAL_ADMIN_PASSWORD: bewusste Betreibervorgabe (z. B. aus
  *     dem Konfigurationsmanagement oder für automatisierte Tests), dann ohne
  *     Wechselzwang — das Passwort ist nirgends veröffentlicht.
  */
@@ -136,7 +136,7 @@ export function ensureDefaultAdmin(): void {
 
   db.prepare(
     'INSERT INTO users (email, name, password_hash, must_change_password) VALUES (?, ?, ?, ?)',
-  ).run('admin@hrmonic.de', 'HR Administrator', bcrypt.hashSync(password, 10), provided ? 0 : 1);
+  ).run('admin@ohrganize.de', 'HR Administrator', bcrypt.hashSync(password, 10), provided ? 0 : 1);
 
   if (provided) return;
 
@@ -156,8 +156,8 @@ export function ensureDefaultAdmin(): void {
     [
       '',
       '='.repeat(72),
-      'HRMONIC: Erstinbetriebnahme — Standard-Admin angelegt',
-      '  Benutzer: admin@hrmonic.de',
+      'oHRganize: Erstinbetriebnahme — Standard-Admin angelegt',
+      '  Benutzer: admin@ohrganize.de',
       `  Passwort: ${password}`,
       `  ${fileHint}`,
       '  Das Passwort wird beim ersten Login zwingend geändert; danach die Datei löschen.',
@@ -346,7 +346,7 @@ function assertPasswordAcceptable(newPassword: string, email: string): void {
   const value = newPassword.toLowerCase();
   const localPart = email.split('@')[0]?.toLowerCase() ?? '';
   const forbidden = [
-    'hrmonic',
+    'ohrganize',
     'passwort',
     'password',
     '123456',

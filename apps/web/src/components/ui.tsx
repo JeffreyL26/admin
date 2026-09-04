@@ -1,5 +1,5 @@
 import React from 'react';
-import { ABSENCE_STATUS_LABELS, type AbsenceRequestStatus } from '@hrmonic/shared';
+import { ABSENCE_STATUS_LABELS, type AbsenceRequestStatus } from '@ohrganize/shared';
 
 /** Flache Sektionskarte des Portals (Hairline statt Schatten). */
 export function Card({

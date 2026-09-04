@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, Search } from 'lucide-react';
-import type { AdminArea } from '@hrmonic/shared';
+import type { AdminArea } from '@ohrganize/shared';
 import { NAV_SECTIONS } from './nav';
 import { useAuth } from '../auth/AuthContext';
 import { Avatar } from '../components/ui';
@@ -49,7 +49,7 @@ export function AppShell() {
         return;
       }
       // Ansicht-Shortcuts an den Main-Prozess (nur Electron).
-      const appApi = window.hrmonic?.app;
+      const appApi = window.ohrganize?.app;
       if (mod && (e.key === '+' || e.key === '=')) {
         e.preventDefault();
         appApi?.zoom(0.5);
@@ -72,9 +72,9 @@ export function AppShell() {
     <div className="shell">
       <aside className="sidebar no-select">
         <div className="sidebar__brand">
-          <img src={logo} alt="HRMONIC Logo" />
+          <img src={logo} alt="oHRganize Logo" />
           <span className="sidebar__brand-name">
-            HR<span>MONIC</span>
+            o<span>HR</span>ganize
           </span>
         </div>
         <button className="sidebar__search" onClick={() => setPaletteOpen(true)}>

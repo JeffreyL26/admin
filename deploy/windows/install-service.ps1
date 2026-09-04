@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Registriert das HRMONIC-Backend als Windows-Dienst (via NSSM).
-  Gegenstueck zu deploy/hrmonic-backend.service.
+  Registriert das oHRganize-Backend als Windows-Dienst (via NSSM).
+  Gegenstueck zu deploy/ohrganize-backend.service.
 
 .DESCRIPTION
   Windows kennt kein systemd. NSSM (Non-Sucking Service Manager) haengt ein
@@ -11,7 +11,7 @@
   ABBILDUNG DER UNIT-EINSTELLUNGEN:
     ExecStart            -> Application + AppParameters
     EnvironmentFile      -> AppEnvironmentExtra (diese Datei liest die env ein)
-    User=hrmonic         -> ObjectName "NT SERVICE\HRMONIC" (virtuelles Konto)
+    User=ohrganize       -> ObjectName "NT SERVICE\oHRganize" (virtuelles Konto)
     UMask=0077           -> harden-data-dir.ps1 (NTFS-ACLs)
     Restart=on-failure   -> AppExit Default Restart + AppRestartDelay
     KillSignal=SIGTERM   -> AppStopMethodConsole (Strg+C -> SIGINT)
@@ -20,7 +20,7 @@
   ZUM STOPPSIGNAL: NSSM schickt zuerst Strg+C an die Konsole des Prozesses,
   was Node unter Windows als SIGINT zustellt. index.ts behandelt SIGINT
   gleichwertig zu SIGTERM und fuehrt den WAL-Checkpoint aus. Ohne das stuenden
-  die juengsten Aenderungen nur in hrmonic.db-wal. Die Wartezeit liegt wie
+  die juengsten Aenderungen nur in ohrganize.db-wal. Die Wartezeit liegt wie
   TimeoutStopSec bewusst ueber der Selbstabbruchgrenze des Handlers (10 s).
 
   cli.cjs, NICHT server.cjs: server.cjs ist das Embedding-Bundle der
@@ -35,10 +35,10 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$ServiceName = 'HRMONIC',
-  [string]$InstallDir  = 'C:\Program Files\HRMONIC',
-  [string]$EnvFile     = 'C:\ProgramData\HRMONIC\hrmonic.env',
-  [string]$LogDir      = 'C:\ProgramData\HRMONIC\logs',
+  [string]$ServiceName = 'oHRganize',
+  [string]$InstallDir  = 'C:\Program Files\oHRganize',
+  [string]$EnvFile     = 'C:\ProgramData\oHRganize\ohrganize.env',
+  [string]$LogDir      = 'C:\ProgramData\oHRganize\logs',
   [string]$NssmPath    = 'nssm'
 )
 
@@ -56,12 +56,12 @@ function Assert-Admin {
   Liest das systemd-EnvironmentFile-Format: KEY=WERT je Zeile, Kommentare in
   eigenen Zeilen, keine Anfuehrungszeichen noetig, keine Shell-Expansion.
   Bewusst dasselbe Format wie unter Linux - die Variablen und ihre Bedeutung
-  sind identisch und stehen nur EINMAL erklaert, in deploy/hrmonic.env.example.
+  sind identisch und stehen nur EINMAL erklaert, in deploy/ohrganize.env.example.
 #>
 function Read-EnvFile {
   param([string]$Path)
   if (-not (Test-Path -LiteralPath $Path)) {
-    throw "Konfiguration nicht gefunden: $Path (Vorlage: deploy\windows\hrmonic.env.example)"
+    throw "Konfiguration nicht gefunden: $Path (Vorlage: deploy\windows\ohrganize.env.example)"
   }
   $pairs = @()
   foreach ($line in Get-Content -LiteralPath $Path) {
@@ -141,21 +141,21 @@ if (-not (Test-Path -LiteralPath $entry)) {
 $envPairs = Read-EnvFile -Path $EnvFile
 Write-Host "Konfiguration: $($envPairs.Count) Variablen aus $EnvFile"
 
-# HRMONIC_DATA_DIR ist Pflicht, und zwar HIER pruefbar statt spaeter schmerzhaft:
+# OHRGANIZE_DATA_DIR ist Pflicht, und zwar HIER pruefbar statt spaeter schmerzhaft:
 # Fehlt die Variable, faellt config.ts auf ein Verzeichnis NEBEN dem
-# Programmverzeichnis zurueck (C:\Program Files\HRMONIC\...). Als virtuelles
+# Programmverzeichnis zurueck (C:\Program Files\oHRganize\...). Als virtuelles
 # Dienstkonto scheitert das Anlegen dort an den Rechten - der Dienst landet in
 # einer Neustartschleife. Faellt der Dienst mangels Dienstkonto auf LocalSystem
-# zurueck, gelingt es sogar: Dann laeuft HRMONIC still mit einer leeren
+# zurueck, gelingt es sogar: Dann laeuft oHRganize still mit einer leeren
 # Datenbank am falschen Ort, die Sicherung greift ins Leere, und beim naechsten
 # Update ist alles weg. Beide Ausgaenge sind schlechter als ein Abbruch jetzt.
-$dataDirPair = $envPairs | Where-Object { $_ -like 'HRMONIC_DATA_DIR=*' } | Select-Object -First 1
+$dataDirPair = $envPairs | Where-Object { $_ -like 'OHRGANIZE_DATA_DIR=*' } | Select-Object -First 1
 if (-not $dataDirPair) {
-  throw "HRMONIC_DATA_DIR fehlt in $EnvFile. Ohne die Variable legt das Backend seine Daten neben dem Programmverzeichnis an. Vorlage: deploy\windows\hrmonic.env.example"
+  throw "OHRGANIZE_DATA_DIR fehlt in $EnvFile. Ohne die Variable legt das Backend seine Daten neben dem Programmverzeichnis an. Vorlage: deploy\windows\ohrganize.env.example"
 }
-$dataDir = $dataDirPair.Substring('HRMONIC_DATA_DIR='.Length).Trim()
+$dataDir = $dataDirPair.Substring('OHRGANIZE_DATA_DIR='.Length).Trim()
 if ($dataDir -eq '') {
-  throw "HRMONIC_DATA_DIR ist in $EnvFile leer. Bitte einen Pfad eintragen, z. B. C:\ProgramData\HRMONIC\data"
+  throw "OHRGANIZE_DATA_DIR ist in $EnvFile leer. Bitte einen Pfad eintragen, z. B. C:\ProgramData\oHRganize\data"
 }
 Write-Host "Datenverzeichnis laut Konfiguration: $dataDir"
 
@@ -163,7 +163,7 @@ New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
 
 # --- NTFS-Rechte VOR jeder Dienstaktion ------------------------------------
 # Reihenfolge ist sicherheitsrelevant: Der erste Dienststart schreibt das
-# erzeugte Initialpasswort fuer admin@hrmonic.de nach logs\backend.log. Liegt
+# erzeugte Initialpasswort fuer admin@ohrganize.de nach logs\backend.log. Liegt
 # die ACL erst danach, war das Passwort zwischenzeitlich fuer die Gruppe
 # "Benutzer" lesbar (Erbe von C:\ProgramData). Deshalb haerten wir hier, noch
 # vor "nssm install" - und uebergeben das Dienstkonto als SID, weil sein Name
@@ -192,7 +192,7 @@ if ($existing) {
 }
 
 # Virtuelles Dienstkonto statt LocalSystem: Windows-Gegenstueck zum
-# Systemkonto "hrmonic" der Unit. Es entsteht automatisch mit dem Dienst und
+# Systemkonto "ohrganize" der Unit. Es entsteht automatisch mit dem Dienst und
 # hat kein Passwort und kein Anmelderecht.
 #
 # WARUM DIREKT HIER und nicht am Ende: NSSM legt den Dienst mit LocalSystem an.
@@ -217,7 +217,7 @@ if ($LASTEXITCODE -ne 0) {
   # hoechstprivilegierte Konto der Maschine - der HR-Dienst laeuft dann mit
   # Vollzugriff auf das gesamte System statt in seinem eigenen Kaefig. Und weil
   # LocalSystem ueberall schreiben darf, faellt auch ein falsch gesetztes
-  # HRMONIC_DATA_DIR nicht mehr durch einen Startfehler auf.
+  # OHRGANIZE_DATA_DIR nicht mehr durch einen Startfehler auf.
   throw ("Virtuelles Dienstkonto 'NT SERVICE\$ServiceName' konnte nicht gesetzt werden " +
     "(sc.exe config, Code $scCode). Abbruch: Der Dienst liefe sonst als LocalSystem " +
     'und damit mit weit mehr Rechten als vorgesehen.')
@@ -226,8 +226,8 @@ if ($LASTEXITCODE -ne 0) {
 & $NssmPath set $ServiceName Application    $node.Source            | Out-Null
 & $NssmPath set $ServiceName AppParameters  "`"$entry`""            | Out-Null
 & $NssmPath set $ServiceName AppDirectory   (Join-Path $InstallDir 'apps\backend') | Out-Null
-& $NssmPath set $ServiceName DisplayName    'HRMONIC Backend'       | Out-Null
-& $NssmPath set $ServiceName Description    'HRMONIC Backend (HR-Verwaltung, REST-API)' | Out-Null
+& $NssmPath set $ServiceName DisplayName    'oHRganize Backend'       | Out-Null
+& $NssmPath set $ServiceName Description    'oHRganize Backend (HR-Verwaltung, REST-API)' | Out-Null
 & $NssmPath set $ServiceName Start          SERVICE_AUTO_START      | Out-Null
 
 # Umgebungsvariablen. AppEnvironmentExtra erwartet die Paare als getrennte

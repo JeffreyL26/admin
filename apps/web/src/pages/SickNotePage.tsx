@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { SickNote } from '@hrmonic/shared';
+import type { SickNote } from '@ohrganize/shared';
 import { ApiRequestError } from '../api/client';
 import { useCreateSickNote, useMySickNotes } from '../api/hooks';
 import { Card, EmptyState, Field, LoadError, SkeletonRows } from '../components/ui';
@@ -53,7 +53,7 @@ export function SickNotePage() {
     <div style={{ maxWidth: 720 }}>
       <header className="portal-page-header">
         <h1 className="portal-title">Krankmeldung</h1>
-        {/* Kein Versprechen einer Benachrichtigung: HRMONIC verschickt keine
+        {/* Kein Versprechen einer Benachrichtigung: oHRganize verschickt keine
             E-Mails. Die Meldung wird erfasst und ist für die Personalabteilung
             sichtbar — mehr passiert technisch nicht. */}
         <p className="portal-subtitle">

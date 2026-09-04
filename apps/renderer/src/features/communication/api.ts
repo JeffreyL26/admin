@@ -8,7 +8,7 @@ import type {
   MeetingVisibility,
   SurveyQuestionKind,
   SurveyStatus,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 
 // ---------------------------------------------------------------------------
 // Typen (API-Felder snake_case wie in der DB)

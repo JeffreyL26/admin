@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { permits, type AdminArea } from '@hrmonic/shared';
+import { permits, type AdminArea } from '@ohrganize/shared';
 import { config } from '../config.js';
 import { getDb, inTransaction } from '../db/db.js';
 import { audit } from './audit.js';

@@ -12,7 +12,7 @@ import {
   type FreelancerInvoiceStatus,
   type MeSalaryComponent,
   type SalaryComponentKind,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { useMyBonuses, useMyFreelancer, useMySalary, useMySalaryHistory } from '../api/hooks';
 import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
 import { formatDate, todayIso } from '../lib/format';

@@ -65,7 +65,7 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   `.hm-tooltip__title` + `.hm-tooltip__line`, Werte mit „·“ getrennt.
 - Datenzugriff über `api` aus `api/client.ts` + TanStack Query.
 - **Keine neuen npm-Abhängigkeiten.** Verfügbar: react, react-router-dom,
-  @tanstack/react-query, lucide-react, recharts, @hrmonic/shared.
+  @tanstack/react-query, lucide-react, recharts, @ohrganize/shared.
 
 ## 5. Was Module NICHT anfassen
 
@@ -77,5 +77,5 @@ in CLAUDE.md dokumentierten Erweiterungspunkte.
 ## 6. Modul-Selbsttest
 
 Jedes Backend-Modul legt `src/modules/<modul>/smoke.ts` an (Muster:
-`src/test/smoke.ts` — Wegwerf-DB via `HRMONIC_DATA_DIR`, `fastify.inject`,
+`src/test/smoke.ts` — Wegwerf-DB via `OHRGANIZE_DATA_DIR`, `fastify.inject`,
 Exit-Code ≠ 0 bei Fehlern) und hält ihn grün: `npx tsx src/modules/<modul>/smoke.ts`.

@@ -1,4 +1,4 @@
-# HRMONIC API — Basisdefinition.
+# oHRganize API — Basisdefinition.
 # Die Fachmodule pflegen ihre Pfade in openapi/<modul>.paths.yaml;
 # `npm run openapi -w apps/backend` erzeugt daraus openapi.generated.yaml.
 #
@@ -6,10 +6,10 @@
 # Web-Client reserviert: benannt und spezifiziert, aber noch nicht implementiert.
 openapi: 3.1.0
 info:
-  title: HRMONIC API
+  title: oHRganize API
   version: 1.0.0
   description: >
-    Client-agnostische REST-API für HRMONIC. Genutzt vom Desktop-Client
+    Client-agnostische REST-API für oHRganize. Genutzt vom Desktop-Client
     (HR-Administration, role "admin") und vom Mitarbeitenden-Web-Portal
     (Self-Service, role "mitarbeiter"). Zugriffsprüfung erfolgt ausschließlich
     im Backend: Accounts mit role "mitarbeiter" erreichen nur /api/auth/* und

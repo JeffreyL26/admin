@@ -22,7 +22,7 @@ export const THEMES: ThemeMeta[] = [
   {
     name: 'dark',
     label: 'Dunkel',
-    description: 'Tiefes Nachtblau — angenehm bei wenig Licht',
+    description: 'Angenehm bei wenig Licht',
     swatch: ['#0c1830', '#0a1c38', '#3b8fe4'],
   },
   {
@@ -34,12 +34,12 @@ export const THEMES: ThemeMeta[] = [
   {
     name: 'silver',
     label: 'Silber',
-    description: 'Edles Graphit und Silber, ganz ohne Buntes',
+    description: 'Edles Graphit und Silber',
     swatch: ['#f3f4f6', '#2c3342', '#64708a'],
   },
 ];
 
-const STORAGE_KEY = 'hrmonic.theme';
+const STORAGE_KEY = 'ohrganize.theme';
 
 export function getTheme(): ThemeName {
   const stored = localStorage.getItem(STORAGE_KEY);
