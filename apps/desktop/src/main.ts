@@ -185,6 +185,23 @@ function readConfiguredApiBase(): string | null {
   return value.trim();
 }
 
+/**
+ * Adressen, die den eigenen Rechner meinen. Nur für sie bleibt Klartext-HTTP
+ * erlaubt: Dort verlässt der Verkehr die Maschine nicht, und genau so ist der
+ * lokale Testbetrieb dokumentiert (docs/web-portal.md). `new URL()` liefert
+ * IPv6-Hostnamen in eckigen Klammern zurück, deshalb stehen beide Schreibweisen
+ * in der Liste.
+ */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (LOOPBACK_HOSTS.has(host)) return true;
+  // Nicht nur 127.0.0.1: Das gesamte Netz 127.0.0.0/8 zeigt auf den eigenen
+  // Rechner, und manche Testaufbauten nutzen z. B. 127.0.0.2.
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
 // Trailing Slash entfernen: der Renderer hängt Pfade wie "/api/…" direkt an.
 function normalizeApiBase(raw: string): string {
   let url: URL;
@@ -196,7 +213,90 @@ function normalizeApiBase(raw: string): string {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`"${raw}" muss mit http:// oder https:// beginnen.`);
   }
+  // Klartext gegen einen fremden Host wird abgelehnt, nicht nur bemängelt:
+  // Über diese Verbindung laufen Anmeldedaten, das Sitzungstoken und sämtliche
+  // Personaldaten. Ein einmal falsch ausgerollter http://-Eintrag würde das
+  // dauerhaft und unbemerkt offen durch das Firmennetz schicken — mitlesbar für
+  // jeden im selben Netzsegment. StartupError statt Error: Ein falsch
+  // eingetragenes Schema ist ein Konfigurationszustand, den der Satz erklären
+  // muss, kein Absturz — ein Stacktrace davor würde die Meldung nur verdecken.
+  if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
+    throw new StartupError(
+      `Die Backend-Adresse "${raw}" verwendet unverschlüsseltes http://.\n\n` +
+        `Über diese Verbindung laufen Anmeldedaten, Zugangstoken und Personaldaten. ` +
+        `Im Netzbetrieb ist deshalb https:// vorgeschrieben; http:// bleibt allein ` +
+        `lokalen Testadressen (localhost, 127.0.0.1, ::1) vorbehalten.\n\n` +
+        `Bitte tragen Sie die Adresse mit https:// ein (z. B. https://portal.firma.de) — in\n` +
+        `${configFilePath()}\nbzw. in der Umgebungsvariable HRMONIC_API_BASE.`,
+    );
+  }
   return raw.replace(/\/+$/, '');
+}
+
+/**
+ * Klartext-Hinweise zu den Fehlercodes, die beim Verbindungsaufbau anfallen.
+ *
+ * WARUM als Tabelle: Am Telefon mit der IT ist "fetch failed" wertlos — ein
+ * unbekannter DNS-Name, ein nicht vertrauenswürdiges Zertifikat, eine
+ * blockierende Firewall und ein gestoppter Dienst sehen ohne diesen Hinweis
+ * identisch aus. Die Tabelle bleibt bewusst erweiterbar: Ein neuer Code
+ * bedeutet eine Zeile mehr, keine weitere Verzweigung im Meldungstext.
+ */
+const CONNECTION_HINTS: Record<string, string> = {
+  // TLS: Zertifikatskette nicht prüfbar — auf Kundensystemen fast immer eine
+  // interne CA, deren Wurzelzertifikat auf dem Arbeitsplatz fehlt.
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE:
+    'Das Serverzertifikat konnte nicht überprüft werden. Ist das Wurzelzertifikat Ihrer internen Zertifizierungsstelle auf diesem Arbeitsplatz im Windows-Zertifikatsspeicher hinterlegt?',
+  SELF_SIGNED_CERT_IN_CHAIN:
+    'Die Zertifikatskette enthält ein selbst signiertes Zertifikat. Ist das Wurzelzertifikat Ihrer internen Zertifizierungsstelle auf diesem Arbeitsplatz im Windows-Zertifikatsspeicher hinterlegt?',
+  DEPTH_ZERO_SELF_SIGNED_CERT:
+    'Der Server verwendet ein selbst signiertes Zertifikat. Hinterlegen Sie dessen Wurzelzertifikat im Windows-Zertifikatsspeicher oder stellen Sie ein Zertifikat Ihrer internen Zertifizierungsstelle aus.',
+  CERT_HAS_EXPIRED:
+    'Das Serverzertifikat ist abgelaufen und muss auf dem Server erneuert werden.',
+  ERR_TLS_CERT_ALTNAME_INVALID:
+    'Das Serverzertifikat ist auf einen anderen Rechnernamen ausgestellt. Tragen Sie genau den Namen ein, für den das Zertifikat gilt.',
+  // Namensauflösung
+  ENOTFOUND:
+    'Der Rechnername in der Adresse lässt sich nicht auflösen (DNS). Prüfen Sie die Schreibweise und ob der Arbeitsplatz im Firmennetz bzw. im VPN ist.',
+  EAI_AGAIN:
+    'Die Namensauflösung (DNS) antwortet nicht. Prüfen Sie die Netzwerkverbindung des Arbeitsplatzes und die Erreichbarkeit des DNS-Servers.',
+  // Transport
+  ECONNREFUSED:
+    'Der Server ist erreichbar, weist die Verbindung auf diesem Port aber ab. Läuft der HRMONIC-Dienst, und stimmt der Port in der Adresse?',
+  ETIMEDOUT:
+    'Der Server antwortet nicht innerhalb der Wartezeit. Meist blockiert eine Firewall oder ein Proxy den Port, oder die Adresse gehört zu einem nicht erreichbaren Netz.',
+};
+
+/**
+ * Zerlegt einen fehlgeschlagenen fetch-Aufruf in lesbare Ursache + Hinweis.
+ *
+ * Node reicht bei fetch nur eine Hülle mit der Meldung "fetch failed" heraus;
+ * der echte Fehler samt `.code` steckt in `err.cause`. Werden mehrere IP-
+ * Adressen probiert (A- und AAAA-Record), ist die Ursache zusätzlich ein
+ * AggregateError, dessen erster Eintrag den aussagekräftigen Code trägt.
+ * Deshalb die Kette entlanglaufen statt nur eine Ebene tief zu schauen; die
+ * Tiefe ist begrenzt, damit eine zyklische Verkettung die Meldung nicht
+ * aufbläht.
+ */
+function describeConnectionFailure(err: unknown): { reason: string; hint: string | null } {
+  if (!(err instanceof Error)) return { reason: String(err), hint: null };
+
+  const messages: string[] = [];
+  let code: string | null = null;
+  let current: unknown = err;
+  for (let depth = 0; current instanceof Error && depth < 4; depth += 1) {
+    const step = current as Error & { code?: unknown; cause?: unknown; errors?: unknown };
+    if (code === null && typeof step.code === 'string') code = step.code;
+    const text = typeof step.code === 'string' ? `${step.code}: ${step.message}` : step.message;
+    // Doppelte Texte weglassen: AggregateError wiederholt oft die Hüllmeldung.
+    if (text && !messages.includes(text)) messages.push(text);
+    current = step.cause ?? (Array.isArray(step.errors) ? step.errors[0] : undefined);
+  }
+
+  return {
+    reason: messages.join(' — ') || err.message,
+    hint: code ? (CONNECTION_HINTS[code] ?? null) : null,
+  };
 }
 
 // Früh und mit klarer Meldung scheitern statt mit leerem Fenster: ein nicht
@@ -210,9 +310,10 @@ async function assertReachable(base: string): Promise<void> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     health = (await res.json()) as { version?: unknown };
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
+    const { reason, hint } = describeConnectionFailure(err);
     throw new StartupError(
       `Das HRMONIC-Backend unter ${base} ist nicht erreichbar (${reason}).\n\n` +
+        (hint ? `${hint}\n\n` : '') +
         `Prüfen Sie, ob der Dienst läuft und ob die Adresse in\n${configFilePath()}\n` +
         `bzw. in der Umgebungsvariable HRMONIC_API_BASE stimmt.`,
     );

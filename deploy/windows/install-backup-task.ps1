@@ -55,12 +55,37 @@ New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
 
 # HRMONIC_DATA_DIR muss die Aufgabe selbst mitbringen: Sie erbt die Umgebung
 # des Dienstes nicht. Zeigt sie auf ein anderes Verzeichnis als der Dienst,
-# sichert sie stillschweigend eine leere Datenbank.
-$arguments = "`"$script`" --out `"$BackupDir`" --keep $Keep"
+# bricht der Lauf laut ab - backup.ts prueft config.dbPath und beendet sich mit
+# Exit 1 und der Meldung "Keine Datenbank unter ... gefunden". Der Fehler faellt
+# also auf (Letztes Ausfuehrungsergebnis in der Aufgabenplanung), er sichert
+# nicht heimlich ins Leere. Trotzdem muessen beide Werte uebereinstimmen, sonst
+# gibt es schlicht keine Sicherung.
+#
+# WARUM UEBER cmd.exe UND NICHT UEBER EINE MASCHINENVARIABLE: Frueher setzte
+# dieses Skript HRMONIC_DATA_DIR maschinenweit. Damit zeigte JEDER Node-Prozess
+# auf dem Server auf die Produktivdatenbank - ein versehentlich gestarteter
+# zweiter cli.cjs oder ein Seed-Lauf haette die echte Personalakte getroffen.
+# Ausserdem uebernimmt der Aufgabenplanungsdienst eine frisch gesetzte
+# Maschinenvariable unter Umstaenden erst nach einem Neustart, der erste
+# naechtliche Lauf waere also womoeglich ins Leere gegangen.
+# Die Aufgabenplanung kennt kein eigenes Umgebungsfeld, deshalb setzt cmd.exe
+# die Variable unmittelbar vor dem Aufruf - sie lebt nur fuer diesen einen
+# Prozessbaum.
+#
+# ZUM QUOTING: "/s" ist hier wichtig. Ohne den Schalter entscheidet cmd nach
+# einer verwickelten Regel, ob es die aeusseren Anfuehrungszeichen abstreift;
+# mit "/s" tut es das immer und nimmt den Rest woertlich. Die inneren
+# Anfuehrungszeichen brauchen wir, weil Node und die Pfade unter
+# "C:\Program Files\..." Leerzeichen enthalten. set "VAR=Wert" ist die
+# empfohlene Schreibweise: Die Anfuehrungszeichen landen NICHT im Wert.
+# Der Exit-Code bleibt erhalten - cmd /c gibt den des letzten Befehls zurueck.
+$backupCommand =
+  "set `"HRMONIC_DATA_DIR=$DataDir`" && " +
+  "`"$($node.Source)`" `"$script`" --out `"$BackupDir`" --keep $Keep"
 
 $action = New-ScheduledTaskAction `
-  -Execute $node.Source `
-  -Argument $arguments `
+  -Execute (Join-Path $env:SystemRoot 'System32\cmd.exe') `
+  -Argument "/s /c `"$backupCommand`"" `
   -WorkingDirectory (Join-Path $InstallDir 'apps\backend')
 
 # RandomDelay entspricht RandomizedDelaySec der systemd-Timer-Einheit.
@@ -93,12 +118,22 @@ Register-ScheduledTask `
   -Principal   $principal `
   -Settings    $settings | Out-Null
 
-# Die Aufgabe braucht HRMONIC_DATA_DIR. Geplante Aufgaben kennen keine eigene
-# Umgebung, deshalb als Maschinenvariable setzen - der Dienst liest denselben
-# Wert aus seiner env-Datei, beide muessen uebereinstimmen.
-[Environment]::SetEnvironmentVariable('HRMONIC_DATA_DIR', $DataDir, 'Machine')
-
 Write-Host "Aufgabe '$TaskName' eingerichtet: taeglich $At (+ bis zu 5 min Streuung)."
+Write-Host "Datenverzeichnis der Aufgabe: $DataDir (muss HRMONIC_DATA_DIR aus hrmonic.env entsprechen)."
+
+# Hinweis fuer Server, die noch von einer aelteren Fassung dieses Skripts
+# stammen: Die damals gesetzte Maschinenvariable wird hier bewusst NICHT
+# geloescht - sie koennte inzwischen von Hand gesetzt worden sein, und ein
+# Skript, das ungefragt Maschinenvariablen entfernt, ist unangenehmer als der
+# Hinweis. Der Betreiber entscheidet.
+$staleMachineVar = [Environment]::GetEnvironmentVariable('HRMONIC_DATA_DIR', 'Machine')
+if ($staleMachineVar) {
+  Write-Warning ("Maschinenvariable HRMONIC_DATA_DIR ist gesetzt ($staleMachineVar). " +
+    'Die Aufgabe braucht sie nicht mehr. Solange sie steht, zeigt JEDER Node-Prozess ' +
+    'auf dem Server auf die Produktivdatenbank - Empfehlung: entfernen mit ' +
+    "[Environment]::SetEnvironmentVariable('HRMONIC_DATA_DIR', `$null, 'Machine')")
+}
+
 Write-Host ''
 Write-Host 'Sofort einmal ausfuehren und nachsehen:'
 Write-Host "  Start-ScheduledTask -TaskName '$TaskName'"

@@ -25,7 +25,9 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
 - **Abgestufte Admin-Rechte (zweite Stufe im selben Hook).** `users.role`
   entscheidet, WELCHER Client offensteht; die **Admin-Rolle**
   (`users.admin_role_id` → `admin_roles` + `admin_role_permissions`,
-  Migration `002_admin_roles`) entscheidet, WAS ein Admin darin darf: je Bereich
+  Migrationseintrag `002_admin_roles` — **keine eigene Datei**, sondern ein
+  benannter Eintrag im Array in `db/migrations/000_core.ts`) entscheidet, WAS
+  ein Admin darin darf: je Bereich
   (personal, abwesenheit, leistung, verguetung, recruiting, kommunikation,
   verwaltung, einstellungen, benutzer) `kein` / `lesen` / `bearbeiten`.
   Durchgesetzt in `core/permissions.ts`, aufgerufen aus dem globalen Hook —
@@ -213,3 +215,11 @@ samuel.okafor@hrmonic.de / `portal2026`). Auf einem Kundensystem darf das
 niemals laufen; Konten entstehen dort über *Verwaltung → Benutzer & Rechte*
 (`POST /api/admin/users`, Passwort erzeugt der Server). Ablauf:
 `docs/inbetriebnahme.md`, Serverbetrieb: `deploy/README.md`.
+
+Das ist seit dem Deploy-Audit **technisch gesperrt**, nicht mehr nur
+dokumentiert: `seed.ts` bricht ab, sobald `HRMONIC_DATA_DIR` gesetzt ist und
+nicht auf das Dev-Verzeichnis `apps/backend/data` zeigt. Grund: Auf einem
+frischen Kundenserver ist die Datenbank leer, die alte Sperre („es existieren
+schon Mitarbeitende") griff dort gerade nicht. Einziger Ausweg ist
+`HRMONIC_ALLOW_SEED=1` — das setzt `seed-desktop.ts` selbst, weil es
+absichtlich auf das userData-Verzeichnis der installierten App zeigt.

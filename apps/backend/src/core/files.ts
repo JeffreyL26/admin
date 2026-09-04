@@ -100,6 +100,45 @@ function insertFileRow(
 }
 
 /**
+ * Schreibt eine eben angelegte Datei physisch auf den Datenträger durch.
+ *
+ * Ohne diesen Schritt liegt der Inhalt nach dem Schreiben nur im
+ * Schreib-Cache des Betriebssystems, während der files-Datensatz über die
+ * Datenbank (WAL, synchronous = FULL) bereits dauerhaft ist. Ein Stromausfall
+ * dazwischen erzeugt genau die Reihenfolge, die der Nutzer nicht reparieren
+ * kann: Der Datensatz existiert, der Blob fehlt — der Download antwortet für
+ * immer mit „Dateiinhalt fehlt im Storage". Umgekehrt ist ein Blob ohne
+ * Datensatz nur unerreichbarer Müll (dieselbe Abwägung wie in
+ * deleteFileIfUnreferenced).
+ *
+ * Geöffnet wird mit 'r+' und nicht 'r': Windows verlangt für
+ * FlushFileBuffers ein Handle mit Schreibrecht.
+ *
+ * Nicht abgedeckt: der Verzeichniseintrag selbst (auf POSIX bräuchte es dafür
+ * einen zweiten fsync auf den Storage-Ordner). Der offene Rest ist damit
+ * „Datei existiert nicht" statt „Datei existiert leer" — und das ist der
+ * Fall, den der Aufräumpfad ohnehin verträgt.
+ */
+function syncToDisk(target: string): void {
+  const fd = fs.openSync(target, 'r+');
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/** Asynchrone Fassung von syncToDisk für den Upload-Pfad (kein blockierter Event-Loop). */
+async function syncToDiskAsync(target: string): Promise<void> {
+  const handle = await fs.promises.open(target, 'r+');
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
  * Persistiert einen Buffer im Storage und legt den files-Eintrag an.
  *
  * Für bereits im Speicher erzeugte Inhalte (generierte Bescheinigungen, Seed).
@@ -115,11 +154,14 @@ export function storeFile(
 ): FileRecord {
   const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
   const storedName = `${crypto.randomUUID()}${safeExtension(originalName)}`;
+  const target = path.join(config.storageDir, storedName);
   // mode 0o600: Der Storage enthält Personalakten, Gehaltsbescheinigungen und
   // AU-Bescheinigungen. Auf einem Mehrbenutzer-Server darf sie außer dem
   // Dienstkonto niemand lesen. (Wirkt nur beim Neuanlegen — Bestandsdateien
   // repariert der chmod-Lauf beim Start, siehe config.ts.)
-  fs.writeFileSync(path.join(config.storageDir, storedName), buffer, { mode: 0o600 });
+  fs.writeFileSync(target, buffer, { mode: 0o600 });
+  // Durchschreiben, BEVOR insertFileRow den Datensatz anlegt (siehe syncToDisk).
+  syncToDisk(target);
   return insertFileRow(originalName, storedName, mimeType, buffer.length, sha256, uploadedBy);
 }
 
@@ -158,6 +200,11 @@ export async function storeFileStream(
 
   try {
     await pipeline(source, meter, out);
+    // Erst durchschreiben, dann den Datensatz anlegen (siehe syncToDisk).
+    // Schlägt der fsync fehl, ist die Datei nicht verlässlich gespeichert —
+    // dann soll der Upload scheitern, statt eine Zeile ohne Inhalt zu
+    // hinterlassen; das Aufräumen übernimmt derselbe catch-Zweig.
+    await syncToDiskAsync(target);
   } catch (err) {
     // Abgebrochener Upload darf keine halbe Datei im Storage hinterlassen.
     fs.rmSync(target, { force: true });

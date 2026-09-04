@@ -8,6 +8,13 @@ import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
 import { applyTheme, getTheme, THEMES, type ThemeName } from '../../design/theme';
 
+/** Passwortregel des Backends (MIN_PASSWORD_CHARS in core/auth.ts). Als
+ *  Konstante statt als Zahl im Hinweistext UND in der Absende-Bedingung: Beide
+ *  standen auseinander (Hinweis 12, Sperre 8), sodass 8–11 Zeichen absendbar
+ *  waren und erst der Server sie ablehnte. Gleiches Muster wie im Portal
+ *  (apps/web/src/pages/ProfilePage.tsx). */
+const MIN_PASSWORD_CHARS = 12;
+
 interface Settings {
   companyName: string;
   defaultBundesland: string;
@@ -125,7 +132,7 @@ export function SettingsPage() {
                 onChange={(e) => pw.setCurrent(e.target.value)}
               />
             </Field>
-            <Field label="Neues Passwort" required hint="Mindestens 8 Zeichen">
+            <Field label="Neues Passwort" required hint={`Mindestens ${MIN_PASSWORD_CHARS} Zeichen`}>
               <input
                 className="hm-input"
                 type="password"
@@ -137,7 +144,7 @@ export function SettingsPage() {
           <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
             <button
               className="hm-btn hm-btn--secondary"
-              disabled={pw.busy || pw.next.length < 8 || !pw.current}
+              disabled={pw.busy || pw.next.length < MIN_PASSWORD_CHARS || !pw.current}
               onClick={pw.submit}
             >
               Passwort ändern

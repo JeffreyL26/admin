@@ -29,6 +29,14 @@ function desktopUserDataDir(): string {
 // Muss VOR dem Import von seed.ts gesetzt sein — config.ts liest die Variable
 // beim Laden aus (dieselbe Ableitung wie desktop/src/main.ts: userData + /data).
 process.env.HRMONIC_DATA_DIR = path.join(desktopUserDataDir(), 'data');
+
+// seed.ts bricht ab, sobald HRMONIC_DATA_DIR nicht auf die Dev-Datenbank zeigt
+// (Schutz vor einem versehentlichen Lauf auf einem Kundensystem). Genau das ist
+// hier aber die Absicht: Das Ziel ist die lokal installierte Desktop-App auf
+// dem Entwicklungs- bzw. Demo-Rechner. Der Ausweg wird deshalb bewusst gesetzt
+// — ebenfalls vor dem Import, weil die Sperre beim Laden von seed.ts greift.
+process.env.HRMONIC_ALLOW_SEED = '1';
+
 console.log(`Ziel-Datenverzeichnis (installierte App): ${process.env.HRMONIC_DATA_DIR}`);
 
 await import('./seed.js');

@@ -12,7 +12,7 @@ process.env.HRMONIC_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../server.js');
 const { closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
-const { CLIENT_VERSION_HEADER, SERVER_VERSION_HEADER, MIN_CLIENT_VERSION } =
+const { CLIENT_VERSION_HEADER, SERVER_VERSION_HEADER, MIN_CLIENT_VERSION, isAtLeast } =
   await import('@hrmonic/shared');
 
 let failures = 0;
@@ -32,7 +32,16 @@ check('Health-Check', health.statusCode === 200);
 // die Ursache nicht lesen), und ein fehlender Header darf NICHT sperren
 // (Portal, Monitoring, curl schicken keinen).
 const clientHeader = (v: string) => ({ [CLIENT_VERSION_HEADER]: v });
-check('Health nennt seine Version', health.json().version === MIN_CLIENT_VERSION, health.json());
+// Nicht auf Gleichheit mit MIN_CLIENT_VERSION prüfen: Beide Werte waren nur so
+// lange identisch, wie das Projekt auf seiner ersten Version stand — der erste
+// Versionssprung ließ diesen Check fallen, ohne dass etwas kaputt war. Die
+// eigentliche Invariante ist: Der Server meldet eine lesbare Version, und sie
+// ist nie älter als das Minimum, das er selbst von Clients verlangt.
+check(
+  'Health nennt seine Version',
+  isAtLeast(health.json().version, MIN_CLIENT_VERSION),
+  health.json(),
+);
 check('Serverversion als Header', health.headers[SERVER_VERSION_HEADER] !== undefined);
 
 const oldClient = await app.inject({

@@ -20,7 +20,9 @@ ausschließlich in der Desktop-App und entscheidet dort über die Anträge.
 - **Das Token belegt nur die Identität:** Rolle und `employee_id` werden im
   Hook pro Request frisch aus `users` geladen. Rollenentzug, Umverknüpfung
   oder Kontolöschung wirken damit sofort — wichtig für ein internetseitig
-  erreichbares Portal, nicht erst nach Ablauf der 12-Stunden-Token-Laufzeit.
+  erreichbares Portal, nicht erst nach Ablauf der Token-Laufzeit (Vorgabe
+  **1 Stunde**, `tokenTtl` in `apps/backend/src/config.ts`, überschreibbar mit
+  `HRMONIC_TOKEN_TTL`).
 - Die Self-Service-Routen begrenzen Zeitspannen auf zwei Jahre
   (`MAX_SPAN_DAYS` in `modules/me/routes.ts`) — Schutz der synchronen
   Tageszählung vor absurden Spannen; längere Abwesenheiten erfasst die HR.
