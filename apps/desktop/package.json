@@ -1,6 +1,6 @@
 {
   "name": "@ohrganize/desktop",
-  "version": "1.0.1",
+  "version": "1.0.0-beta.1",
   "private": true,
   "productName": "oHRganize",
   "description": "oHRganize — HR-Verwaltung für den deutschsprachigen Markt",

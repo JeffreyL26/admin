@@ -1,6 +1,6 @@
 {
   "name": "ohrganize",
-  "version": "1.0.1",
+  "version": "1.0.0-beta.1",
   "private": true,
   "description": "oHRganize — HR-Verwaltungssoftware für den deutschsprachigen Markt",
   "workspaces": [

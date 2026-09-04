@@ -3,6 +3,7 @@ import {
   Info, Maximize2, Minus, PanelsTopLeft, RefreshCw, Square, Copy as CopyIcon,
   BookOpen, ZoomIn, ZoomOut, Expand, X,
 } from 'lucide-react';
+import { formatVersion } from '@ohrganize/shared';
 import { IS_ELECTRON } from '../api/client';
 import { Modal } from '../components/Modal';
 import logo from '../assets/logo.png';
@@ -165,7 +166,7 @@ function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
           </div>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <span className="hm-badge hm-badge--blue">Version {version}</span>
+          <span className="hm-badge hm-badge--blue">{formatVersion(version)}</span>
           <span className="hm-badge hm-badge--neutral">Desktop</span>
         </div>
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', margin: 0 }}>

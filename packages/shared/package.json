@@ -1,6 +1,6 @@
 {
   "name": "@ohrganize/shared",
-  "version": "1.0.1",
+  "version": "1.0.0-beta.1",
   "private": true,
   "type": "module",
   "main": "src/index.ts",

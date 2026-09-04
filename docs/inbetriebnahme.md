@@ -23,7 +23,7 @@ Erwartete Antwort — vier Felder, `version` ist die installierte Ausgabe,
 `min_client_version` die älteste noch bediente Desktop-App:
 
 ```json
-{"ok":true,"name":"oHRganize Backend","version":"1.0.1","min_client_version":"1.0.0"}
+{"ok":true,"name":"oHRganize Backend","version":"1.0.0-beta.1","min_client_version":"1.0.0"}
 ```
 
 **Zeitbedarf:** rund 60 Minuten, plus die Restore-Probe.

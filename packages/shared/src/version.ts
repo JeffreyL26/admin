@@ -45,6 +45,14 @@ function parseVersion(value: string): [number, number, number] | null {
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
+/** Anzeigeform: `1.0.0-beta.1` → „BETA 1.0.0", `1.0.1` → „Version 1.0.1". Maschinenlesbar bleibt Semver. */
+export function formatVersion(version: string): string {
+  const match = /^(\d+\.\d+\.\d+)(?:-([a-zA-Z]+)[.\d-]*)?/.exec(version.trim());
+  if (!match) return version;
+  const [, core, tag] = match;
+  return tag ? `${tag.toUpperCase()} ${core}` : `Version ${core}`;
+}
+
 /** <0 wenn a älter ist, 0 bei gleich, >0 wenn a neuer ist. */
 export function compareVersions(a: string, b: string): number {
   const left = parseVersion(a);
