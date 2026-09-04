@@ -1,6 +1,6 @@
 {
   "name": "hrmonic",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "HRMONIC — HR-Verwaltungssoftware für den deutschsprachigen Markt",
   "workspaces": [

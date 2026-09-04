@@ -4,6 +4,10 @@
  * Aufruf:  npm run seed            (bricht ab, wenn bereits Mitarbeitende existieren)
  *          npm run seed -- --force (leert alle Fachtabellen und seedet neu)
  *
+ * NUR DEV: Zeigt HRMONIC_DATA_DIR auf eine echte Installation statt auf die
+ * Entwicklungsdatenbank, bricht das Skript sofort ab (siehe Produktivsperre
+ * unten). Überstimmbar mit HRMONIC_ALLOW_SEED=1.
+ *
  * Bewusst eingebaute Demo-Fälle:
  * - laufende Krankheit ohne AU (Frist überschritten) + Langzeitkrankheit > 42 Tage
  * - Team-Urlaubskonflikt im August (Vertrieb Neukunden)
@@ -11,6 +15,7 @@
  * - Minijob über der Verdienstgrenze + fehlende IBAN (Abrechnungs-Warnungen)
  * - ablaufendes Zertifikat (Erinnerung), überfällige Pflichtschulungen
  */
+import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { getDb, closeDb, inTransaction } from '../db/db.js';
 import { migrate } from '../db/migrate.js';
@@ -20,6 +25,66 @@ import { holidaysForYear, type Bundesland } from '../core/holidays.js';
 import { eachDay, isWeekend } from '../core/dates.js';
 
 const FORCE = process.argv.includes('--force');
+
+// ===========================================================================
+// Produktivsperre — muss VOR jedem Datenbankzugriff greifen
+// ===========================================================================
+//
+// Bisher schützte nur die Prüfung "es gibt schon Mitarbeitende" (weiter unten)
+// vor einem versehentlichen Lauf. Auf einem frisch installierten Kundenserver
+// ist die Datenbank aber leer: Der Lauf ginge durch und legte die öffentlich
+// dokumentierten Demo-Konten (hrmonic2026 / portal2026) an — mit --force
+// zusätzlich unter Verlust aller Fachdaten und aller Konten außer
+// admin@hrmonic.de.
+//
+// Kriterium: Das Backend leitet sein Datenverzeichnis ohne HRMONIC_DATA_DIR
+// aus dem Repository ab (apps/backend/data) — das ist der Dev-Fall. Wer die
+// Variable setzt, meint eine echte Installation: das userData-Verzeichnis der
+// Desktop-App, /var/lib/hrmonic oder das per install-backup-task.ps1
+// maschinenweit gesetzte Datenverzeichnis eines Windows-Servers.
+//
+// Bewusst fail closed und bewusst mit Ausweg: HRMONIC_ALLOW_SEED=1 ist der
+// eine dokumentierte Weg, den Schutz zu überstimmen (siehe seed-desktop.ts).
+const configuredDataDir = process.env.HRMONIC_DATA_DIR?.trim();
+// Gleiche Ableitung wie in config.ts, nur relativ zu dieser Datei
+// (src/seed/ → apps/backend/data).
+const devDataDir = path.resolve(import.meta.dirname ?? process.cwd(), '..', '..', 'data');
+
+/** Pfadvergleich ohne Schrägstrich-Rest; auf Windows zusätzlich ohne Groß-/Kleinschreibung. */
+function samePath(a: string, b: string): boolean {
+  const normalize = (p: string) => path.resolve(p).replace(/[\\/]+$/, '');
+  return process.platform === 'win32'
+    ? normalize(a).toLowerCase() === normalize(b).toLowerCase()
+    : normalize(a) === normalize(b);
+}
+
+if (
+  process.env.HRMONIC_ALLOW_SEED !== '1' &&
+  configuredDataDir &&
+  !samePath(configuredDataDir, devDataDir)
+) {
+  console.error(
+    [
+      'Abbruch: "npm run seed" ist ausschließlich für die Entwicklung gedacht.',
+      '',
+      `  HRMONIC_DATA_DIR = ${path.resolve(configuredDataDir)}`,
+      `  Dev-Verzeichnis  = ${devDataDir}`,
+      '',
+      'Das Datenverzeichnis zeigt nicht auf die Entwicklungsdatenbank, sondern auf eine',
+      'echte Installation. Dieses Skript legt dort Konten mit den öffentlich',
+      'dokumentierten Demo-Passwörtern an (hrmonic2026 / portal2026) — mit --force löscht',
+      'es zuvor sämtliche Fachdaten und alle Benutzerkonten außer admin@hrmonic.de.',
+      '',
+      'Konten auf einem Produktivsystem entstehen unter "Verwaltung → Benutzer & Rechte"',
+      '(POST /api/admin/users); das Passwort erzeugt dort der Server. Ablauf:',
+      'docs/inbetriebnahme.md.',
+      '',
+      'Wenn Sie den Lauf trotzdem ausdrücklich wollen (z. B. für eine Demo-Installation):',
+      '  HRMONIC_ALLOW_SEED=1 npm run seed',
+    ].join('\n'),
+  );
+  process.exit(1);
+}
 
 migrate();
 ensureDefaultAdmin();

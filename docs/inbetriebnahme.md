@@ -5,9 +5,26 @@ Personaldaten arbeiten". Sie ist zum Abhaken gedacht und in dieser Reihenfolge
 abzuarbeiten — jeder Punkt schließt eine Lücke, die vorher offen ist.
 
 **Voraussetzung:** Server, Dienst und Reverse-Proxy stehen nach
-[`../deploy/README.md`](../deploy/README.md), und
-`curl -sS https://portal.firma.de/api/health` antwortet mit
-`{"ok":true,"name":"HRMONIC Backend"}`.
+[`../deploy/README.md`](../deploy/README.md) (Linux) bzw.
+[`../deploy/windows/README.md`](../deploy/windows/README.md)
+(Windows Server), und der Gesundheitsruf antwortet:
+
+```bash
+# Linux
+curl -sS https://portal.firma.de/api/health
+```
+
+```powershell
+# Windows
+Invoke-RestMethod https://portal.firma.de/api/health
+```
+
+Erwartete Antwort — vier Felder, `version` ist die installierte Ausgabe,
+`min_client_version` die älteste noch bediente Desktop-App:
+
+```json
+{"ok":true,"name":"HRMONIC Backend","version":"1.0.1","min_client_version":"1.0.0"}
+```
 
 **Zeitbedarf:** rund 60 Minuten, plus die Restore-Probe.
 
@@ -15,6 +32,29 @@ abzuarbeiten — jeder Punkt schließt eine Lücke, die vorher offen ist.
 > Krankmeldungen und AU-Bescheinigungen. Krankheitsdaten sind besonders
 > geschützt (Art. 9 DSGVO). Die Punkte 1, 2 und 7 sind deshalb keine
 > Empfehlungen, sondern Bedingungen für den Produktivbetrieb.
+
+## Diese Checkliste gilt für beide Plattformen
+
+Fachlich ist nichts plattformabhängig — nur die Befehle sind es. Wo unten ein
+Befehlsblock steht, sind beide Fassungen angegeben. Die Kurzübersicht:
+
+| Aufgabe | Linux | Windows Server |
+|---|---|---|
+| Protokoll lesen | `journalctl -u hrmonic-backend` | `Get-Content 'C:\ProgramData\HRMONIC\logs\backend.log'` |
+| Datei anzeigen | `cat <Datei>` | `Get-Content <Datei>` |
+| Datei löschen | `rm <Datei>` | `Remove-Item <Datei>` |
+| Rechte prüfen | `ls -ld <Verzeichnis>` | `icacls <Verzeichnis>` |
+| Sicherung prüfen | `systemctl list-timers hrmonic-backup.timer` | `Get-ScheduledTaskInfo -TaskName 'HRMONIC-Sicherung'` |
+| Dienst steuern | `systemctl stop/start hrmonic-backend` | `nssm stop/start HRMONIC` |
+| HTTP-Abruf | `curl` | `Invoke-RestMethod` / `Invoke-WebRequest` |
+| Datenverzeichnis | `/var/lib/hrmonic` | `C:\ProgramData\HRMONIC\data` |
+
+> **Windows PowerShell 5.1 und Fehlerstatus:** `Invoke-RestMethod` und
+> `Invoke-WebRequest` werfen bei HTTP 4xx/5xx eine **Ausnahme**, statt den
+> Status zurückzugeben; das Gegenmittel `-SkipHttpErrorCheck` gibt es erst ab
+> PowerShell 7. Prüfungen, die einen Fehlerstatus **erwarten** (401, 426),
+> stehen unten deshalb in `try`/`catch` und lesen ihn aus
+> `$_.Exception.Response.StatusCode.value__`.
 
 ---
 
@@ -24,11 +64,19 @@ Beim allerersten Start hat HRMONIC das Konto `admin@hrmonic.de` angelegt und
 dafür ein **Zufallspasswort** erzeugt. Es steht an zwei Stellen:
 
 ```bash
-# im Journal des ersten Starts
+# Linux — im Journal des ersten Starts
 journalctl -u hrmonic-backend | grep -A 5 'Erstinbetriebnahme'
 
 # und in einer Datei mit Rechten 0600 neben secret.key
 cat /var/lib/hrmonic/initial-admin-password.txt
+```
+
+```powershell
+# Windows — im Dienstprotokoll des ersten Starts (NSSM schreibt stdout dorthin)
+Select-String -Path 'C:\ProgramData\HRMONIC\logs\backend*.log' -Pattern 'Erstinbetriebnahme' -Context 0,5
+
+# und in der Datei neben secret.key
+Get-Content 'C:\ProgramData\HRMONIC\data\initial-admin-password.txt'
 ```
 
 Es gibt **kein** dokumentiertes Standardpasswort mehr. Falls in einer älteren
@@ -45,9 +93,17 @@ Die App muss dafür auf den Server zeigen — entweder über die Umgebungsvariab
 Ohne installierte App lässt sich der Zugang auch direkt prüfen:
 
 ```bash
+# Linux
 curl -sS -X POST https://portal.firma.de/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@hrmonic.de","password":"<Initialpasswort>"}'
+```
+
+```powershell
+# Windows
+$body = @{ email = 'admin@hrmonic.de'; password = '<Initialpasswort>' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri 'https://portal.firma.de/api/auth/login' `
+  -ContentType 'application/json' -Body $body
 ```
 
 - [ ] Anmeldung mit dem generierten Passwort erfolgreich.
@@ -66,14 +122,42 @@ nicht das alte Passwort, und keine offensichtlichen Varianten von Firmenname,
 Nach dem Wechsel:
 
 ```bash
+# Linux
 rm /var/lib/hrmonic/initial-admin-password.txt
 ```
 
+```powershell
+# Windows
+Remove-Item 'C:\ProgramData\HRMONIC\data\initial-admin-password.txt'
+```
+
+**Windows: das Erstprotokoll muss ebenfalls weg.** Das Initialpasswort wird beim
+allerersten Start bewusst mit `console.log` ausgegeben (der Logger existiert zu
+diesem Zeitpunkt noch nicht). Unter Linux landet es damit im Journal, das nur
+root und der Gruppe `systemd-journal` offensteht; unter Windows schreibt NSSM
+denselben Text in eine Protokolldatei, die es **geöffnet hält**. Sie lässt sich
+deshalb erst nach dem Anhalten des Dienstes löschen:
+
+```powershell
+nssm stop HRMONIC
+Remove-Item 'C:\ProgramData\HRMONIC\logs\backend*.log'
+nssm start HRMONIC
+```
+
+(`backend*.log` statt `backend.log`: NSSM rotiert die Datei und legt dabei
+Kopien mit Zeitstempel im Namen an — die Zeile mit dem Passwort kann in einer
+davon stehen.)
+
 - [ ] Eigenes Passwort vergeben (Passwortmanager, nicht Notizzettel).
 - [ ] `initial-admin-password.txt` gelöscht.
+- [ ] **Windows:** Dienst angehalten, `backend*.log` gelöscht, Dienst wieder
+      gestartet.
 - [ ] Falls `HRMONIC_INITIAL_ADMIN_PASSWORD` für die Provisionierung gesetzt
-      war: Zeile aus `/etc/hrmonic/hrmonic.env` entfernt und Dienst neu
-      gestartet (sonst steht das Passwort dauerhaft im Klartext auf dem Server).
+      war: Zeile aus `/etc/hrmonic/hrmonic.env` bzw.
+      `C:\ProgramData\HRMONIC\hrmonic.env` entfernt und Dienst neu gestartet
+      (sonst steht das Passwort dauerhaft im Klartext auf dem Server).
+      **Unter Windows reicht ein Dienstneustart dafür nicht** — NSSM hält die
+      Werte in der Registry; erst `install-service.ps1` erneut ausführen.
 
 ## 3. Eigene Konten anlegen — nicht über `npm run seed`
 
@@ -81,6 +165,15 @@ rm /var/lib/hrmonic/initial-admin-password.txt
 den überall dokumentierten Passwörtern `hrmonic2026` und `portal2026` an. Auf
 einem Produktivsystem darf es **nie** laufen — auch nicht „einmal kurz zum
 Ausprobieren".
+
+Das Skript setzt das inzwischen selbst durch: Es bricht ab, sobald
+`HRMONIC_DATA_DIR` gesetzt ist und nicht auf das Entwicklungsverzeichnis zeigt —
+also auf jedem Server, der nach dieser Anleitung eingerichtet wurde. Die frühere
+Sperre („es existieren schon Mitarbeitende") half genau dort nicht, wo es darauf
+ankam: auf einem frisch installierten, noch leeren System. Der einzige Ausweg
+ist die Variable `HRMONIC_ALLOW_SEED=1`; sie gehört auf ein Kundensystem nicht.
+Nicht betroffen ist `npm run seed:desktop`, das die Freigabe für das
+Datenverzeichnis der installierten App selbst setzt.
 
 Konten entstehen stattdessen in der Desktop-App unter
 **Verwaltung → Benutzer & Rechte → Konto anlegen** (technisch:
@@ -98,7 +191,9 @@ Konten entstehen stattdessen in der Desktop-App unter
 
 - [ ] Für jede Person der HR-Administration ein **persönliches** Konto —
       keine gemeinsam genutzten Zugänge (das Audit-Log wird sonst wertlos).
-- [ ] `npm run seed` wurde auf diesem System nie ausgeführt.
+- [ ] `npm run seed` wurde auf diesem System nie ausgeführt, und
+      `HRMONIC_ALLOW_SEED` ist nirgends gesetzt (weder in `hrmonic.env` noch als
+      Umgebungsvariable des Servers).
 
 ## 4. Admin-Rollen zuweisen — sonst hat jeder Vollzugriff
 
@@ -107,10 +202,16 @@ Gehälter, Bankverbindungen und Krankmeldungen. Das ist kein Versehen, sondern
 der Ausgangszustand für das allererste Konto — aber es ist kein Zustand für den
 Betrieb.
 
-Unter **Verwaltung → Rollen** stehen Rollen mit Bereichsrechten
-(`kein` / `lesen` / `bearbeiten`) bereit, ausgeliefert unter anderem
-„HR-Sachbearbeitung" ohne Vergütungszugriff. Unter **Verwaltung → Benutzer &
-Rechte** wird jedem Konto eine zugewiesen.
+Rollen pflegen und Rollen zuweisen liegt beides unter
+**Verwaltung → Benutzer & Rechte**: Im Tab
+**„Rollen & Rechte"** stehen die Admin-Rollen mit ihren Bereichsrechten
+(`kein` / `lesen` / `bearbeiten`), ausgeliefert unter anderem
+„HR-Sachbearbeitung" ohne Vergütungszugriff; im Tab **„Konten"** wird jedem
+Konto eine davon zugewiesen.
+
+> **Nicht mit „Verwaltung → Rollen" verwechseln.** Der gleichnamige Menüpunkt
+> daneben führt zu den **Fachrollen**; die steuern ausschließlich, wer welche
+> Abwesenheitsart beantragen darf, und vergeben keinerlei Adminrechte.
 
 - [ ] Jedes Konto hat eine Admin-Rolle — **außer** den ein bis zwei bewusst
       gewählten Konten mit Vollzugriff.
@@ -174,7 +275,9 @@ wieder auf `name` stehen kann.
 Portal-Konten (Rolle `mitarbeiter`) entstehen denselben Weg wie in Punkt 3,
 mit verknüpftem Personalprofil. Bewährtes Vorgehen:
 
-1. Erst die Personalprofile anlegen oder importieren.
+1. Erst die Personalprofile in der Desktop-App anlegen. **Einen Import gibt es
+   nicht** — HRMONIC kennt nur den CSV-*Export* der Mitarbeitendenliste; die
+   Profile werden von Hand erfasst. Das ist bei der Zeitplanung einzurechnen.
 2. Dann die Portal-Konten — zunächst nur für eine kleine Testgruppe.
 3. Nach der Rückmeldung der Testgruppe der Rest.
 
@@ -186,9 +289,23 @@ Beim Verteilen der Erstpasswörter: Adresse und Passwort auf getrennten Wegen.
 
 ## 9. Datensicherung scharf schalten
 
-Nach [`../deploy/README.md`](../deploy/README.md), Abschnitt 5:
+Nach [`../deploy/README.md`](../deploy/README.md), Abschnitt 5 (Linux) bzw.
+[`../deploy/windows/README.md`](../deploy/windows/README.md), Abschnitt 5
+(Windows):
 
-- [ ] `hrmonic-backup.timer` aktiv (`systemctl list-timers hrmonic-backup.timer`).
+```bash
+# Linux — Zeitplan aktiv?
+systemctl list-timers hrmonic-backup.timer
+```
+
+```powershell
+# Windows — Zeitplan aktiv? LastTaskResult 0 = durchgelaufen
+Get-ScheduledTaskInfo -TaskName 'HRMONIC-Sicherung'
+Get-ChildItem 'C:\ProgramData\HRMONIC\backups' | Sort-Object LastWriteTime -Descending | Select-Object -First 3
+```
+
+- [ ] Zeitplan aktiv (Timer bzw. geplante Aufgabe) und mit einem
+      erfolgreichen Lauf hinterlegt.
 - [ ] Ein Lauf erfolgreich, Verzeichnis enthält `hrmonic.db`, `storage/`,
       `secret.key`, `MANIFEST.txt`.
 - [ ] Auslagerung auf ein zweites System eingerichtet (eine Sicherung neben den
@@ -197,6 +314,8 @@ Nach [`../deploy/README.md`](../deploy/README.md), Abschnitt 5:
       Ergebnis). Wiedervorlage in sechs Monaten.
 
 ## 10. Abnahme
+
+**Linux:**
 
 ```bash
 # Backend von außen NICHT erreichbar (erwartet: Verbindungsfehler/Timeout)
@@ -218,6 +337,75 @@ journalctl -u hrmonic-backend -n 20 --no-pager | grep -i login
 ls -ld /var/lib/hrmonic /var/lib/hrmonic/storage
 ```
 
+**Windows Server:** Dieselben Prüfungen. Alles, was einen **Fehlerstatus**
+erwartet, steht in `try`/`catch` — Windows PowerShell 5.1 wirft bei 4xx/5xx eine
+Ausnahme, statt den Status zurückzugeben, und kennt `-SkipHttpErrorCheck` noch
+nicht (das kam erst mit PowerShell 7).
+
+```powershell
+# Backend von außen NICHT erreichbar (erwartet: Verbindungsfehler/Timeout;
+# StatusCode bleibt leer, weil gar keine HTTP-Antwort zustande kommt)
+try {
+  Invoke-WebRequest 'http://<server-ip>:3001/api/health' -TimeoutSec 5 -UseBasicParsing | Out-Null
+  'FEHLER: Backend ist von aussen erreichbar'
+} catch {
+  "nicht erreichbar (gut): $($_.Exception.Message)"
+}
+
+# Weiterleitung auf HTTPS (erwartet: 301)
+try {
+  Invoke-WebRequest 'http://portal.firma.de' -MaximumRedirection 0 -UseBasicParsing | Out-Null
+  'unerwartet: keine Weiterleitung'
+} catch {
+  $_.Exception.Response.StatusCode.value__
+}
+
+# Sicherheitskopfzeilen (erwartet: 200, danach die vier Kopfzeilen)
+$r = Invoke-WebRequest 'https://portal.firma.de' -UseBasicParsing
+$r.Headers.GetEnumerator() |
+  Where-Object { $_.Key -match 'Strict-Transport|Content-Security|X-Content-Type|Referrer' }
+
+# Ohne Anmeldung kommt nichts heraus (erwartet: 401)
+try {
+  Invoke-WebRequest 'https://portal.firma.de/api/employees' -UseBasicParsing | Out-Null
+  'FEHLER: Antwort ohne Anmeldung'
+} catch {
+  $_.Exception.Response.StatusCode.value__
+}
+
+# Zu alte Desktop-App wird abgewiesen (erwartet: 426)
+try {
+  Invoke-WebRequest 'https://portal.firma.de/api/employees' -UseBasicParsing `
+    -Headers @{ 'x-hrmonic-client-version' = '0.0.1' } | Out-Null
+  'FEHLER: alte Client-Version nicht abgewiesen'
+} catch {
+  $_.Exception.Response.StatusCode.value__
+}
+
+# Falsches Passwort wird protokolliert (erwartet: 401, danach eine Warnzeile)
+$body = @{ email = 'admin@hrmonic.de'; password = 'falsch' } | ConvertTo-Json
+try {
+  Invoke-RestMethod -Method Post -Uri 'https://portal.firma.de/api/auth/login' `
+    -ContentType 'application/json' -Body $body | Out-Null
+} catch {
+  $_.Exception.Response.StatusCode.value__
+}
+Select-String -Path 'C:\ProgramData\HRMONIC\logs\backend*.log' -Pattern 'Anmeldung fehlgeschlagen' |
+  Select-Object -Last 3
+
+# Rechte im Datenverzeichnis (erwartet: NUR SYSTEM, Administratoren,
+# NT SERVICE\HRMONIC — kein "Benutzer"/"Users")
+icacls 'C:\ProgramData\HRMONIC\data'
+icacls 'C:\ProgramData\HRMONIC\data\storage'
+```
+
+> Die Weiterleitungsprüfung ist die einzige, die je nach PowerShell-Ausgabe
+> unterschiedlich aussehen kann: Meldet der `catch`-Zweig statt `301` einen
+> Text über zu viele Weiterleitungen, liegt keine `Response` bei — dann ist die
+> Weiterleitung im Browser (Adresszeile springt auf `https://`) oder mit
+> `curl -sSI http://portal.firma.de` von einem beliebigen anderen Rechner zu
+> prüfen.
+
 - [ ] Punkte 1 bis 9 abgehakt.
 - [ ] Ein Arbeitsplatz der HR-Administration arbeitet über die Desktop-App
       gegen den Server (nicht mehr gegen die lokale Datenbank).
@@ -229,10 +417,11 @@ ls -ld /var/lib/hrmonic /var/lib/hrmonic/storage
 
 ## Was Sie danach im Blick behalten sollten
 
-| Rhythmus | Aufgabe |
-|---|---|
-| täglich (automatisch) | Sicherung; bei Fehlschlag meldet sich systemd — `systemctl status hrmonic-backup` |
-| wöchentlich | Journal auf gehäufte Anmeldefehler durchsehen |
-| monatlich | Kontenliste durchgehen: ausgeschiedene Personen, Rollen noch passend? |
-| halbjährlich | Restore-Probe |
-| bei jedem Update | Sicherung vorher, Journal nachher (`deploy/README.md`, Abschnitt 6) |
+| Rhythmus | Aufgabe (Linux) | Aufgabe (Windows) |
+|---|---|---|
+| täglich (automatisch) | Sicherung; bei Fehlschlag meldet sich systemd — `systemctl status hrmonic-backup` | Sicherung; Ergebnis über `Get-ScheduledTaskInfo -TaskName 'HRMONIC-Sicherung'` (`LastTaskResult` = 0) |
+| wöchentlich | Journal auf gehäufte Anmeldefehler durchsehen | `Select-String -Path 'C:\ProgramData\HRMONIC\logs\backend*.log' -Pattern 'Anmeldung fehlgeschlagen'` |
+| monatlich | Kontenliste durchgehen: ausgeschiedene Personen, Rollen noch passend? | dito |
+| halbjährlich | Restore-Probe | Restore-Probe (`deploy/windows/README.md`) |
+| bei jedem Update | Sicherung vorher, Journal nachher (`deploy/README.md`, Abschnitt 6) | Sicherung vorher, `backend.log` nachher (`deploy/windows/README.md`, Abschnitt 6) |
+| nach jeder Rechteänderung am Server | `ls -ld /var/lib/hrmonic` | `icacls 'C:\ProgramData\HRMONIC\data'` — anders als unter Linux zieht der Dienststart die Rechte **nicht** von selbst zurecht |

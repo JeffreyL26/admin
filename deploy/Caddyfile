@@ -8,9 +8,11 @@
 #   it@firma.de       → Postfach für Let's-Encrypt-Benachrichtigungen
 #   /srv/hrmonic-web  → Zielverzeichnis des Portal-Builds (apps/web/dist)
 #
-# Caddy besorgt und erneuert das Zertifikat selbst. Dafür müssen Port 80 UND
-# 443 aus dem Internet erreichbar sein (Port 80 für die ACME-Prüfung, danach
-# leitet Caddy von dort automatisch auf HTTPS um).
+# In dieser Fassung besorgt und erneuert Caddy das Zertifikat selbst über
+# Let's Encrypt. Dafür müssen Port 80 UND 443 aus dem Internet erreichbar sein
+# (Port 80 für die ACME-Prüfung, danach leitet Caddy von dort automatisch auf
+# HTTPS um). Für einen reinen Firmennetzbetrieb ohne Internetzugang siehe den
+# Abschnitt „Zertifikat" im Site-Block unten.
 #
 # Aufbau: Eine Maschine, TLS endet hier, /api/* geht an das Backend auf
 # 127.0.0.1:3001, alles andere ist das statische Portal-Build.
@@ -18,15 +20,54 @@
 {
 	email it@firma.de
 
-	# Vertrauenswürdige Vorschalt-Proxys. Steht Caddy direkt am Internet, ist
-	# die Liste leer zu lassen — dann glaubt Caddy keinem fremden
-	# X-Forwarded-For. Nur ergänzen, wenn davor noch ein Loadbalancer sitzt.
-	servers {
-		trusted_proxies static private_ranges
-	}
+	# Vertrauenswürdige Vorschalt-Proxys — bewusst NICHT konfiguriert.
+	#
+	# Hier stand `trusted_proxies static private_ranges`. Das widersprach dem
+	# eigenen Kommentar und war im Firmennetz sogar schädlich: Es erklärt ALLE
+	# privaten Adressbereiche für vertrauenswürdig, und im LAN kommt jeder
+	# Arbeitsplatz aus einem privaten Bereich. Damit hätte jeder Client sein
+	# eigenes X-Forwarded-For behaupten dürfen — und die Login-Drosselung des
+	# Backends (die je Herkunfts-IP zählt) wäre wirkungslos, weil sich ein
+	# Angreifer je Versuch eine neue Herkunft ausdenken kann.
+	#
+	# Ohne die Direktive vertraut Caddy keinem fremden X-Forwarded-For und
+	# setzt die tatsächliche Gegenstelle ein. Das ist richtig, solange Caddy
+	# selbst der äußerste Einstiegspunkt ist — der Normalfall.
+	#
+	# NUR ergänzen, wenn vor Caddy noch ein weiterer Proxy oder Loadbalancer
+	# steht, und dann mit dessen konkreter Adresse statt mit ganzen Bereichen:
+	# servers {
+	# 	trusted_proxies static 10.0.0.7/32
+	# }
 }
 
 portal.firma.de {
+	# -----------------------------------------------------------------------
+	# Zertifikat
+	# -----------------------------------------------------------------------
+	# OHNE `tls`-Direktive versucht Caddy automatisch ACME (Let's Encrypt).
+	# Das setzt einen aus dem Internet erreichbaren, öffentlich auflösbaren
+	# Namen voraus und schlägt für interne Namen (portal.firma.local, reine
+	# LAN-Installationen) zwangsläufig fehl — Let's Encrypt kann nichts
+	# bestätigen, was es nicht erreicht. Für den reinen Firmennetzbetrieb
+	# deshalb eine der beiden folgenden Varianten einkommentieren.
+	#
+	# (a) Zertifikat der eigenen Firmen-CA (empfohlen, wenn es eine gibt):
+	#     Die Arbeitsplätze vertrauen der Firmen-CA bereits, es ist nichts zu
+	#     verteilen.
+	#     ACHTUNG: Caddy erneuert ein selbst mitgebrachtes Zertifikat NICHT.
+	#     Das Ablaufdatum gehört in den Betriebskalender — läuft es ab, meldet
+	#     sich am Montagmorgen niemand mehr an.
+	# tls /etc/ssl/hrmonic/portal.crt /etc/ssl/hrmonic/portal.key
+	#
+	# (b) Caddys eigene interne CA (kein Zertifikat zu beschaffen, Erneuerung
+	#     übernimmt Caddy):
+	#     ACHTUNG: Das Root-Zertifikat dieser CA muss per Gruppenrichtlinie an
+	#     alle Arbeitsplätze verteilt werden, sonst zeigt jeder Browser eine
+	#     Zertifikatswarnung. Es liegt nach dem ersten Start unter
+	#     /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+	# tls internal
+
 	# -----------------------------------------------------------------------
 	# Zugriffsprotokoll OHNE Query-String
 	# -----------------------------------------------------------------------
@@ -57,7 +98,18 @@ portal.firma.de {
 	# -----------------------------------------------------------------------
 	header {
 		# HSTS: Der Browser spricht diese Domain danach nur noch über HTTPS an.
-		# Erst einschalten, wenn TLS steht — die Zusage gilt zwei Jahre.
+		#
+		# ERST AKTIVIEREN, WENN DER ZERTIFIKATSBETRIEB STABIL LÄUFT. max-age
+		# 63072000 sind zwei Jahre, und includeSubDomains zieht sämtliche
+		# Unterdomänen mit hinein — eine sehr lange Zusage. Solange sie gilt,
+		# lässt sich ein Zertifikatsfehler im Browser nicht mehr wegklicken:
+		# Läuft das Zertifikat ab (siehe Variante (a) oben) oder fehlt die
+		# interne Root-CA auf einem Rechner (Variante (b)), ist das Portal für
+		# diesen Rechner schlicht nicht mehr erreichbar. Zurücknehmen lässt
+		# sich die Zusage nicht — die Frist läuft im Browser weiter, auch wenn
+		# der Server die Kopfzeile nicht mehr sendet.
+		# Für die ersten Wochen die Zeile deshalb auskommentiert lassen oder
+		# mit einem kurzen max-age (z. B. 300) beginnen und dann erhöhen.
 		Strict-Transport-Security "max-age=63072000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "no-referrer"

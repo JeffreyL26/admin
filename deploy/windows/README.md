@@ -8,8 +8,9 @@ Erklärungen desselben Sachverhalts driften auseinander.
 
 Hier steht nur, **was unter Windows anders ist**.
 
-Die Erstinbetriebnahme (erste Anmeldung, Konten, Rollen) steht unverändert in
-`../../docs/inbetriebnahme.md`.
+Die Erstinbetriebnahme (erste Anmeldung, Konten, Rollen) steht in
+`../../docs/inbetriebnahme.md`. Sie gilt fachlich unverändert und führt beide
+Befehlsfassungen — Linux und PowerShell — nebeneinander auf.
 
 ## Was sich gegenüber Linux unterscheidet — und was nicht
 
@@ -58,12 +59,43 @@ dieselbe Absicht wie `/opt/hrmonic` unter root.
   `C:\Program Files\nssm\nssm.exe`, und dieses Verzeichnis in den PATH.
 - **Caddy für Windows** ([caddyserver.com](https://caddyserver.com/download)) —
   ebenfalls eine einzelne Exe.
+- **Git for Windows** ([git-scm.com](https://git-scm.com/download/win)) — Schritt
+  2.1 klont damit das Repository, und Abschnitt 6 aktualisiert damit. Wer
+  stattdessen ein Release-Archiv entpackt, braucht es nicht; dann entfallen
+  `git clone` und `git pull`.
 - Visual Studio Build Tools **nur**, falls `npm ci` kein Fertigpaket für
   `better-sqlite3` findet. Für aktuelle Node-LTS-Versionen gibt es eines.
 - Eine Domain, die auf den Server zeigt, Ports 80 und 443 aus dem Internet
   erreichbar.
 - 2 vCPU, 4 GB RAM, 40 GB Platte. (Unter Linux genügen 2 GB — Windows Server
   selbst belegt mehr.)
+
+**Heruntergeladene `.ps1` freigeben.** Kommen die Skripte aus diesem Verzeichnis
+über den Browser oder eine Dateifreigabe auf den Server, hängt Windows ihnen die
+Zone-Kennung „aus dem Internet" an; PowerShell verweigert dann die Ausführung
+oder fragt bei jedem Aufruf nach. Einmal entfernen:
+
+```powershell
+Get-ChildItem 'C:\Program Files\HRMONIC\deploy\windows\*.ps1' | Unblock-File
+```
+
+Aus einem `git clone` heraus entsteht die Kennung nicht — dieser Schritt gilt
+nur für den Weg über Download oder Netzlaufwerk.
+
+**`git` in `C:\Program Files`.** Git prüft seit 2.35.2, ob das Repository
+demselben Konto gehört wie der aufrufende Benutzer. `C:\Program Files` gehört
+`TrustedInstaller`, nicht dem Administrator — `git pull` kann dort deshalb mit
+`detected dubious ownership in repository` abbrechen. Abhilfe, einmalig in der
+Administrator-PowerShell:
+
+```powershell
+git config --global --add safe.directory 'C:/Program Files/HRMONIC'
+```
+
+(Schrägstriche wie hier, nicht Backslashes — Git erwartet den Pfad in dieser
+Schreibweise.) **Noch nicht auf Windows Server verifiziert**, siehe den Abschnitt
+„Was hier noch NICHT verifiziert ist" am Ende: Ob der Fall auftritt, hängt davon
+ab, wie das Verzeichnis angelegt wurde und unter welchem Konto geklont wird.
 
 ## 2. Installation
 
@@ -91,7 +123,7 @@ New-Item -ItemType Directory 'C:\ProgramData\HRMONIC' -Force
 Copy-Item 'deploy\windows\hrmonic.env.example' 'C:\ProgramData\HRMONIC\hrmonic.env'
 notepad 'C:\ProgramData\HRMONIC\hrmonic.env'
 
-# 2.5 Dienst einrichten (setzt am Ende auch die NTFS-Rechte)
+# 2.5 Dienst einrichten (setzt zuerst die NTFS-Rechte, dann den Dienst)
 .\deploy\windows\install-service.ps1
 
 # 2.6 Läuft es?
@@ -172,6 +204,94 @@ Die `MANIFEST.txt` jeder Sicherung nennt die Restore-Schritte für das System,
 auf dem sie erstellt wurde — unter Windows also PowerShell und `nssm`, nicht
 `systemctl`.
 
+### Restore-Probe
+
+Gegenstück zu `../README.md`, Abschnitt 5. Ein Backup, das nie zurückgespielt
+wurde, ist eine Vermutung; die Probe gehört einmal in die Inbetriebnahme und
+danach halbjährlich in den Kalender.
+
+Zwei Dinge sind dabei nicht verhandelbar: ein **eigenes Datenverzeichnis** und
+ein **eigener Port**. Sonst schreibt die Probe in den Produktivbestand oder
+kollidiert mit dem laufenden Dienst auf 3001.
+
+Im Probeverzeichnis liegen echte Personaldaten. Es erbt die Rechte seines
+Elternordners und ist deshalb genauso zu härten wie das Produktivverzeichnis —
+und danach zu löschen.
+
+```powershell
+$Backup = 'C:\ProgramData\HRMONIC\backups\hrmonic-20260315-023000'
+$Probe  = 'C:\ProgramData\HRMONIC\probe'
+
+New-Item -ItemType Directory $Probe -Force | Out-Null
+
+# Vererbung kappen, BEVOR die Daten hineinkommen: Das Verzeichnis erbt sonst
+# den Lesezugriff der Gruppe "Benutzer" von C:\ProgramData. Konten als SID,
+# weil die Administratorengruppe je nach Sprachversion anders heisst - dieselbe
+# Begruendung wie in harden-data-dir.ps1. (Das Skript selbst passt hier nicht:
+# Es haertet immer auch Log- und Konfigurationspfad.)
+icacls $Probe /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F'     | Out-Null   # SYSTEM
+icacls $Probe /grant:r      '*S-1-5-32-544:(OI)(CI)F'           | Out-Null   # Administratoren
+
+Copy-Item "$Backup\hrmonic.db","$Backup\secret.key" $Probe
+Copy-Item "$Backup\storage" $Probe -Recurse
+
+# HRMONIC_DATA_DIR ausdruecklich setzen: Ohne die Variable faellt das Backend
+# auf sein Vorgabe-Datenverzeichnis zurueck und legte dort eine leere Datenbank
+# an — die Probe liefe dann gegen den falschen Bestand und belegte nichts.
+$env:HRMONIC_DATA_DIR = $Probe
+$env:HRMONIC_PORT     = '3999'
+node 'C:\Program Files\HRMONIC\apps\backend\dist\cli.cjs'
+```
+
+Erwartet: „HRMONIC Backend läuft auf http://127.0.0.1:3999". In einem **zweiten**
+PowerShell-Fenster prüfen, danach das erste mit Strg+C beenden:
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:3999/api/health'
+
+$body = @{ email = '<eigene-adresse>'; password = '<eigenes-passwort>' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:3999/api/auth/login' `
+  -ContentType 'application/json' -Body $body
+```
+
+Eine Anmeldung, die ein Token liefert, belegt Datenbank **und** `secret.key`.
+Danach in der Desktop-App gegen `http://127.0.0.1:3999` eine Datei öffnen — das
+belegt `storage\`. Zum Schluss aufräumen:
+
+```powershell
+Remove-Item $Probe -Recurse -Force
+Remove-Item Env:\HRMONIC_DATA_DIR, Env:\HRMONIC_PORT
+```
+
+Das zweite `Remove-Item` betrifft nur die Variablen dieser einen Sitzung.
+Sicherheitshalber das Fenster schließen.
+
+### Ernstfall-Restore
+
+```powershell
+nssm stop HRMONIC
+Rename-Item 'C:\ProgramData\HRMONIC\data' "data.defekt-$(Get-Date -Format yyyy-MM-dd)"
+
+New-Item -ItemType Directory 'C:\ProgramData\HRMONIC\data' -Force | Out-Null
+Copy-Item "$Backup\hrmonic.db","$Backup\secret.key" 'C:\ProgramData\HRMONIC\data'
+Copy-Item "$Backup\storage" 'C:\ProgramData\HRMONIC\data' -Recurse
+
+# Das frisch angelegte Verzeichnis erbt die Rechte von C:\ProgramData —
+# also inklusive Lesezugriff der Gruppe "Benutzer". Ohne diesen Aufruf ist der
+# Restore nicht fertig, er sieht nur so aus.
+& 'C:\Program Files\HRMONIC\deploy\windows\harden-data-dir.ps1'
+
+nssm start HRMONIC
+Get-Content 'C:\ProgramData\HRMONIC\logs\backend.log' -Tail 50
+```
+
+Eventuell vorhandene `hrmonic.db-wal`/`-shm` des **defekten** Standes nicht
+mitkopieren — sie gehören zu einer anderen Datenbankdatei und überschreiben den
+zurückgespielten Stand. In einem Sicherungsordner gibt es sie ohnehin nicht: Das
+Sicherungsskript schreibt über die Online-Backup-Schnittstelle von SQLite einen
+in sich geschlossenen Stand. (Beim **Umzug einer laufenden Einzelplatz-App** gilt
+das Gegenteil — siehe Abschnitt 8.)
+
 ## 6. Update
 
 ```powershell
@@ -196,7 +316,157 @@ Hat sich `MIN_CLIENT_VERSION` erhöht (`packages/shared/src/version.ts`), weist
 der Server ältere Desktop-Apps nach dem Update mit einer klaren Meldung ab. Die
 Reihenfolge ist deshalb immer: **erst der Server, dann die Arbeitsplätze.**
 
-## 7. Betrieb
+## 7. Arbeitsplätze einrichten
+
+Die HR-Administration arbeitet in der Desktop-App. Sie muss auf den Server
+zeigen — sonst startet sie ihr **eigenes eingebettetes Backend** und legt eine
+lokale Datenbank in `%APPDATA%\HRMONIC\data` an. Das scheitert nicht, es fällt
+nur monatelang niemandem auf: Zwei Personen pflegen dieselben Mitarbeitenden in
+zwei getrennten Datenbeständen.
+
+**Deshalb: Serveradresse setzen, bevor die App das erste Mal startet.**
+
+1. Installer ausführen (`HRMONIC Setup <Version>.exe` aus
+   `apps\desktop\release`). Danach die App **noch nicht öffnen**.
+2. Serveradresse hinterlegen — eine der beiden Quellen genügt:
+
+   | Quelle | Wofür | Reichweite |
+   |---|---|---|
+   | Maschinenvariable `HRMONIC_API_BASE` | Rollout per Gruppenrichtlinie oder Skript | ganzer Rechner |
+   | `%APPDATA%\HRMONIC\config.json` mit `{ "apiBaseUrl": "https://portal.firma.de" }` | Einrichtung von Hand, je Benutzerprofil | ein Windows-Profil |
+
+   **Die Umgebungsvariable gewinnt**, wenn beides gesetzt ist
+   (`readConfiguredApiBase` in `apps/desktop/src/main.ts`). Wer eine falsche
+   Adresse in der Variablen sucht, während er die `config.json` korrigiert,
+   sucht lange.
+
+   Von Hand:
+
+   ```powershell
+   New-Item -ItemType Directory "$env:APPDATA\HRMONIC" -Force | Out-Null
+   '{ "apiBaseUrl": "https://portal.firma.de" }' |
+     Set-Content "$env:APPDATA\HRMONIC\config.json" -Encoding utf8
+   ```
+
+   Per Gruppenrichtlinie/Skript (Computerkonfiguration → Einstellungen →
+   Umgebung, oder einmalig als Administrator):
+
+   ```powershell
+   [Environment]::SetEnvironmentVariable('HRMONIC_API_BASE', 'https://portal.firma.de', 'Machine')
+   ```
+
+3. App starten und anmelden.
+4. Kontrolle — **es darf kein lokales Datenverzeichnis entstanden sein**:
+
+   ```powershell
+   Test-Path "$env:APPDATA\HRMONIC\data"     # erwartet: False
+   ```
+
+   Steht dort `True`, lief die App mindestens einmal ohne Konfiguration. Dann:
+   App schließen, Adresse setzen, das Verzeichnis löschen (es enthält nur die
+   frisch angelegte, leere Datenbank) und neu starten. **Ausnahme:** Wurde in
+   dieser lokalen Datenbank bereits mit Echtdaten gearbeitet, nichts löschen —
+   dann gilt Abschnitt 8.
+
+**Regeln für die Adresse**
+
+- Nur `https://` — im lokalen Test auch `http://127.0.0.1:3001`, aber niemals
+  ungesichertes `http://` über das Netz: Darüber gehen Anmeldedaten und
+  vollständige Personalakten.
+- **Kein Schrägstrich am Ende.** `https://portal.firma.de/` erzeugt Aufrufe
+  gegen `…//api/health`; der Proxy antwortet darauf nicht wie erwartet.
+- Kein Pfad, kein Port, wenn der Proxy auf 443 lauscht — nur der Ursprung.
+
+**`HRMONIC_CORS_ORIGIN` gehört NICHT auf einen Arbeitsplatz.** Das ist eine
+**Server**-Variable. Steht sie auf einem Arbeitsplatz, erbt sie das in die App
+eingebettete Backend und sperrt den eigenen Renderer aus — die App kommt dann
+nicht über den Login hinaus, und im Serverlog ist nichts zu sehen. Gehört auf
+demselben Rechner sowohl Server als auch Arbeitsplatz (nur im Testaufbau
+sinnvoll), muss `hrmonic://app` mit in der Liste stehen (siehe
+`../../docs/web-portal.md`).
+
+**Reihenfolge bei Updates:** erst der Server, dann die Arbeitsplätze
+(Abschnitt 6). Umgekehrt weist ein Arbeitsplatz mit zu **neuer** App den
+Serverstand ab — dieselbe Prüfung, andere Richtung.
+
+## 8. Umzug einer Einzelplatz-Installation
+
+Der häufige Fall: Die HR hat die Desktop-App schon eine Weile **ohne Server**
+benutzt, mit echten Personaldaten in `%APPDATA%\HRMONIC\data`. Diese Daten
+sollen auf den Server. Dann wird **das gesamte Datenverzeichnis** übernommen,
+nicht nur die Datenbankdatei.
+
+**Bei geschlossener App** (die SQLite-Datei ist sonst gesperrt) kopieren:
+
+| Was | Warum |
+|---|---|
+| `hrmonic.db` | die Daten |
+| `hrmonic.db-wal`, `hrmonic.db-shm` | **die jüngsten Änderungen** — siehe unten |
+| `storage\` | Verträge, AU-Bescheinigungen, Fotos |
+| `secret.key` | ohne sie erzeugt der Server ein neues Secret: alle Sitzungen und alle verschickten Download-Links sind tot |
+
+**Warum hier `-wal` mitmuss — und beim Restore nicht.** Das sind zwei
+verschiedene Fälle, und wer sie verwechselt, verliert Daten:
+
+- **Umzug einer laufenden Installation:** Die Desktop-App beendet ihr
+  eingebettetes Backend, ohne einen WAL-Checkpoint zu erzwingen. Die zuletzt
+  erfassten Änderungen stehen deshalb **nur** in `hrmonic.db-wal`. Wer allein
+  `hrmonic.db` mitnimmt, verliert sie stillschweigend — die Datei ist für sich
+  gültig, nur eben älter. Also: `-wal` und `-shm` mitkopieren.
+- **Restore aus einem Sicherungsordner:** Dort gibt es keine `-wal`-Datei, weil
+  das Sicherungsskript über die Online-Backup-Schnittstelle von SQLite einen in
+  sich geschlossenen Stand schreibt. Taucht dort trotzdem eine auf, gehört sie
+  zu einer **anderen** Datenbankdatei und würde den zurückgespielten Stand
+  zerstören — nicht mitkopieren (Abschnitt 5, „Ernstfall-Restore").
+
+Ablauf:
+
+```powershell
+# Auf dem Arbeitsplatz, App geschlossen: das ganze Verzeichnis einpacken
+Compress-Archive "$env:APPDATA\HRMONIC\data\*" "$env:USERPROFILE\hrmonic-umzug.zip"
+```
+
+Das Archiv auf den Server bringen (Netzwerkfreigabe, USB, Kopieren über RDP) —
+hier nach `C:\Temp`. Es enthält die vollständige Personalakte; die Kopie danach
+löschen, nicht auf einer Freigabe liegen lassen.
+
+```powershell
+# Auf dem Server, Dienst gestoppt
+nssm stop HRMONIC
+Rename-Item 'C:\ProgramData\HRMONIC\data' "data.leer-$(Get-Date -Format yyyy-MM-dd)"
+New-Item -ItemType Directory 'C:\ProgramData\HRMONIC\data' -Force | Out-Null
+Expand-Archive 'C:\Temp\hrmonic-umzug.zip' 'C:\ProgramData\HRMONIC\data'
+
+# Pflicht: das neue Verzeichnis erbt sonst den Lesezugriff der Gruppe "Benutzer"
+& 'C:\Program Files\HRMONIC\deploy\windows\harden-data-dir.ps1'
+
+nssm start HRMONIC
+Get-Content 'C:\ProgramData\HRMONIC\logs\backend.log' -Tail 50
+```
+
+Drei Punkte, die dabei regelmäßig übersehen werden:
+
+- **App- und Serverversion müssen zusammenpassen.** Die mitgebrachte Datenbank
+  ist auf dem Stand der Desktop-App migriert. Ist der Server **älter**, bricht
+  er beim Start ab („Die Datenbank wurde bereits von einer neueren
+  HRMONIC-Version migriert") — ein Downgrade ist nicht vorgesehen. Deshalb den
+  Server vor dem Umzug auf denselben oder einen neueren Stand bringen
+  (Abschnitt 6). Der umgekehrte Fall geht: Ein neuerer Server migriert die
+  Datenbank beim ersten Start weiter — dann muss aber auch der Arbeitsplatz
+  nachgezogen werden, sonst weist ihn `MIN_CLIENT_VERSION` ab. Am einfachsten
+  ist deshalb, beide Seiten vor dem Umzug auf denselben Stand zu bringen.
+- **Die mitgezogenen Konten gelten.** Das Datenverzeichnis bringt die
+  `users`-Tabelle mit; es sind die Konten und Passwörter des Arbeitsplatzes.
+  Das `initial-admin-password.txt`, das der Server bei seinem eigenen ersten
+  Start erzeugt hat, gehört zur verdrängten leeren Datenbank und ist damit
+  **ungültig** — es kann gelöscht werden. Die Erstinbetriebnahme
+  (`../../docs/inbetriebnahme.md`) beginnt in diesem Fall nicht bei Punkt 1,
+  sondern bei den fachlichen Prüfungen ab Punkt 4.
+- **Danach zeigt der Arbeitsplatz auf den Server** (Abschnitt 7). Das alte
+  lokale Verzeichnis dort erst löschen, wenn der Serverbetrieb nachweislich
+  läuft — bis dahin ist es die einzige Kopie.
+
+## 9. Betrieb
 
 ```powershell
 Get-Content 'C:\ProgramData\HRMONIC\logs\backend.log' -Tail 50 -Wait
@@ -229,7 +499,7 @@ Verzeichnis offen — dann `harden-data-dir.ps1` erneut ausführen.
 Invoke-WebRequest "http://$env:COMPUTERNAME:3001/api/health" -TimeoutSec 5
 ```
 
-## 8. Wenn etwas nicht startet
+## 10. Wenn etwas nicht startet
 
 Die fachlichen Startfehler (CORS, Token-Laufzeit, Downgrade, `SQLITE_CANTOPEN`)
 stehen in `../README.md`, Abschnitt 8 — sie gelten unverändert. Windows-eigen
@@ -257,3 +527,14 @@ verhalten.
 Aufgabe und Caddy mit einem echten Zertifikat. Dafür braucht es eine
 Windows-Server-VM mit öffentlicher Domain. Diese drei Schritte gehören dort
 einmal komplett durchlaufen, bevor jemand auf eine Kundenmaschine geht.
+
+Ebenfalls noch offen — alles Punkte, die erst auf einer echten Server-VM
+belastbar sind:
+
+| Offen | Was genau ungewiss ist | Wie man es prüft |
+|---|---|---|
+| Dienst-SID vor der Dienstinstallation | `install-service.ps1` härtet, **bevor** der Dienst existiert — sonst stünde das Initialpasswort ungeschützt im Protokoll. Das virtuelle Konto `NT SERVICE\HRMONIC` ist zu diesem Zeitpunkt noch nicht über seinen Namen auflösbar; das Skript ermittelt deshalb die SID mit `sc.exe showsid`. Ob Windows Server dieselbe (lokalisierte) Ausgabe liefert wie Windows 11, ist ungeprüft. | Nach `install-service.ps1` muss `icacls 'C:\ProgramData\HRMONIC\data'` `NT SERVICE\HRMONIC` zeigen. Fehlt der Eintrag, `harden-data-dir.ps1` erneut ausführen. |
+| Geplante Aufgabe mit eigenem Datenverzeichnis | Die Sicherungsaufgabe erbt keine Umgebung und bekommt `HRMONIC_DATA_DIR` deshalb über `cmd.exe /s /c set …` unmittelbar vor dem Aufruf mit (`install-backup-task.ps1`) — bewusst **keine** Maschinenvariable, damit nicht jeder Node-Prozess auf dem Server auf die Produktivdatenbank zeigt. Ungeprüft ist, ob die Aufgabenplanung das Quoting unverändert durchreicht. | `Start-ScheduledTask -TaskName 'HRMONIC-Sicherung'`, danach muss unter `C:\ProgramData\HRMONIC\backups` ein neuer, **gefüllter** Ordner stehen. Ein leerer Ordner heißt: falsches Datenverzeichnis. |
+| Rückbau bei fehlgeschlagener Kontozuweisung | Scheitert `sc.exe config obj=`, entfernt `install-service.ps1` den soeben angelegten Dienst wieder bzw. nimmt einem vorhandenen den Autostart, damit kein Dienst als LocalSystem zurückbleibt. Dieser Fehlerpfad ist nicht durchgespielt. | `sc.exe qc HRMONIC` nach einem Abbruch: Der Dienst darf entweder nicht existieren oder nicht auf `AUTO_START` stehen. |
+| `git safe.directory` in `C:\Program Files` | Ob `git pull` dort wegen „dubious ownership" abbricht, hängt vom Besitzer des Verzeichnisses und vom aufrufenden Konto ab. Auf Windows Server nicht nachgestellt. | Abschnitt 1. Tritt der Fehler auf, den dort genannten `git config`-Aufruf setzen. |
+| Umzug einer Einzelplatz-Installation (Abschnitt 8) | Der Weg ist aus dem Verhalten der App abgeleitet (kein WAL-Checkpoint beim Beenden), aber nicht mit einem echten gewachsenen Datenbestand durchgespielt. | Vor dem Umzug eine Kopie des Arbeitsplatz-Verzeichnisses beiseitelegen und den Serverstand gegen den bekannten Datenbestand prüfen (Anzahl Mitarbeitende, jüngster Antrag). |

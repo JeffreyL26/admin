@@ -53,9 +53,12 @@ export function SickNotePage() {
     <div style={{ maxWidth: 720 }}>
       <header className="portal-page-header">
         <h1 className="portal-title">Krankmeldung</h1>
+        {/* Kein Versprechen einer Benachrichtigung: HRMONIC verschickt keine
+            E-Mails. Die Meldung wird erfasst und ist für die Personalabteilung
+            sichtbar — mehr passiert technisch nicht. */}
         <p className="portal-subtitle">
-          Melden Sie sich hier krank, sobald Sie ausfallen. Die Personalabteilung wird sofort
-          informiert; die ärztliche Bescheinigung reichen Sie nach.
+          Melden Sie sich hier krank, sobald Sie ausfallen. Ihre Meldung wird sofort erfasst und ist
+          damit für die Personalabteilung sichtbar; die ärztliche Bescheinigung reichen Sie nach.
         </p>
       </header>
 

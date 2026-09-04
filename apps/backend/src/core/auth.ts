@@ -195,9 +195,25 @@ const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
  */
 const loginFailures = new Map<string, number[]>();
 
+/**
+ * Kanonische Form einer E-Mail-Adresse. Konten werden ausschließlich
+ * kleingeschrieben gespeichert (modules/admin/userRoutes.ts normalisiert schon
+ * im Schema), `WHERE email = ?` vergleicht in SQLite aber binär. Ohne diese
+ * Normalisierung scheitert „Max.Mustermann@Firma.de" am Login — und zählt
+ * obendrein in die Drosselung.
+ *
+ * Bewusst eine eigene Funktion neben normalizedEmail(): Der Login hat die
+ * Adresse nach `parse()` bereits als String vorliegen und darf sie nicht
+ * anders normalisieren als die Drosselung, die aus dem rohen Body liest.
+ * Sonst laufen Suchschlüssel und Zähler auseinander.
+ */
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 function normalizedEmail(body: unknown): string | null {
   const value = (body as { email?: unknown } | null | undefined)?.email;
-  return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : null;
+  return typeof value === 'string' && value.trim() ? normalizeEmail(value) : null;
 }
 
 /**
@@ -374,7 +390,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         z.object({ email: z.string().email(), password: z.string().min(1) }),
         req.body,
       );
-      const row = getDb().prepare('SELECT * FROM users WHERE email = ?').get(body.email) as
+      // Derselbe Wert, den auch throttleKeys()/clearFailuresForAccount() aus
+      // dem rohen Body bilden — Suchschlüssel, Drosselungszähler und die
+      // Einträge in Log und Audit bleiben so deckungsgleich.
+      const email = normalizeEmail(body.email);
+      const row = getDb().prepare('SELECT * FROM users WHERE email = ?').get(email) as
         | (AuthUser & { password_hash: string; sessions_valid_from: number | null })
         | undefined;
 
@@ -389,16 +409,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (!row || !passwordMatches) {
         const now = Date.now();
         for (const [key, limit] of throttleKeys(req)) noteFailure(key, limit, now);
-        req.log.warn(
-          { ip: req.ip, email: normalizedEmail(req.body) },
-          'Anmeldung fehlgeschlagen',
-        );
+        req.log.warn({ ip: req.ip, email }, 'Anmeldung fehlgeschlagen');
         // Audit ohne req.user (core/audit.ts verträgt das) — im Serverbetrieb
         // ist das die einzige dauerhafte Spur eines Angriffsversuchs.
-        audit(req, 'login_fehlgeschlagen', 'user', row?.id, {
-          email: normalizedEmail(req.body),
-          ip: req.ip,
-        });
+        audit(req, 'login_fehlgeschlagen', 'user', row?.id, { email, ip: req.ip });
         throw unauthorized('E-Mail oder Passwort ist falsch');
       }
 

@@ -301,8 +301,19 @@ journalctl -u hrmonic-backup -n 50            # letzte Sicherung
 tail -f /var/log/nginx/hrmonic.access.log     # bzw. /var/log/caddy/hrmonic.access.log
 ```
 
-`HRMONIC_LOG_LEVEL=info` ist im Serverbetrieb Pflicht: Auf `warn` fehlen die
-Zeilen zu fehlgeschlagenen Anmeldungen, und genau die will man sehen.
+**`HRMONIC_LOG_LEVEL=warn` ist im Serverbetrieb die richtige Wahl.** Die früher
+hier stehende Behauptung, `info` sei Pflicht, weil auf `warn` die
+fehlgeschlagenen Anmeldungen fehlten, ist falsch: Sie werden mit `req.log.warn`
+geschrieben (`apps/backend/src/core/auth.ts`, Route `POST /api/auth/login`) und
+stehen deshalb auch auf `warn` im Protokoll — ebenso die Warnungen beim Start.
+`info` bringt umgekehrt einen Nachteil: Dann landet **jede Anfrage** im Log —
+Methode, Pfad und Herkunfts-IP. Die Signatur der Download-Links ist dabei nicht
+betroffen, das Backend schneidet den Query-String im eigenen `req`-Serializer ab
+(`apps/backend/src/server.ts`). Es bleibt aber ein vollständiges Bewegungsprofil:
+wer wann welche Personalakte geöffnet hat.
+
+`info` deshalb nur vorübergehend zur Fehlersuche setzen und danach
+zurückstellen (Wert in `hrmonic.env` ändern, Dienst neu starten).
 
 **Dateirechte**
 

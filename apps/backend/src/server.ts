@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import { MIN_CLIENT_VERSION, SERVER_VERSION_HEADER } from '@hrmonic/shared';
 import jwt from '@fastify/jwt';
@@ -29,7 +29,31 @@ export async function buildServer(): Promise<FastifyInstance> {
   ensureDefaultAdmin();
 
   const app = Fastify({
-    logger: { level: process.env.HRMONIC_LOG_LEVEL ?? 'warn' },
+    logger: {
+      level: process.env.HRMONIC_LOG_LEVEL ?? 'warn',
+      serializers: {
+        // Eigener Request-Serializer: Fastifys Vorgabe protokolliert die URL
+        // samt Query-String. Auf Loglevel 'info' landet damit jeder signierte
+        // Download-Link (?expires=…&sig=…) im Log — und der ist 60 Sekunden
+        // lang ein anmeldefreier Zugang zu genau dieser Datei
+        // (Personalakte, AU-Bescheinigung, Gehaltsnachweis). Der
+        // Reverse-Proxy schneidet den Query-String bereits ab
+        // (deploy/windows/Caddyfile); ein Backend-Log, das ihn führt,
+        // unterliefe diese Absicht.
+        //
+        // Für die Fehlersuche bleibt alles Übrige erhalten: Methode, Pfad,
+        // Zielhost und Herkunft (IP/Port). Nur der Query-String fällt weg.
+        req(request: FastifyRequest) {
+          return {
+            method: request.method,
+            url: (request.url ?? '').split('?')[0],
+            host: request.headers?.host,
+            remoteAddress: request.ip,
+            remotePort: request.socket?.remotePort,
+          };
+        },
+      },
+    },
     // trustProxy: Im Serverbetrieb terminiert ein Reverse-Proxy TLS und das
     // Backend sieht sonst als req.ip konstant 127.0.0.1. Die Login-Drosselung
     // (core/auth.ts) würde dann bei jedem Angriff die gesamte Firma über eine

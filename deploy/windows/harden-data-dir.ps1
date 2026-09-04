@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-  Setzt die NTFS-Rechte des HRMONIC-Datenverzeichnisses. Gegenstueck zu
-  UMask=0077 / StateDirectoryMode=0700 der systemd-Unit.
+  Setzt die NTFS-Rechte der HRMONIC-Verzeichnisse und der Konfigurationsdatei.
+  Gegenstueck zu UMask=0077 / StateDirectoryMode=0700 der systemd-Unit.
 
 .DESCRIPTION
   WARUM DAS NOETIG IST: config.ts haertet das Verzeichnis beim Start selbst per
@@ -11,6 +11,17 @@
   lokale Konto auf dem Server hrmonic.db oeffnen - die komplette Personalakte
   mit Gehaeltern und AU-Bescheinigungen.
 
+  DAS LOG-VERZEICHNIS GEHOERT MIT DAZU: Beim allerersten Dienststart erzeugt das
+  Backend das Initialpasswort fuer admin@hrmonic.de und gibt es einmalig auf
+  stdout aus. NSSM leitet stdout nach logs\backend.log um - das Passwort steht
+  damit auf der Platte. Ohne Haertung erbt auch dieses Verzeichnis von
+  C:\ProgramData das Leserecht der Gruppe "Benutzer": Jedes lokale Konto koennte
+  sich das Administratorpasswort abholen, solange es noch nicht gewechselt ist.
+
+  DIE KONFIGURATIONSDATEI EBENSO: hrmonic.env darf
+  HRMONIC_INITIAL_ADMIN_PASSWORD enthalten und verraet mindestens den Ablageort
+  der Personalakte.
+
   /inheritance:r ist der eigentliche Kern: Es entfernt die geerbten Eintraege.
   Ein blosses "Recht ergaenzen" wuerde den Lesezugriff der Gruppe "Benutzer"
   stehen lassen.
@@ -18,6 +29,9 @@
   Die Konten stehen als SID da, nicht als Name: Auf einem deutschen Windows
   heisst die Gruppe "Administratoren", auf einem englischen "Administrators".
   Ein Skript mit Klarnamen scheitert je nach Sprachversion des Servers.
+  Aus demselben Grund darf -ServiceAccount auch als SID uebergeben werden
+  (icacls-Schreibweise "*S-1-5-80-..."); install-service.ps1 tut das, weil der
+  Name "NT SERVICE\HRMONIC" erst nach der Dienstregistrierung aufloesbar ist.
 
 .NOTES
   Idempotent - nach jedem Restore und nach jedem Update erneut ausfuehrbar.
@@ -27,6 +41,8 @@
 param(
   [string]$DataDir    = 'C:\ProgramData\HRMONIC\data',
   [string]$BackupDir  = 'C:\ProgramData\HRMONIC\backups',
+  [string]$LogDir     = 'C:\ProgramData\HRMONIC\logs',
+  [string]$EnvFile    = 'C:\ProgramData\HRMONIC\hrmonic.env',
   [string]$ServiceAccount = 'NT SERVICE\HRMONIC'
 )
 
@@ -52,9 +68,12 @@ function Set-HrmonicAcl {
   & icacls $Path /inheritance:r /grant:r "$($SID_SYSTEM):(OI)(CI)F" | Out-Null
   & icacls $Path /grant:r "$($SID_ADMINS):(OI)(CI)F" | Out-Null
 
-  # Das Dienstkonto existiert erst, nachdem der Dienst registriert wurde.
-  # Vor der Dienstinstallation ist das kein Fehler - dann greift der Lauf am
-  # Ende von install-service.ps1.
+  # Das Dienstkonto ist ueber seinen NAMEN erst aufloesbar, nachdem der Dienst
+  # registriert wurde. Beim Aufruf aus install-service.ps1 kann das nicht mehr
+  # schiefgehen - von dort kommt die Dienst-SID, und die gilt auch fuer einen
+  # noch nicht installierten Dienst. Ein Fehlschlag bleibt hier trotzdem
+  # abgefangen, weil dieses Skript auch von Hand aufgerufen wird (nach einem
+  # Restore, nach einem Update) und dann die Vorgabe mit dem Klarnamen greift.
   # Exit-Code statt Ausnahme pruefen: icacls ist ein externes Programm und
   # wirft nichts - $LASTEXITCODE ist die eindeutige Auskunft.
   #
@@ -76,10 +95,60 @@ function Set-HrmonicAcl {
   }
 }
 
+<#
+  Haertet eine einzelne DATEI (hrmonic.env), nicht ein Verzeichnis.
+
+  Zwei Unterschiede zu Set-HrmonicAcl:
+    * Kein (OI)(CI): Vererbungsflags gibt es nur fuer Container. icacls wuerde
+      sie auf einer Datei als Fehler zurueckweisen.
+    * KEIN Recht fuer das Dienstkonto. Das Backend liest hrmonic.env nie
+      selbst: install-service.ps1 wertet die Datei als Administrator aus und
+      uebergibt die Paare an "nssm set ... AppEnvironmentExtra". NSSM legt sie
+      in der Registry ab, und der Dienst bekommt sie beim Start als Umgebung
+      gereicht (siehe Kopfkommentar von install-service.ps1). SYSTEM und
+      Administratoren genuegen daher - und je weniger Konten die Datei lesen
+      duerfen, desto besser, weil dort HRMONIC_INITIAL_ADMIN_PASSWORD stehen
+      darf.
+
+  Fehlt die Datei, wird sie NICHT angelegt: Eine leere hrmonic.env waere
+  schlimmer als keine - install-service.ps1 bricht bei "keine Variablen
+  gefunden" ab, und der Betreiber suchte den Fehler an der falschen Stelle.
+#>
+function Set-HrmonicFileAcl {
+  param([string]$Path, [string]$Label)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    Write-Warning "  $Label - $Path nicht gefunden, uebersprungen (Vorlage: hrmonic.env.example)."
+    return
+  }
+
+  # Exit-Code pruefen und hart abbrechen: Anders als beim Dienstkonto in
+  # Set-HrmonicAcl (das vor der Dienstinstallation erwartbar noch nicht
+  # existiert) gibt es hier keinen zulaessigen Fehlschlag. Bleibt er
+  # unbemerkt, meldet das Skript "SYSTEM, Administratoren", waehrend die Datei
+  # weiter fuer die Gruppe "Benutzer" lesbar ist - samt einem eventuell darin
+  # stehenden HRMONIC_INITIAL_ADMIN_PASSWORD.
+  & icacls $Path /inheritance:r /grant:r "$($SID_SYSTEM):F" | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "ACL auf $Path konnte nicht gesetzt werden (icacls, Code $LASTEXITCODE)."
+  }
+  & icacls $Path /grant:r "$($SID_ADMINS):F" | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "ACL auf $Path konnte nicht gesetzt werden (icacls, Code $LASTEXITCODE)."
+  }
+  Write-Host "  $Label - SYSTEM, Administratoren (Dienstkonto braucht keinen Lesezugriff)"
+}
+
 Write-Host 'HRMONIC - NTFS-Rechte setzen'
 Set-HrmonicAcl -Path $DataDir   -Label 'Datenverzeichnis'
 Set-HrmonicAcl -Path $BackupDir -Label 'Sicherungen'
+# Log-Verzeichnis: Das Dienstkonto braucht hier Schreibrecht - NSSM schreibt
+# backend.log unter der Identitaet des Dienstes.
+Set-HrmonicAcl -Path $LogDir    -Label 'Protokolle'
+Set-HrmonicFileAcl -Path $EnvFile -Label 'Konfiguration'
 
 Write-Host ''
 Write-Host 'Kontrolle (erwartet: KEIN Eintrag fuer "Benutzer"/"Users"):'
-& icacls $DataDir
+foreach ($p in @($DataDir, $BackupDir, $LogDir, $EnvFile)) {
+  if (Test-Path -LiteralPath $p) { & icacls $p }
+}
