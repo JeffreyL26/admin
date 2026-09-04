@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { EMPLOYEE_STATUS_LABELS, type EmployeeStatus } from '@hrmonic/shared';
+import { EMPLOYEE_STATUS_LABELS, type EmployeeStatus } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';

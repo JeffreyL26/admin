@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { Role, RoleMember } from '@hrmonic/shared';
+import type { Role, RoleMember } from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';

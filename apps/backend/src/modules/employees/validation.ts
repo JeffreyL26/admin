@@ -3,7 +3,7 @@ import {
   EMPLOYEE_RULE_FIELD_LABELS,
   EMPLOYEE_TYPE_RULES,
   type EmployeeType,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { badRequest } from '../../core/errors.js';
 import { isoDateString } from '../../core/validation.js';
 
@@ -71,7 +71,7 @@ export const EMPLOYEE_COLUMNS = Object.keys(employeeBodySchema.shape) as (keyof 
 
 /**
  * Serverseitige Prüfung der typabhängigen Pflichtfelder (Regeln:
- * EMPLOYEE_TYPE_RULES aus @hrmonic/shared — gespiegelt im Frontend).
+ * EMPLOYEE_TYPE_RULES aus @ohrganize/shared — gespiegelt im Frontend).
  * Erwartet den VOLLSTÄNDIG gemergten Datensatz (bei PATCH: Bestand + Änderung).
  */
 export function assertTypeRules(employee: Record<string, unknown>): void {

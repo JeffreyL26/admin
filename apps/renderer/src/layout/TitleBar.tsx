@@ -7,8 +7,8 @@ import { IS_ELECTRON } from '../api/client';
 import { Modal } from '../components/Modal';
 import logo from '../assets/logo.png';
 
-const isMac = window.hrmonic?.platform === 'darwin';
-const DOCS_URL = 'https://hrmonic.de/docs';
+const isMac = window.ohrganize?.platform === 'darwin';
+const DOCS_URL = 'https://ohrganize.de/docs';
 
 /**
  * Eigene, zur UI passende Titelleiste — ersetzt das native Windows-Menü.
@@ -22,7 +22,7 @@ export function TitleBar() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const w = window.hrmonic?.window;
+    const w = window.ohrganize?.window;
     if (!w) return;
     void w.isMaximized().then(setMaximized);
     return w.onMaximizeChange(setMaximized);
@@ -43,13 +43,13 @@ export function TitleBar() {
   }, [menuOpen]);
 
   const act = {
-    reload: () => (window.hrmonic?.app?.reload ? window.hrmonic.app.reload() : window.location.reload()),
-    zoom: (d: number) => window.hrmonic?.app?.zoom(d),
-    fullscreen: () => window.hrmonic?.app?.toggleFullscreen(),
-    devtools: () => window.hrmonic?.app?.toggleDevTools(),
+    reload: () => (window.ohrganize?.app?.reload ? window.ohrganize.app.reload() : window.location.reload()),
+    zoom: (d: number) => window.ohrganize?.app?.zoom(d),
+    fullscreen: () => window.ohrganize?.app?.toggleFullscreen(),
+    devtools: () => window.ohrganize?.app?.toggleDevTools(),
     docs: () =>
-      window.hrmonic?.app?.openExternal
-        ? window.hrmonic.app.openExternal(DOCS_URL)
+      window.ohrganize?.app?.openExternal
+        ? window.ohrganize.app.openExternal(DOCS_URL)
         : window.open(DOCS_URL, '_blank'),
   };
 
@@ -79,7 +79,7 @@ export function TitleBar() {
             <MenuItem icon={<Expand size={15} />} label="Vollbild" hint="F11" onClick={run(act.fullscreen)} />
             <div className="titlebar__sep" />
             <MenuItem icon={<BookOpen size={15} />} label="Dokumentation" onClick={run(act.docs)} />
-            <MenuItem icon={<Info size={15} />} label="Über HRMONIC" onClick={run(() => setAboutOpen(true))} />
+            <MenuItem icon={<Info size={15} />} label="Über oHRganize" onClick={run(() => setAboutOpen(true))} />
             {import.meta.env.DEV && (
               <>
                 <div className="titlebar__sep" />
@@ -92,24 +92,24 @@ export function TitleBar() {
 
       <div className="titlebar__drag">
         <span className="titlebar__wordmark">
-          HR<span>MONIC</span>
+          o<span>HR</span>ganize
         </span>
       </div>
 
       {IS_ELECTRON && !isMac ? (
         <div className="titlebar__controls">
-          <button className="titlebar__control" onClick={() => window.hrmonic?.window?.minimize()} title="Minimieren" aria-label="Minimieren">
+          <button className="titlebar__control" onClick={() => window.ohrganize?.window?.minimize()} title="Minimieren" aria-label="Minimieren">
             <Minus size={16} />
           </button>
           <button
             className="titlebar__control"
-            onClick={() => window.hrmonic?.window?.toggleMaximize()}
+            onClick={() => window.ohrganize?.window?.toggleMaximize()}
             title={maximized ? 'Wiederherstellen' : 'Maximieren'}
             aria-label={maximized ? 'Wiederherstellen' : 'Maximieren'}
           >
             {maximized ? <Copy size={13} /> : <Square size={13} />}
           </button>
-          <button className="titlebar__control titlebar__control--close" onClick={() => window.hrmonic?.window?.close()} title="Schließen" aria-label="Schließen">
+          <button className="titlebar__control titlebar__control--close" onClick={() => window.ohrganize?.window?.close()} title="Schließen" aria-label="Schließen">
             <X size={16} />
           </button>
         </div>
@@ -153,13 +153,13 @@ function Copy({ size }: { size: number }) {
 }
 
 function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const version = window.hrmonic?.appVersion ?? '1.0.0';
+  const version = window.ohrganize?.appVersion ?? '1.0.0';
   return (
-    <Modal title="Über HRMONIC" open={open} onClose={onClose}>
+    <Modal title="Über oHRganize" open={open} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '8px 0 4px' }}>
-        <img src={logo} alt="HRMONIC" style={{ width: 96 }} />
+        <img src={logo} alt="oHRganize" style={{ width: 96 }} />
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>HRMONIC</div>
+          <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>oHRganize</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
             HR-Verwaltung für den deutschsprachigen Markt
           </div>
@@ -169,7 +169,7 @@ function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
           <span className="hm-badge hm-badge--neutral">Desktop</span>
         </div>
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', margin: 0 }}>
-          © {new Date().getFullYear()} HRMONIC
+          © {new Date().getFullYear()} oHRganize
         </p>
       </div>
     </Modal>

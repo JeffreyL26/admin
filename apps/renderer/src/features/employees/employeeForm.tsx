@@ -8,7 +8,7 @@ import {
   type EmployeeRuleField,
   type EmployeeStatus,
   type EmployeeType,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { uploadFile } from '../../api/client';
 import { Field } from '../../components/ui';
 import { PhotoPicker } from '../../components/FilePicker';

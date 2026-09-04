@@ -17,10 +17,10 @@
 
 /** Header, mit dem die Desktop-App ihre Version mitschickt (Fastify liest
  *  Header ausschließlich kleingeschrieben — der Wert muss es deshalb sein). */
-export const CLIENT_VERSION_HEADER = 'x-hrmonic-client-version';
+export const CLIENT_VERSION_HEADER = 'x-ohrganize-client-version';
 
 /** Header, mit dem das Backend seine Version auf JEDER Antwort mitschickt. */
-export const SERVER_VERSION_HEADER = 'x-hrmonic-server-version';
+export const SERVER_VERSION_HEADER = 'x-ohrganize-server-version';
 
 /**
  * Älteste App-Version, die das Backend bedient.
@@ -60,7 +60,7 @@ export function compareVersions(a: string, b: string): number {
 /**
  * Fail closed wie bei den Routen-Bereichen in core/permissions.ts: Eine
  * Version, die sich nicht lesen lässt, gilt als zu alt. Wer etwas
- * Unverständliches schickt, ist entweder defekt oder kein HRMONIC — beides
+ * Unverständliches schickt, ist entweder defekt oder kein oHRganize — beides
  * ist kein Grund, ihn durchzulassen.
  */
 export function isAtLeast(version: string | null | undefined, minimum: string): boolean {

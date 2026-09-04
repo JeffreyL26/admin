@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { FULL_ACCESS, permits, type AdminArea, type AdminPermissions } from '@hrmonic/shared';
+import { FULL_ACCESS, permits, type AdminArea, type AdminPermissions } from '@ohrganize/shared';
 import { api, hasToken, setToken, setUnauthorizedHandler } from '../api/client';
 
 export interface AuthUser {
@@ -28,7 +28,7 @@ export interface AuthUser {
  * Meldung statt kryptischer Fehler.
  */
 const ADMIN_ONLY_MESSAGE =
-  'Dieser Zugang ist der HR-Administration vorbehalten. Bitte melden Sie sich im HRMONIC Mitarbeitenden-Portal an.';
+  'Dieser Zugang ist der HR-Administration vorbehalten. Bitte melden Sie sich im oHRganize Mitarbeitenden-Portal an.';
 
 interface AuthState {
   user: AuthUser | null;

@@ -6,7 +6,7 @@ import {
   formatDate,
   type OnboardingKind,
   type OnboardingProcess,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
@@ -76,7 +76,7 @@ export function OnboardingPage() {
     <>
       <PageHeader
         title="On- & Offboarding"
-        subtitle="Wer kommt an Bord, wer verlässt uns — mit abhakbarer Checkliste je Prozess."
+        subtitle="Wer kommt an Bord, wer verlässt uns? Mit abhakbarer Checkliste je Prozess."
         actions={
           <button className="hm-btn hm-btn--primary" onClick={() => setCreateOpen(true)}>
             <Plus size={16} /> Prozess starten

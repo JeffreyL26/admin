@@ -93,8 +93,8 @@ Merksatz: Embedding-Bundles immer aus einem Modul ohne Seiteneffekte bauen.
    Wert in `electron-builder.yml` (muss zur installierten Version passen).
 2. **`productName` gehört zusätzlich in die `package.json` der Desktop-App:**
    `app.getPath('userData')` leitet sich aus dem Paketnamen ab — mit dem
-   Scoped-Namen `@hrmonic/desktop` landeten Nutzerdaten in
-   `%APPDATA%\@hrmonic\desktop` statt `%APPDATA%\HRMONIC`. Das `productName`
+   Scoped-Namen `@ohrganize/desktop` landeten Nutzerdaten in
+   `%APPDATA%\@ohrganize\desktop` statt `%APPDATA%\oHRganize`. Das `productName`
    in `electron-builder.yml` allein beeinflusst nur Installer/Verknüpfungen,
    nicht die Laufzeit.
 
@@ -178,7 +178,7 @@ keine Icons), nicht in der Schrift.
 Maus-zentrierte Desktop-Verwaltung ohne Media-Queries (fixe 264-px-Sidebar,
 `body { overflow: hidden }`, Electron-Titelleiste); das Portal muss auf dem
 Smartphone funktionieren und deutlich weniger können. Geteilt wird, was stabil
-ist — Typen/Konstanten aus `@hrmonic/shared` und die Token-**Werte** — statt
+ist — Typen/Konstanten aus `@ohrganize/shared` und die Token-**Werte** — statt
 Komponenten, deren Layout-Annahmen nicht übertragbar sind. Die Desktop-Regel
 „base: './' + HashRouter" gilt hier ausdrücklich nicht (HTTP-Auslieferung,
 SPA-Fallback dokumentiert in docs/web-portal.md).

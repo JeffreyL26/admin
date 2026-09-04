@@ -7,8 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 
-process.env.HRMONIC_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hrmonic-me-'));
-process.env.HRMONIC_LOG_LEVEL = 'silent';
+process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-me-'));
+process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
@@ -498,7 +498,7 @@ const ghostDownload = await empPost('/api/me/documents/999999/download');
 check('Download eines unbekannten Dokuments → 404', ghostDownload.statusCode === 404);
 
 // Upload über multipart/form-data.
-const DOC_BOUNDARY = '----hrmonicMeDocBoundary';
+const DOC_BOUNDARY = '----ohrganizeMeDocBoundary';
 function multipart(
   fields: Record<string, string>,
   file: { name: string; type: string; content: string } | null,
@@ -736,10 +736,10 @@ db.prepare("UPDATE users SET role = 'mitarbeiter' WHERE email = 'ben.berg@test.d
 db.prepare("UPDATE users SET employee_id = NULL WHERE email = 'ben.berg@test.de'").run();
 const unlinked = await app.inject({ method: 'GET', url: '/api/me/profile', headers: benAuth });
 check('Entfernte Profil-Verknüpfung wirkt sofort (altes Token → 403)', unlinked.statusCode === 403, unlinked.json());
-db.prepare("UPDATE users SET role = 'mitarbeiter' WHERE email = 'admin@hrmonic.de'").run();
+db.prepare("UPDATE users SET role = 'mitarbeiter' WHERE email = 'admin@ohrganize.de'").run();
 const demoted = await app.inject({ method: 'GET', url: '/api/employees', headers: adminAuth });
 check('Rollenentzug wirkt sofort (Admin-Token → 403)', demoted.statusCode === 403, demoted.json());
-db.prepare("UPDATE users SET role = 'admin' WHERE email = 'admin@hrmonic.de'").run();
+db.prepare("UPDATE users SET role = 'admin' WHERE email = 'admin@ohrganize.de'").run();
 // Löschung: eigenes Wegwerf-Konto ohne Aktivität (Konten mit Anträgen sind
 // per FK absichtlich nicht hart löschbar).
 db.prepare(
@@ -758,7 +758,7 @@ check('Gelöschtes Konto wirkt sofort (altes Token → 401)', deleted.statusCode
 await app.close();
 closeDb();
 try {
-  fs.rmSync(process.env.HRMONIC_DATA_DIR!, { recursive: true, force: true });
+  fs.rmSync(process.env.OHRGANIZE_DATA_DIR!, { recursive: true, force: true });
 } catch {
   // Windows/WAL-Reste sind unkritisch.
 }

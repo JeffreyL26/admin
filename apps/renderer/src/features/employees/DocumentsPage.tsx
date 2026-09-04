@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, FilePlus2, FolderOpen, Plus, Search, Trash2 } from 'lucide-react';
-import { DOCUMENT_CATEGORY_LABELS, formatDate } from '@hrmonic/shared';
+import { DOCUMENT_CATEGORY_LABELS, formatDate } from '@ohrganize/shared';
 import { api, downloadFile } from '../../api/client';
 import { Badge, Card, EmptyState, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
@@ -118,7 +118,7 @@ export function DocumentsPage() {
             hint={
               search || category
                 ? 'Passen Sie Suchbegriff oder Kategorie-Filter an.'
-                : 'Laden Sie das erste Dokument hoch — mit oder ohne Mitarbeiter-Zuordnung.'
+                : 'Laden Sie das erste Dokument hoch. Sie können zwischen Mitarbeiter-Zuordnung oder ohne entscheiden.'
             }
           />
         ) : (

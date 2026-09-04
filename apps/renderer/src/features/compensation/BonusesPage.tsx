@@ -7,7 +7,7 @@ import {
   formatEuro,
   type BonusKind,
   type BonusStatus,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';

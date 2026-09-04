@@ -1,14 +1,14 @@
 /**
  * Zentraler API-Client. Basis-URL:
- * - Desktop (Electron): vom Preload-Skript via window.hrmonic.apiBaseUrl injiziert
+ * - Desktop (Electron): vom Preload-Skript via window.ohrganize.apiBaseUrl injiziert
  *   (Backend läuft eingebettet auf zufälligem 127.0.0.1-Port)
  * - Browser-Dev: http://127.0.0.1:3001
  */
-import { CLIENT_VERSION_HEADER } from '@hrmonic/shared';
+import { CLIENT_VERSION_HEADER } from '@ohrganize/shared';
 
 declare global {
   interface Window {
-    hrmonic?: {
+    ohrganize?: {
       apiBaseUrl: string;
       platform: string;
       appVersion: string;
@@ -34,24 +34,24 @@ declare global {
 }
 
 /** True, wenn die App im Electron-Desktop läuft (nicht im Browser-Dev). */
-export const IS_ELECTRON = Boolean(window.hrmonic?.window);
+export const IS_ELECTRON = Boolean(window.ohrganize?.window);
 
-export const API_BASE = window.hrmonic?.apiBaseUrl ?? 'http://127.0.0.1:3001';
+export const API_BASE = window.ohrganize?.apiBaseUrl ?? 'http://127.0.0.1:3001';
 
 /**
  * Version dieser App für den Abgleich mit dem Backend (core/version.ts).
- * Im Browser-Dev fehlt window.hrmonic — dann geht der Header nicht mit, und
+ * Im Browser-Dev fehlt window.ohrganize — dann geht der Header nicht mit, und
  * das Backend prüft folgerichtig nichts. Das ist gewollt: Geprüft wird, wer
  * sich als Client zu erkennen gibt.
  */
-const CLIENT_VERSION = window.hrmonic?.appVersion;
+const CLIENT_VERSION = window.ohrganize?.appVersion;
 
-let authToken: string | null = localStorage.getItem('hrmonic.token');
+let authToken: string | null = localStorage.getItem('ohrganize.token');
 
 export function setToken(token: string | null): void {
   authToken = token;
-  if (token) localStorage.setItem('hrmonic.token', token);
-  else localStorage.removeItem('hrmonic.token');
+  if (token) localStorage.setItem('ohrganize.token', token);
+  else localStorage.removeItem('ohrganize.token');
 }
 
 export function hasToken(): boolean {

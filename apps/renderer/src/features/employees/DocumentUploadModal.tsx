@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { DOCUMENT_CATEGORY_LABELS, type DocumentCategory } from '@hrmonic/shared';
+import { DOCUMENT_CATEGORY_LABELS, type DocumentCategory } from '@ohrganize/shared';
 import { api, uploadFile } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';

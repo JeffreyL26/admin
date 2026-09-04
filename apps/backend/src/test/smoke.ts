@@ -6,14 +6,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-process.env.HRMONIC_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hrmonic-smoke-'));
-process.env.HRMONIC_LOG_LEVEL = 'silent';
+process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-smoke-'));
+process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../server.js');
 const { closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
 const { CLIENT_VERSION_HEADER, SERVER_VERSION_HEADER, MIN_CLIENT_VERSION, isAtLeast } =
-  await import('@hrmonic/shared');
+  await import('@ohrganize/shared');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -56,7 +56,7 @@ const oldLogin = await app.inject({
   method: 'POST',
   url: '/api/auth/login',
   headers: clientHeader('0.9.9'),
-  payload: { email: 'admin@hrmonic.de', password: 'egal' },
+  payload: { email: 'admin@ohrganize.de', password: 'egal' },
 });
 check('Zu alter Client auch am Login → 426', oldLogin.statusCode === 426, oldLogin.statusCode);
 
@@ -87,7 +87,7 @@ check('Auth-Pflicht greift', noAuth.statusCode === 401, noAuth.json());
 const badLogin = await app.inject({
   method: 'POST',
   url: '/api/auth/login',
-  payload: { email: 'admin@hrmonic.de', password: 'falsch' },
+  payload: { email: 'admin@ohrganize.de', password: 'falsch' },
 });
 check('Login mit falschem Passwort → 401', badLogin.statusCode === 401);
 check('Fehlerschema einheitlich', badLogin.json()?.error?.code === 'UNAUTHORIZED');
@@ -95,7 +95,7 @@ check('Fehlerschema einheitlich', badLogin.json()?.error?.code === 'UNAUTHORIZED
 const { auth } = await firstAdminLogin(app, check);
 
 const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: auth });
-check('GET /api/auth/me', me.statusCode === 200 && me.json().user.email === 'admin@hrmonic.de');
+check('GET /api/auth/me', me.statusCode === 200 && me.json().user.email === 'admin@ohrganize.de');
 
 const settings = await app.inject({ method: 'GET', url: '/api/settings', headers: auth });
 check('Einstellungen lesbar', settings.statusCode === 200 && !!settings.json().settings);
@@ -111,7 +111,7 @@ check(
 await app.close();
 closeDb();
 try {
-  fs.rmSync(process.env.HRMONIC_DATA_DIR!, { recursive: true, force: true });
+  fs.rmSync(process.env.OHRGANIZE_DATA_DIR!, { recursive: true, force: true });
 } catch {
   // Windows hält WAL-Dateien gelegentlich noch kurz — Tempdir-Reste sind unkritisch.
 }

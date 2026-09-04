@@ -6,7 +6,7 @@ import {
   formatDate,
   todayIsoLocal,
   type AnnouncementStatus,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, downloadFile, uploadFile } from '../../api/client';
 import { Badge, EmptyState, Field, PageHeader, Spinner, type BadgeTone } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';

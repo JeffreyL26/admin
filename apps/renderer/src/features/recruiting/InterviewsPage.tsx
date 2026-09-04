@@ -3,7 +3,7 @@ import { CalendarClock, Clock, Users } from 'lucide-react';
 import {
   INTERVIEW_KIND_LABELS, INTERVIEW_STATUS_LABELS, INTERVIEW_RECOMMENDATION_LABELS,
   formatDate, type InterviewDto,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { Badge, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { useInterviews } from './api';
 import { ApplicationDrawer, InterviewEditor } from './common';

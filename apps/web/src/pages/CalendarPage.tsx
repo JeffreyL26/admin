@@ -13,7 +13,7 @@
  */
 import { memo, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { MeCalendarEmployee, MeCalendarEntry, OrgTreeNode } from '@hrmonic/shared';
+import type { MeCalendarEmployee, MeCalendarEntry, OrgTreeNode } from '@ohrganize/shared';
 import { useMyCalendar, useMyOrgTree, useMyProfile } from '../api/hooks';
 import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
 import { formatDate, todayIso } from '../lib/format';

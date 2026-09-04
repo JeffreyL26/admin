@@ -1,12 +1,12 @@
 /**
- * Demo-Daten für HRMONIC — realistische deutsche Beispieldaten über alle Module.
+ * Demo-Daten für oHRganize — realistische deutsche Beispieldaten über alle Module.
  *
  * Aufruf:  npm run seed            (bricht ab, wenn bereits Mitarbeitende existieren)
  *          npm run seed -- --force (leert alle Fachtabellen und seedet neu)
  *
- * NUR DEV: Zeigt HRMONIC_DATA_DIR auf eine echte Installation statt auf die
+ * NUR DEV: Zeigt OHRGANIZE_DATA_DIR auf eine echte Installation statt auf die
  * Entwicklungsdatenbank, bricht das Skript sofort ab (siehe Produktivsperre
- * unten). Überstimmbar mit HRMONIC_ALLOW_SEED=1.
+ * unten). Überstimmbar mit OHRGANIZE_ALLOW_SEED=1.
  *
  * Bewusst eingebaute Demo-Fälle:
  * - laufende Krankheit ohne AU (Frist überschritten) + Langzeitkrankheit > 42 Tage
@@ -33,19 +33,19 @@ const FORCE = process.argv.includes('--force');
 // Bisher schützte nur die Prüfung "es gibt schon Mitarbeitende" (weiter unten)
 // vor einem versehentlichen Lauf. Auf einem frisch installierten Kundenserver
 // ist die Datenbank aber leer: Der Lauf ginge durch und legte die öffentlich
-// dokumentierten Demo-Konten (hrmonic2026 / portal2026) an — mit --force
+// dokumentierten Demo-Konten (ohrganize2026 / portal2026) an — mit --force
 // zusätzlich unter Verlust aller Fachdaten und aller Konten außer
-// admin@hrmonic.de.
+// admin@ohrganize.de.
 //
-// Kriterium: Das Backend leitet sein Datenverzeichnis ohne HRMONIC_DATA_DIR
+// Kriterium: Das Backend leitet sein Datenverzeichnis ohne OHRGANIZE_DATA_DIR
 // aus dem Repository ab (apps/backend/data) — das ist der Dev-Fall. Wer die
 // Variable setzt, meint eine echte Installation: das userData-Verzeichnis der
-// Desktop-App, /var/lib/hrmonic oder das per install-backup-task.ps1
+// Desktop-App, /var/lib/ohrganize oder das per install-backup-task.ps1
 // maschinenweit gesetzte Datenverzeichnis eines Windows-Servers.
 //
-// Bewusst fail closed und bewusst mit Ausweg: HRMONIC_ALLOW_SEED=1 ist der
+// Bewusst fail closed und bewusst mit Ausweg: OHRGANIZE_ALLOW_SEED=1 ist der
 // eine dokumentierte Weg, den Schutz zu überstimmen (siehe seed-desktop.ts).
-const configuredDataDir = process.env.HRMONIC_DATA_DIR?.trim();
+const configuredDataDir = process.env.OHRGANIZE_DATA_DIR?.trim();
 // Gleiche Ableitung wie in config.ts, nur relativ zu dieser Datei
 // (src/seed/ → apps/backend/data).
 const devDataDir = path.resolve(import.meta.dirname ?? process.cwd(), '..', '..', 'data');
@@ -59,7 +59,7 @@ function samePath(a: string, b: string): boolean {
 }
 
 if (
-  process.env.HRMONIC_ALLOW_SEED !== '1' &&
+  process.env.OHRGANIZE_ALLOW_SEED !== '1' &&
   configuredDataDir &&
   !samePath(configuredDataDir, devDataDir)
 ) {
@@ -67,20 +67,20 @@ if (
     [
       'Abbruch: "npm run seed" ist ausschließlich für die Entwicklung gedacht.',
       '',
-      `  HRMONIC_DATA_DIR = ${path.resolve(configuredDataDir)}`,
+      `  OHRGANIZE_DATA_DIR = ${path.resolve(configuredDataDir)}`,
       `  Dev-Verzeichnis  = ${devDataDir}`,
       '',
       'Das Datenverzeichnis zeigt nicht auf die Entwicklungsdatenbank, sondern auf eine',
       'echte Installation. Dieses Skript legt dort Konten mit den öffentlich',
-      'dokumentierten Demo-Passwörtern an (hrmonic2026 / portal2026) — mit --force löscht',
-      'es zuvor sämtliche Fachdaten und alle Benutzerkonten außer admin@hrmonic.de.',
+      'dokumentierten Demo-Passwörtern an (ohrganize2026 / portal2026) — mit --force löscht',
+      'es zuvor sämtliche Fachdaten und alle Benutzerkonten außer admin@ohrganize.de.',
       '',
       'Konten auf einem Produktivsystem entstehen unter "Verwaltung → Benutzer & Rechte"',
       '(POST /api/admin/users); das Passwort erzeugt dort der Server. Ablauf:',
       'docs/inbetriebnahme.md.',
       '',
       'Wenn Sie den Lauf trotzdem ausdrücklich wollen (z. B. für eine Demo-Installation):',
-      '  HRMONIC_ALLOW_SEED=1 npm run seed',
+      '  OHRGANIZE_ALLOW_SEED=1 npm run seed',
     ].join('\n'),
   );
   process.exit(1);
@@ -122,7 +122,7 @@ if (FORCE) {
     for (const t of tables) db.prepare(`DELETE FROM ${t}`).run();
     // Benutzerkonten bis auf den Standard-Admin entfernen — die Mitarbeitenden-
     // Accounts werden unten neu angelegt und auf die frischen Profile verknüpft.
-    db.prepare("DELETE FROM users WHERE email != 'admin@hrmonic.de'").run();
+    db.prepare("DELETE FROM users WHERE email != 'admin@ohrganize.de'").run();
   });
   console.log('Bestehende Fachdaten gelöscht (--force).');
 }
@@ -235,7 +235,7 @@ inTransaction(() => {
       first_name: e.first,
       last_name: e.last,
       personnel_number: personalnummern.get(i) ?? null,
-      email: `${e.first.toLowerCase().normalize('NFD').replace(/[^a-z]/g, '')}.${e.last.toLowerCase().normalize('NFD').replace(/[^a-z]/g, '')}@hrmonic.de`,
+      email: `${e.first.toLowerCase().normalize('NFD').replace(/[^a-z]/g, '')}.${e.last.toLowerCase().normalize('NFD').replace(/[^a-z]/g, '')}@ohrganize.de`,
       phone: `+49 89 900${String(100 + i)}`,
       birth_date: e.birth,
       private_street: ['Amselweg 3', 'Gartenstraße 12', 'Lindenallee 7', 'Am Bach 21', 'Ringstraße 45'][i % 5],
@@ -298,7 +298,7 @@ inTransaction(() => {
   // Konten über POST /api/admin/users mit serverseitig erzeugtem Passwort
   // (siehe docs/inbetriebnahme.md).
   //
-  // Der Standard-Admin admin@hrmonic.de existiert bereits über
+  // Der Standard-Admin admin@ohrganize.de existiert bereits über
   // ensureDefaultAdmin() und behält sein ZUFÄLLIG erzeugtes Initialpasswort
   // aus <dataDir>/initial-admin-password.txt samt Wechselzwang — seed setzt
   // es bewusst nicht zurück, damit auch im Dev kein zweites bekanntes
@@ -318,14 +318,14 @@ inTransaction(() => {
       employee_id: employeeId,
     });
   // Admins (verwalten und genehmigen; über das verknüpfte Profil auch portalfähig)
-  account('sabine.berger@hrmonic.de', 'Sabine Berger', 'admin', 'hrmonic2026', GF);
-  account('jurgen.wilms@hrmonic.de', 'Jürgen Wilms', 'admin', 'hrmonic2026', HRL);
-  account('melanie.sonntag@hrmonic.de', 'Melanie Sonntag', 'admin', 'hrmonic2026', HRR);
+  account('sabine.berger@ohrganize.de', 'Sabine Berger', 'admin', 'ohrganize2026', GF);
+  account('jurgen.wilms@ohrganize.de', 'Jürgen Wilms', 'admin', 'ohrganize2026', HRL);
+  account('melanie.sonntag@ohrganize.de', 'Melanie Sonntag', 'admin', 'ohrganize2026', HRR);
   // Mitarbeitende (Web-Portal, Self-Service)
-  account('deniz.aydin@hrmonic.de', 'Deniz Aydin', 'mitarbeiter', 'portal2026', DEV1);
-  account('marta.kowalczyk@hrmonic.de', 'Marta Kowalczyk', 'mitarbeiter', 'portal2026', DEV2);
-  account('leonie.vogt@hrmonic.de', 'Leonie Vogt', 'mitarbeiter', 'portal2026', DEV3);
-  account('samuel.okafor@hrmonic.de', 'Samuel Okafor', 'mitarbeiter', 'portal2026', OPS1);
+  account('deniz.aydin@ohrganize.de', 'Deniz Aydin', 'mitarbeiter', 'portal2026', DEV1);
+  account('marta.kowalczyk@ohrganize.de', 'Marta Kowalczyk', 'mitarbeiter', 'portal2026', DEV2);
+  account('leonie.vogt@ohrganize.de', 'Leonie Vogt', 'mitarbeiter', 'portal2026', DEV3);
+  account('samuel.okafor@ohrganize.de', 'Samuel Okafor', 'mitarbeiter', 'portal2026', OPS1);
 
   // ======================= Verträge =======================
   const contractByType: Record<string, string> = {
@@ -354,7 +354,7 @@ inTransaction(() => {
   const doc = (emp: number | null, cat: string, title: string, expiry: string | null = null) =>
     insert('documents', {
       employee_id: emp, category: cat, title,
-      file_id: demoFile(`${title.replace(/[^A-Za-zÄÖÜäöüß0-9]+/g, '_')}.txt`, `HRMONIC Demo-Dokument\n${title}\nErstellt für Demozwecke.`),
+      file_id: demoFile(`${title.replace(/[^A-Za-zÄÖÜäöüß0-9]+/g, '_')}.txt`, `oHRganize Demo-Dokument\n${title}\nErstellt für Demozwecke.`),
       expiry_date: expiry, reminder_days: 30,
     });
   doc(DEV1, 'vertrag', 'Arbeitsvertrag Deniz Aydin');
@@ -706,7 +706,7 @@ inTransaction(() => {
   insert('channels', { name: 'Projekt Phoenix (2025)', topic: 'Archiviert', audience_type: 'alle', archived: 1 });
   const msg = (ch: number, body: string, at: string) =>
     insert('channel_messages', { channel_id: ch, body, sent_by_user_id: adminId, sent_at: at });
-  msg(ch1, 'Herzlich willkommen im neuen HRMONIC-Kanal! Hier informieren wir künftig über alles Wichtige.', '2026-06-01 09:00:00');
+  msg(ch1, 'Herzlich willkommen im neuen oHRganize-Kanal! Hier informieren wir künftig über alles Wichtige.', '2026-06-01 09:00:00');
   msg(ch1, 'Reminder: Bitte die Pulse-Umfrage Q3 ausfüllen — dauert nur 2 Minuten und ist anonym. 🙌', '2026-07-06 10:30:00');
   msg(ch1, 'Das Sommerfest rückt näher — bitte Teilnahme in der Ankündigung bestätigen!', '2026-07-15 14:00:00');
   msg(ch2, 'Wartungsfenster am Samstag 06–08 Uhr: Deployment Release 4.1.', '2026-07-08 16:45:00');
@@ -837,7 +837,7 @@ inTransaction(() => {
       category, title, description,
       file_id: demoFile(
         `${title.replace(/[^A-Za-zÄÖÜäöüß0-9]+/g, '_')}.txt`,
-        `HRMONIC Demo-Vorlage\n${title}\n${description}`,
+        `oHRganize Demo-Vorlage\n${title}\n${description}`,
       ),
     });
   hrTpl('schreiben', 'Willkommensschreiben neue Mitarbeitende', 'Anschreiben zum ersten Arbeitstag mit Agenda und Ansprechpartnern.');
@@ -890,10 +890,10 @@ const stats = {
 console.log('Demo-Daten angelegt:', stats);
 console.log(`
 Benutzerkonten (NUR Dev — auf Kundensystemen niemals seeden):
-  HR-Administration (Desktop-App, Passwort "hrmonic2026"):
-    sabine.berger@hrmonic.de · jurgen.wilms@hrmonic.de · melanie.sonntag@hrmonic.de
-  admin@hrmonic.de: Zufallspasswort aus <dataDir>/initial-admin-password.txt,
+  HR-Administration (Desktop-App, Passwort "ohrganize2026"):
+    sabine.berger@ohrganize.de · jurgen.wilms@ohrganize.de · melanie.sonntag@ohrganize.de
+  admin@ohrganize.de: Zufallspasswort aus <dataDir>/initial-admin-password.txt,
     Wechsel beim ersten Login erzwungen.
   Mitarbeitenden-Portal (Web, Passwort "portal2026"):
-    deniz.aydin@hrmonic.de · marta.kowalczyk@hrmonic.de · leonie.vogt@hrmonic.de · samuel.okafor@hrmonic.de`);
+    deniz.aydin@ohrganize.de · marta.kowalczyk@ohrganize.de · leonie.vogt@ohrganize.de · samuel.okafor@ohrganize.de`);
 closeDb();

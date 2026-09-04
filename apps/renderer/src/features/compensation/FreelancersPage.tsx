@@ -9,7 +9,7 @@ import {
   FREELANCER_RATE_UNIT_LABELS,
   type FreelancerInvoiceStatus,
   type FreelancerRateUnit,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, StatCard, Tabs } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
@@ -589,7 +589,7 @@ export function FreelancersPage() {
     <>
       <PageHeader
         title="Freiberufler & Honorare"
-        subtitle="Honorarsätze und Eingangsrechnungen — getrennt von der Angestelltenvergütung"
+        subtitle="Honorarsätze und Eingangsrechnungen. Diese sind getrennt von der Angestelltenvergütung"
       />
       <div className="stack">
         <Tabs

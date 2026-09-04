@@ -1,6 +1,6 @@
-appId: de.hrmonic.app
-productName: HRMONIC
-copyright: © 2026 HRMONIC
+appId: de.ohrganize.app
+productName: oHRganize
+copyright: © 2026 oHRganize
 
 # Muss der tatsächlich installierten Electron-Version entsprechen: durch das
 # npm-Workspace-Hoisting liegt electron im Root-node_modules und electron-builder
@@ -32,7 +32,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: HRMONIC
+  shortcutName: oHRganize
   license: build/lizenz.txt
   installerLanguages:
     - de_DE

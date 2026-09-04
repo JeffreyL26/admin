@@ -152,7 +152,7 @@ function MessagePane({ channel }: { channel: Channel }) {
       <div style={{ borderTop: '1px solid var(--border)', padding: 12 }}>
         {channel.archived ? (
           <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', textAlign: 'center' }}>
-            Dieser Kanal ist archiviert — es können keine Nachrichten mehr gesendet werden.
+            Dieser Kanal ist archiviert. Es können keine Nachrichten mehr gesendet werden.
           </div>
         ) : (
           <div className="row" style={{ alignItems: 'flex-end' }}>

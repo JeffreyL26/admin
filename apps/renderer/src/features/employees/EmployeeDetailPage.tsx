@@ -11,7 +11,7 @@ import {
   EMPLOYEE_TYPE_LABELS,
   formatDate,
   type ContractDto,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { ApiRequestError, api, downloadFile } from '../../api/client';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
@@ -179,7 +179,7 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
     mutationFn: () => api.delete(`/api/employees/${employee.id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['employees'] });
-      toast.success('Mitarbeiter:in gelöscht');
+      toast.success('Mitarbeitende Person wurde gelöscht.');
       navigate('/personal/mitarbeitende');
     },
     onError: (e: Error) => toast.error(e.message),
@@ -189,7 +189,7 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
     <div className="stack">
       {conflictMessage ? (
         <Notice tone="danger">
-          {conflictMessage} „Neu laden“ ersetzt das Formular durch den aktuellen Serverstand — Ihre nicht
+          {conflictMessage} „Neu laden“ ersetzt das Formular durch den aktuellen Serverstand. Ihre nicht
           gespeicherten Eingaben gehen dabei verloren.{' '}
           <button className="hm-btn hm-btn--sm hm-btn--secondary" style={{ marginTop: 6 }} onClick={adoptServerState}>
             Personalakte neu laden
@@ -197,7 +197,7 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
         </Notice>
       ) : remoteChanged ? (
         <Notice tone="warning">
-          Dieser Datensatz wurde zwischenzeitlich geändert. Ihre Eingaben bleiben erhalten — beim Speichern wird
+          Dieser Datensatz wurde zwischenzeitlich geändert. Ihre Eingaben bleiben erhalten. Beim Speichern wird
           geprüft, ob sich die Änderungen überschneiden.
         </Notice>
       ) : null}
@@ -224,7 +224,7 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
       </div>
       <ConfirmDialog
         open={confirmDelete}
-        title="Mitarbeiter:in löschen?"
+        title="Mitarbeitende Person löschen?"
         message={`${employee.first_name} ${employee.last_name} wird endgültig gelöscht. Wenn andere Module Daten referenzieren, setzen Sie stattdessen den Status auf „ausgeschieden“.`}
         onConfirm={() => remove.mutate()}
         onClose={() => setConfirmDelete(false)}
@@ -290,7 +290,7 @@ function ContractsTab({ employeeId }: { employeeId: number }) {
         <EmptyState
           icon={<FileText size={40} />}
           title="Noch kein Vertrag hinterlegt"
-          hint="Legen Sie die erste Vertragsversion an — spätere Änderungen erzeugen neue Versionen mit lückenloser Historie."
+          hint="Legen Sie die erste Vertragsversion an. Spätere Änderungen erzeugen neue Versionen mit lückenloser Historie."
         />
       ) : (
         <div className="stack">

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Setzt die NTFS-Rechte der HRMONIC-Verzeichnisse und der Konfigurationsdatei.
+  Setzt die NTFS-Rechte der oHRganize-Verzeichnisse und der Konfigurationsdatei.
   Gegenstueck zu UMask=0077 / StateDirectoryMode=0700 der systemd-Unit.
 
 .DESCRIPTION
@@ -8,18 +8,18 @@
   chmod auf 0700 - auf Windows kennt chmod aber nur das Read-only-Bit, der
   Aufruf verpufft (chmodQuiet faengt ihn bewusst ab). Ohne dieses Skript gilt
   daher, was C:\ProgramData vererbt: "Benutzer" duerfen lesen. Damit kann jedes
-  lokale Konto auf dem Server hrmonic.db oeffnen - die komplette Personalakte
+  lokale Konto auf dem Server ohrganize.db oeffnen - die komplette Personalakte
   mit Gehaeltern und AU-Bescheinigungen.
 
   DAS LOG-VERZEICHNIS GEHOERT MIT DAZU: Beim allerersten Dienststart erzeugt das
-  Backend das Initialpasswort fuer admin@hrmonic.de und gibt es einmalig auf
+  Backend das Initialpasswort fuer admin@ohrganize.de und gibt es einmalig auf
   stdout aus. NSSM leitet stdout nach logs\backend.log um - das Passwort steht
   damit auf der Platte. Ohne Haertung erbt auch dieses Verzeichnis von
   C:\ProgramData das Leserecht der Gruppe "Benutzer": Jedes lokale Konto koennte
   sich das Administratorpasswort abholen, solange es noch nicht gewechselt ist.
 
-  DIE KONFIGURATIONSDATEI EBENSO: hrmonic.env darf
-  HRMONIC_INITIAL_ADMIN_PASSWORD enthalten und verraet mindestens den Ablageort
+  DIE KONFIGURATIONSDATEI EBENSO: ohrganize.env darf
+  OHRGANIZE_INITIAL_ADMIN_PASSWORD enthalten und verraet mindestens den Ablageort
   der Personalakte.
 
   /inheritance:r ist der eigentliche Kern: Es entfernt die geerbten Eintraege.
@@ -31,7 +31,7 @@
   Ein Skript mit Klarnamen scheitert je nach Sprachversion des Servers.
   Aus demselben Grund darf -ServiceAccount auch als SID uebergeben werden
   (icacls-Schreibweise "*S-1-5-80-..."); install-service.ps1 tut das, weil der
-  Name "NT SERVICE\HRMONIC" erst nach der Dienstregistrierung aufloesbar ist.
+  Name "NT SERVICE\oHRganize" erst nach der Dienstregistrierung aufloesbar ist.
 
 .NOTES
   Idempotent - nach jedem Restore und nach jedem Update erneut ausfuehrbar.
@@ -39,11 +39,11 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$DataDir    = 'C:\ProgramData\HRMONIC\data',
-  [string]$BackupDir  = 'C:\ProgramData\HRMONIC\backups',
-  [string]$LogDir     = 'C:\ProgramData\HRMONIC\logs',
-  [string]$EnvFile    = 'C:\ProgramData\HRMONIC\hrmonic.env',
-  [string]$ServiceAccount = 'NT SERVICE\HRMONIC'
+  [string]$DataDir    = 'C:\ProgramData\oHRganize\data',
+  [string]$BackupDir  = 'C:\ProgramData\oHRganize\backups',
+  [string]$LogDir     = 'C:\ProgramData\oHRganize\logs',
+  [string]$EnvFile    = 'C:\ProgramData\oHRganize\ohrganize.env',
+  [string]$ServiceAccount = 'NT SERVICE\oHRganize'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,7 +54,7 @@ $ErrorActionPreference = 'Stop'
 $SID_SYSTEM = '*S-1-5-18'
 $SID_ADMINS = '*S-1-5-32-544'
 
-function Set-HrmonicAcl {
+function Set-OhrganizeAcl {
   param([string]$Path, [string]$Label)
 
   if (-not (Test-Path -LiteralPath $Path)) {
@@ -96,38 +96,38 @@ function Set-HrmonicAcl {
 }
 
 <#
-  Haertet eine einzelne DATEI (hrmonic.env), nicht ein Verzeichnis.
+  Haertet eine einzelne DATEI (ohrganize.env), nicht ein Verzeichnis.
 
-  Zwei Unterschiede zu Set-HrmonicAcl:
+  Zwei Unterschiede zu Set-OhrganizeAcl:
     * Kein (OI)(CI): Vererbungsflags gibt es nur fuer Container. icacls wuerde
       sie auf einer Datei als Fehler zurueckweisen.
-    * KEIN Recht fuer das Dienstkonto. Das Backend liest hrmonic.env nie
+    * KEIN Recht fuer das Dienstkonto. Das Backend liest ohrganize.env nie
       selbst: install-service.ps1 wertet die Datei als Administrator aus und
       uebergibt die Paare an "nssm set ... AppEnvironmentExtra". NSSM legt sie
       in der Registry ab, und der Dienst bekommt sie beim Start als Umgebung
       gereicht (siehe Kopfkommentar von install-service.ps1). SYSTEM und
       Administratoren genuegen daher - und je weniger Konten die Datei lesen
-      duerfen, desto besser, weil dort HRMONIC_INITIAL_ADMIN_PASSWORD stehen
+      duerfen, desto besser, weil dort OHRGANIZE_INITIAL_ADMIN_PASSWORD stehen
       darf.
 
-  Fehlt die Datei, wird sie NICHT angelegt: Eine leere hrmonic.env waere
+  Fehlt die Datei, wird sie NICHT angelegt: Eine leere ohrganize.env waere
   schlimmer als keine - install-service.ps1 bricht bei "keine Variablen
   gefunden" ab, und der Betreiber suchte den Fehler an der falschen Stelle.
 #>
-function Set-HrmonicFileAcl {
+function Set-OhrganizeFileAcl {
   param([string]$Path, [string]$Label)
 
   if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-    Write-Warning "  $Label - $Path nicht gefunden, uebersprungen (Vorlage: hrmonic.env.example)."
+    Write-Warning "  $Label - $Path nicht gefunden, uebersprungen (Vorlage: ohrganize.env.example)."
     return
   }
 
   # Exit-Code pruefen und hart abbrechen: Anders als beim Dienstkonto in
-  # Set-HrmonicAcl (das vor der Dienstinstallation erwartbar noch nicht
+  # Set-OhrganizeAcl (das vor der Dienstinstallation erwartbar noch nicht
   # existiert) gibt es hier keinen zulaessigen Fehlschlag. Bleibt er
   # unbemerkt, meldet das Skript "SYSTEM, Administratoren", waehrend die Datei
   # weiter fuer die Gruppe "Benutzer" lesbar ist - samt einem eventuell darin
-  # stehenden HRMONIC_INITIAL_ADMIN_PASSWORD.
+  # stehenden OHRGANIZE_INITIAL_ADMIN_PASSWORD.
   & icacls $Path /inheritance:r /grant:r "$($SID_SYSTEM):F" | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "ACL auf $Path konnte nicht gesetzt werden (icacls, Code $LASTEXITCODE)."
@@ -139,13 +139,13 @@ function Set-HrmonicFileAcl {
   Write-Host "  $Label - SYSTEM, Administratoren (Dienstkonto braucht keinen Lesezugriff)"
 }
 
-Write-Host 'HRMONIC - NTFS-Rechte setzen'
-Set-HrmonicAcl -Path $DataDir   -Label 'Datenverzeichnis'
-Set-HrmonicAcl -Path $BackupDir -Label 'Sicherungen'
+Write-Host 'oHRganize - NTFS-Rechte setzen'
+Set-OhrganizeAcl -Path $DataDir   -Label 'Datenverzeichnis'
+Set-OhrganizeAcl -Path $BackupDir -Label 'Sicherungen'
 # Log-Verzeichnis: Das Dienstkonto braucht hier Schreibrecht - NSSM schreibt
 # backend.log unter der Identitaet des Dienstes.
-Set-HrmonicAcl -Path $LogDir    -Label 'Protokolle'
-Set-HrmonicFileAcl -Path $EnvFile -Label 'Konfiguration'
+Set-OhrganizeAcl -Path $LogDir    -Label 'Protokolle'
+Set-OhrganizeFileAcl -Path $EnvFile -Label 'Konfiguration'
 
 Write-Host ''
 Write-Host 'Kontrolle (erwartet: KEIN Eintrag fuer "Benutzer"/"Users"):'

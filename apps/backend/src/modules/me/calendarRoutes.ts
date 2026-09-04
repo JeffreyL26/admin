@@ -10,7 +10,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { MeCalendarEmployee, MeCalendarEntry } from '@hrmonic/shared';
+import type { MeCalendarEmployee, MeCalendarEntry } from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
 import { badRequest, parse } from '../../core/errors.js';
 import { holidaysForYear, type Bundesland } from '../../core/holidays.js';

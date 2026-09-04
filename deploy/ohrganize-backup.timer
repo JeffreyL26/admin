@@ -1,12 +1,12 @@
-# Zeitplan der HRMONIC-Datensicherung
+# Zeitplan der oHRganize-Datensicherung
 #
-# Ablage:     /etc/systemd/system/hrmonic-backup.timer
-# Aktivieren: systemctl enable --now hrmonic-backup.timer
-# Prüfen:     systemctl list-timers hrmonic-backup.timer
+# Ablage:     /etc/systemd/system/ohrganize-backup.timer
+# Aktivieren: systemctl enable --now ohrganize-backup.timer
+# Prüfen:     systemctl list-timers ohrganize-backup.timer
 
 [Unit]
-Description=Tägliche HRMONIC-Datensicherung
-Documentation=file:/opt/hrmonic/deploy/README.md
+Description=Tägliche oHRganize-Datensicherung
+Documentation=file:/opt/ohrganize/deploy/README.md
 
 [Timer]
 # Täglich um 02:30 Ortszeit. Die Sicherung läuft im laufenden Betrieb, die
@@ -19,7 +19,7 @@ RandomizedDelaySec=300
 # War der Server zur geplanten Zeit aus, wird die Sicherung nach dem Start
 # nachgeholt.
 Persistent=true
-Unit=hrmonic-backup.service
+Unit=ohrganize-backup.service
 
 [Install]
 WantedBy=timers.target

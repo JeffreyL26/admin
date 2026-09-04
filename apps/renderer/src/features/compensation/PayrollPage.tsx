@@ -9,7 +9,7 @@ import {
   type PayrollFlag,
   type PayrollRunStatus,
   type SalaryComponentKind,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, StatCard } from '../../components/ui';
 import { Modal } from '../../components/Modal';

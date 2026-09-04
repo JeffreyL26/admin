@@ -3,7 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts';
 import { Briefcase, Users, UserCheck, CalendarClock, Timer, Layers } from 'lucide-react';
-import { CANDIDATE_SOURCE_LABELS, type CandidateSource } from '@hrmonic/shared';
+import { CANDIDATE_SOURCE_LABELS, type CandidateSource } from '@ohrganize/shared';
 import { Card, PageHeader, Spinner, StatCard, EmptyState } from '../../components/ui';
 import { useAnalytics } from './api';
 

@@ -76,7 +76,7 @@ export const EMPLOYEE_TYPE_RULES: Record<EmployeeType, EmployeeTypeRule> = {
   },
   minijob: {
     required: ['weekly_hours'],
-    hint: 'Geringfügige Beschäftigung — aktuelle Verdienstgrenze beachten (pauschale Abgaben über die Minijob-Zentrale).',
+    hint: 'Geringfügige Beschäftigung: Aktuelle Verdienstgrenze beachten (pauschale Abgaben über die Minijob-Zentrale).',
   },
   werkstudent: {
     required: ['weekly_hours'],

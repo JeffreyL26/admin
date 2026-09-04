@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 /**
  * Gebrandeter Tooltip — Ersatz für das native `title`-Attribut.
  *
- * WARUM nicht `title`: Der Browser-Tooltip trägt OS-Optik statt HRMONIC-Optik,
+ * WARUM nicht `title`: Der Browser-Tooltip trägt OS-Optik statt oHRganize-Optik,
  * kennt keine Themes, erscheint erst nach ~1 s und lässt sich nicht
  * strukturieren (Titel + Detailzeilen). Für eine Anwendung, die ihre eigene
  * Titelleiste zeichnet, ist das ein Fremdkörper.

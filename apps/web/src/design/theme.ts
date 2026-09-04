@@ -39,7 +39,7 @@ export const THEMES: ThemeMeta[] = [
   },
 ];
 
-const STORAGE_KEY = 'hrmonic.theme';
+const STORAGE_KEY = 'ohrganize.theme';
 
 export function getTheme(): ThemeName {
   const stored = localStorage.getItem(STORAGE_KEY);

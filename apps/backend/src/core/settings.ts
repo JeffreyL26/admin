@@ -12,7 +12,7 @@ export interface CompanySettings {
 }
 
 const defaults: CompanySettings = {
-  companyName: 'HRMONIC GmbH',
+  companyName: 'oHRganize GmbH',
   defaultBundesland: 'BY',
   carryoverDeadline: '03-31',
   surveyMinParticipants: 5,

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
-import { formatDate, todayIsoLocal, SICK_PAY_LIMIT_DAYS, type SickNote } from '@hrmonic/shared';
+import { formatDate, todayIsoLocal, SICK_PAY_LIMIT_DAYS, type SickNote } from '@ohrganize/shared';
 import { api, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
@@ -31,7 +31,7 @@ function missedDaysCell(note: SickNote) {
       )}
       {note.sick_pay_exceeded && (
         <span
-          title={`Entgeltfortzahlung überzogen: ${note.sick_pay_days_used} von ${SICK_PAY_LIMIT_DAYS} Kalendertagen seit Beginn der AU-Kette — Übergang ins Krankengeld prüfen.`}
+          title={`Entgeltfortzahlung überzogen: ${note.sick_pay_days_used} von ${SICK_PAY_LIMIT_DAYS} Kalendertagen seit Beginn der AU-Kette. Übergang ins Krankengeld prüfen.`}
         >
           <Badge tone="red">Überzogen ❗</Badge>
         </span>

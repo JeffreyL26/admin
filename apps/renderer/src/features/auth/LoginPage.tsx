@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { Field } from '../../components/ui';
 import { ApiRequestError } from '../../api/client';
-import logo from '../../assets/logo.png';
+import logo from '../../assets/logo-full.png';
 
 export function LoginPage() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('admin@hrmonic.de');
+  const [email, setEmail] = useState('admin@ohrganize.de');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -31,8 +31,8 @@ export function LoginPage() {
   return (
     <div className="login">
       <form className="login__card" onSubmit={submit}>
-        <img className="login__logo" src={logo} alt="HRMONIC" />
-        <h1 className="login__title">Willkommen zurück</h1>
+        <img className="login__logo" src={logo} alt="oHRganize" />
+        <h1 className="login__title">Willkommen zurück!</h1>
         <p className="login__subtitle">Melden Sie sich mit Ihrem HR-Administrationskonto an.</p>
         <Field label="E-Mail-Adresse" required>
           <input

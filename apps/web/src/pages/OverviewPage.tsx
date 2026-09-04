@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import type { AbsenceRequest, MeCalendarEmployee } from '@hrmonic/shared';
+import type { AbsenceRequest, MeCalendarEmployee } from '@ohrganize/shared';
 import { useMyBalance, useMyCalendar, useMyProfile, useMyRequests } from '../api/hooks';
 import { Card, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
 import { formatDate, formatDays, formatLongDate, formatRange, greeting, todayIso } from '../lib/format';

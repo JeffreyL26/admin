@@ -6,7 +6,7 @@ import type {
   EmployeeSortField,
   EmployeeStatus,
   EmployeeType,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { API_BASE, api } from '../../api/client';
 
 // ---------------------------------------------------------------------------
@@ -221,7 +221,7 @@ export function useExpiringDocuments() {
 // ---------------------------------------------------------------------------
 
 export async function downloadEmployeesCsv(filters: EmployeeFilters): Promise<void> {
-  const token = localStorage.getItem('hrmonic.token');
+  const token = localStorage.getItem('ohrganize.token');
   const res = await fetch(`${API_BASE}/api/employees/export.csv${filtersToQuery(filters)}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

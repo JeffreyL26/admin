@@ -14,7 +14,7 @@
  * Abstand zwischen Leistenunterkante und der nächsten Ebene bleibt damit
  * mindestens `V_GAP`.
  */
-import type { OrgTreeNode } from '@hrmonic/shared';
+import type { OrgTreeNode } from '@ohrganize/shared';
 import { NODE_H, V_GAP, type LaidOutNode, type OrgLayout } from './layoutTree';
 
 /** Höhe einer Team-Zeile. */

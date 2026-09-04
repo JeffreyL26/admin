@@ -354,7 +354,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     } catch (e) {
       if (e instanceof Error && e.message.includes('SQLITE_CONSTRAINT')) {
         throw conflict(
-          'Mitarbeiter:in wird von anderen Modulen referenziert — bitte stattdessen den Status auf „ausgeschieden“ setzen',
+          'Mitarbeiter:in wird von anderen Modulen referenziert. Bitte stattdessen den Status auf „ausgeschieden“ setzen',
         );
       }
       throw e;

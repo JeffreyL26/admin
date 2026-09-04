@@ -814,10 +814,11 @@ button {
   flex-direction: column;
   gap: 24px;
 }
-/* Dieselbe Logodatei wie Desktop-App und Installer — auf der Login-Seite
-   ganz gezeigt (das Logo trägt die Wortmarke bereits). Die Datei ist deckend
-   hell ohne Alpha; die weiße Fläche mit Radius macht daraus in allen vier
-   Themes eine bewusste Logo-Kachel statt eines harten Rechtecks auf Dunkel. */
+/* Eigene Datei (logo-full.png) statt des Icons aus Desktop-App/Installer — auf
+   der Login-Seite ganz gezeigt, da hier die Wortmarke mit ins Bild gehört.
+   Die Datei ist deckend hell ohne Alpha; die weiße Fläche mit Radius macht
+   daraus in allen vier Themes eine bewusste Logo-Kachel statt eines harten
+   Rechtecks auf Dunkel. */
 .login__logo {
   width: 150px;
   height: auto;

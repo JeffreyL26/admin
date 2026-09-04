@@ -3,7 +3,7 @@
  * (nicht in die Dev-Datenbank unter apps/backend/data).
  *
  * Die Desktop-App speichert ihre Daten in Electrons userData-Verzeichnis, das
- * sich aus dem Produktnamen "HRMONIC" ableitet — hier ohne Electron
+ * sich aus dem Produktnamen "oHRganize" ableitet — hier ohne Electron
  * nachgebildet. Anschließend wird das reguläre Seed-Skript mit diesem
  * Datenverzeichnis ausgeführt.
  *
@@ -14,7 +14,7 @@ import path from 'node:path';
 import os from 'node:os';
 
 function desktopUserDataDir(): string {
-  const appName = 'HRMONIC';
+  const appName = 'oHRganize';
   if (process.platform === 'win32') {
     const base = process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming');
     return path.join(base, appName);
@@ -28,15 +28,15 @@ function desktopUserDataDir(): string {
 
 // Muss VOR dem Import von seed.ts gesetzt sein — config.ts liest die Variable
 // beim Laden aus (dieselbe Ableitung wie desktop/src/main.ts: userData + /data).
-process.env.HRMONIC_DATA_DIR = path.join(desktopUserDataDir(), 'data');
+process.env.OHRGANIZE_DATA_DIR = path.join(desktopUserDataDir(), 'data');
 
-// seed.ts bricht ab, sobald HRMONIC_DATA_DIR nicht auf die Dev-Datenbank zeigt
+// seed.ts bricht ab, sobald OHRGANIZE_DATA_DIR nicht auf die Dev-Datenbank zeigt
 // (Schutz vor einem versehentlichen Lauf auf einem Kundensystem). Genau das ist
 // hier aber die Absicht: Das Ziel ist die lokal installierte Desktop-App auf
 // dem Entwicklungs- bzw. Demo-Rechner. Der Ausweg wird deshalb bewusst gesetzt
 // — ebenfalls vor dem Import, weil die Sperre beim Laden von seed.ts greift.
-process.env.HRMONIC_ALLOW_SEED = '1';
+process.env.OHRGANIZE_ALLOW_SEED = '1';
 
-console.log(`Ziel-Datenverzeichnis (installierte App): ${process.env.HRMONIC_DATA_DIR}`);
+console.log(`Ziel-Datenverzeichnis (installierte App): ${process.env.OHRGANIZE_DATA_DIR}`);
 
 await import('./seed.js');

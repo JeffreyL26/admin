@@ -13,7 +13,7 @@ import type {
   MeSalaryComponent,
   OrgTreeNode,
   SickNote,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, downloadFile, uploadFile } from './client';
 
 export function useMyProfile() {

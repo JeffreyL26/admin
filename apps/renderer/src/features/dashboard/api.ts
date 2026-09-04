@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import type { AdminArea, FeedbackMeetingKind, InterviewKind } from '@hrmonic/shared';
+import type { AdminArea, FeedbackMeetingKind, InterviewKind } from '@ohrganize/shared';
 
 /**
  * Antwortform von GET /api/dashboard (Core, modulübergreifende Aggregation).

@@ -8,7 +8,7 @@ import {
   todayIsoLocal,
   type MeetingOccasion,
   type MeetingVisibility,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
@@ -254,7 +254,7 @@ export function MeetingsPage() {
                     <strong>
                       {m.first_name} {m.last_name}
                     </strong>{' '}
-                    · {MEETING_OCCASION_LABELS[m.occasion]} vom {formatDate(m.meeting_date)} — fällig am{' '}
+                    · {MEETING_OCCASION_LABELS[m.occasion]} vom {formatDate(m.meeting_date)} - fällig am{' '}
                     {formatDate(m.follow_up_date)}
                   </span>
                   <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => openEdit(m)}>

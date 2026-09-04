@@ -148,6 +148,11 @@ export const coreMigrations: Migration[] = [
     // ein zusätzlicher Wechsel ist zumutbar, ein weiterlaufendes
     // Dokumentationspasswort nicht. Frische Installationen haben zu diesem
     // Zeitpunkt noch keine Zeile (ensureDefaultAdmin läuft nach migrate()).
+    //
+    // Die Adresse bleibt bewusst auf dem alten Markennamen: Sie beschreibt
+    // Bestandsdaten, die vor der Umbenennung angelegt wurden. Frische
+    // Installationen bekommen admin@ohrganize.de und brauchen dieses UPDATE
+    // ohnehin nicht.
     sql: `
       ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE users ADD COLUMN sessions_valid_from INTEGER;

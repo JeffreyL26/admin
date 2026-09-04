@@ -16,7 +16,7 @@ import {
   type AdminArea,
   type AdminPermissions,
   type PermissionLevel,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { getDb } from '../db/db.js';
 import { forbidden } from './errors.js';
 

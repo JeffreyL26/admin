@@ -5,7 +5,7 @@ import { Card } from './ui';
 /**
  * Farbschema-Wahl wie in den Einstellungen der Desktop-App: dieselben vier
  * Themes (Hell/Dunkel/Rosé/Silber), gleiche Vorschau [Fläche, Sidebar, Akzent],
- * Persistenz pro Gerät (localStorage 'hrmonic.theme').
+ * Persistenz pro Gerät (localStorage 'ohrganize.theme').
  */
 export function ThemeCard() {
   const [active, setActive] = useState<ThemeName>(() => getTheme());

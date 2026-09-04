@@ -102,12 +102,12 @@ export const communicationMigrations: Migration[] = [
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
         meeting_date TEXT NOT NULL,                 -- ISO YYYY-MM-DD
-        occasion TEXT NOT NULL,                     -- MeetingOccasion aus @hrmonic/shared
+        occasion TEXT NOT NULL,                     -- MeetingOccasion aus @ohrganize/shared
         participants TEXT,                          -- Freitext (Namen/Rollen)
         content TEXT,                               -- Gesprächsinhalt
         agreements TEXT,                            -- Vereinbarungen
         follow_up_date TEXT,                        -- Wiedervorlage (NULL = keine)
-        visibility TEXT NOT NULL DEFAULT 'nur_hr',  -- MeetingVisibility aus @hrmonic/shared
+        visibility TEXT NOT NULL DEFAULT 'nur_hr',  -- MeetingVisibility aus @ohrganize/shared
         created_by_user_id INTEGER REFERENCES users(id),
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))

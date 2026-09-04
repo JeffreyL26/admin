@@ -6,7 +6,7 @@ import {
   LineChart, FileStack, UserPlus, ShieldCheck, KeyRound,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { AdminArea } from '@hrmonic/shared';
+import type { AdminArea } from '@ohrganize/shared';
 
 export interface NavItem {
   path: string;
@@ -40,7 +40,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Personal',
     area: 'personal',
     items: [
-      { path: '/personal/mitarbeitende', label: 'Mitarbeitende', icon: Users },
+      { path: '/personal/mitarbeitende', label: 'Mitarbeiter', icon: Users },
       { path: '/personal/organisation', label: 'Organisation', icon: Network },
       { path: '/personal/dokumente', label: 'Dokumente', icon: FolderOpen },
     ],
@@ -51,7 +51,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { path: '/recruiting/stellen', label: 'Stellen', icon: Briefcase },
       { path: '/recruiting/pipeline', label: 'Pipeline', icon: KanbanSquare },
-      { path: '/recruiting/bewerber', label: 'Bewerber:innen', icon: UserSearch },
+      { path: '/recruiting/bewerber', label: 'Bewerbungen', icon: UserSearch },
       { path: '/recruiting/interviews', label: 'Interviews', icon: CalendarClock },
       { path: '/recruiting/analyse', label: 'Analyse', icon: LineChart },
     ],

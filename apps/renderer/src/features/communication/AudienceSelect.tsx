@@ -1,5 +1,5 @@
 import React from 'react';
-import { AUDIENCE_TYPE_LABELS, type AudienceType } from '@hrmonic/shared';
+import { AUDIENCE_TYPE_LABELS, type AudienceType } from '@ohrganize/shared';
 import { Field } from '../../components/ui';
 import { useOrg } from './api';
 

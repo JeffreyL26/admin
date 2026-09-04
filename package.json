@@ -1,8 +1,8 @@
 {
-  "name": "hrmonic",
+  "name": "ohrganize",
   "version": "1.0.1",
   "private": true,
-  "description": "HRMONIC — HR-Verwaltungssoftware für den deutschsprachigen Markt",
+  "description": "oHRganize — HR-Verwaltungssoftware für den deutschsprachigen Markt",
   "workspaces": [
     "packages/*",
     "apps/*"

@@ -1,33 +1,33 @@
-# HRMONIC Datensicherung — einmaliger Lauf, angestoßen von hrmonic-backup.timer
+# oHRganize Datensicherung — einmaliger Lauf, angestoßen von ohrganize-backup.timer
 #
-# Ablage: /etc/systemd/system/hrmonic-backup.service
-# Manuell auslösen: systemctl start hrmonic-backup.service
+# Ablage: /etc/systemd/system/ohrganize-backup.service
+# Manuell auslösen: systemctl start ohrganize-backup.service
 #
 # Das Skript darf im laufenden Betrieb starten: Es benutzt die
 # Online-Backup-API von SQLite und braucht keine Auszeit des Dienstes.
 
 [Unit]
-Description=HRMONIC Datensicherung (Datenbank, Dateien, Secret)
-Documentation=file:/opt/hrmonic/deploy/README.md
+Description=oHRganize Datensicherung (Datenbank, Dateien, Secret)
+Documentation=file:/opt/ohrganize/deploy/README.md
 # Nicht sichern, während der Dienst gerade neu startet oder gestoppt wurde:
 # Ohne laufenden Dienst ist die Sicherung zwar trotzdem gültig, aber ein
 # gestoppter Dienst ist meistens ein Hinweis auf einen laufenden Eingriff.
-After=hrmonic-backend.service
+After=ohrganize-backend.service
 
 [Service]
 Type=oneshot
-User=hrmonic
-Group=hrmonic
-WorkingDirectory=/opt/hrmonic/apps/backend
+User=ohrganize
+Group=ohrganize
+WorkingDirectory=/opt/ohrganize/apps/backend
 
-EnvironmentFile=/etc/hrmonic/hrmonic.env
+EnvironmentFile=/etc/ohrganize/ohrganize.env
 
 # --keep 14: vierzehn Sicherungen bleiben liegen, ältere werden gelöscht.
 # Bei täglichem Lauf sind das zwei Wochen. Diese Aufbewahrung ersetzt KEINE
 # Auslagerung: Eine Sicherung, die nur auf demselben Server liegt, überlebt
 # weder einen Plattendefekt noch eine Verschlüsselung durch Ransomware.
 # Wie sie vom Server heruntergeholt wird, steht in deploy/README.md.
-ExecStart=/usr/bin/node /opt/hrmonic/apps/backend/dist/backup.cjs --out /var/backups/hrmonic --keep 14
+ExecStart=/usr/bin/node /opt/ohrganize/apps/backend/dist/backup.cjs --out /var/backups/ohrganize --keep 14
 
 UMask=0077
 NoNewPrivileges=true
@@ -42,14 +42,14 @@ SystemCallArchitectures=native
 MemoryDenyWriteExecute=false
 
 # Lesen der Datenbank verlangt SCHREIBrechte: SQLite legt im WAL-Modus für jede
-# Verbindung -shm/-wal an. /var/lib/hrmonic muss deshalb beschreibbar sein,
+# Verbindung -shm/-wal an. /var/lib/ohrganize muss deshalb beschreibbar sein,
 # nicht nur lesbar.
-ReadWritePaths=/var/lib/hrmonic /var/backups/hrmonic
+ReadWritePaths=/var/lib/ohrganize /var/backups/ohrganize
 
-# /var/backups/hrmonic wird NICHT automatisch angelegt (es liegt außerhalb von
+# /var/backups/ohrganize wird NICHT automatisch angelegt (es liegt außerhalb von
 # StateDirectory). Einmalig:
-#   install -d -o hrmonic -g hrmonic -m 0700 /var/backups/hrmonic
+#   install -d -o ohrganize -g ohrganize -m 0700 /var/backups/ohrganize
 
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=hrmonic-backup
+SyslogIdentifier=ohrganize-backup

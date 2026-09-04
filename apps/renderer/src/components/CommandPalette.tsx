@@ -16,7 +16,7 @@ import { useDebounced } from './useDebounced';
 
 interface PaletteItem {
   key: string;
-  group: 'Navigation' | 'Mitarbeitende' | 'Dokumente' | 'Ankündigungen';
+  group: 'Navigation' | 'Mitarbeiter' | 'Dokumente' | 'Ankündigungen';
   label: string;
   sublabel?: string;
   icon: React.ReactNode;
@@ -97,7 +97,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     for (const e of employees ?? []) {
       result.push({
         key: `emp-${e.id}`,
-        group: 'Mitarbeitende',
+        group: 'Mitarbeiter',
         label: `${e.first_name} ${e.last_name}`,
         sublabel: e.job_title ?? undefined,
         icon: <Avatar name={`${e.first_name} ${e.last_name}`} size={22} />,
@@ -212,7 +212,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         <div ref={listRef} style={{ maxHeight: 420, overflowY: 'auto', padding: '8px 8px 10px' }}>
           {items.length === 0 && (
             <p style={{ padding: '22px 14px', color: 'var(--text-muted)', textAlign: 'center' }}>
-              {q.length >= 2 ? 'Keine Treffer.' : 'Tippen zum Suchen — oder direkt eine Seite wählen.'}
+              {q.length >= 2 ? 'Keine Treffer.' : 'Tippen zum Suchen oder wählen'}
             </p>
           )}
           {items.map((item, i) => {

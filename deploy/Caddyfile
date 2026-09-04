@@ -1,12 +1,12 @@
-# HRMONIC — Reverse-Proxy (Caddy 2)
+# oHRganize — Reverse-Proxy (Caddy 2)
 #
 # Ablage: /etc/caddy/Caddyfile
 # Prüfen: caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 #
 # VOR DEM AUSROLLEN ERSETZEN:
-#   portal.firma.de   → eigene Domain
-#   it@firma.de       → Postfach für Let's-Encrypt-Benachrichtigungen
-#   /srv/hrmonic-web  → Zielverzeichnis des Portal-Builds (apps/web/dist)
+#   portal.firma.de     → eigene Domain
+#   it@firma.de         → Postfach für Let's-Encrypt-Benachrichtigungen
+#   /srv/ohrganize-web  → Zielverzeichnis des Portal-Builds (apps/web/dist)
 #
 # In dieser Fassung besorgt und erneuert Caddy das Zertifikat selbst über
 # Let's Encrypt. Dafür müssen Port 80 UND 443 aus dem Internet erreichbar sein
@@ -58,7 +58,7 @@ portal.firma.de {
 	#     ACHTUNG: Caddy erneuert ein selbst mitgebrachtes Zertifikat NICHT.
 	#     Das Ablaufdatum gehört in den Betriebskalender — läuft es ab, meldet
 	#     sich am Montagmorgen niemand mehr an.
-	# tls /etc/ssl/hrmonic/portal.crt /etc/ssl/hrmonic/portal.key
+	# tls /etc/ssl/ohrganize/portal.crt /etc/ssl/ohrganize/portal.key
 	#
 	# (b) Caddys eigene interne CA (kein Zertifikat zu beschaffen, Erneuerung
 	#     übernimmt Caddy):
@@ -79,7 +79,7 @@ portal.firma.de {
 	# steht als Zeichenklasse [?] da, damit die Caddyfile-Auswertung von
 	# Rückstrichen keine Rolle spielt).
 	log {
-		output file /var/log/caddy/hrmonic.access.log {
+		output file /var/log/caddy/ohrganize.access.log {
 			roll_size 20MiB
 			roll_keep 10
 		}
@@ -162,7 +162,7 @@ portal.firma.de {
 	# Statisches Portal-Build (apps/web/dist)
 	# -----------------------------------------------------------------------
 	handle {
-		root * /srv/hrmonic-web
+		root * /srv/ohrganize-web
 
 		# Asset-Dateinamen enthalten einen Inhalts-Hash und sind unveränderlich.
 		header /assets/* Cache-Control "public, max-age=31536000, immutable"
@@ -194,7 +194,7 @@ portal.firma.de {
 #
 # und im Site-Block vor `handle /api/*` einfügen:
 #   rate_limit {
-#     zone hrmonic_login {
+#     zone ohrganize_login {
 #       match {
 #         path /api/auth/login
 #       }

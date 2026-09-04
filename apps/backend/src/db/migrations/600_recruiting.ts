@@ -14,7 +14,7 @@ export const recruitingMigrations: Migration[] = [
       CREATE TABLE job_postings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
-        employment_type TEXT NOT NULL DEFAULT 'vollzeit',  -- EmployeeType aus @hrmonic/shared
+        employment_type TEXT NOT NULL DEFAULT 'vollzeit',  -- EmployeeType aus @ohrganize/shared
         department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
         team_id INTEGER REFERENCES teams(id) ON DELETE SET NULL,
         location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL,
@@ -63,7 +63,7 @@ export const recruitingMigrations: Migration[] = [
         email TEXT,
         phone TEXT,
         city TEXT,
-        source TEXT NOT NULL DEFAULT 'sonstiges',   -- CandidateSource aus @hrmonic/shared
+        source TEXT NOT NULL DEFAULT 'sonstiges',   -- CandidateSource aus @ohrganize/shared
         headline TEXT,                              -- aktuelle Position / Kurzprofil
         linkedin_url TEXT,
         photo_file_id INTEGER REFERENCES files(id),

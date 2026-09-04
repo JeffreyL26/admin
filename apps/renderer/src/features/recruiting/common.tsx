@@ -10,7 +10,7 @@ import {
   EMPLOYEE_TYPE_LABELS, formatDate, formatEuro, todayIsoLocal,
   type ApplicationStatus, type InterviewKind, type InterviewRecommendation,
   type InterviewStatus, type EmployeeType, type ScorecardEntry, type InterviewDto,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api, downloadFile } from '../../api/client';
 import { Badge, Avatar, Field, Spinner } from '../../components/ui';
 import type { BadgeTone } from '../../components/ui';
@@ -18,7 +18,7 @@ import { Modal, ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { useEmployees, employeeName } from '../../components/EmployeeSelect';
 import { parseEuroInput, centsToInput } from '../compensation/lib';
-import type { CandidateSource } from '@hrmonic/shared';
+import type { CandidateSource } from '@ohrganize/shared';
 import {
   useApplication, useStages, useRecruitingOrg, useInvalidate, usePostings, useCandidates,
   type ApplicationDetail,
@@ -413,7 +413,7 @@ function HireDialog({
         annual_leave_days: leave ? Number(leave) : null,
       }),
     onSuccess: () => {
-      toast.success('Eingestellt — Mitarbeitenden-Datensatz angelegt');
+      toast.success('Eingestellt: Mitarbeitenden-Datensatz angelegt');
       invalidate();
       onClose();
     },

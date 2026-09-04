@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { AuthUserDto } from '@hrmonic/shared';
+import type { AuthUserDto } from '@ohrganize/shared';
 import { api, hasToken, setToken, setUnauthorizedHandler } from '../api/client';
 
 /**
@@ -10,7 +10,7 @@ import { api, hasToken, setToken, setUnauthorizedHandler } from '../api/client';
  * Desktop-App; das Backend blockt sie auf /api/me/* ohnehin (403).
  */
 const NO_PROFILE_MESSAGE =
-  'Für diesen Zugang ist kein Personalprofil hinterlegt. HR-Administrationskonten melden sich in der HRMONIC Desktop-App an.';
+  'Für diesen Zugang ist kein Personalprofil hinterlegt. HR-Administrationskonten melden sich in der oHRganize Desktop-App an.';
 
 interface AuthState {
   user: AuthUserDto | null;

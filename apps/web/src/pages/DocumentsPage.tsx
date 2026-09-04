@@ -3,7 +3,7 @@ import {
   DOCUMENT_CATEGORY_LABELS,
   type DocumentSource,
   type MeDocument,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { ApiRequestError } from '../api/client';
 import {
   PORTAL_UPLOAD_CATEGORIES,

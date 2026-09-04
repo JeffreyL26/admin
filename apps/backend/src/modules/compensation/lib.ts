@@ -5,7 +5,7 @@ import {
   HOURLY_MONTH_FACTOR,
   SALARY_DEDUCTION_KINDS,
   type SalaryComponentKind,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 
 /** Relevante Spalten der employees-Kerntabelle (nur lesend, Kontrakt 100_employees_core). */
 export interface EmployeeRow {

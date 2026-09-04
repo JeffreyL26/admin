@@ -32,7 +32,7 @@ import type {
   MeSalary,
   MeSalaryComponent,
   SalaryComponentKind,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
 import { todayIso } from '../../core/dates.js';
 import {

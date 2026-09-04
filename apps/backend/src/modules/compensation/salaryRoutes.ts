@@ -4,7 +4,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
 import { audit, auditTrail } from '../../core/audit.js';
 import { todayIso, isValidIsoDate } from '../../core/dates.js';
-import { SALARY_COMPONENT_KINDS } from '@hrmonic/shared';
+import { SALARY_COMPONENT_KINDS } from '@ohrganize/shared';
 import {
   componentsAt,
   getEmployee,

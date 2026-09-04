@@ -64,7 +64,7 @@ export const employeesMigrations: Migration[] = [
         social_security_number TEXT,
         health_insurance TEXT,
         -- Beschäftigung
-        employee_type TEXT NOT NULL DEFAULT 'vollzeit',  -- EmployeeType aus @hrmonic/shared
+        employee_type TEXT NOT NULL DEFAULT 'vollzeit',  -- EmployeeType aus @ohrganize/shared
         status TEXT NOT NULL DEFAULT 'aktiv',            -- 'aktiv' | 'ausgeschieden'
         job_title TEXT,
         department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,

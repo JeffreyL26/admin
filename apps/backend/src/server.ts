@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
-import { MIN_CLIENT_VERSION, SERVER_VERSION_HEADER } from '@hrmonic/shared';
+import { MIN_CLIENT_VERSION, SERVER_VERSION_HEADER } from '@ohrganize/shared';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import { config, hardenDataPermissions } from './config.js';
@@ -23,14 +23,14 @@ const PASSWORD_CHANGE_ROUTES = new Set(['/api/auth/me', '/api/auth/password']);
 
 export async function buildServer(): Promise<FastifyInstance> {
   migrate();
-  // Zweiter Durchlauf nach migrate(): Jetzt existieren hrmonic.db samt -wal/-shm
+  // Zweiter Durchlauf nach migrate(): Jetzt existieren ohrganize.db samt -wal/-shm
   // auch bei einer frischen Installation und können auf 0600 gesetzt werden.
   hardenDataPermissions();
   ensureDefaultAdmin();
 
   const app = Fastify({
     logger: {
-      level: process.env.HRMONIC_LOG_LEVEL ?? 'warn',
+      level: process.env.OHRGANIZE_LOG_LEVEL ?? 'warn',
       serializers: {
         // Eigener Request-Serializer: Fastifys Vorgabe protokolliert die URL
         // samt Query-String. Auf Loglevel 'info' landet damit jeder signierte
@@ -74,7 +74,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   for (const warning of config.startupWarnings) app.log.warn(warning);
 
   // CORS-Herkünfte kommen aus config.ts: Im Serverbetrieb eine feste Liste
-  // (HRMONIC_CORS_ORIGIN, Pflicht sobald HRMONIC_HOST nicht loopback ist),
+  // (OHRGANIZE_CORS_ORIGIN, Pflicht sobald OHRGANIZE_HOST nicht loopback ist),
   // lokal offen für den Desktop-Renderer.
   await app.register(cors, { origin: config.corsOrigin });
   await app.register(jwt, { secret: config.secret, sign: { expiresIn: config.tokenTtl } });
@@ -174,7 +174,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // abgewiesene App, welche Version der Server hat und welche er verlangt.
   app.get('/api/health', { config: { public: true } }, async () => ({
     ok: true,
-    name: 'HRMONIC Backend',
+    name: 'oHRganize Backend',
     version: APP_VERSION,
     min_client_version: MIN_CLIENT_VERSION,
   }));

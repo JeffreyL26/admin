@@ -1,5 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-import { CLIENT_VERSION_HEADER, MIN_CLIENT_VERSION, isAtLeast } from '@hrmonic/shared';
+import { CLIENT_VERSION_HEADER, MIN_CLIENT_VERSION, isAtLeast } from '@ohrganize/shared';
 import pkg from '../../package.json';
 import { AppError } from './errors.js';
 
@@ -37,7 +37,7 @@ export function assertClientSupported(req: FastifyRequest): void {
   throw new AppError(
     426,
     'CLIENT_TOO_OLD',
-    `Diese HRMONIC-Version (${version || 'unbekannt'}) ist zu alt für den Server (${APP_VERSION}). ` +
+    `Diese oHRganize-Version (${version || 'unbekannt'}) ist zu alt für den Server (${APP_VERSION}). ` +
       `Bitte aktualisieren Sie die App auf mindestens Version ${MIN_CLIENT_VERSION}.`,
   );
 }

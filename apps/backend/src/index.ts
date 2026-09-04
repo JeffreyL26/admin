@@ -18,16 +18,16 @@ let shuttingDown = false;
  *
  * Warum das nötig ist: Die Datenbank läuft im WAL-Modus (db/db.ts). Ohne
  * Checkpoint bleiben die zuletzt geschriebenen Transaktionen in
- * `hrmonic.db-wal` liegen. Wer dann nur `hrmonic.db` kopiert (Backup-Agent,
+ * `ohrganize.db-wal` liegen. Wer dann nur `ohrganize.db` kopiert (Backup-Agent,
  * VM-Snapshot, Umzug auf neue Hardware), sichert einen veralteten Stand und
  * merkt es erst beim Restore. `wal_checkpoint(TRUNCATE)` schreibt alles zurück
- * und leert die -wal-Datei; danach ist `hrmonic.db` für sich genommen
+ * und leert die -wal-Datei; danach ist `ohrganize.db` für sich genommen
  * vollständig. (Das ersetzt kein Backup — dafür src/scripts/backup.ts.)
  */
 async function shutdown(signal: string, app: FastifyInstance): Promise<void> {
   if (shuttingDown) return; // zweites Signal (z. B. doppeltes Strg+C) ignorieren
   shuttingDown = true;
-  console.log(`${signal} empfangen — HRMONIC Backend wird beendet …`);
+  console.log(`${signal} empfangen — oHRganize Backend wird beendet …`);
 
   // Notbremse: Hängt ein laufender Request, blockiert app.close() bis systemd
   // nach TimeoutStopSec hart mit SIGKILL nachsetzt — dann liefe der Checkpoint
@@ -53,13 +53,13 @@ async function shutdown(signal: string, app: FastifyInstance): Promise<void> {
   }
 
   clearTimeout(forceExit);
-  console.log('HRMONIC Backend beendet.');
+  console.log('oHRganize Backend beendet.');
   process.exit(0);
 }
 
 startServer()
   .then(({ app, port }) => {
-    console.log(`HRMONIC Backend läuft auf http://${config.host}:${port}`);
+    console.log(`oHRganize Backend läuft auf http://${config.host}:${port}`);
     console.log(`Datenverzeichnis: ${config.dataDir}`);
 
     for (const signal of ['SIGTERM', 'SIGINT'] as const) {

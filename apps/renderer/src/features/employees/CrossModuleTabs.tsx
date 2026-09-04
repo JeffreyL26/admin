@@ -10,7 +10,7 @@ import {
   type AbsenceBalance,
   type AbsenceRequest,
   type SalaryComponentKind,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Spinner, StatCard } from '../../components/ui';
 

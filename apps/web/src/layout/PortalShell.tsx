@@ -78,7 +78,7 @@ function initials(name: string): string {
 function Wordmark() {
   return (
     <span className="portal-brand__name">
-      HR<span>MONIC</span>
+      o<span>HR</span>ganize
     </span>
   );
 }
@@ -220,7 +220,7 @@ export function PortalShell() {
 
         <footer className="portal-footer">
           <div className="portal-footer__inner">
-            <span>HRMONIC Mitarbeitenden-Portal</span>
+            <span>oHRganize Mitarbeitenden-Portal</span>
             <span>Fragen? Wenden Sie sich an Ihre Personalabteilung.</span>
           </div>
         </footer>

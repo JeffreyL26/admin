@@ -1,18 +1,18 @@
 /**
- * HRMONIC — Datensicherung (M10).
+ * oHRganize — Datensicherung (M10).
  *
  * Aufruf:
  *   Dev:    npm run backup -w apps/backend -- --out /pfad/zum/ziel --keep 14
- *   Server: node /opt/hrmonic/apps/backend/dist/backup.cjs --out /var/backups/hrmonic --keep 14
- *           (der systemd-Timer aus deploy/hrmonic-backup.timer macht genau das)
+ *   Server: node /opt/ohrganize/apps/backend/dist/backup.cjs --out /var/backups/ohrganize --keep 14
+ *           (der systemd-Timer aus deploy/ohrganize-backup.timer macht genau das)
  *
  * Der Nutzdatenbestand liegt in DREI Objekten — ein Backup ist nur mit allen
  * dreien vollständig:
- *   1. hrmonic.db  — Datenbank (WAL-Modus!)
- *   2. storage/    — die Datei-Blobs (Verträge, Bescheinigungen, Fotos …)
- *   3. secret.key  — JWT-/Signatur-Secret
+ *   1. ohrganize.db  — Datenbank (WAL-Modus!)
+ *   2. storage/      — die Datei-Blobs (Verträge, Bescheinigungen, Fotos …)
+ *   3. secret.key    — JWT-/Signatur-Secret
  *
- * Warum nicht einfach `cp hrmonic.db`: Die Datenbank läuft im WAL-Modus. Eine
+ * Warum nicht einfach `cp ohrganize.db`: Die Datenbank läuft im WAL-Modus. Eine
  * nackte Dateikopie ohne `-wal` ist KEIN gültiges Backup — die jüngsten
  * Transaktionen fehlen, und eine Kopie während eines laufenden Schreibvorgangs
  * kann sogar in sich inkonsistent sein. Dieses Skript benutzt deshalb die
@@ -39,15 +39,15 @@ interface Options {
 }
 
 const DEFAULT_KEEP = 14;
-const BACKUP_DIR_PATTERN = /^hrmonic-\d{8}-\d{6}$/;
+const BACKUP_DIR_PATTERN = /^ohrganize-\d{8}-\d{6}$/;
 
 function parseArgs(argv: string[]): Options {
   const out: Options = {
     out:
-      process.env.HRMONIC_BACKUP_DIR ??
+      process.env.OHRGANIZE_BACKUP_DIR ??
       // Vorgabe bewusst innerhalb des Datenverzeichnisses: dort hat der
       // Dienstbenutzer garantiert Schreibrechte. Auf einem Server gehört das
-      // Ziel auf ein anderes Dateisystem — dafür --out bzw. HRMONIC_BACKUP_DIR.
+      // Ziel auf ein anderes Dateisystem — dafür --out bzw. OHRGANIZE_BACKUP_DIR.
       path.join(config.dataDir, 'backups'),
     keep: DEFAULT_KEEP,
     quiet: false,
@@ -70,15 +70,15 @@ function parseArgs(argv: string[]): Options {
     } else if (arg === '--help' || arg === '-h') {
       console.log(
         [
-          'HRMONIC Datensicherung',
+          'oHRganize Datensicherung',
           '',
           'Optionen:',
           '  --out, -o <verzeichnis>  Zielverzeichnis der Sicherungen',
-          `                           (Vorgabe: $HRMONIC_BACKUP_DIR, sonst ${path.join(config.dataDir, 'backups')})`,
+          `                           (Vorgabe: $OHRGANIZE_BACKUP_DIR, sonst ${path.join(config.dataDir, 'backups')})`,
           `  --keep, -k <anzahl>      Anzahl aufzubewahrender Sicherungen (Vorgabe: ${DEFAULT_KEEP}, 0 = keine löschen)`,
           '  --quiet, -q              Nur Fehler ausgeben',
           '',
-          'Gesichert werden hrmonic.db (Online-Backup), storage/ und secret.key.',
+          'Gesichert werden ohrganize.db (Online-Backup), storage/ und secret.key.',
         ].join('\n'),
       );
       process.exit(0);
@@ -89,7 +89,7 @@ function parseArgs(argv: string[]): Options {
   return out;
 }
 
-/** Zeitstempel für den Ordnernamen: hrmonic-JJJJMMTT-HHMMSS (Ortszeit). */
+/** Zeitstempel für den Ordnernamen: ohrganize-JJJJMMTT-HHMMSS (Ortszeit). */
 function stamp(now: Date): string {
   const p = (n: number): string => String(n).padStart(2, '0');
   return (
@@ -103,28 +103,28 @@ function stamp(now: Date): string {
  *
  * Das Skript selbst läuft auf beiden Systemen unverändert (reines Node), die
  * Anleitung daneben tat es nicht: Sie nannte fest systemctl, chown und
- * /var/lib/hrmonic. Auf einem Windows-Server erklärte die Sicherung damit
+ * /var/lib/ohrganize. Auf einem Windows-Server erklärte die Sicherung damit
  * einen Weg, den es dort nicht gibt — und zwar genau in dem Moment, in dem
  * jemand unter Druck davorsteht.
  */
 function restoreSteps(): string[] {
   if (process.platform === 'win32') {
     return [
-      '  nssm stop HRMONIC',
-      '  Rename-Item C:\\ProgramData\\HRMONIC\\data data.alt',
-      '  New-Item -ItemType Directory C:\\ProgramData\\HRMONIC\\data',
-      '  Copy-Item hrmonic.db, secret.key, storage -Destination C:\\ProgramData\\HRMONIC\\data -Recurse',
+      '  nssm stop oHRganize',
+      '  Rename-Item C:\\ProgramData\\oHRganize\\data data.alt',
+      '  New-Item -ItemType Directory C:\\ProgramData\\oHRganize\\data',
+      '  Copy-Item ohrganize.db, secret.key, storage -Destination C:\\ProgramData\\oHRganize\\data -Recurse',
       '  powershell -File <Programmverzeichnis>\\deploy\\windows\\harden-data-dir.ps1',
-      '  nssm start HRMONIC',
+      '  nssm start oHRganize',
     ];
   }
   return [
-    '  systemctl stop hrmonic-backend',
-    '  mv /var/lib/hrmonic /var/lib/hrmonic.alt',
-    '  install -d -o hrmonic -g hrmonic -m 0700 /var/lib/hrmonic',
-    '  cp -a hrmonic.db storage secret.key /var/lib/hrmonic/',
-    '  chown -R hrmonic:hrmonic /var/lib/hrmonic && chmod -R go-rwx /var/lib/hrmonic',
-    '  systemctl start hrmonic-backend',
+    '  systemctl stop ohrganize-backend',
+    '  mv /var/lib/ohrganize /var/lib/ohrganize.alt',
+    '  install -d -o ohrganize -g ohrganize -m 0700 /var/lib/ohrganize',
+    '  cp -a ohrganize.db storage secret.key /var/lib/ohrganize/',
+    '  chown -R ohrganize:ohrganize /var/lib/ohrganize && chmod -R go-rwx /var/lib/ohrganize',
+    '  systemctl start ohrganize-backend',
   ];
 }
 
@@ -208,7 +208,7 @@ async function main(): Promise<void> {
   if (!fs.existsSync(config.dbPath)) {
     throw new Error(
       `Keine Datenbank unter ${config.dbPath} gefunden. ` +
-        'Stimmt HRMONIC_DATA_DIR? (Der Dienst benutzt /etc/hrmonic/hrmonic.env.)',
+        'Stimmt OHRGANIZE_DATA_DIR? (Der Dienst benutzt /etc/ohrganize/ohrganize.env.)',
     );
   }
 
@@ -220,7 +220,7 @@ async function main(): Promise<void> {
   fs.chmodSync(opts.out, 0o700);
 
   const started = new Date();
-  const name = `hrmonic-${stamp(started)}`;
+  const name = `ohrganize-${stamp(started)}`;
   const finalDir = path.join(opts.out, name);
   if (fs.existsSync(finalDir)) {
     throw new Error(`Sicherung ${finalDir} existiert bereits — bitte eine Sekunde warten.`);
@@ -243,7 +243,7 @@ async function main(): Promise<void> {
     // Kopieren noch nicht existierte — beim Restore fehlt die Datei
     // ("Dateiinhalt fehlt im Storage"). Andersherum entsteht schlimmstenfalls
     // ein Blob ohne Datensatz: unbenutzter Speicherplatz, kein Datenverlust.
-    const dbTarget = path.join(tmpDir, 'hrmonic.db');
+    const dbTarget = path.join(tmpDir, 'ohrganize.db');
     log(`Sichere Datenbank … (${config.dbPath})`);
     const result = await getDb().backup(dbTarget);
     fs.chmodSync(dbTarget, 0o600);
@@ -286,7 +286,7 @@ async function main(): Promise<void> {
     // Kurzprotokoll neben den Daten: Wer im Ernstfall vor dem Backup steht,
     // soll die Restore-Schritte nicht erst im Repository suchen müssen.
     const manifest = [
-      'HRMONIC — Datensicherung',
+      'oHRganize — Datensicherung',
       `Erstellt:            ${started.toISOString()}`,
       `Quelle:              ${config.dataDir}`,
       `Rechner:             ${process.env.HOSTNAME ?? process.env.COMPUTERNAME ?? 'unbekannt'}`,
@@ -297,9 +297,9 @@ async function main(): Promise<void> {
       `Dateien (storage/):  ${storage.files} (${formatBytes(storage.bytes)})`,
       '',
       'Inhalt:',
-      '  hrmonic.db  Datenbank (konsistenter Online-Backup-Stand, kein -wal nötig)',
-      '  storage/    Datei-Blobs',
-      '  secret.key  JWT-/Signatur-Secret',
+      '  ohrganize.db  Datenbank (konsistenter Online-Backup-Stand, kein -wal nötig)',
+      '  storage/      Datei-Blobs',
+      '  secret.key    JWT-/Signatur-Secret',
       '',
       'Restore (Dienst muss gestoppt sein):',
       ...restoreSteps(),

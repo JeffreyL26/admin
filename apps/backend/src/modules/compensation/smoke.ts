@@ -8,8 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 
-process.env.HRMONIC_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'hrmonic-comp-smoke-'));
-process.env.HRMONIC_LOG_LEVEL = 'silent';
+process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-comp-smoke-'));
+process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
@@ -500,7 +500,7 @@ check('Doppelte Aushändigung → 409', handoverAgain.statusCode === 409);
 await app.close();
 closeDb();
 try {
-  fs.rmSync(process.env.HRMONIC_DATA_DIR!, { recursive: true, force: true });
+  fs.rmSync(process.env.OHRGANIZE_DATA_DIR!, { recursive: true, force: true });
 } catch {
   // Windows hält WAL-Dateien gelegentlich noch kurz — Tempdir-Reste sind unkritisch.
 }

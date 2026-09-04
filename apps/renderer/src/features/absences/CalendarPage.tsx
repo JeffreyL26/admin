@@ -21,7 +21,7 @@ import {
   type AbsenceType,
   type CalendarEmployee,
   type CalendarAbsenceEntry,
-} from '@hrmonic/shared';
+} from '@ohrganize/shared';
 import { Avatar, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
@@ -171,7 +171,7 @@ export function CalendarPage() {
     <>
       <PageHeader
         title="Abwesenheitskalender"
-        subtitle="Wer ist wann abwesend — inklusive Feiertagen, Betriebsruhe und Team-Konflikten."
+        subtitle="Wer ist wann abwesend? Inklusive Feiertagen, Betriebsruhe und Team-Konflikten."
         actions={
           <div className="row">
             <button className="hm-btn hm-btn--secondary hm-btn--icon" onClick={prev} aria-label="Zurück">

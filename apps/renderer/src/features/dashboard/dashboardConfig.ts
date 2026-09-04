@@ -4,7 +4,7 @@ import {
   CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
   UserPlus,
 } from 'lucide-react';
-import type { AdminArea } from '@hrmonic/shared';
+import type { AdminArea } from '@ohrganize/shared';
 import type { DashboardStats } from './api';
 
 /**
@@ -12,7 +12,7 @@ import type { DashboardStats } from './api';
  *
  * Die Auswahl (welche Widgets, welche KPI-Kacheln, in welcher Reihenfolge)
  * ist eine reine Anzeige-Präferenz und wird deshalb — wie das Theme — lokal
- * im localStorage persistiert (`hrmonic.dashboard`), nicht im Backend.
+ * im localStorage persistiert (`ohrganize.dashboard`), nicht im Backend.
  * Neue Widgets künftiger Module werden hier registriert und erscheinen für
  * Bestandsnutzer über „Anpassen → Widget hinzufügen“.
  */
@@ -208,7 +208,7 @@ export const DEFAULT_CONFIG: DashboardConfig = {
   kpis: ['headcount', 'absentToday', 'pendingAbsences', 'missingSickNotes', 'openPositions'],
 };
 
-const STORAGE_KEY = 'hrmonic.dashboard';
+const STORAGE_KEY = 'ohrganize.dashboard';
 
 export function loadDashboardConfig(): DashboardConfig {
   try {

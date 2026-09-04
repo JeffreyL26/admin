@@ -8,7 +8,7 @@
  * übernommen, damit Portal und Desktop-App dasselbe Bild zeigen; ergänzt wurde
  * nur die Zwischenspeicherung der Teilbaumbreiten (siehe unten).
  */
-import type { OrgTreeNode } from '@hrmonic/shared';
+import type { OrgTreeNode } from '@ohrganize/shared';
 
 export const NODE_W = 216;
 export const NODE_H = 88;

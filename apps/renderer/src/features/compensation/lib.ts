@@ -1,4 +1,4 @@
-import { todayIsoLocal } from '@hrmonic/shared';
+import { todayIsoLocal } from '@ohrganize/shared';
 import { API_BASE } from '../../api/client';
 import type { BadgeTone } from '../../components/ui';
 
@@ -31,7 +31,7 @@ export function currentMonth(): string {
 
 /** Datei-Download eines auth-pflichtigen GET-Endpunkts (Exporte). */
 export async function downloadAuthenticated(path: string, filename: string): Promise<void> {
-  const token = localStorage.getItem('hrmonic.token');
+  const token = localStorage.getItem('ohrganize.token');
   const res = await fetch(`${API_BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

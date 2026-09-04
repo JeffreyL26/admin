@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ABSENCE_CATEGORY_LABELS, type AbsenceCategory } from '@hrmonic/shared';
+import { ABSENCE_CATEGORY_LABELS, type AbsenceCategory } from '@ohrganize/shared';
 import { ApiRequestError } from '../api/client';
 import { useCreateRequest, useLeavePreview, useLeaveTypes, useMyBalance } from '../api/hooks';
 import { Card, Field, Skeleton } from '../components/ui';
