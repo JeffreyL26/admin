@@ -42,3 +42,20 @@ export function formatDate(iso: string | null | undefined): string {
   if (!y || !m || !d) return String(iso);
   return `${d}.${m}.${y.slice(0, 4)}`;
 }
+
+/**
+ * SQLite-Zeitstempel (UTC, "YYYY-MM-DD HH:MM:SS", wie `datetime('now')` ihn
+ * schreibt) → lokale Anzeige "TT.MM.JJJJ, HH:MM". Für Protokolle, bei denen
+ * die Uhrzeit zählt (Bewertungsprotokoll). Ein bereits zeitzonenbehafteter
+ * ISO-String wird unverändert interpretiert.
+ */
+export function formatDateTime(sqliteUtc: string | null | undefined): string {
+  if (sqliteUtc === null || sqliteUtc === undefined || sqliteUtc === '') return '—';
+  const raw = String(sqliteUtc);
+  const iso = raw.includes('T') ? raw : raw.replace(' ', 'T');
+  const zoned = iso.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`;
+  const d = new Date(zoned);
+  if (Number.isNaN(d.getTime())) return raw;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}

@@ -10,3 +10,4 @@ export * from './communication.js';
 export * from './recruiting.js';
 export * from './admin.js';
 export * from './me.js';
+export * from './leadership.js';

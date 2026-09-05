@@ -3,7 +3,7 @@ import {
   ListChecks, Target, ClipboardCheck, Grid3x3, GraduationCap, MessagesSquare,
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
   FileText, Radio, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
-  LineChart, FileStack, UserPlus, ShieldCheck, KeyRound,
+  LineChart, FileStack, UserPlus, ShieldCheck, KeyRound, UsersRound, Gauge, SlidersHorizontal,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AdminArea } from '@ohrganize/shared';
@@ -14,6 +14,12 @@ export interface NavItem {
   icon: LucideIcon;
   /** Abweichender Rechtebereich, wenn ein Eintrag nicht zu seinem Abschnitt passt. */
   area?: AdminArea;
+  /**
+   * Nur für freigeschaltete Führungskräfte sichtbar — unabhängig von jedem
+   * Rechtebereich (GET /api/leadership/me/status). Durchgesetzt wird der
+   * Zugriff im Backend (modules/leadership, requireLeader).
+   */
+  leaderOnly?: boolean;
 }
 
 export interface NavSection {
@@ -75,6 +81,17 @@ export const NAV_SECTIONS: NavSection[] = [
       { path: '/leistung/skills', label: 'Skills & Kompetenzen', icon: Grid3x3 },
       { path: '/leistung/trainings', label: 'Trainings', icon: GraduationCap },
       { path: '/leistung/feedback', label: 'Feedback-Zyklen', icon: MessagesSquare },
+    ],
+  },
+  {
+    title: 'Führung',
+    area: 'fuehrung',
+    items: [
+      // „Mein Team“ hängt an der Freischaltung der Person, nicht am Bereich:
+      // Eine Führungskraft ohne HR-Rechte sieht genau diesen einen Eintrag.
+      { path: '/fuehrung/mein-team', label: 'Mein Team', icon: UsersRound, leaderOnly: true },
+      { path: '/fuehrung/report', label: 'Satisfaction-Report', icon: Gauge },
+      { path: '/fuehrung/einrichtung', label: 'Einrichtung', icon: SlidersHorizontal },
     ],
   },
   {

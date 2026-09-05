@@ -10,6 +10,7 @@ import { compensationRoutes } from './features/compensation/routes';
 import { communicationRoutes } from './features/communication/routes';
 import { recruitingRoutes } from './features/recruiting/routes';
 import { adminRoutes } from './features/admin/routes';
+import { leadershipRoutes } from './features/leadership/routes';
 
 // Hash-Router statt Browser-Router: die Desktop-App lädt den Build über
 // file://, dort gibt es keinen Server, der Deep-Links beantworten könnte.
@@ -26,6 +27,7 @@ export const router = createHashRouter([
       ...compensationRoutes,
       ...communicationRoutes,
       ...adminRoutes,
+      ...leadershipRoutes,
       { path: '/einstellungen', element: <SettingsPage /> },
       { path: '*', element: <Navigate to="/dashboard" replace /> },
     ],

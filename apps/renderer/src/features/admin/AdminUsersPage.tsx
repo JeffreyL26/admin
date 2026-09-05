@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Plus, ShieldAlert, Trash2, UserCog } from 'lucide-react';
+import { KeyRound, Link2, Pencil, Plus, ShieldAlert, Trash2, UserCog } from 'lucide-react';
 import {
   ADMIN_AREAS,
   ADMIN_AREA_HINTS,
@@ -18,7 +18,7 @@ import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
-import { EmployeeSelect } from '../../components/EmployeeSelect';
+import { EmployeeSelect, employeeName, useEmployees } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 
 const KEY = ['admin', 'admin-roles'];
@@ -86,6 +86,13 @@ function AccountsTab() {
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<AdminAccount | null>(null);
   const [deleting, setDeleting] = useState<AdminAccount | null>(null);
+  const [linking, setLinking] = useState<AdminAccount | null>(null);
+  // Alle Profile (auch ausgeschiedene), um den verknüpften Namen anzuzeigen.
+  const { data: employees } = useEmployees(true);
+  const employeeById = useMemo(
+    () => new Map((employees ?? []).map((e) => [e.id, e])),
+    [employees],
+  );
   /** Einmalig anzuzeigendes Erstpasswort (Anlage oder Zurücksetzen). */
   const [issued, setIssued] = useState<{ account: AdminAccount; password: string } | null>(null);
 
@@ -185,11 +192,27 @@ function AccountsTab() {
                       </Badge>
                     </td>
                     <td>
-                      {a.employee_id ? (
-                        <Badge tone="green">verknüpft</Badge>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>—</span>
-                      )}
+                      <div className="row" style={{ gap: 6 }}>
+                        {a.employee_id ? (
+                          <Badge tone="green">
+                            {employeeById.get(a.employee_id)
+                              ? employeeName(employeeById.get(a.employee_id)!)
+                              : 'verknüpft'}
+                          </Badge>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)' }}>—</span>
+                        )}
+                        {/* Nachträglich verknüpfen: Erst mit Profil sieht ein
+                            Konto die Führungsfunktion (Führung → Einrichtung). */}
+                        <button
+                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                          aria-label={`Personalprofil von ${a.name} verknüpfen`}
+                          disabled={self}
+                          onClick={() => setLinking(a)}
+                        >
+                          <Link2 size={14} />
+                        </button>
+                      </div>
                     </td>
                     <td>
                       {portal ? (
@@ -321,7 +344,73 @@ function AccountsTab() {
           onClose={() => setIssued(null)}
         />
       )}
+
+      {linking && <LinkProfileDialog account={linking} onClose={() => setLinking(null)} />}
     </>
+  );
+}
+
+/**
+ * Personalprofil eines bestehenden Kontos verknüpfen oder lösen.
+ *
+ * Nötig für die Führungsfunktion: „Mein Team“ sieht ein Konto nur, wenn sein
+ * Profil unter Führung → Einrichtung freigeschaltet ist. Ohne diesen Dialog
+ * müsste ein Konto ohne Profil gelöscht und neu angelegt werden. Portal-Konten
+ * brauchen zwingend ein Profil — das Lösen ist dort gesperrt.
+ */
+function LinkProfileDialog({ account, onClose }: { account: AdminAccount; onClose: () => void }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const portal = account.role === 'mitarbeiter';
+  const [employeeId, setEmployeeId] = useState<number | null>(account.employee_id);
+
+  const save = useMutation({
+    mutationFn: () => api.patch(`/api/admin/users/${account.id}`, { employee_id: employeeId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: USERS_KEY });
+      toast.success(employeeId ? 'Personalprofil verknüpft' : 'Verknüpfung gelöst');
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Verknüpfen fehlgeschlagen'),
+  });
+
+  return (
+    <Modal
+      title="Personalprofil verknüpfen"
+      open
+      onClose={onClose}
+      footer={
+        <>
+          <button className="hm-btn hm-btn--secondary" onClick={onClose}>
+            Abbrechen
+          </button>
+          <button
+            className="hm-btn hm-btn--primary"
+            disabled={save.isPending || (portal && !employeeId) || employeeId === account.employee_id}
+            onClick={() => save.mutate()}
+          >
+            Speichern
+          </button>
+        </>
+      }
+    >
+      <div className="stack" style={{ gap: 14 }}>
+        <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
+          Konto <strong>{account.name}</strong> ({account.email}).{' '}
+          {portal
+            ? 'Das Portal zeigt ausschließlich die Daten des verknüpften Profils.'
+            : 'Mit verknüpftem Profil kann das Konto zusätzlich im Portal anmelden und — nach Freischaltung unter Führung → Einrichtung — sein Team unter „Mein Team“ bewerten.'}
+        </p>
+        <Field label="Personalprofil" required={portal}>
+          <EmployeeSelect
+            value={employeeId}
+            onChange={setEmployeeId}
+            allowEmpty={!portal}
+            emptyLabel={portal ? '— auswählen —' : '— kein Profil —'}
+          />
+        </Field>
+      </div>
+    </Modal>
   );
 }
 

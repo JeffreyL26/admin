@@ -7,6 +7,7 @@ import { compensationMigrations } from './400_compensation.js';
 import { communicationMigrations } from './500_communication.js';
 import { recruitingMigrations } from './600_recruiting.js';
 import { adminMigrations } from './700_admin.js';
+import { leadershipMigrations } from './310_leadership.js';
 
 // Jedes Fachmodul pflegt ausschließlich seine eigene Migrationsdatei —
 // diese Index-Datei wird nach der Scaffold-Phase nicht mehr angefasst.
@@ -15,6 +16,7 @@ export const allMigrations: Migration[] = [
   ...employeesMigrations,
   ...absencesMigrations,
   ...performanceMigrations,
+  ...leadershipMigrations,
   ...compensationMigrations,
   ...communicationMigrations,
   ...recruitingMigrations,

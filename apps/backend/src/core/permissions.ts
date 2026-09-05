@@ -42,7 +42,22 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AdminArea]> = [
   ['/api/recruiting', 'recruiting'],
   ['/api/communication', 'kommunikation'],
   ['/api/settings', 'einstellungen'],
+  ['/api/leadership', 'fuehrung'],
 ];
+
+/**
+ * Routen, deren Zugriff nicht an einem Rechtebereich hängt, sondern an der
+ * PERSON: Die Führungsfunktion (/api/leadership/me/*) steht genau den Konten
+ * offen, deren Personalprofil als Führungskraft freigeschaltet ist
+ * (Tabelle leadership_leaders) — unabhängig von der Admin-Rolle, sonst könnte
+ * eine Führungskraft ohne HR-Bereiche ihr Team nicht bewerten. Die Prüfung
+ * macht das Modul selbst in einem Plugin-Hook (modules/leadership/routes.ts,
+ * requireLeader), der für JEDE Route unter diesem Präfix läuft; zusätzlich
+ * liefert es ausschließlich Daten aus dem eigenen Zuständigkeitsbereich.
+ * Hier wird nur die Bereichsprüfung übersprungen. Eintragen NUR für Präfixe,
+ * die im Modul einen solchen Hook haben.
+ */
+const SELF_GATED = ['/api/leadership/me'];
 
 /**
  * Routen, die jede:r Admin unabhängig von der Rolle erreichen darf:
@@ -114,6 +129,7 @@ function areaFor(route: string): AdminArea | null {
 export function assertRouteAllowed(req: FastifyRequest, permissions: AdminPermissions): void {
   const route = req.routeOptions.url ?? req.url;
   if (ALWAYS_ALLOWED.some((p) => route === p || route.startsWith(`${p}/`))) return;
+  if (SELF_GATED.some((p) => route === p || route.startsWith(`${p}/`))) return;
 
   const needed = neededFor(req.method, route);
 

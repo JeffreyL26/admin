@@ -6,6 +6,7 @@ import { NAV_SECTIONS } from './nav';
 import { useAuth } from '../auth/AuthContext';
 import { Avatar } from '../components/ui';
 import { CommandPalette } from '../components/CommandPalette';
+import { useLeaderStatus } from '../features/leadership/api';
 import logo from '../assets/logo.png';
 
 export function AppShell() {
@@ -13,6 +14,9 @@ export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Führungsfunktion: sichtbar nur für freigeschaltete Personalprofile —
+  // unabhängig von der Admin-Rolle (Details in features/leadership/api.ts).
+  const isLeader = useLeaderStatus().data?.is_leader === true;
 
   // Tastaturkürzel (früher im nativen Menü): globale Suche, Modul-Navigation,
   // Ansicht. Da es kein natives Menü mehr gibt, hier im Renderer registriert.
@@ -88,7 +92,13 @@ export function AppShell() {
               Zwischenzeile stehen. Die eigentliche Sperre sitzt im Backend. */}
           {NAV_SECTIONS.map((section, i) => {
             const items = section.items.filter((item) =>
-              item.area ? can(item.area) : section.area ? can(section.area) : true,
+              item.leaderOnly
+                ? isLeader
+                : item.area
+                  ? can(item.area)
+                  : section.area
+                    ? can(section.area)
+                    : true,
             );
             if (items.length === 0) return null;
             return (

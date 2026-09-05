@@ -48,7 +48,21 @@ const roleBodySchema = z.object({
   permissions: permissionsSchema,
 });
 
-const assignSchema = z.object({ admin_role_id: z.number().int().positive().nullable() });
+/**
+ * Änderungen an einem Konto: Admin-Rolle und/oder Personalprofil. Beides ist
+ * optional, mindestens eines muss dabei sein. Die Profilverknüpfung ist seit
+ * der Führungsfunktion (modules/leadership) nachträglich änderbar: Sie
+ * entscheidet, ob ein bestehendes Konto „Mein Team“ sieht — ohne diese Route
+ * müsste man das Konto löschen und neu anlegen.
+ */
+const assignSchema = z
+  .object({
+    admin_role_id: z.number().int().positive().nullable().optional(),
+    employee_id: z.number().int().positive().nullable().optional(),
+  })
+  .refine((b) => b.admin_role_id !== undefined || b.employee_id !== undefined, {
+    message: 'Keine Änderungen übergeben',
+  });
 
 /**
  * Anlage eines Kontos. Bewusst OHNE Passwortfeld — siehe Kopfkommentar.
@@ -521,64 +535,97 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
     const id = Number((req.params as { id: string }).id);
     const body = parse(assignSchema, req.body);
     const target = db()
-      .prepare('SELECT id, name, role, admin_role_id FROM users WHERE id = ?')
-      .get(id) as { id: number; name: string; role: string; admin_role_id: number | null } | undefined;
+      .prepare('SELECT id, name, role, employee_id, admin_role_id FROM users WHERE id = ?')
+      .get(id) as
+      | { id: number; name: string; role: string; employee_id: number | null; admin_role_id: number | null }
+      | undefined;
     if (!target) throw notFound('Konto nicht gefunden');
 
-    // Selbstschutz: die eigene Zuweisung ist tabu — sonst wäre jede
-    // Einschränkung mit einem Klick wieder aufgehoben.
+    // Selbstschutz: das eigene Konto ist tabu — bei der Rolle, weil sonst jede
+    // Einschränkung mit einem Klick aufgehoben wäre; bei der Profilverknüpfung,
+    // weil man sich damit selbst die Führungsfunktion eines freigeschalteten
+    // Profils verschaffen könnte.
     if (id === req.user.id) {
       throw forbidden(
-        'Die eigene Rolle können Sie nicht ändern. Das muss eine andere Person mit Benutzerverwaltung tun.',
+        'Das eigene Konto können Sie hier nicht ändern. Das muss eine andere Person mit Benutzerverwaltung tun.',
       );
     }
-    if (target.role !== 'admin') {
-      throw badRequest('Admin-Rollen gelten nur für Konten der HR-Administration.');
-    }
-
-    // Eskalationsdeckel (Audit S4), drei Fälle:
-    // 1. `admin_role_id: null` bedeutet VOLLZUGRIFF (Migration 002). Wer selbst
-    //    eingeschränkt ist, würde damit über ein fremdes Konto genau die Rechte
-    //    verschenken, die ihm fehlen — und käme über ein Passwort-Reset auch
-    //    gleich selbst hinein.
-    // 2. Eine Rolle zuzuweisen, die mehr kann als die eigene, ist derselbe Weg
-    //    mit einem Zwischenschritt.
-    // 3. Ein ranghöheres Konto darf ein eingeschränktes auch nicht beschneiden.
-    if (body.admin_role_id === null && (req.user.admin_role_id ?? null) !== null) {
-      throw forbidden(
-        'Konten ohne Admin-Rolle haben Vollzugriff. Diese Zuweisung kann nur eine Person mit Vollzugriff vornehmen.',
-      );
-    }
-    if (body.admin_role_id !== null) {
-      loadRole(body.admin_role_id);
-      assertWithinOwnRights(
-        req,
-        loadPermissions(body.admin_role_id),
-        'Sie können keine Rolle zuweisen, die mehr Rechte hat als Sie selbst.',
-      );
-    }
+    // Eskalationsdeckel (Audit S4): Ein ranghöheres Konto darf ein
+    // eingeschränktes weder kapern noch beschneiden — gilt für beide Felder.
     assertWithinOwnRights(
       req,
       effectivePermissions(target),
       'Dieses Konto hat mehr Rechte als Sie selbst und kann deshalb nur von einer entsprechend berechtigten Person geändert werden.',
     );
 
-    db().prepare('UPDATE users SET admin_role_id = ? WHERE id = ?').run(body.admin_role_id, id);
-
-    // Erreichbarkeit sichern: Es muss jemand übrig bleiben, der Rechte vergibt.
-    if (userAdminCount() === 0) {
-      db().prepare('UPDATE users SET admin_role_id = ? WHERE id = ?').run(target.admin_role_id, id);
-      throw conflict(
-        'Das wäre das letzte Konto mit Benutzerverwaltung. Vergeben Sie das Recht zuerst an jemand anderen.',
-      );
+    if (body.employee_id !== undefined) {
+      const employeeId = body.employee_id;
+      if (target.role === 'mitarbeiter' && employeeId === null) {
+        throw badRequest('Ein Portal-Konto braucht ein verknüpftes Personalprofil.');
+      }
+      if (employeeId !== null) {
+        const employee = db().prepare('SELECT id FROM employees WHERE id = ?').get(employeeId);
+        if (!employee) throw notFound('Personalprofil nicht gefunden');
+        const linked = db()
+          .prepare('SELECT email FROM users WHERE employee_id = ? AND id != ?')
+          .get([employeeId, id]) as { email: string } | undefined;
+        if (linked) {
+          throw conflict(`Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft.`);
+        }
+      }
+      db().prepare('UPDATE users SET employee_id = ? WHERE id = ?').run([employeeId, id]);
+      audit(req, 'update', 'user_employee_link', id, {
+        user: target.name,
+        before: target.employee_id,
+        after: employeeId,
+      });
     }
 
-    audit(req, 'update', 'user_admin_role', id, {
-      user: target.name,
-      before: target.admin_role_id,
-      after: body.admin_role_id,
-    });
-    return { user: db().prepare('SELECT id, email, name, role, employee_id, admin_role_id FROM users WHERE id = ?').get(id) };
+    if (body.admin_role_id !== undefined) {
+      const adminRoleId = body.admin_role_id;
+      if (target.role !== 'admin') {
+        throw badRequest('Admin-Rollen gelten nur für Konten der HR-Administration.');
+      }
+
+      // Eskalationsdeckel (Audit S4), zwei weitere Fälle:
+      // 1. `admin_role_id: null` bedeutet VOLLZUGRIFF (Migration 002). Wer selbst
+      //    eingeschränkt ist, würde damit über ein fremdes Konto genau die Rechte
+      //    verschenken, die ihm fehlen — und käme über ein Passwort-Reset auch
+      //    gleich selbst hinein.
+      // 2. Eine Rolle zuzuweisen, die mehr kann als die eigene, ist derselbe Weg
+      //    mit einem Zwischenschritt.
+      if (adminRoleId === null && (req.user.admin_role_id ?? null) !== null) {
+        throw forbidden(
+          'Konten ohne Admin-Rolle haben Vollzugriff. Diese Zuweisung kann nur eine Person mit Vollzugriff vornehmen.',
+        );
+      }
+      if (adminRoleId !== null) {
+        loadRole(adminRoleId);
+        assertWithinOwnRights(
+          req,
+          loadPermissions(adminRoleId),
+          'Sie können keine Rolle zuweisen, die mehr Rechte hat als Sie selbst.',
+        );
+      }
+
+      db().prepare('UPDATE users SET admin_role_id = ? WHERE id = ?').run(adminRoleId, id);
+
+      // Erreichbarkeit sichern: Es muss jemand übrig bleiben, der Rechte vergibt.
+      if (userAdminCount() === 0) {
+        db().prepare('UPDATE users SET admin_role_id = ? WHERE id = ?').run(target.admin_role_id, id);
+        throw conflict(
+          'Das wäre das letzte Konto mit Benutzerverwaltung. Vergeben Sie das Recht zuerst an jemand anderen.',
+        );
+      }
+
+      audit(req, 'update', 'user_admin_role', id, {
+        user: target.name,
+        before: target.admin_role_id,
+        after: adminRoleId,
+      });
+    }
+
+    return { user: loadUser(id) };
   });
 
   // ------------------------------------------------------------- Interna ---

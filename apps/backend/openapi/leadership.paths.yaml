@@ -1,0 +1,154 @@
+# Modul Führung & Bewertung — Pfade (Merge via npm run openapi).
+#
+# /api/leadership/me/* ist die Führungsfunktion: Zugriff nur für Konten, deren
+# Personalprofil als Führungskraft freigeschaltet ist (unabhängig von der
+# Admin-Rolle). Alle übrigen Pfade hängen am Rechtebereich `fuehrung`.
+paths:
+  /api/leadership/me/status:
+    get:
+      summary: Ist das angemeldete Konto eine freigeschaltete Führungskraft? (für jedes Admin-Konto beantwortbar)
+      responses:
+        "200": { description: "{ is_leader, employee_id, period, team_size, rated_count }" }
+  /api/leadership/me/team:
+    get:
+      summary: Eigener Zuständigkeitsbereich mit Stammdaten und Bewertungsstand im Zeitraum
+      parameters:
+        - { name: period, in: query, schema: { type: string }, description: "Zeitraumschlüssel der eingestellten Kadenz, z. B. 2026-Q3; ohne Angabe der aktuelle" }
+      responses:
+        "200": { description: "{ period, current_period, settings, categories, team }" }
+        "403": { description: Konto ist keine freigeschaltete Führungskraft }
+  /api/leadership/me/employees/{id}:
+    get:
+      summary: Bewertungsmaske einer Person aus dem eigenen Bereich (Bewertungen, alle Zeiträume, Protokoll)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: period, in: query, schema: { type: string } }
+      responses:
+        "200": { description: "{ employee, period, current_period, periods, settings, categories, ratings, all_ratings, history }" }
+        "403": { description: Person gehört nicht zum eigenen Zuständigkeitsbereich }
+  /api/leadership/me/employees/{id}/ratings:
+    put:
+      summary: Bewertungsblöcke eines Zeitraums speichern (Upsert je Kategorie, jede Änderung wird protokolliert)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [period_key, ratings]
+              properties:
+                period_key: { type: string, example: "2026-Q3" }
+                ratings:
+                  type: array
+                  items:
+                    type: object
+                    required: [category_id, score, comment]
+                    properties:
+                      category_id: { type: integer }
+                      score: { type: integer, description: "1 … Maximum der wirksamen Skala" }
+                      comment: { type: string, description: Pflichtkommentar }
+      responses:
+        "200": { description: "{ ratings } — Stand des Zeitraums" }
+        "400": { description: Ungültiger Zeitraum, Wert außerhalb der Skala, fehlender Kommentar, Zukunft }
+        "403": { description: Person gehört nicht zum eigenen Zuständigkeitsbereich }
+
+  /api/leadership/settings:
+    get:
+      summary: Unternehmensweite Einstellungen (Kadenz, Skala, gegenseitige Verantwortung, automatische Zuordnung)
+      responses:
+        "200": { description: "{ settings }" }
+    put:
+      summary: Einstellungen ändern (Teilobjekt)
+      responses:
+        "200": { description: "{ settings }" }
+  /api/leadership/categories:
+    get:
+      summary: Bewertungskategorien (inkl. inaktive, mit wirksamer Skala und Bewertungszahl)
+      responses:
+        "200": { description: "{ categories }" }
+    post:
+      summary: Kategorie anlegen (zentral, für alle Führungskräfte)
+      responses:
+        "201": { description: "{ category }" }
+        "409": { description: Name bereits vergeben }
+  /api/leadership/categories/reorder:
+    post:
+      summary: Reihenfolge setzen — { ids } muss jede Kategorie genau einmal enthalten
+      responses:
+        "200": { description: "{ categories }" }
+  /api/leadership/categories/{id}:
+    patch:
+      summary: Kategorie ändern (Name, Beschreibung, eigene Skala, aktiv)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ category }" }
+        "409": { description: Gesamtbewertung kann nicht deaktiviert werden }
+    delete:
+      summary: Kategorie löschen — nur ohne Bewertungen; sonst deaktivieren
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Gelöscht }
+        "409": { description: Bereits bewertet oder Gesamtbewertung }
+  /api/leadership/leaders:
+    get:
+      summary: Freigeschaltete Führungskräfte mit Konto-Status und Teamgröße
+      responses:
+        "200": { description: "{ leaders }" }
+    post:
+      summary: Personalprofil als Führungskraft freischalten
+      responses:
+        "201": { description: "{ leader, warnings }" }
+        "409": { description: Bereits freigeschaltet oder unzulässige gegenseitige Verantwortung }
+  /api/leadership/leaders/{employeeId}:
+    patch:
+      summary: Freischaltung ändern (auto_scope, note)
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ leader }" }
+    delete:
+      summary: Freischaltung entziehen (Bewertungen und Protokoll bleiben)
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Entzogen }
+  /api/leadership/leaders/{employeeId}/team:
+    get:
+      summary: Vorschau der Zuständigkeit (Team, manuelle Zuweisungen, gegenseitige Verantwortung)
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+        - { name: period, in: query, schema: { type: string } }
+      responses:
+        "200": { description: "{ leader, team, assignments, mutual }" }
+  /api/leadership/leaders/{employeeId}/assignments:
+    post:
+      summary: Manuelle Zuweisung anlegen (include/exclude; Person, Abteilung, Team oder Fachrolle; optional befristet)
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "201": { description: "{ assignment, warnings }" }
+        "409": { description: Unzulässige gegenseitige Verantwortung }
+  /api/leadership/assignments/{id}:
+    delete:
+      summary: Zuweisung entfernen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Entfernt }
+  /api/leadership/report:
+    get:
+      summary: Satisfaction-Report — Verteilung der Gesamtbewertung je Führungskraft im Zeitraum
+      parameters:
+        - { name: period, in: query, schema: { type: string } }
+      responses:
+        "200": { description: "{ period, current_period, category, scale, leaders }" }
+  /api/leadership/employees/{id}/ratings:
+    get:
+      summary: Alle Bewertungen einer Person (von allen Führungskräften) samt Protokoll — Verwaltungssicht
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ ratings, history }" }

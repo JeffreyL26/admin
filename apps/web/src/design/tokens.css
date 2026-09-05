@@ -46,6 +46,8 @@
   --danger-bg: #fceced;
   --info: var(--blue-500);
   --info-bg: var(--blue-50);
+  /* Bewertungssterne (Führung & Bewertung) — Spiegel des Renderer-Tokens */
+  --rating-star: #d99a06;
 
   /* Flächen und Linien */
   --bg-app: #f3f6fb;
@@ -143,6 +145,7 @@
   --danger-bg: #3d1a20;
   --info: var(--blue-500);
   --info-bg: var(--blue-50);
+  --rating-star: #f2c14e;
 
   --bg-app: #0c1830;
   --bg-surface: #13233d;

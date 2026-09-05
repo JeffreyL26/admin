@@ -135,6 +135,10 @@ export interface OnboardingTaskTemplate {
  *
  * `benutzer` ist der Sonderfall: Wer ihn auf `bearbeiten` hat, vergibt Rechte.
  * `einstellungen` deckt die Firmen- und Systemeinstellungen ab.
+ * `fuehrung` regelt die VERWALTUNG der Führungsfunktion (Freischaltungen,
+ * Skala, Kategorien, Report). Die Führungsfunktion selbst („Mein Team“) hängt
+ * nicht an diesem Bereich, sondern an der Freischaltung des Personalprofils —
+ * siehe `leadership.ts` und `core/permissions.ts` (SELF_GATED).
  */
 export const ADMIN_AREAS = [
   'personal',
@@ -146,6 +150,7 @@ export const ADMIN_AREAS = [
   'verwaltung',
   'einstellungen',
   'benutzer',
+  'fuehrung',
 ] as const;
 
 export type AdminArea = (typeof ADMIN_AREAS)[number];
@@ -160,6 +165,7 @@ export const ADMIN_AREA_LABELS: Record<AdminArea, string> = {
   verwaltung: 'Verwaltung',
   einstellungen: 'Einstellungen',
   benutzer: 'Benutzer & Rechte',
+  fuehrung: 'Führung & Bewertung',
 };
 
 /** Kurzbeschreibung je Bereich — erklärt in der Rechtevergabe, was betroffen ist. */
@@ -173,6 +179,7 @@ export const ADMIN_AREA_HINTS: Record<AdminArea, string> = {
   verwaltung: 'HR-Vorlagen, On- und Offboarding sowie Fachrollen',
   einstellungen: 'Firmendaten und Systemeinstellungen',
   benutzer: 'Konten anlegen und Rechte vergeben',
+  fuehrung: 'Führungskräfte freischalten, Bewertungsskala und -kategorien, Satisfaction-Report',
 };
 
 /** Drei Stufen je Bereich. Fehlt ein Eintrag, gilt `kein` (fail closed). */
