@@ -287,7 +287,48 @@ Beim Verteilen der Erstpasswörter: Adresse und Passwort auf getrennten Wegen.
 - [ ] Eine Testperson prüft den Firmenkalender: Bei Krankmeldungen steht dort
       kein Name (Gegenprobe zu Punkt 7).
 
-## 9. Datensicherung scharf schalten
+## 9. Führungskräfte freischalten (optional)
+
+Die Führungsfunktion („Führung → Mein Team": Teamübersicht und Bewertung je
+Zeitraum) ist ab Werk für niemanden aktiv. Sie hängt **nicht** an einer
+Admin-Rolle, sondern an der Freischaltung des **Personalprofils** — ein Konto
+sieht „Mein Team" genau dann, wenn sein verknüpftes Profil freigeschaltet ist.
+Wer die Funktion nicht einsetzt, überspringt diesen Punkt.
+
+1. **Konto anlegen und verknüpfen.** Unter Verwaltung → Benutzer & Rechte ein
+   Konto mit Rolle `admin` (Desktop-App) anlegen, die Admin-Rolle
+   **„Führungskraft"** zuweisen — sie hat keinen HR-Bereich, nur Dashboard und
+   nach der Freischaltung „Mein Team" — und das Konto mit dem Personalprofil
+   der Person verknüpfen. Hat die Person bereits ein Admin-Konto (etwa
+   HR-Sachbearbeitung), genügt die Verknüpfung.
+2. **Freischalten.** Unter Führung → Einrichtung → Führungskräfte das Profil
+   hinzufügen. Ein Profil ohne Konto lässt sich bereits freischalten; die
+   Einrichtung weist dann auf das fehlende Konto hin.
+3. **Zuständigkeit prüfen.** Die Vorschau je Führungskraft zeigt, wer ihr
+   automatisch zugeordnet ist (direkt unterstellt, Abteilungsleitung inklusive
+   Unterabteilungen, Teamleitung). Voraussetzung sind gepflegte Vorgesetzte
+   sowie Abteilungs- und Teamleitungen in den Personalprofilen. Abweichungen —
+   Projektverantwortung, Vertretung, Ausnahmen — als manuelle Zuweisung
+   ergänzen, bei Bedarf befristet.
+4. **Skala, Kadenz und Kategorien zentral festlegen.** Führung → Einrichtung →
+   Skala & Zeitraum (5 Sterne, Ampel, 1–10 Punkte oder Schulnoten; monatlich
+   bis jährlich, Standard quartalsweise) und → Kategorien. Vor der ersten
+   Bewertung entscheiden: Ein späterer Skalenwechsel lässt alte Bewertungen
+   zwar lesbar, der Report weist sie aber getrennt aus.
+5. **Report für Geschäftsführung und HR.** Satisfaction-Report (Führung →
+   Report) und Einrichtung sind über den Rechtebereich `fuehrung` der
+   Admin-Rolle zugänglich — `lesen` für den Report, `bearbeiten` zum
+   Freischalten. Beim Update erhalten bestehende Rollen `fuehrung` auf der
+   Stufe ihres Bereichs „Benutzer & Rechte"; prüfen, ob das den eigenen
+   Vorstellungen entspricht.
+
+- [ ] Jede freigeschaltete Führungskraft sieht in der Vorschau das richtige
+      Team.
+- [ ] Skala und Kadenz stehen fest, bevor die erste Bewertung gespeichert wird.
+- [ ] Nur Geschäftsführung/HR haben `fuehrung` auf `lesen` oder `bearbeiten`;
+      die Rolle „Führungskraft" hat keinen HR-Bereich.
+
+## 10. Datensicherung scharf schalten
 
 Nach [`../deploy/README.md`](../deploy/README.md), Abschnitt 5 (Linux) bzw.
 [`../deploy/windows/README.md`](../deploy/windows/README.md), Abschnitt 5
@@ -313,7 +354,7 @@ Get-ChildItem 'C:\ProgramData\oHRganize\backups' | Sort-Object LastWriteTime -De
 - [ ] **Restore-Probe** einmal durchgeführt und protokolliert (Datum, wer,
       Ergebnis). Wiedervorlage in sechs Monaten.
 
-## 10. Abnahme
+## 11. Abnahme
 
 **Linux:**
 
@@ -406,7 +447,8 @@ icacls 'C:\ProgramData\oHRganize\data\storage'
 > `curl -sSI http://portal.firma.de` von einem beliebigen anderen Rechner zu
 > prüfen.
 
-- [ ] Punkte 1 bis 9 abgehakt.
+- [ ] Punkte 1 bis 10 abgehakt (Punkt 9 nur, wenn die Führungsfunktion
+      eingesetzt wird).
 - [ ] Ein Arbeitsplatz der HR-Administration arbeitet über die Desktop-App
       gegen den Server (nicht mehr gegen die lokale Datenbank).
 - [ ] Ein Portal-Konto hat einen Antrag gestellt und die HR hat ihn gesehen.

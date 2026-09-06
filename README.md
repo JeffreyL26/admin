@@ -5,7 +5,8 @@
 HR-Verwaltungssoftware für den deutschsprachigen Markt. Desktop-Anwendung
 (Windows primär, macOS/Linux sekundär) für HR-Administrator:innen — mit
 Personalverwaltung, Abwesenheitsmanagement, Leistungs- und Vergütungsverwaltung
-sowie interner Kommunikation.
+sowie interner Kommunikation und einer Führungsfunktion (Teambewertungen mit
+Satisfaction-Report).
 
 ## Schnellstart (Entwicklung)
 
@@ -45,7 +46,11 @@ npm run seed:desktop -- --force
 
 Danach die App normal über die Startmenü-Verknüpfung starten. Der Befehl leert
 vorhandene Daten (`--force`) und legt 28 Beispiel-Mitarbeitende samt Verträgen,
-Abwesenheiten, Zielen, Gehältern und Kommunikation an.
+Abwesenheiten, Zielen, Gehältern und Kommunikation an. Acht Personen mit
+Personalverantwortung sind als Führungskräfte freigeschaltet; die Konten
+`sabine.berger@` (Geschäftsführung) und `jurgen.wilms@` (Personal) sehen damit
+„Führung → Mein Team" mit Bewertungen für Q2/Q3 2026 und den
+Satisfaction-Report.
 
 ## Windows-Installer bauen
 

@@ -14,6 +14,9 @@
  * - Umfrage unter der Mindestteilnehmerzahl (Ergebnisse gesperrt)
  * - Minijob über der Verdienstgrenze + fehlende IBAN (Abrechnungs-Warnungen)
  * - ablaufendes Zertifikat (Erinnerung), überfällige Pflichtschulungen
+ * - Führung: nachträglich korrigierte Bewertung (Protokoll mit zwei Versionen),
+ *   kritische Bewertung (rote Stufe im Report), Vertrieb im laufenden Quartal
+ *   noch unbewertet, befristete Zuweisung und Ausschluss in der Zuständigkeit
  */
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
@@ -23,6 +26,7 @@ import { ensureDefaultAdmin } from '../core/auth.js';
 import { storeFile } from '../core/files.js';
 import { holidaysForYear, type Bundesland } from '../core/holidays.js';
 import { eachDay, isWeekend } from '../core/dates.js';
+import { periodForDate, shiftPeriod } from '@ohrganize/shared';
 
 const FORCE = process.argv.includes('--force');
 
@@ -115,11 +119,32 @@ if (FORCE) {
     'documents', 'contracts',
     // Verwaltung (onboarding_task_templates bleibt, da per Migration geseedet)
     'onboarding_tasks', 'onboarding_processes', 'hr_templates',
+    // Führung & Bewertung (Kinder → Eltern). Das Protokoll trägt nur einen
+    // Trigger gegen UPDATE — DELETE ist erlaubt, sonst ließe sich die Dev-DB
+    // nie neu seeden. rating_categories und leadership_settings bleiben, da
+    // per Migration angelegt; Zusatzkategorien und verstellte Einstellungen
+    // werden direkt unter der Schleife zurückgesetzt.
+    'leadership_rating_history', 'leadership_ratings', 'leadership_assignments', 'leadership_leaders',
     'employees', 'teams', 'departments', 'locations',
     'audit_log', 'files',
   ];
   inTransaction(() => {
     for (const t of tables) db.prepare(`DELETE FROM ${t}`).run();
+    // Selbst angelegte Bewertungskategorien entfernen (die fünf Standard-
+    // kategorien kommen aus der Migration) und die Einstellungen auf den
+    // Auslieferungsstand bringen — die Demo-Bewertungen unten setzen
+    // quartalsweise Bewertung auf der 5-Sterne-Skala voraus.
+    db.prepare(
+      `DELETE FROM rating_categories WHERE is_overall = 0 AND name NOT IN
+         ('Gesamtbewertung', 'Leistung', 'Verhalten', 'Teamkompetenz', 'Fachliche Kompetenz')`,
+    ).run();
+    db.prepare(
+      `UPDATE leadership_settings
+       SET period = 'quartal', uniform_scale = 1, scale = 'stars5', allow_mutual = 1,
+           auto_direct_reports = 1, auto_department_head = 1, auto_team_lead = 1,
+           updated_at = datetime('now')
+       WHERE id = 1`,
+    ).run();
     // Benutzerkonten bis auf den Standard-Admin entfernen — die Mitarbeitenden-
     // Accounts werden unten neu angelegt und auf die frischen Profile verknüpft.
     db.prepare("DELETE FROM users WHERE email != 'admin@ohrganize.de'").run();
@@ -317,9 +342,11 @@ inTransaction(() => {
       password_hash: bcrypt.hashSync(password, 10),
       employee_id: employeeId,
     });
-  // Admins (verwalten und genehmigen; über das verknüpfte Profil auch portalfähig)
-  account('sabine.berger@ohrganize.de', 'Sabine Berger', 'admin', 'ohrganize2026', GF);
-  account('jurgen.wilms@ohrganize.de', 'Jürgen Wilms', 'admin', 'ohrganize2026', HRL);
+  // Admins (verwalten und genehmigen; über das verknüpfte Profil auch portalfähig).
+  // GF und HRL sind unten zusätzlich als Führungskräfte freigeschaltet — ihre
+  // Konten-IDs stehen deshalb als Urheber in den Demo-Bewertungen.
+  const userGf = account('sabine.berger@ohrganize.de', 'Sabine Berger', 'admin', 'ohrganize2026', GF);
+  const userHrl = account('jurgen.wilms@ohrganize.de', 'Jürgen Wilms', 'admin', 'ohrganize2026', HRL);
   account('melanie.sonntag@ohrganize.de', 'Melanie Sonntag', 'admin', 'ohrganize2026', HRR);
   // Mitarbeitende (Web-Portal, Self-Service)
   account('deniz.aydin@ohrganize.de', 'Deniz Aydin', 'mitarbeiter', 'portal2026', DEV1);
@@ -873,6 +900,175 @@ inTransaction(() => {
   processFor(PRAKT, 'onboarding', '2026-06-01', 'Praktikum Vertrieb, befristet bis 30.11.', 4);
   processFor(SDR, 'onboarding', '2026-04-15', null, 0, 'abgeschlossen');
   processFor(EXIT, 'offboarding', '2026-03-31', 'Arbeitszeugnis noch ausstehend.', 6);
+
+  // ======================= Führung & Bewertung =======================
+  // Freischaltungen: alle Personen mit Personalverantwortung in der Demo-Orga.
+  // Nur sabine.berger@ (GF) und jurgen.wilms@ (HRL) haben ein Desktop-Konto
+  // und sehen damit „Mein Team“; die übrigen sind freigeschaltet, aber ohne
+  // Konto — die Einrichtung zeigt dafür den Hinweis „Kein Desktop-Konto“.
+  // Die Zuständigkeit leitet das Modul selbst aus manager_id, Abteilungs- und
+  // Teamleitung ab (service.scopeFor); hier werden nur Ausnahmen ergänzt.
+  const grantLeader = db.prepare(
+    `INSERT INTO leadership_leaders (employee_id, auto_scope, note, granted_by_user_id, created_at)
+     VALUES (?, 1, ?, ?, ?)`,
+  );
+  for (const [emp, note] of [
+    [GF, 'Geschäftsführung — sieht über die Abteilungsleitung alle Bereiche'],
+    [HRL, null],
+    [CTO, null],
+    [TLB, 'Teamleitung Backend'],
+    [TLF, 'Teamleitung Frontend'],
+    [VTL, null],
+    [MKT, null],
+    [FIN, null],
+  ] as [number, string | null][]) {
+    grantLeader.run([emp, note, adminId, '2026-06-30 11:00:00']);
+  }
+
+  // Zusatzkategorie, wie sie ein Admin unter Führung → Einrichtung anlegt —
+  // danach für alle Führungskräfte wählbar (HRL nutzt sie unten).
+  insert('rating_categories', {
+    name: 'Pünktlichkeit',
+    description: 'Einhaltung von Terminen, Arbeitszeiten und Zusagen',
+    sort_order: 6,
+    active: 1,
+    is_overall: 0,
+    scale: null,
+  });
+
+  // Manuelle Zuständigkeiten: eine befristete Ergänzung (Mentoring über
+  // Abteilungsgrenzen hinweg) und eine Ausnahme aus der automatischen
+  // Ableitung. Beides zeigt die Einrichtung mit Quelle „Zugewiesen“ bzw. als
+  // Ausschluss in der Vorschau der Führungskraft.
+  insert('leadership_assignments', {
+    leader_employee_id: TLB, kind: 'include', target_employee_id: WS2,
+    valid_from: '2026-07-01', valid_to: '2026-12-31',
+    note: 'Mentoring Backend-Praktikum', created_by_user_id: adminId, created_at: '2026-06-30 11:05:00',
+  });
+  insert('leadership_assignments', {
+    leader_employee_id: VTL, kind: 'exclude', target_employee_id: PRAKT,
+    note: 'Praktikant wird von Björn Petersen (AE) betreut', created_by_user_id: adminId, created_at: '2026-06-30 11:06:00',
+  });
+
+  // Bewertungen: aktuelles Quartal (bezogen auf TODAY) und Vorquartal, auf der
+  // Auslieferungs-Skala. Skala und Kadenz stehen bewusst fest im Seed — die
+  // Einstellungen sind oben (--force) bzw. durch die Migration auf genau
+  // diesen Stand gesetzt.
+  const curQ = periodForDate(TODAY, 'quartal').key; // 2026-Q3
+  const prevQ = shiftPeriod(curQ, -1);               // 2026-Q2
+  const categoryId = (name: string): number => {
+    const row = db.prepare('SELECT id FROM rating_categories WHERE name = ?').get(name) as
+      | { id: number }
+      | undefined;
+    if (!row) throw new Error(`Bewertungskategorie „${name}“ fehlt — Migration 310 nicht gelaufen?`);
+    return row.id;
+  };
+  interface RateOpts {
+    /** Konto, das die Bewertung speichert (Standard: admin@ohrganize.de). */
+    by?: number;
+    /** Zeitstempel der Erstfassung (Standard: je Quartal ein fester Termin). */
+    at?: string;
+    /** Spätere Korrektur → Version 2 mit Protokollzeile „geaendert“ samt Vorwerten. */
+    change?: { score: number; comment: string; at: string; by?: number };
+  }
+  const ratedKeys = new Set<string>();
+  /**
+   * Legt Bewertung + Protokoll an, wie es service.saveRatings tut: Version 1
+   * „erstellt“, bei `change` zusätzlich Version 2 „geaendert“ mit den
+   * Vorwerten. Der UNIQUE-Schlüssel (Führungskraft, Person, Kategorie,
+   * Zeitraum) wird vorab geprüft, damit ein Tippfehler im Seed eine lesbare
+   * Meldung statt eines SQLite-Constraint-Fehlers liefert.
+   */
+  const rate = (
+    leader: number, emp: number, categoryName: string, period: string,
+    score: number, comment: string, opts: RateOpts = {},
+  ): number => {
+    const key = `${leader}/${emp}/${categoryName}/${period}`;
+    if (ratedKeys.has(key)) throw new Error(`Doppelte Demo-Bewertung: ${key}`);
+    ratedKeys.add(key);
+    const category = categoryId(categoryName);
+    const by = opts.by ?? adminId;
+    const at = opts.at ?? (period === curQ ? '2026-07-15 09:30:00' : '2026-06-26 16:00:00');
+    const change = opts.change;
+    const ratingId = insert('leadership_ratings', {
+      leader_employee_id: leader, employee_id: emp, category_id: category,
+      period_kind: 'quartal', period_key: period, scale: 'stars5',
+      score: change?.score ?? score, comment: change?.comment ?? comment,
+      version: change ? 2 : 1,
+      created_by_user_id: by, created_at: at,
+      updated_by_user_id: change?.by ?? by, updated_at: change?.at ?? at,
+    });
+    insert('leadership_rating_history', {
+      rating_id: ratingId, leader_employee_id: leader, employee_id: emp, category_id: category,
+      period_key: period, version: 1, change_kind: 'erstellt', scale: 'stars5',
+      score, comment, previous_score: null, previous_comment: null,
+      changed_by_user_id: by, changed_at: at,
+    });
+    if (change) {
+      insert('leadership_rating_history', {
+        rating_id: ratingId, leader_employee_id: leader, employee_id: emp, category_id: category,
+        period_key: period, version: 2, change_kind: 'geaendert', scale: 'stars5',
+        score: change.score, comment: change.comment, previous_score: score, previous_comment: comment,
+        changed_by_user_id: change.by ?? by, changed_at: change.at,
+      });
+    }
+    return ratingId;
+  };
+
+  // Teamlead Backend (kein Desktop-Konto → Urheber admin): DEV2 wurde im
+  // laufenden Quartal nach oben korrigiert — der Demo-Fall fürs Protokoll.
+  rate(TLB, DEV1, 'Gesamtbewertung', curQ, 5, 'Trägt das Team, sehr zuverlässig.');
+  rate(TLB, DEV1, 'Fachliche Kompetenz', curQ, 5, 'Architekturentscheidungen im Release 4.1 waren durchweg tragfähig.');
+  rate(TLB, DEV1, 'Teamkompetenz', curQ, 4, 'Unterstützt die Werkstudenten aktiv, könnte Reviews noch zügiger abschließen.');
+  rate(TLB, DEV2, 'Gesamtbewertung', curQ, 3, 'Solide Lieferung, bei der Fehleranalyse noch Unterstützung nötig.', {
+    at: '2026-07-13 14:10:00',
+    change: { score: 4, comment: 'Nach dem Feature-Lead für Release 4.2 deutlich sicherer — Einschätzung nach oben korrigiert.', at: '2026-07-17 08:45:00' },
+  });
+  rate(TLB, WS1, 'Gesamtbewertung', curQ, 3, 'Gute Grundlagen, Arbeitspakete brauchen noch enge Begleitung.');
+  rate(TLB, DEV1, 'Gesamtbewertung', prevQ, 5, 'Hat den Datenbank-Umzug ohne Ausfall gestemmt.');
+  rate(TLB, DEV1, 'Leistung', prevQ, 5, 'Alle Sprint-Ziele erreicht, Migration termingerecht.');
+  rate(TLB, DEV2, 'Gesamtbewertung', prevQ, 4, 'Stabile Beiträge, Testabdeckung deutlich verbessert.');
+  rate(TLB, WS1, 'Gesamtbewertung', prevQ, 3, 'Kommt gut ins Team, fachlich noch am Anfang.');
+
+  // CTO: eine kritische Bewertung (OPS1) für die rote Stufe im Report.
+  rate(CTO, TLB, 'Gesamtbewertung', curQ, 5, 'Führt das Backend-Team souverän, Releases laufen planbar.');
+  rate(CTO, TLF, 'Gesamtbewertung', curQ, 4, 'Gute Ergebnisse im Design-System, Priorisierung gelegentlich zu breit.');
+  rate(CTO, OPS1, 'Gesamtbewertung', curQ, 2, 'Mehrere Ausfälle im Bereitschaftsdienst, Gespräch geführt.');
+  rate(CTO, FREI2, 'Gesamtbewertung', curQ, 4, 'Cloud-Konzept überzeugend, Übergabe an den Betrieb steht noch aus.');
+  rate(CTO, TLB, 'Gesamtbewertung', prevQ, 5, 'Team-Umbau im Backend sehr gut aufgefangen.');
+  rate(CTO, TLF, 'Gesamtbewertung', prevQ, 5, 'Frontend-Relaunch pünktlich und ohne offene Punkte abgeliefert.');
+  rate(CTO, OPS1, 'Gesamtbewertung', prevQ, 3, 'Verlässlich im Tagesgeschäft, Runbooks unvollständig dokumentiert.');
+  rate(CTO, FREI2, 'Gesamtbewertung', prevQ, 4, 'Architektur-Review gründlich, Kosten im Blick.');
+
+  // Leiterin Vertrieb: nur das Vorquartal bewertet — Q3 steht noch offen
+  // (Report zeigt „0 von 4 bewertet“ im aktuellen Zeitraum).
+  rate(VTL, AE1, 'Gesamtbewertung', prevQ, 4, 'Quota auf Kurs, Pipeline-Pflege könnte konsequenter sein.');
+  rate(VTL, AE2, 'Gesamtbewertung', prevQ, 5, 'Abschluss TechCorp — bestes Quartal im Team.');
+  rate(VTL, AM1, 'Gesamtbewertung', prevQ, 3, 'Bestandskunden gehalten, Upselling bleibt hinter den Erwartungen.');
+  rate(VTL, SDR, 'Gesamtbewertung', prevQ, 4, 'Starker Einstieg seit April, Terminquote über Plan.');
+
+  // Leiter Personal (Konto jurgen.wilms@): nutzt neben der Gesamtbewertung
+  // auch Leistung und die Zusatzkategorie Pünktlichkeit.
+  rate(HRL, HRR, 'Gesamtbewertung', curQ, 5, 'Recruiting-Prozess spürbar beschleunigt, Time-to-Hire-Ziel erreicht.', { by: userHrl });
+  rate(HRL, HRR, 'Leistung', curQ, 5, 'Alle offenen Stellen des Quartals fristgerecht besetzt.', { by: userHrl });
+  rate(HRL, HRR, 'Pünktlichkeit', curQ, 5, 'Termine und Zusagen werden ausnahmslos eingehalten.', { by: userHrl });
+  rate(HRL, AZUBI, 'Gesamtbewertung', curQ, 4, 'Engagiert und lernwillig, Berichtsheft vorbildlich geführt.', { by: userHrl });
+  rate(HRL, AZUBI, 'Leistung', curQ, 4, 'Erstellt Bescheinigungen inzwischen eigenständig.', { by: userHrl });
+  rate(HRL, AZUBI, 'Pünktlichkeit', curQ, 3, 'Zweimal verspätet zum Berufsschulblock — angesprochen.', { by: userHrl });
+  rate(HRL, HRR, 'Gesamtbewertung', prevQ, 5, 'Onboarding-Umfrage aufgesetzt und ausgewertet.', { by: userHrl });
+  rate(HRL, AZUBI, 'Gesamtbewertung', prevQ, 4, 'Erste eigene Aufgaben zuverlässig erledigt.', { by: userHrl });
+
+  // Geschäftsführerin (Konto sabine.berger@): bewertet die Bereichsleitungen;
+  // HRL fehlt in Q3 noch bewusst („4 von … bewertet“).
+  rate(GF, CTO, 'Gesamtbewertung', curQ, 5, 'Plattform stabil, Enterprise-Ziele im Plan.', { by: userGf });
+  rate(GF, VTL, 'Gesamtbewertung', curQ, 4, 'Neukundenziel auf Kurs, Forecast-Qualität ausbaufähig.', { by: userGf });
+  rate(GF, FIN, 'Gesamtbewertung', curQ, 5, 'Jahresabschluss vorbereitet, DATEV-Umstellung ohne Reibung.', { by: userGf });
+  rate(GF, MKT, 'Gesamtbewertung', curQ, 3, 'MQL-Ziel noch nicht erreicht, Kampagnenplanung für Q4 steht aus.', { by: userGf });
+  rate(GF, CTO, 'Gesamtbewertung', prevQ, 5, 'Incident-Prozess etabliert, Verfügbarkeit über Ziel.', { by: userGf });
+  rate(GF, VTL, 'Gesamtbewertung', prevQ, 5, 'Bestes Neukundenquartal seit zwei Jahren.', { by: userGf });
+  rate(GF, FIN, 'Gesamtbewertung', prevQ, 5, 'Liquiditätsplanung und Reporting tadellos.', { by: userGf });
+  rate(GF, MKT, 'Gesamtbewertung', prevQ, 4, 'Kampagne zur Messe gut umgesetzt, Leads im Plan.', { by: userGf });
+  rate(GF, HRL, 'Gesamtbewertung', prevQ, 4, 'Portal-Rollout sauber begleitet, Fluktuation niedrig.', { by: userGf });
 });
 
 const stats = {
@@ -886,6 +1082,8 @@ const stats = {
   Bewerbungen: (db.prepare('SELECT COUNT(*) n FROM applications').get() as { n: number }).n,
   'HR-Vorlagen': (db.prepare('SELECT COUNT(*) n FROM hr_templates').get() as { n: number }).n,
   'On-/Offboarding': (db.prepare('SELECT COUNT(*) n FROM onboarding_processes').get() as { n: number }).n,
+  Führungskräfte: (db.prepare('SELECT COUNT(*) n FROM leadership_leaders').get() as { n: number }).n,
+  Bewertungen: (db.prepare('SELECT COUNT(*) n FROM leadership_ratings').get() as { n: number }).n,
 };
 console.log('Demo-Daten angelegt:', stats);
 console.log(`
@@ -895,5 +1093,6 @@ Benutzerkonten (NUR Dev — auf Kundensystemen niemals seeden):
   admin@ohrganize.de: Zufallspasswort aus <dataDir>/initial-admin-password.txt,
     Wechsel beim ersten Login erzwungen.
   Mitarbeitenden-Portal (Web, Passwort "portal2026"):
-    deniz.aydin@ohrganize.de · marta.kowalczyk@ohrganize.de · leonie.vogt@ohrganize.de · samuel.okafor@ohrganize.de`);
+    deniz.aydin@ohrganize.de · marta.kowalczyk@ohrganize.de · leonie.vogt@ohrganize.de · samuel.okafor@ohrganize.de
+  Führungsfunktion (Mein Team): sabine.berger@ (GF) und jurgen.wilms@ (HRL) sind freigeschaltet`);
 closeDb();

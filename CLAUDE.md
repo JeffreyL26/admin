@@ -70,6 +70,32 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   genehmigt technisch immer „selbst". **Achtung Einzelbetrieb:** Eine
   Frischinstallation hat nur `admin@ohrganize.de`; dessen eigener Antrag ist dann
   von niemandem entscheidbar. Ein zweites Admin-Konto ist Voraussetzung.
+- **Führung & Bewertung — zwei Gates (Migration `310_leadership_ratings` im
+  3xx-Kreis).** Die **Verwaltung** (Freischaltung, Zuständigkeit, Skala und
+  Kategorien, Satisfaction-Report; alles unter `/api/leadership/*` außer `/me`)
+  hängt am Rechtebereich `fuehrung` wie jeder andere Bereich. Die
+  **Führungsfunktion** (`/api/leadership/me/*`, „Mein Team“) hängt dagegen an
+  der PERSON: Der globale Hook überspringt dort die Bereichsprüfung
+  (`SELF_GATED` in `core/permissions.ts`); stattdessen verlangt der
+  Plugin-preHandler `requireLeader` in `modules/leadership/routes.ts`, dass
+  `users.employee_id` in `leadership_leaders` steht und das Profil aktiv ist —
+  unabhängig von der Admin-Rolle. Die ausgelieferte Rolle „Führungskraft“ hat
+  deshalb **alle Bereiche auf `kein`** und sieht trotzdem ihr Team; ein
+  Profil ohne Konto darf bereits freigeschaltet sein. Wer zuständig ist,
+  bestimmt **ausschließlich** `service.scopeFor` (Routen, Report, Status
+  fragen alle dort nach): automatisch aus `manager_id`, Abteilungsleitung
+  inkl. Unterabteilungen und Teamleitung — je Quelle abschaltbar —, dazu
+  manuelle `include`/`exclude`-Zuweisungen (Person, Abteilung, Team,
+  Fachrolle; optional befristet). Nie sich selbst, nie Ausgeschiedene, und
+  eine Ausnahme schlägt jede Quelle. Gegenseitige Verantwortung (A bewertet
+  B und B bewertet A) wird erkannt und nur mit `allow_mutual` zugelassen
+  (sonst 409 beim Freischalten/Zuweisen). Bewertungen tragen Skala und
+  Rohwert **je Zeile** (ein späterer Skalenwechsel deutet Altes nicht um);
+  Speichern ist ein Upsert je (Führungskraft, Person, Kategorie, Zeitraum) mit
+  unveränderlichem Protokoll `leadership_rating_history`: Trigger gegen UPDATE,
+  keine Löschroute — die einzige Löschung ist die Kaskade beim Entfernen eines
+  Personalprofils. Keine der Tabellen referenziert `files`; beim
+  Dateiaufräumen ist hier nichts nachzuziehen.
 - **Desktop-Embedding:** `desktop/src/main.ts` ruft `startServer(0)` aus dem
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.ohrganize.apiBaseUrl`.
@@ -138,7 +164,7 @@ Jedes Fachmodul fasst **nur eigene Dateien** an; die Verdrahtung existiert berei
 
 | Was | Wo | Hinweis |
 |---|---|---|
-| SQL-Migrationen | `backend/src/db/migrations/<NNN>_<modul>.ts` | Nummernkreise: 0xx Core, 1xx Personal, 2xx Abwesenheit, 3xx Leistung, 4xx Vergütung, 5xx Kommunikation, 6xx Recruiting, 7xx Verwaltung. Array in der Moduldatei füllen — `index.ts` nicht anfassen. |
+| SQL-Migrationen | `backend/src/db/migrations/<NNN>_<modul>.ts` | Nummernkreise: 0xx Core, 1xx Personal, 2xx Abwesenheit, 3xx Leistung (inkl. 310 Führung), 4xx Vergütung, 5xx Kommunikation, 6xx Recruiting, 7xx Verwaltung. Array in der Moduldatei füllen — `index.ts` nicht anfassen. |
 | API-Routen | `backend/src/modules/<modul>/` | `routes.ts` exportiert das Fastify-Plugin (bereits registriert). |
 | OpenAPI | `backend/openapi/<modul>.paths.yaml` | Nur ein top-level `paths:`-Block; Merge via `npm run openapi -w apps/backend`. |
 | Shared-Typen | `packages/shared/src/<modul>.ts` | Bereits aus `index.ts` re-exportiert. |

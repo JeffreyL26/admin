@@ -41,6 +41,16 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   der Stelle, Eintrittsdatum, Beschäftigungsart); Steuer/SV/Bank ergänzt die HR
   danach im Personal-Modul. Die Bewerbung verweist über
   `applications.converted_employee_id` auf den erzeugten Datensatz.
+- **Führung → Personal (nur lesend):** Das Modul `leadership` liest
+  `employees`, `departments`, `teams`, `roles` und `employee_roles` per SQL
+  (Joins, keine Schreibzugriffe). Spalten-Kontrakt für die automatische
+  Zuständigkeit: `employees.manager_id` (direkt unterstellt),
+  `departments.head_employee_id` + `departments.parent_id` (Abteilungsleitung
+  inklusive Unterabteilungen, rekursiv), `teams.lead_employee_id`
+  (Teamleitung) sowie `employees.status = 'aktiv'`. Manuelle Zuweisungen
+  (`leadership_assignments`) referenzieren diese Tabellen per Fremdschlüssel
+  mit `ON DELETE CASCADE` — ein gelöschtes Ziel nimmt die Zuweisung mit, das
+  Personal-Modul muss nichts davon wissen.
 
 ## 3. API-Stilregeln
 
@@ -71,8 +81,12 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
 
 `router.tsx`, `layout/nav.ts`, `modules/index.ts`, `migrations/index.ts`,
 `server.ts`, alle `package.json`, Core-Dateien (`core/*`, `db/db.ts`,
-`db/migrate.ts`) sowie fremde Modulordner. Erweiterung ausschließlich über die
-in CLAUDE.md dokumentierten Erweiterungspunkte.
+`db/migrate.ts`), `ADMIN_AREAS` in `shared/admin.ts` (ein neuer Rechtebereich
+ist keine Modulsache: Er braucht zusätzlich einen Eintrag in `ROUTE_AREAS`
+(`core/permissions.ts`) und eine Migration, die `admin_role_permissions` für
+bestehende Rollen nachzieht — sonst fail closed für alle; Muster:
+`310_leadership`) sowie fremde Modulordner. Erweiterung ausschließlich über
+die in CLAUDE.md dokumentierten Erweiterungspunkte.
 
 ## 6. Modul-Selbsttest
 

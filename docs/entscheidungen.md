@@ -182,3 +182,69 @@ ist — Typen/Konstanten aus `@ohrganize/shared` und die Token-**Werte** — sta
 Komponenten, deren Layout-Annahmen nicht übertragbar sind. Die Desktop-Regel
 „base: './' + HashRouter" gilt hier ausdrücklich nicht (HTTP-Auslieferung,
 SPA-Fallback dokumentiert in docs/web-portal.md).
+
+## Führung & Bewertung: Freischaltung je Personalprofil statt Rechtebereich
+
+**Entscheidung:** Die Führungsfunktion („Mein Team“, `/api/leadership/me/*`)
+hängt an der Freischaltung des **Personalprofils** (Tabelle
+`leadership_leaders`, Schlüssel `employee_id`), nicht an der Admin-Rolle. Der
+Rechtebereich `fuehrung` regelt ausschließlich die Verwaltung (Freischalten,
+Zuständigkeit, Skala/Kategorien, Report). Zwei Gates, weil es zwei Fragen
+sind: „Darf dieses Konto die Funktion einrichten?“ (Rolle) und „Ist diese
+Person Führungskraft?“ (Organisation).
+
+**Verworfen — Rechtebereich allein:** Dann bräuchte jede Führungskraft eine
+Admin-Rolle mit `fuehrung: lesen` — und sähe damit den Satisfaction-Report
+über *alle* Führungskräfte; umgekehrt hätte jede HR-Kraft mit
+`fuehrung: bearbeiten` automatisch ein „Team“. Der Bereich kann nicht
+gleichzeitig „darf einrichten“ und „ist Führungskraft“ bedeuten.
+
+**Warum `employee_id` als Schlüssel:** Personalverantwortung ist eine
+Eigenschaft der Person in der Organisation; das Konto ist nur der Login dazu
+(`users.employee_id`). So lässt sich ein Profil freischalten, bevor ein Konto
+existiert (die Einrichtung weist auf das fehlende Konto hin), ein Kontowechsel
+verliert nichts, und die Zuständigkeitsableitung (`manager_id`,
+`departments.head_employee_id`, `teams.lead_employee_id`) rechnet ohnehin in
+Personal-IDs. **Verworfen — Flag in `users`:** bindet an den Login statt an
+die Person; ein Profil ohne Konto wäre nicht freischaltbar, und die Kaskade
+beim Löschen eines Profils griffe nicht. **Verworfen — JSON in
+`app_settings`:** keine Fremdschlüssel, keine Kaskade, kein Join für Liste und
+Report, und jede Änderung müsste den ganzen Blob neu schreiben.
+
+**Rolle „Führungskraft“ per `INSERT … WHERE NOT EXISTS` / `OR IGNORE`:**
+Migration 310 liefert eine Admin-Rolle ohne jeden HR-Bereich aus, damit ein
+Konto möglich ist, das nur „Mein Team“ sieht. Sie wird nur angelegt, wenn der
+Name frei ist, und Rechte werden nur ergänzt, nie überschrieben — eine
+Kundeninstallation kann längst eine gleichnamige Rolle mit eigenen Rechten
+haben, und eine Migration darf vergebene Rechte nicht still ändern. Bestehende
+Rollen erhalten `fuehrung` auf der Stufe ihres Bereichs `benutzer`: Wer Konten
+und Rechte vergibt, darf auch Führungskräfte freischalten; alle anderen bleiben
+fail closed und werden von Hand gehoben.
+
+**Protokoll app-seitig, Trigger nur gegen UPDATE:** `service.saveRatings`
+schreibt jede tatsächliche Änderung als neue Version nach
+`leadership_rating_history`; ein `BEFORE UPDATE`-Trigger macht die Zeilen
+unveränderlich. Bewusst **kein** Trigger gegen DELETE: Die einzige Löschung ist
+die Kaskade beim Entfernen eines Personalprofils (DSGVO-Löschung — das
+Protokoll über eine Person muss mit ihr verschwinden können) sowie der Neuseed
+der Dev-DB (`seed --force`); ein DELETE-Trigger hätte beides blockiert. Eine
+Löschroute gibt es nicht. **Verworfen — Insert-Trigger in der Datenbank:** sie
+kennen weder das handelnde Konto noch die Regel „unveränderte Blöcke erzeugen
+keine neue Version“, und das Protokoll wäre bei jedem Speichern des Formulars
+mit Leerzeilen gewachsen.
+
+**Skala je Bewertung gespeichert:** Jede Zeile trägt `scale` und den Rohwert
+`score`. Wird die Skala zentral umgestellt (5 Sterne → Ampel), bleiben alte
+Bewertungen lesbar statt umgedeutet; der Report zählt nur Zeilen auf der
+aktuellen Skala und weist die übrigen als `other_scale_count` aus.
+**Verworfen — Normierung auf 0…1 beim Speichern:** hätte die Originalanzeige
+(„4 von 5“, „Note 2“) verloren und Schulnoten (1 = beste Stufe) unnötig
+verwirrend gemacht.
+
+**Zeitraum-Helfer in `packages/shared`:** Quartals- und Halbjahresgrenzen
+sowie die Schlüssel (`2026-Q3`, `2026-H2`) berechnen Backend, Renderer und
+Seed über dieselben Funktionen (`periodFromKey`, `shiftPeriod`,
+`periodForDate`). Zwei Implementierungen derselben Grenzen wären
+auseinandergelaufen — und genau daran hängt, ob eine Bewertung im richtigen
+Zeitraum landet und ob der Zeitraum-Wechsler im Client dieselben Zeiträume
+zeigt, die der Server akzeptiert.
