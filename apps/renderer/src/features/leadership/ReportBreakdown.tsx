@@ -105,7 +105,10 @@ export function ReportBreakdown({
                   <div className="lead-breakdown__sub">
                     {[row.job_title, row.department_name].filter(Boolean).join(' · ') || '—'}
                   </div>
-                  {row.sources.length > 0 && (
+                  {/* Quellen nur zeigen, wo sie etwas erklären: Dass fast alle
+                      einer Abteilungsleitung unterstehen, weiß man; eine
+                      manuelle Zuweisung dagegen ist begründungsbedürftig. */}
+                  {row.sources.includes('zugewiesen') && (
                     <div style={{ marginTop: 4 }}>
                       <SourceBadges sources={row.sources} mutual={0} />
                     </div>
