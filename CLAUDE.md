@@ -88,8 +88,16 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   manuelle `include`/`exclude`-Zuweisungen (Person, Abteilung, Team,
   Fachrolle; optional befristet). Nie sich selbst, nie Ausgeschiedene, und
   eine Ausnahme schlägt jede Quelle. Gegenseitige Verantwortung (A bewertet
-  B und B bewertet A) wird erkannt und nur mit `allow_mutual` zugelassen
-  (sonst 409 beim Freischalten/Zuweisen). Bewertungen tragen Skala und
+  B und B bewertet A) wird erkannt und nur mit `allow_mutual` zugelassen —
+  geprüft an JEDER Stelle, die Zuständigkeit verändert (Freischalten,
+  Zuweisen, Ausnahme entfernen, Automatik umschalten, Einstellungen), jeweils
+  in der Transaktion (409 + Rollback, `service.assertMutualAllowed`).
+  Verknüpfen oder Lösen eines freigeschalteten Profils in der
+  Benutzerverwaltung verlangt `fuehrung: bearbeiten`
+  (`userRoutes.ts#assertMayLinkProfile`), sonst verschaffte sich
+  `benutzer: bearbeiten` über ein Zweitkonto fremde Teams. Die Einrichtung
+  holt ihre Auswahllisten über `GET /api/leadership/lookup` (Bereich
+  `fuehrung`), nicht über `/api/employees` (`personal`). Bewertungen tragen Skala und
   Rohwert **je Zeile** (ein späterer Skalenwechsel deutet Altes nicht um);
   Speichern ist ein Upsert je (Führungskraft, Person, Kategorie, Zeitraum) mit
   unveränderlichem Protokoll `leadership_rating_history`: Trigger gegen UPDATE,

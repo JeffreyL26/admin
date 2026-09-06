@@ -221,9 +221,9 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
     return service.leaderTeam(employeeParam(req), period, photoView(req));
   });
 
-  app.patch('/api/leadership/leaders/:employeeId', async (req) => ({
-    leader: service.updateLeader(req, employeeParam(req), parse(leaderPatchSchema, req.body)),
-  }));
+  app.patch('/api/leadership/leaders/:employeeId', async (req) =>
+    service.updateLeader(req, employeeParam(req), parse(leaderPatchSchema, req.body)),
+  );
 
   app.delete('/api/leadership/leaders/:employeeId', async (req, reply) => {
     service.revokeLeader(req, employeeParam(req));
@@ -240,6 +240,9 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
     service.deleteAssignment(req, idParam(req));
     reply.status(204);
   });
+
+  // Auswahllisten der Einrichtung — im Bereich fuehrung, siehe service.lookup.
+  app.get('/api/leadership/lookup', async () => service.lookup());
 
   // ------------------------------------------------ Report und Einsicht --
   app.get('/api/leadership/report', async (req) => {

@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type {
   Leader,
+  LeaderTeamResponse,
   LeadershipAssignment,
   LeadershipReport,
   Rating,
@@ -796,7 +797,27 @@ check(
     ((await admin.get('/api/leadership/categories')).json().categories as RatingCategory[]).some((c) => c.id === verhalten.id && c.active === 0),
 );
 const rateInactive = await rate(DEV1, { period_key: period, ratings: [{ category_id: verhalten.id, score: 3, comment: 'x' }] });
-check('Bewertung in inaktiver Kategorie → 404', rateInactive.statusCode === 404, rateInactive.json());
+check('NEUE Bewertung in inaktiver Kategorie → 400', rateInactive.statusCode === 400 && /deaktiviert/.test(rateInactive.json()?.error?.message ?? ''), rateInactive.json());
+// Bestehende Bewertung in einer inzwischen deaktivierten Kategorie bleibt
+// annehmbar: Die Maske sendet immer alle Blöcke — sonst wäre mit der
+// Deaktivierung auch die Gesamtbewertung eingefroren. Unveränderte Werte
+// erzeugen dabei wie überall keine neue Version (Protokoll bleibt bei 3).
+await admin.patch(`/api/leadership/categories/${leistung.id}`, { active: false });
+const editInactive = await rate(DEV1, {
+  period_key: period,
+  ratings: [
+    { category_id: gesamt.id, score: 3, comment: 'Nachgebessert: solide, aber Luft nach oben' },
+    { category_id: leistung.id, score: 5, comment: 'Sehr gut' },
+  ],
+});
+check(
+  'Bestehende Bewertung in deaktivierter Kategorie wird weiter angenommen → 200, ohne neue Version',
+  editInactive.statusCode === 200 &&
+    (editInactive.json().ratings as Rating[]).find((r) => r.category_id === leistung.id)?.version === 1 &&
+    historyCount() === 3,
+  editInactive.json(),
+);
+await admin.patch(`/api/leadership/categories/${leistung.id}`, { active: true });
 await admin.patch(`/api/leadership/categories/${verhalten.id}`, { active: true });
 
 const delNew = await admin.del(`/api/leadership/categories/${puenktlichkeit!.id}`);
@@ -978,6 +999,130 @@ check('Report-Leser: GET /api/employees → 403 (personal kein)', readerEmployee
 const readerStatus = await reader.get('/api/leadership/me/status');
 check('Report-Leser (HRSB nicht freigeschaltet): /me/status → 200, is_leader false', readerStatus.statusCode === 200 && readerStatus.json().is_leader === false && readerStatus.json().employee_id === HRSB, readerStatus.json());
 check('TLB wurde durch den abgelehnten POST nicht freigeschaltet', !db.prepare('SELECT 1 FROM leadership_leaders WHERE employee_id = ?').get(TLB));
+
+// ---------------------------------------------------------------------------
+// Review-Befunde: Verknüpfungsschutz, Foto-Rechte, gegenseitige Verantwortung
+// an ALLEN Stellen, die Zuständigkeit verändern
+// ---------------------------------------------------------------------------
+
+// Rolle „Nur Benutzer“: darf Konten verwalten (benutzer bearbeiten), aber
+// keine Führungskräfte (fuehrung kein).
+const onlyUsersRole = await admin.post('/api/admin/admin-roles', {
+  name: 'Nur Benutzer',
+  permissions: { benutzer: 'bearbeiten' },
+});
+check('Rolle „Nur Benutzer“ → 201', onlyUsersRole.statusCode === 201, onlyUsersRole.json());
+const hrUser = await loginAs(SALES1, 'sven.verkauf@example.org', 'Sven Verkauf', onlyUsersRole.json().admin_role.id);
+
+// CTO ist freigeschaltet und hat kein Konto: Ein Zweitkonto daran zu hängen
+// wäre der Weg, in CTOs Namen zu bewerten.
+const puppet = await hrUser.post('/api/admin/users', {
+  email: 'puppet@example.org',
+  name: 'Puppet',
+  role: 'admin',
+  employee_id: CTO,
+  admin_role_id: fuehrungskraftRole.id,
+});
+check(
+  'Konto mit freigeschaltetem Profil ohne fuehrung:bearbeiten → 403',
+  puppet.statusCode === 403 && /freigeschaltet/.test(puppet.json()?.error?.message ?? ''),
+  puppet.json(),
+);
+const platAccount = await admin.post('/api/admin/users', {
+  email: 'paula.platt@example.org',
+  name: 'Paula Platt',
+  role: 'admin',
+  employee_id: PLAT1,
+  admin_role_id: fuehrungskraftRole.id,
+});
+check('Konto für PLAT1 (nicht freigeschaltet) → 201', platAccount.statusCode === 201, platAccount.json());
+const platUserId = platAccount.json().user.id as number;
+const relinkForbidden = await hrUser.patch(`/api/admin/users/${platUserId}`, { employee_id: CTO });
+check('PATCH employee_id auf freigeschaltetes Profil ohne fuehrung:bearbeiten → 403', relinkForbidden.statusCode === 403, relinkForbidden.json());
+const unlinkAllowed = await hrUser.patch(`/api/admin/users/${platUserId}`, { employee_id: null });
+check('PATCH employee_id lösen (kein freigeschaltetes Profil) → 200', unlinkAllowed.statusCode === 200 && unlinkAllowed.json().user?.employee_id === null, unlinkAllowed.json());
+const relinkAdmin = await admin.patch(`/api/admin/users/${platUserId}`, { employee_id: CTO });
+check('Vollzugriff verknüpft freigeschaltetes Profil → 200', relinkAdmin.statusCode === 200 && relinkAdmin.json().user?.employee_id === CTO, relinkAdmin.json());
+const leadersWithAccount = (await admin.get('/api/leadership/leaders')).json().leaders as Leader[];
+check('CTO hat jetzt ein Desktop-Konto', leadersWithAccount.find((l) => l.employee_id === CTO)?.user_email === 'paula.platt@example.org', leadersWithAccount);
+// Halbes Update darf es nicht geben: Scheitert der Rollenteil, bleibt auch die Verknüpfung unverändert.
+const halfUpdate = await hrUser.patch(`/api/admin/users/${platUserId}`, { employee_id: null, admin_role_id: readerRole.json().admin_role.id });
+check('PATCH mit gültigem employee_id, aber unzulässiger Rolle → 403', halfUpdate.statusCode === 403, halfUpdate.json());
+check(
+  '… und die Verknüpfung blieb unverändert (keine halbe Änderung)',
+  (db.prepare('SELECT employee_id FROM users WHERE id = ?').get(platUserId) as { employee_id: number | null }).employee_id === CTO,
+);
+await admin.patch(`/api/admin/users/${platUserId}`, { employee_id: null });
+
+// Fotos: signierte URLs nur für Konten, die sie auch selbst signieren dürften.
+const photoFile = Number(
+  db
+    .prepare(`INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256) VALUES ('foto.jpg', 'x-foto.jpg', 'image/jpeg', 10, 'abc')`)
+    .run().lastInsertRowid,
+);
+db.prepare('UPDATE employees SET photo_file_id = ? WHERE id IN (?, ?)').run([photoFile, CTO, PLAT1]);
+const reportWithPhoto = (await admin.get('/api/leadership/report')).json() as LeadershipReport;
+const reportReaderPhoto = (await reader.get('/api/leadership/report')).json() as LeadershipReport;
+check(
+  'Report: Foto-URL nur mit personal:lesen (Vollzugriff ja, Report-Leser nein)',
+  typeof reportWithPhoto.leaders.find((l) => l.employee_id === CTO)?.photo_url === 'string' &&
+    reportReaderPhoto.leaders.find((l) => l.employee_id === CTO)?.photo_url === null,
+  { admin: reportWithPhoto.leaders.map((l) => l.photo_url), reader: reportReaderPhoto.leaders.map((l) => l.photo_url) },
+);
+const teamPreviewReader = (await reader.get(`/api/leadership/leaders/${CTO}/team`)).json() as LeaderTeamResponse;
+const teamPreviewAdmin = (await admin.get(`/api/leadership/leaders/${CTO}/team`)).json() as LeaderTeamResponse;
+check(
+  'Zuständigkeits-Vorschau: Foto-URL nur mit personal:lesen',
+  teamPreviewReader.team.find((m) => m.id === PLAT1)?.photo_url === null &&
+    typeof teamPreviewAdmin.team.find((m) => m.id === PLAT1)?.photo_url === 'string',
+  { reader: teamPreviewReader.team.map((m) => [m.id, m.photo_url]) },
+);
+
+// Gegenseitige Verantwortung: Einstellungen, Ausnahme entfernen, Automatik.
+const regrantTlb = await admin.post('/api/leadership/leaders', { employee_id: TLB });
+check('TLB erneut freischalten → 201', regrantTlb.statusCode === 201, regrantTlb.json());
+const includeCto = await admin.post(`/api/leadership/leaders/${TLB}/assignments`, { kind: 'include', target_type: 'employee', target_id: CTO });
+check('TLB include CTO → 201 mit Hinweis (Paar entsteht, zugelassen)', includeCto.statusCode === 201 && includeCto.json().warnings.length === 1, includeCto.json());
+const forbidWithPairs = await admin.put('/api/leadership/settings', { allow_mutual: false });
+check('allow_mutual=false bei bestehendem Paar → 409', forbidWithPairs.statusCode === 409 && /Paare bestehen/.test(forbidWithPairs.json()?.error?.message ?? ''), forbidWithPairs.json());
+const excludeTlb = await admin.post(`/api/leadership/leaders/${CTO}/assignments`, { kind: 'exclude', target_type: 'employee', target_id: TLB });
+check('CTO exclude TLB → 201 (Paar aufgelöst)', excludeTlb.statusCode === 201 && excludeTlb.json().warnings.length === 0, excludeTlb.json());
+const forbidNow = await admin.put('/api/leadership/settings', { allow_mutual: false });
+check('allow_mutual=false ohne Paar → 200', forbidNow.statusCode === 200 && forbidNow.json().settings?.allow_mutual === 0, forbidNow.json());
+const removeExclude = await admin.del(`/api/leadership/assignments/${excludeTlb.json().assignment.id}`);
+check('Ausnahme entfernen, die ein verbotenes Paar wiederherstellt → 409', removeExclude.statusCode === 409, removeExclude.json());
+check('… Ausnahme besteht weiterhin (Rollback)', !!db.prepare('SELECT 1 FROM leadership_assignments WHERE id = ?').get(excludeTlb.json().assignment.id));
+const autoOff = await admin.patch(`/api/leadership/leaders/${CTO}`, { auto_scope: false });
+check('CTO Automatik aus → 200', autoOff.statusCode === 200 && autoOff.json().leader?.auto_scope === 0, autoOff.json());
+const removeExcludeNow = await admin.del(`/api/leadership/assignments/${excludeTlb.json().assignment.id}`);
+check('Ausnahme entfernen bei ausgeschalteter Automatik → 204', removeExcludeNow.statusCode === 204, removeExcludeNow.body);
+const autoOnForbidden = await admin.patch(`/api/leadership/leaders/${CTO}`, { auto_scope: true });
+check('Automatik einschalten, die ein verbotenes Paar erzeugt → 409', autoOnForbidden.statusCode === 409, autoOnForbidden.json());
+check('… Automatik blieb aus (Rollback)', (db.prepare('SELECT auto_scope FROM leadership_leaders WHERE employee_id = ?').get(CTO) as { auto_scope: number }).auto_scope === 0);
+const allowAgain = await admin.put('/api/leadership/settings', { allow_mutual: true });
+check('allow_mutual=true → 200', allowAgain.statusCode === 200);
+const autoOnAllowed = await admin.patch(`/api/leadership/leaders/${CTO}`, { auto_scope: true });
+check('Automatik einschalten bei zugelassener Gegenseitigkeit → 200 mit Hinweis', autoOnAllowed.statusCode === 200 && autoOnAllowed.json().warnings?.length === 1, autoOnAllowed.json());
+await admin.del(`/api/leadership/assignments/${includeCto.json().assignment.id}`);
+
+// Auswahllisten der Einrichtung hängen am Bereich fuehrung, nicht an personal/verwaltung.
+const lookupReader = await reader.get('/api/leadership/lookup');
+check(
+  'GET /api/leadership/lookup für Report-Leser → 200 mit aktiven Personen, Abteilungen, Teams, Rollen',
+  lookupReader.statusCode === 200 &&
+    lookupReader.json().employees.some((e: { id: number }) => e.id === DEV1) &&
+    !lookupReader.json().employees.some((e: { id: number }) => e.id === EXIT1) &&
+    lookupReader.json().departments.length >= 3 &&
+    lookupReader.json().teams.length >= 1 &&
+    lookupReader.json().roles.some((r: { name: string }) => r.name === 'Projektleitung'),
+  lookupReader.json(),
+);
+const reportOpen = (await admin.get('/api/leadership/report')).json() as LeadershipReport;
+check(
+  'Report liefert open_count je Führungskraft (heutiger Bereich ohne Gesamtbewertung)',
+  reportOpen.leaders.every((l) => typeof l.open_count === 'number' && l.open_count <= l.team_size),
+  reportOpen.leaders.map((l) => [l.last_name, l.team_size, l.rated_count, l.open_count]),
+);
 
 // Audit-Log wurde befüllt
 const auditCount = db

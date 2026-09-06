@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Handshake, Plus, Trash2 } from 'lucide-react';
 import {
   ASSIGNMENT_KIND_LABELS,
@@ -9,15 +8,13 @@ import {
   type AssignmentTargetType,
   type Leader,
   type LeadershipAssignment,
-  type Role,
   type TeamMember,
 } from '@ohrganize/shared';
-import { api } from '../../api/client';
 import { Avatar, Badge, Field, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
-import { useDepartments, useTeams, usePhotoUrl } from '../employees/api';
-import { useCreateAssignment, useDeleteAssignment, useLeaderTeam } from './api';
+import { usePhotoUrl } from '../employees/api';
+import { useCreateAssignment, useDeleteAssignment, useLeaderTeam, useLeadershipLookup } from './api';
 import { SourceBadges } from './common';
 import { SetupEmployeeSelect, SetupNote, errorMessage, personCount } from './SetupShared';
 
@@ -243,15 +240,6 @@ function AssignmentTable({ assignments, canEdit }: { assignments: LeadershipAssi
 const TARGET_TYPES: AssignmentTargetType[] = ['employee', 'department', 'team', 'role'];
 const KINDS: AssignmentKind[] = ['include', 'exclude'];
 
-/** Fachrollen (Verwaltung → Rollen) — derselbe Key wie in RolesPage, gleiche Antwortform. */
-function useRoles() {
-  return useQuery({
-    queryKey: ['admin', 'roles'],
-    queryFn: () => api.get<{ roles: Role[] }>('/api/admin/roles'),
-    select: (d) => d.roles,
-  });
-}
-
 function AssignmentForm({ leaderId }: { leaderId: number }) {
   const toast = useToast();
   const create = useCreateAssignment();
@@ -386,24 +374,20 @@ function TargetSelect({
   onChange: (id: number | null) => void;
   exclude: Set<number>;
 }) {
-  // Alle drei Listen werden geladen, sobald das Formular sichtbar ist — sie
-  // sind klein, und der Wechsel des Zieltyps soll nicht auf einen Spinner
-  // führen. Hooks dürfen nicht bedingt aufgerufen werden.
-  const departments = useDepartments();
-  const teams = useTeams();
-  const roles = useRoles();
+  // Alle Listen kommen aus dem Lookup des Bereichs fuehrung (eine Antwort):
+  // /api/departments, /api/teams und /api/admin/roles hingen an `personal`
+  // bzw. `verwaltung` — ein reines Einrichtungs-Konto sähe dort nichts.
+  const lookup = useLeadershipLookup().data;
 
   if (type === 'employee') {
     return <SetupEmployeeSelect value={value} onChange={onChange} exclude={exclude} />;
   }
   const options: { id: number; label: string }[] =
     type === 'department'
-      ? (departments.data ?? []).map((d) => ({ id: d.id, label: d.name }))
+      ? (lookup?.departments ?? []).map((d) => ({ id: d.id, label: d.name }))
       : type === 'team'
-        ? (teams.data ?? []).map((t) => ({ id: t.id, label: t.name }))
-        : (roles.data ?? [])
-            .filter((r) => r.active === 1)
-            .map((r) => ({ id: r.id, label: r.name }));
+        ? (lookup?.teams ?? []).map((t) => ({ id: t.id, label: t.name }))
+        : (lookup?.roles ?? []).map((r) => ({ id: r.id, label: r.name }));
   const sorted = [...options].sort((a, b) => a.label.localeCompare(b.label, 'de'));
   return (
     <select

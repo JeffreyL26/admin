@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Info, X } from 'lucide-react';
-import { useEmployees } from '../../components/EmployeeSelect';
+import { useLeadershipLookup } from './api';
 
 /**
  * Kleine Bausteine, die sich die Reiter der Einrichtung teilen. Bewusst
@@ -76,7 +76,9 @@ export function SetupEmployeeSelect({
   emptyLabel?: string;
   autoFocus?: boolean;
 }) {
-  const { data: employees } = useEmployees();
+  // Eigener Lookup im Bereich fuehrung — /api/employees hinge an `personal`,
+  // und ein reines Einrichtungs-Konto sähe dann eine leere Liste.
+  const employees = useLeadershipLookup().data?.employees;
   const options = useMemo(() => {
     const list = (employees ?? []).filter((e) => !exclude?.has(e.id));
     return [...list].sort((a, b) =>

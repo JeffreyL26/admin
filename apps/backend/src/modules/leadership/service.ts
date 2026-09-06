@@ -32,6 +32,7 @@ import {
   type LeaderTeamResponse,
   type LeadershipAssignment,
   type LeadershipAssignmentInput,
+  type LeadershipLookup,
   type LeadershipReport,
   type LeadershipSettings,
   type LeadershipSettingsPatch,
@@ -96,9 +97,29 @@ export function updateSettings(req: FastifyRequest, patch: LeadershipSettingsPat
   }
   if (sets.length === 0) throw badRequest('Keine Änderungen übergeben');
   const before = getSettings();
+  const pairsBefore = pairKeys(mutualPairs());
   sets.push("updated_at = datetime('now')");
-  getDb().prepare(`UPDATE leadership_settings SET ${sets.join(', ')} WHERE id = 1`).run(params);
-  const after = getSettings();
+  const after = inTransaction(() => {
+    getDb().prepare(`UPDATE leadership_settings SET ${sets.join(', ')} WHERE id = 1`).run(params);
+    const next = getSettings();
+    if (next.allow_mutual === 0) {
+      // Ausschluss erst möglich, wenn kein Paar mehr besteht — sonst stünde
+      // in den Einstellungen etwas, das die Daten längst verletzen.
+      if (before.allow_mutual === 1) {
+        const pairs = mutualPairs();
+        if (pairs.length > 0) {
+          throw conflict(
+            `Gegenseitige Verantwortung kann nicht ausgeschlossen werden, solange Paare bestehen: ${pairs.map((p) => p.label).join(', ')}. ` +
+              'Nehmen Sie eine Seite über eine Ausnahme heraus oder lassen Sie gegenseitige Verantwortung zu.',
+          );
+        }
+      } else {
+        // Eine zusätzliche automatische Quelle kann neue Paare erzeugen.
+        assertMutualAllowed(pairsBefore, 0, 'Diese Einstellung');
+      }
+    }
+    return next;
+  });
   audit(req, 'update', 'leadership_settings', 1, { before, after });
   return after;
 }
@@ -308,10 +329,6 @@ export function listLeaders(): Leader[] {
   return rows.map((r) => ({ ...r, team_size: scopeFor(r.employee_id).size }));
 }
 
-function mutualNames(partners: { first_name: string; last_name: string }[]): string {
-  return partners.map((p) => `${p.first_name} ${p.last_name}`).join(', ');
-}
-
 export function grantLeader(
   req: FastifyRequest,
   employeeId: number,
@@ -329,6 +346,7 @@ export function grantLeader(
   }
   const settings = getSettings();
   const warnings: string[] = [];
+  const before = pairKeys(mutualPairs());
   inTransaction(() => {
     getDb()
       .prepare(
@@ -345,16 +363,7 @@ export function grantLeader(
     // (A ist Vorgesetzte:r von B, B leitet die Abteilung von A). Ist sie nicht
     // zugelassen, scheitert die Freischaltung mit Erklärung statt still eine
     // verbotene Konstellation anzulegen — die Transaktion rollt zurück.
-    const partners = mutualPartners(employeeId);
-    if (partners.length > 0) {
-      if (settings.allow_mutual === 0) {
-        throw conflict(
-          `Die Freischaltung würde eine gegenseitige Verantwortung mit ${mutualNames(partners)} erzeugen. ` +
-            'Gegenseitige Verantwortung ist in den Einstellungen nicht zugelassen — nehmen Sie die Person dort aus oder erlauben Sie sie.',
-        );
-      }
-      warnings.push(`Gegenseitige Verantwortung mit ${mutualNames(partners)}.`);
-    }
+    warnings.push(...assertMutualAllowed(before, settings.allow_mutual, 'Die Freischaltung'));
   });
   audit(req, 'grant', 'leadership_leader', employeeId, {
     name: `${employee.first_name} ${employee.last_name}`,
@@ -367,7 +376,7 @@ export function updateLeader(
   req: FastifyRequest,
   employeeId: number,
   patch: { auto_scope?: boolean; note?: string | null },
-): Leader {
+): { leader: Leader; warnings: string[] } {
   loadLeader(employeeId);
   const sets: string[] = [];
   const params: Record<string, unknown> = { employee_id: employeeId };
@@ -380,11 +389,21 @@ export function updateLeader(
     params.note = patch.note ?? null;
   }
   if (sets.length === 0) throw badRequest('Keine Änderungen übergeben');
-  getDb()
-    .prepare(`UPDATE leadership_leaders SET ${sets.join(', ')} WHERE employee_id = @employee_id`)
-    .run(params);
+  const settings = getSettings();
+  const before = pairKeys(mutualPairs());
+  const warnings: string[] = [];
+  inTransaction(() => {
+    getDb()
+      .prepare(`UPDATE leadership_leaders SET ${sets.join(', ')} WHERE employee_id = @employee_id`)
+      .run(params);
+    // Das Einschalten der Automatik kann Paare erzeugen — gleiche Regel wie
+    // beim Freischalten.
+    if (patch.auto_scope !== undefined) {
+      warnings.push(...assertMutualAllowed(before, settings.allow_mutual, 'Die Änderung der Zuständigkeit'));
+    }
+  });
   audit(req, 'update', 'leadership_leader', employeeId, { changed: patch });
-  return loadLeader(employeeId);
+  return { leader: loadLeader(employeeId), warnings };
 }
 
 /** Freischaltung entziehen. Bewertungen und Protokoll bleiben erhalten. */
@@ -558,6 +577,56 @@ export function mutualPartners(
   return partners.sort((a, b) => a.last_name.localeCompare(b.last_name, 'de'));
 }
 
+/** Alle gegenseitigen Paare (a < b) über sämtliche Führungskräfte. */
+export function mutualPairs(): { a: number; b: number; label: string }[] {
+  const db = getDb();
+  const leaders = (db.prepare('SELECT employee_id FROM leadership_leaders').all() as { employee_id: number }[]).map(
+    (r) => r.employee_id,
+  );
+  const scopes = new Map(leaders.map((id) => [id, scopeFor(id)] as const));
+  const nameOf = (id: number) => {
+    const row = db.prepare('SELECT first_name, last_name FROM employees WHERE id = ?').get(id) as
+      | { first_name: string; last_name: string }
+      | undefined;
+    return row ? `${row.first_name} ${row.last_name}` : `#${id}`;
+  };
+  const pairs: { a: number; b: number; label: string }[] = [];
+  for (const a of leaders) {
+    for (const b of leaders) {
+      if (a >= b) continue;
+      if (scopes.get(a)!.has(b) && scopes.get(b)!.has(a)) {
+        pairs.push({ a, b, label: `${nameOf(a)} ↔ ${nameOf(b)}` });
+      }
+    }
+  }
+  return pairs;
+}
+
+function pairKeys(pairs: { a: number; b: number }[]): Set<string> {
+  return new Set(pairs.map((p) => `${p.a}-${p.b}`));
+}
+
+/**
+ * Gegenseitige Verantwortung durchsetzen — an JEDER Stelle, die Zuständigkeit
+ * verändert (Freischaltung, Zuweisung, Ausnahme entfernen, Automatik
+ * umschalten, Einstellungen). Innerhalb der Transaktion aufrufen: Ein Verstoß
+ * wirft 409 und rollt die Änderung zurück. Nur NEUE Paare zählen; bereits
+ * bestehende wurden beim Entstehen gemeldet. Liefert Hinweise, wenn Paare
+ * zugelassen sind.
+ */
+function assertMutualAllowed(before: Set<string>, allowMutual: number, context: string): string[] {
+  const fresh = mutualPairs().filter((p) => !before.has(`${p.a}-${p.b}`));
+  if (fresh.length === 0) return [];
+  const names = fresh.map((p) => p.label).join(', ');
+  if (allowMutual === 0) {
+    throw conflict(
+      `${context} würde eine gegenseitige Verantwortung erzeugen (${names}). ` +
+        'Gegenseitige Verantwortung ist in den Einstellungen nicht zugelassen — nehmen Sie eine Seite über eine Ausnahme heraus oder lassen Sie sie zu.',
+    );
+  }
+  return [`Gegenseitige Verantwortung: ${names}.`];
+}
+
 interface MemberRow {
   id: number;
   first_name: string;
@@ -726,7 +795,7 @@ export function createAssignment(
     throw badRequest('„Gültig bis“ darf nicht vor „Gültig ab“ liegen.');
   }
   const settings = getSettings();
-  const before = new Set(mutualPartners(leaderId).map((p) => p.employee_id));
+  const before = pairKeys(mutualPairs());
   const warnings: string[] = [];
   const id = inTransaction(() => {
     const info = getDb()
@@ -745,16 +814,7 @@ export function createAssignment(
       });
     // Neue gegenseitige Verantwortung? Nur die durch DIESE Zuweisung
     // entstandene zählt — bereits bestehende Paare wurden schon gemeldet.
-    const fresh = mutualPartners(leaderId).filter((p) => !before.has(p.employee_id));
-    if (fresh.length > 0) {
-      if (settings.allow_mutual === 0) {
-        throw conflict(
-          `Diese Zuweisung würde eine gegenseitige Verantwortung mit ${mutualNames(fresh)} erzeugen. ` +
-            'Gegenseitige Verantwortung ist in den Einstellungen nicht zugelassen.',
-        );
-      }
-      warnings.push(`Gegenseitige Verantwortung mit ${mutualNames(fresh)}.`);
-    }
+    warnings.push(...assertMutualAllowed(before, settings.allow_mutual, 'Diese Zuweisung'));
     return Number(info.lastInsertRowid);
   });
   const assignment = getAssignment(id);
@@ -769,7 +829,14 @@ export function createAssignment(
 
 export function deleteAssignment(req: FastifyRequest, id: number): void {
   const existing = getAssignment(id);
-  getDb().prepare('DELETE FROM leadership_assignments WHERE id = ?').run(id);
+  const settings = getSettings();
+  const before = pairKeys(mutualPairs());
+  inTransaction(() => {
+    getDb().prepare('DELETE FROM leadership_assignments WHERE id = ?').run(id);
+    // Das Entfernen einer Ausnahme holt Personen zurück in den Bereich — und
+    // kann damit ein verbotenes Paar wiederherstellen.
+    assertMutualAllowed(before, settings.allow_mutual, 'Das Entfernen der Zuweisung');
+  });
   audit(req, 'delete', 'leadership_assignment', id, {
     leader_employee_id: existing.leader_employee_id,
     target_name: existing.target_name,
@@ -905,7 +972,23 @@ export function saveRatings(
   }
   if (body.ratings.length === 0) throw badRequest('Mindestens ein Bewertungsblock ist erforderlich.');
 
-  const categories = new Map(listCategories(true, settings).map((c) => [c.id, c]));
+  const db = getDb();
+  // Alle Kategorien, auch inaktive: Eine bestehende Bewertung in einer
+  // inzwischen deaktivierten Kategorie bleibt änderbar — die Maske sendet
+  // immer alle Blöcke, sonst wäre mit der Deaktivierung auch die
+  // Gesamtbewertung eingefroren. Nur NEUE Bewertungen brauchen eine aktive
+  // Kategorie.
+  const categories = new Map(listCategories(false, settings).map((c) => [c.id, c]));
+  const alreadyRated = new Set(
+    (
+      db
+        .prepare(
+          `SELECT category_id FROM leadership_ratings
+           WHERE leader_employee_id = @leader AND employee_id = @employee AND period_key = @period`,
+        )
+        .all({ leader: leaderId, employee: employeeId, period: period.key }) as { category_id: number }[]
+    ).map((r) => r.category_id),
+  );
   const seen = new Set<number>();
   const prepared = body.ratings.map((r) => {
     if (seen.has(r.category_id)) {
@@ -913,7 +996,10 @@ export function saveRatings(
     }
     seen.add(r.category_id);
     const category = categories.get(r.category_id);
-    if (!category) throw notFound('Bewertungskategorie nicht gefunden oder nicht aktiv');
+    if (!category) throw notFound('Bewertungskategorie nicht gefunden');
+    if (category.active !== 1 && !alreadyRated.has(category.id)) {
+      throw badRequest(`Die Kategorie „${category.name}“ ist deaktiviert und kann nicht neu bewertet werden.`);
+    }
     const def = RATING_SCALES[category.effective_scale];
     if (!Number.isInteger(r.score) || r.score < 1 || r.score > def.max) {
       throw badRequest(`Der Wert für „${category.name}“ muss zwischen 1 und ${def.max} liegen.`);
@@ -923,7 +1009,6 @@ export function saveRatings(
     return { category, score: r.score, comment };
   });
 
-  const db = getDb();
   const changed: { category: string; version: number; change_kind: string }[] = [];
   inTransaction(() => {
     for (const item of prepared) {
@@ -1093,13 +1178,20 @@ export function buildReport(period: RatingPeriod, view: ViewOptions = {}): Leade
   const rows: ReportLeaderRow[] = leaders.map((leader) => {
     const ratings = db
       .prepare(
-        `SELECT score, scale FROM leadership_ratings
+        `SELECT employee_id, score, scale FROM leadership_ratings
          WHERE leader_employee_id = @leader AND category_id = @category AND period_key = @period`,
       )
       .all({ leader: leader.employee_id, category: category.id, period: period.key }) as {
+      employee_id: number;
       score: number;
       scale: RatingScaleKey;
     }[];
+    // Offen = heutiger Bereich ohne Gesamtbewertung im Zeitraum. rated_count
+    // zählt dagegen alle Bewertungen der Führungskraft im Zeitraum, auch für
+    // Personen, die inzwischen nicht mehr zum Bereich gehören — beide Zahlen
+    // sind deshalb getrennt und werden nicht voneinander abgezogen.
+    const ratedIds = new Set(ratings.map((r) => r.employee_id));
+    const openCount = [...scopeFor(leader.employee_id).keys()].filter((id) => !ratedIds.has(id)).length;
     const onScale = ratings.filter((r) => r.scale === scale);
     const counts = levels.map((level) => onScale.filter((r) => r.score === level).length);
     const percent = percentages(counts);
@@ -1124,6 +1216,7 @@ export function buildReport(period: RatingPeriod, view: ViewOptions = {}): Leade
       photo_url: view.photos !== false && leader.photo_file_id ? signDownloadUrl(leader.photo_file_id) : null,
       team_size: leader.team_size,
       rated_count: onScale.length,
+      open_count: openCount,
       distribution,
       average_normalized: average,
       other_scale_count: ratings.length - onScale.length,
@@ -1131,4 +1224,35 @@ export function buildReport(period: RatingPeriod, view: ViewOptions = {}): Leade
   });
 
   return { period, current_period: currentPeriod(settings), category, scale, leaders: rows };
+}
+
+// ---------------------------------------------------------------------------
+// Auswahllisten der Einrichtung
+// ---------------------------------------------------------------------------
+
+/**
+ * Personen, Abteilungen, Teams und Fachrollen für Freischaltung und Zuweisung.
+ * Eigener Endpunkt im Bereich `fuehrung`, weil /api/employees, /api/departments
+ * und /api/admin/roles an `personal` bzw. `verwaltung` hängen — ohne diese
+ * Liste könnte ein reines Einrichtungs-Konto niemanden auswählen.
+ */
+export function lookup(): LeadershipLookup {
+  const db = getDb();
+  return {
+    employees: db
+      .prepare(
+        `SELECT id, first_name, last_name, job_title, department_id, team_id FROM employees
+         WHERE status = 'aktiv' ORDER BY last_name COLLATE NOCASE, first_name COLLATE NOCASE`,
+      )
+      .all() as LeadershipLookup['employees'],
+    departments: db
+      .prepare('SELECT id, name, parent_id FROM departments ORDER BY name COLLATE NOCASE')
+      .all() as LeadershipLookup['departments'],
+    teams: db
+      .prepare('SELECT id, name, department_id FROM teams ORDER BY name COLLATE NOCASE')
+      .all() as LeadershipLookup['teams'],
+    roles: db
+      .prepare('SELECT id, name FROM roles WHERE active = 1 ORDER BY name COLLATE NOCASE')
+      .all() as LeadershipLookup['roles'],
+  };
 }

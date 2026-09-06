@@ -584,13 +584,35 @@ export interface ReportLeaderRow {
   photo_url: string | null;
   /** Aktive Mitarbeitende im Zuständigkeitsbereich. */
   team_size: number;
-  /** Davon mit Gesamtbewertung im Zeitraum (auf der Report-Skala). */
+  /** Personen mit Gesamtbewertung im Zeitraum (auf der Report-Skala) — auch
+   *  solche, die inzwischen nicht mehr zum Bereich gehören. */
   rated_count: number;
+  /** Personen im heutigen Bereich OHNE Gesamtbewertung im Zeitraum. */
+  open_count: number;
   distribution: ReportDistributionEntry[];
   /** Mittelwert der normierten Werte (0…1), null ohne Bewertungen. */
   average_normalized: number | null;
   /** Bewertungen auf einer anderen als der aktuellen Skala (nach Umstellung). */
   other_scale_count: number;
+}
+
+/**
+ * GET /api/leadership/lookup — Auswahllisten der Einrichtung. Hängt am Bereich
+ * `fuehrung`, damit Freischalten und Zuweisen auch ohne die Bereiche
+ * `personal`/`verwaltung` funktionieren. Nur aktive Mitarbeitende und Rollen.
+ */
+export interface LeadershipLookup {
+  employees: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    job_title: string | null;
+    department_id: number | null;
+    team_id: number | null;
+  }[];
+  departments: { id: number; name: string; parent_id: number | null }[];
+  teams: { id: number; name: string; department_id: number | null }[];
+  roles: { id: number; name: string }[];
 }
 
 /** GET /api/leadership/report?period=… */

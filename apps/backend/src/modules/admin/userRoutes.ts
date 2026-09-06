@@ -456,7 +456,10 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           .prepare('SELECT email FROM users WHERE employee_id = ?')
           .get(employeeId) as { email: string } | undefined;
         if (linked) {
-          throw conflict(`Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft.`);
+          throw conflict(
+            `Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft. Je Profil gibt es genau ein Konto — ` +
+              'für einen Desktop-Zugang das bestehende Konto löschen und ein Konto der HR-Administration mit diesem Profil anlegen (es ist zugleich portalfähig).',
+          );
         }
       }
       const res = db()
@@ -601,7 +604,10 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           .prepare('SELECT email FROM users WHERE employee_id = ? AND id != ?')
           .get([employeeId, id]) as { email: string } | undefined;
         if (linked) {
-          throw conflict(`Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft.`);
+          throw conflict(
+            `Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft. Je Profil gibt es genau ein Konto — ` +
+              'für einen Desktop-Zugang das bestehende Konto löschen und ein Konto der HR-Administration mit diesem Profil anlegen (es ist zugleich portalfähig).',
+          );
         }
       }
       // Bisheriges wie neues Profil: Ist eines davon als Führungskraft

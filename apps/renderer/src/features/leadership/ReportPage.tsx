@@ -43,9 +43,9 @@ function bestShare(row: ReportLeaderRow): number {
   return (row.distribution[0]?.count ?? 0) / row.rated_count;
 }
 
-/** Noch nicht bewertete Personen im Bereich (nie negativ: bewertete Personen können den Bereich verlassen haben). */
+/** Noch nicht bewertete Personen im heutigen Bereich — liefert das Backend getrennt von rated_count. */
 function openCount(row: ReportLeaderRow): number {
-  return Math.max(0, row.team_size - row.rated_count);
+  return row.open_count;
 }
 
 function compareName(a: ReportLeaderRow, b: ReportLeaderRow): number {
@@ -244,7 +244,7 @@ function LeaderReportRow({ row }: { row: ReportLeaderRow }) {
             <div className="lead-report-row__title">{subtitle || '—'}</div>
             <div className="lead-report-row__status">
               <span>
-                {row.rated_count} von {row.team_size} bewertet
+                {row.rated_count} bewertet · {row.team_size} im Bereich
               </span>
               {row.team_size === 0 ? (
                 <Badge tone="neutral">niemand zugeordnet</Badge>

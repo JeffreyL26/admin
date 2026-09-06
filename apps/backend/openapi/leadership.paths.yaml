@@ -138,6 +138,11 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "204": { description: Entfernt }
+  /api/leadership/lookup:
+    get:
+      summary: Auswahllisten der Einrichtung (aktive Mitarbeitende, Abteilungen, Teams, aktive Fachrollen) — im Bereich fuehrung
+      responses:
+        "200": { description: "{ employees, departments, teams, roles }" }
   /api/leadership/report:
     get:
       summary: Satisfaction-Report — Verteilung der Gesamtbewertung je Führungskraft im Zeitraum

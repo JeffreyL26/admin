@@ -18,6 +18,7 @@ import type {
   LeaderStatus,
   LeaderTeamResponse,
   LeadershipAssignmentInput,
+  LeadershipLookup,
   LeadershipReport,
   LeadershipSettings,
   LeadershipSettingsPatch,
@@ -180,7 +181,7 @@ export function useUpdateLeader() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ employeeId, patch }: { employeeId: number; patch: { auto_scope?: boolean; note?: string | null } }) =>
-      api.patch<{ leader: Leader }>(`/api/leadership/leaders/${employeeId}`, patch),
+      api.patch<{ leader: Leader; warnings: string[] }>(`/api/leadership/leaders/${employeeId}`, patch),
     onSuccess: () => invalidateLeadership(qc),
   });
 }
@@ -190,6 +191,19 @@ export function useRevokeLeader() {
   return useMutation({
     mutationFn: (employeeId: number) => api.delete<void>(`/api/leadership/leaders/${employeeId}`),
     onSuccess: () => invalidateLeadership(qc),
+  });
+}
+
+/**
+ * Auswahllisten der Einrichtung (Personen, Abteilungen, Teams, Fachrollen) —
+ * eigener Endpunkt im Bereich `fuehrung`, damit die Einrichtung ohne die
+ * Bereiche `personal`/`verwaltung` auskommt.
+ */
+export function useLeadershipLookup() {
+  return useQuery({
+    queryKey: [...LEADERSHIP_KEY, 'lookup'],
+    queryFn: () => api.get<LeadershipLookup>('/api/leadership/lookup'),
+    staleTime: 30_000,
   });
 }
 
