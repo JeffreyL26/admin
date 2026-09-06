@@ -434,6 +434,27 @@ export interface TeamMember {
   rated_categories: number;
   /** Letzte Speicherung (Zeitstempel) im angefragten Zeitraum. */
   last_rated_at: string | null;
+  /**
+   * Bisherige Zeiträume mit Bewertung (neueste zuerst), Spalten siehe
+   * `MyTeamResponse.history_periods`. Nur in der Führungsfunktion gefüllt —
+   * die Einrichtung braucht den Verlauf nicht.
+   */
+  history?: BreakdownCell[];
+}
+
+/**
+ * Woraus sich der Zuständigkeitsbereich zusammensetzt — Grundlage der
+ * Kopfzeile von „Mein Team“ („Technik · 9 Mitarbeitende · Q3 2026“).
+ * Abteilungen und Teams stammen aus den Personalprofilen der zugeordneten
+ * Personen, nicht aus der Leitungsfunktion: Wer über eine Zuweisung jemanden
+ * aus einer anderen Abteilung betreut, sieht sie hier ebenfalls.
+ */
+export interface TeamScopeSummary {
+  /** Aktive Personen im Bereich. */
+  total: number;
+  /** Absteigend nach Anzahl; `id: null` fasst Personen ohne Abteilung zusammen. */
+  departments: { id: number | null; name: string; count: number }[];
+  teams: { id: number; name: string; count: number }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -454,8 +475,10 @@ export interface Rating {
   comment: string;
   version: number;
   created_at: string;
+  created_by_user_id: number | null;
   created_by_name: string | null;
   updated_at: string;
+  updated_by_user_id: number | null;
   updated_by_name: string | null;
   /** Nur in Admin-Antworten (GET /api/leadership/employees/:id/ratings). */
   leader_name?: string | null;
@@ -495,6 +518,7 @@ export interface RatingHistoryEntry {
   previous_score: number | null;
   previous_comment: string | null;
   changed_at: string;
+  changed_by_user_id: number | null;
   changed_by_name: string | null;
 }
 
@@ -539,6 +563,10 @@ export interface MyTeamResponse {
   /** Nur aktive Kategorien, in Sortierreihenfolge, Gesamtbewertung zuerst. */
   categories: RatingCategory[];
   team: TeamMember[];
+  /** Abteilungen, Teams und Kopfzahl des eigenen Bereichs. */
+  scope: TeamScopeSummary;
+  /** Spalten der Verlaufsleiste je Person, neueste zuerst (enthält `period`). */
+  history_periods: RatingPeriod[];
 }
 
 /** GET /api/leadership/me/employees/:id?period=… */
@@ -644,10 +672,17 @@ export interface LeadershipLookup {
  */
 export interface BreakdownCell {
   period_key: string;
-  score: number;
-  scale: RatingScaleKey;
+  /**
+   * Gesamtbewertung — `null`, wenn in diesem Zeitraum zwar bewertet wurde,
+   * aber nicht in der Gesamtbewertungs-Kategorie. Die Zelle bleibt trotzdem
+   * anklickbar: Sonst wären die vorhandenen Bewertungen samt Kommentaren
+   * über den Report nicht erreichbar.
+   */
+  score: number | null;
+  scale: RatingScaleKey | null;
   /** Bewertete Kategorien in diesem Zeitraum (Gesamtbewertung mitgezählt). */
   category_count: number;
+  /** Jüngster Stand über alle Kategorien dieses Zeitraums. */
   updated_at: string;
 }
 

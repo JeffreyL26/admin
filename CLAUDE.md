@@ -81,7 +81,14 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   `users.employee_id` in `leadership_leaders` steht und das Profil aktiv ist —
   unabhängig von der Admin-Rolle. Die ausgelieferte Rolle „Führungskraft“ hat
   deshalb **alle Bereiche auf `kein`** und sieht trotzdem ihr Team; ein
-  Profil ohne Konto darf bereits freigeschaltet sein. Wer zuständig ist,
+  Profil ohne Konto darf bereits freigeschaltet sein. „Mein Team“
+  (`service.myTeam`) liefert dafür alles in EINER Antwort — die Seite darf
+  `/api/employees` nicht anfassen: Bereichskopf (`scope`: Abteilungen und Teams
+  mit Kopfzahl aus den Personalprofilen), Spalten der Verlaufsleiste
+  (`history_periods`, folgen dem gewählten Zeitraum) und je Person Stammdaten,
+  Eintrittsdatum und `history`. Die Seite teilt danach in „Ausstehend“ und
+  „Bereits bewertet“; **bewertet heißt mindestens eine Kategorie** im Zeitraum,
+  nicht zwingend die Gesamtbewertung. Wer zuständig ist,
   bestimmt **ausschließlich** `service.scopeFor` (Routen, Report, Status
   fragen alle dort nach): automatisch aus `manager_id`, Abteilungsleitung
   inkl. Unterabteilungen und Teamleitung — je Quelle abschaltbar —, dazu

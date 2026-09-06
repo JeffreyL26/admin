@@ -1,11 +1,15 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, Handshake } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Handshake } from 'lucide-react';
 import {
   EMPLOYEE_TYPE_LABELS,
   SCOPE_SOURCE_LABELS,
   formatDate,
+  formatDateTime,
   formatSeniority,
+  scaleLevelLabel,
+  scoreTone,
   shiftPeriod,
+  type BreakdownCell,
   type EmployeeType,
   type RatingPeriod,
   type ReportDistributionEntry,
@@ -126,19 +130,26 @@ function TeamAvatar({ member, size }: { member: TeamMember; size: number }) {
 }
 
 /**
- * Widget einer Person im Zuständigkeitsbereich: wichtigste Stammdaten,
- * Herkunft der Zuständigkeit und der Bewertungsstand im Zeitraum. Klickbar,
- * wenn `onOpen` gesetzt ist (Führungsfunktion); in der Einrichtung dient
- * dieselbe Karte als reine Vorschau.
+ * Widget einer Person im Zuständigkeitsbereich („Mein Team“): wichtigste
+ * Stammdaten, Eintrittsdatum, Herkunft der Zuständigkeit, der Bewertungsstand
+ * im gewählten Zeitraum und — sofern `historyPeriods` gesetzt ist — der
+ * Verlauf der letzten Zeiträume.
+ *
+ * Mit `onOpen` ist die ganze Karte der Knopf in die Bewertungsmaske; ohne
+ * bleibt sie eine reine Anzeige.
  */
 export function TeamMemberCard({
   member,
   onOpen,
-  periodLabel,
+  historyPeriods,
+  cta,
 }: {
   member: TeamMember;
   onOpen?: (employeeId: number) => void;
-  periodLabel?: string;
+  /** Spalten der Verlaufsleiste (neueste zuerst, aus `MyTeamResponse`). */
+  historyPeriods?: RatingPeriod[];
+  /** Beschriftung des Einstiegs, z. B. „Jetzt bewerten“. Nur mit `onOpen`. */
+  cta?: string;
 }) {
   const name = `${member.first_name} ${member.last_name}`;
   const type = member.employee_type as EmployeeType;
@@ -167,17 +178,32 @@ export function TeamMemberCard({
         {EMPLOYEE_TYPE_LABELS[type] && <Badge tone={EMPLOYEE_TYPE_TONES[type]}>{EMPLOYEE_TYPE_LABELS[type]}</Badge>}
         <SourceBadges sources={member.sources} mutual={member.mutual} />
       </div>
+      {historyPeriods && historyPeriods.length > 0 && (
+        <TeamHistoryTrack member={member} periods={historyPeriods} />
+      )}
       <div className="lead-card__foot">
-        {member.overall ? (
-          <RatingValue scale={member.overall.scale} score={member.overall.score} />
-        ) : (
-          <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-            {periodLabel ? `Noch nicht bewertet · ${periodLabel}` : 'Noch nicht bewertet'}
-          </span>
-        )}
-        {member.rated_categories > 0 && (
-          <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
-            {member.rated_categories} {member.rated_categories === 1 ? 'Kategorie' : 'Kategorien'}
+        <span className="lead-card__state">
+          {member.overall ? (
+            <RatingValue scale={member.overall.scale} score={member.overall.score} />
+          ) : (
+            <span className="lead-card__pending">
+              {/* Bewertet, aber nicht in der Gesamtbewertung: Das ist etwas
+                  anderes als „gar nicht bewertet“ und muss es auch sagen. */}
+              {member.rated_categories > 0 ? 'Ohne Gesamtbewertung' : 'Noch nicht bewertet'}
+            </span>
+          )}
+          {member.rated_categories > 0 && (
+            <span className="lead-card__cats">
+              {member.rated_categories} {member.rated_categories === 1 ? 'Kategorie' : 'Kategorien'}
+            </span>
+          )}
+        </span>
+        {onOpen && cta && (
+          // Kein Knopf im Knopf: Die ganze Karte ist der Auslöser, das hier
+          // ist nur seine sichtbare Beschriftung.
+          <span className="lead-card__cta">
+            {cta}
+            <ArrowRight size={14} aria-hidden="true" />
           </span>
         )}
       </div>
@@ -189,11 +215,94 @@ export function TeamMemberCard({
       type="button"
       className="hm-card hm-card--clickable lead-card"
       onClick={() => onOpen(member.id)}
-      aria-label={`${name} bewerten`}
     >
       {body}
     </button>
   );
+}
+
+/**
+ * Verlaufsleiste einer Person: die letzten Zeiträume nebeneinander, neuester
+ * links. Gezeigt wird die Gesamtbewertung als farbiger Punkt mit Rohwert —
+ * Sterne wären in dieser Breite unleserlich —, der volle Text steht im
+ * Tooltip.
+ *
+ * Bewusst ohne eigene Bedienelemente: Die Karte selbst ist der Knopf in die
+ * Bewertungsmaske, verschachtelte Knöpfe wären weder klick- noch bedienbar.
+ */
+function TeamHistoryTrack({ member, periods }: { member: TeamMember; periods: RatingPeriod[] }) {
+  const cells = member.history ?? [];
+  return (
+    <div className="lead-track">
+      {periods.map((p) => (
+        <TrackCell key={p.key} period={p} cell={cells.find((c) => c.period_key === p.key)} />
+      ))}
+    </div>
+  );
+}
+
+function TrackCell({ period, cell }: { period: RatingPeriod; cell?: BreakdownCell }) {
+  const label = <span className="lead-track__label">{trackLabel(period)}</span>;
+  if (!cell) {
+    return (
+      <span className="lead-track__cell lead-track__cell--empty">
+        {label}
+        <span className="lead-track__value lead-track__value--none">
+          <span aria-hidden="true">—</span>
+          <span className="lead-sr-only">Nicht bewertet</span>
+        </span>
+      </span>
+    );
+  }
+  // Lokale Bindung, damit TypeScript beide Felder gemeinsam einengt: Ohne
+  // Gesamtbewertung sind `score` und `scale` zusammen null (siehe BreakdownCell).
+  const { score, scale } = cell;
+  const count = `${cell.category_count} ${cell.category_count === 1 ? 'Kategorie' : 'Kategorien'}`;
+  return (
+    <Tooltip
+      content={
+        <>
+          <div className="hm-tooltip__title">{period.label}</div>
+          <div className="hm-tooltip__line">
+            {score !== null && scale !== null ? scaleLevelLabel(scale, score) : 'Ohne Gesamtbewertung'} · {count}
+          </div>
+          <div className="hm-tooltip__line">Stand {formatDateTime(cell.updated_at)}</div>
+        </>
+      }
+    >
+      <span className="lead-track__cell">
+        {label}
+        {score !== null && scale !== null ? (
+          <span className="lead-track__value">
+            <span className={`lead-dot lead-dot--${scoreTone(scale, score)}`} aria-hidden="true" />
+            {/* Sichtbar der Rohwert (schmale Spalte), vorgelesen die Stufe. */}
+            <span aria-hidden="true">{score}</span>
+            <span className="lead-sr-only">{scaleLevelLabel(scale, score)}</span>
+          </span>
+        ) : (
+          <span className="lead-track__value lead-track__value--partial">
+            <span aria-hidden="true">{cell.category_count} Kat.</span>
+            <span className="lead-sr-only">{count} bewertet, ohne Gesamtbewertung</span>
+          </span>
+        )}
+      </span>
+    </Tooltip>
+  );
+}
+
+/**
+ * Kompakte Beschriftung für die schmale Spalte: Monate und Halbjahre würden
+ * ausgeschrieben abgeschnitten. Der volle Text steht im Tooltip.
+ */
+function trackLabel(period: RatingPeriod): string {
+  switch (period.kind) {
+    case 'monat':
+      return `${period.key.slice(5, 7)}/${period.key.slice(0, 4)}`;
+    case 'halbjahr':
+      return `H${period.key.slice(6, 7)} ${period.key.slice(0, 4)}`;
+    default:
+      return period.label;
+  }
 }
 
 // ---------------------------------------------------------------------------

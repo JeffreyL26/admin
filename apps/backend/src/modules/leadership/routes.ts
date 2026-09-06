@@ -157,13 +157,7 @@ async function leaderRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/leadership/me/team', async (req) => {
     const leaderId = requireLeader(req);
     const { settings, period } = periodOf(req);
-    return {
-      period,
-      current_period: service.currentPeriod(settings),
-      settings: { period: settings.period, uniform_scale: settings.uniform_scale, scale: settings.scale },
-      categories: service.listCategories(true, settings),
-      team: service.teamMembers(leaderId, period),
-    };
+    return service.myTeam(leaderId, period, settings);
   });
 
   app.get('/api/leadership/me/employees/:id', async (req) => {

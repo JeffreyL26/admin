@@ -273,3 +273,22 @@ genau einer Zelle. Die Tabelle enthält auch Personen, die heute nicht mehr zum
 Bereich gehören (`former = 1`): Sonst verschwänden abgegebene Bewertungen aus
 der Aufschlüsselung, sobald sich die Organisation ändert — im
 Verteilungsbalken darüber zählen sie ohnehin mit.
+
+**„Mein Team“: Bereichskopf, zwei Abschnitte, Verlauf ohne Bedienelemente.**
+Die Führungskraft sieht oben ihren Bereich — Abteilungen und Teams mit
+Kopfzahl, Gesamtzahl, Zeitraum samt Kadenz und den Fortschritt der laufenden
+Runde —, darunter die Personen getrennt nach „Ausstehende Bewertungen“ und
+„Bereits bewertet“. Der frühere Filter „Nur unbewertete“ entfällt: Die
+Aufteilung zeigt dasselbe, ohne dass man den Filter erst finden muss.
+Abteilungen und Teams stammen aus den Personalprofilen des Bereichs, nicht aus
+der Leitungsfunktion — wer über eine Zuweisung jemanden aus einer anderen
+Abteilung betreut, sieht diese Abteilung hier mit. „Bewertet“ heißt
+mindestens eine Kategorie im Zeitraum, nicht zwingend die Gesamtbewertung:
+Sonst stünde jemand mit einer Bewertung in „Leistung“ dauerhaft unter
+„ausstehend“; die Karte schreibt stattdessen „Ohne Gesamtbewertung“ dazu.
+Die Verlaufsleiste (vier Zeiträume, `MyTeamResponse.history_periods`, folgt
+dem gewählten Zeitraum) trägt bewusst keine eigenen Knöpfe — die ganze Karte
+ist der Einstieg in die Bewertungsmaske, ein Knopf im Knopf wäre weder
+klick- noch tastaturbedienbar. Ihre Zellen sind dieselbe `BreakdownCell` wie
+in der Report-Aufschlüsselung, damit beide Seiten „bewertet“ gleich
+bedeuten.

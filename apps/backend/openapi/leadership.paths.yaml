@@ -15,7 +15,7 @@ paths:
       parameters:
         - { name: period, in: query, schema: { type: string }, description: "Zeitraumschlüssel der eingestellten Kadenz, z. B. 2026-Q3; ohne Angabe der aktuelle" }
       responses:
-        "200": { description: "{ period, current_period, settings, categories, team }" }
+        "200": { description: "{ period, current_period, settings, categories, team (je Person mit history), scope (Abteilungen, Teams, Kopfzahl), history_periods }" }
         "403": { description: Konto ist keine freigeschaltete Führungskraft }
   /api/leadership/me/employees/{id}:
     get:
@@ -143,7 +143,8 @@ paths:
         - { name: period, in: query, schema: { type: string } }
       responses:
         "200": { description: "{ employee, leader, period, ratings, history }" }
-        "404": { description: Mitarbeiter:in nicht gefunden }
+        "400": { description: Ungültiger Zeitraum }
+        "404": { description: Person ist keine Führungskraft, Mitarbeiter:in unbekannt, oder es liegt keine Bewertung dieser Führungskraft vor }
   /api/leadership/leaders/{employeeId}/assignments:
     post:
       summary: Manuelle Zuweisung anlegen (include/exclude; Person, Abteilung, Team oder Fachrolle; optional befristet)

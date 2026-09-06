@@ -27,6 +27,7 @@ import type {
   Rating,
   RatingCategory,
   RatingDetail,
+  RatingPeriod,
   RatingHistoryEntry,
   ScopeSource,
   TeamMember,
@@ -709,11 +710,47 @@ check(
     (myTeam.json().categories as RatingCategory[]).length === 5,
   myTeam.json(),
 );
+const myTeamBody = myTeam.json();
+check(
+  '/me/team: Bereichskopf — 2 Personen, Abteilung Technik, Team Backend',
+  myTeamBody.scope?.total === 2 &&
+    JSON.stringify(myTeamBody.scope?.departments) ===
+      JSON.stringify([{ id: DEPT_TECHNIK, name: 'Technik', count: 2 }]) &&
+    JSON.stringify(myTeamBody.scope?.teams) === JSON.stringify([{ id: TEAM_BACKEND, name: 'Backend', count: 2 }]),
+  myTeamBody.scope,
+);
+check(
+  '/me/team: vier Verlaufsspalten in der eingestellten Kadenz, aktueller Zeitraum zuerst',
+  (myTeamBody.history_periods as RatingPeriod[])?.map((p) => p.key).join(',') ===
+    [period, shiftPeriod(period, -1), shiftPeriod(period, -2), shiftPeriod(period, -3)].join(',') &&
+    (myTeamBody.history_periods as RatingPeriod[]).every((p) => p.kind === 'quartal'),
+  myTeamBody.history_periods,
+);
+const dev1History = member(myTeamMembers, DEV1)?.history ?? [];
+check(
+  '/me/team: Verlauf je Person — DEV1 mit Gesamtbewertung 3 (stars5, 2 Kategorien) im aktuellen Zeitraum, DEV2 leer',
+  dev1History.length === 1 &&
+    dev1History[0].period_key === period &&
+    dev1History[0].score === 3 &&
+    dev1History[0].scale === 'stars5' &&
+    dev1History[0].category_count === 2 &&
+    !!dev1History[0].updated_at &&
+    member(myTeamMembers, DEV2)?.history?.length === 0,
+  myTeamMembers.map((m) => [m.id, m.history]),
+);
+
 const myTeamPrev = await tlb.get(`/api/leadership/me/team?period=${shiftPeriod(period, -1)}`);
 check(
   '/me/team im Vorquartal: DEV1 dort unbewertet',
   myTeamPrev.statusCode === 200 && member(myTeamPrev.json().team, DEV1)?.overall === null,
   myTeamPrev.json().team,
+);
+check(
+  '/me/team im Vorquartal: Verlaufsfenster wandert mit — aktueller Zeitraum nicht dabei, DEV1 ohne Verlauf',
+  (myTeamPrev.json().history_periods as RatingPeriod[])[0]?.key === shiftPeriod(period, -1) &&
+    !(myTeamPrev.json().history_periods as RatingPeriod[]).some((p) => p.key === period) &&
+    member(myTeamPrev.json().team, DEV1)?.history?.length === 0,
+  { periods: myTeamPrev.json().history_periods, history: member(myTeamPrev.json().team, DEV1)?.history },
 );
 const myStatus = await tlb.get('/api/leadership/me/status');
 check(
@@ -1048,6 +1085,47 @@ check(
     (bdDetailEmpty.json() as RatingDetail).history.length === 0,
   bdDetailEmpty.json(),
 );
+const bdNoLeaderDetail = await admin.get(`/api/leadership/leaders/${DEV1}/employees/${DEV2}/ratings`);
+check('Detail mit Nicht-Führungskraft im Pfad → 404', bdNoLeaderDetail.statusCode === 404, bdNoLeaderDetail.json());
+const bdForeign = await admin.get(`/api/leadership/leaders/${TLB}/employees/${HRSB}/ratings`);
+check(
+  'Detail einer Person außerhalb des Bereichs und ohne Bewertung → 404 (keine Stammdaten-Preisgabe)',
+  bdForeign.statusCode === 404,
+  bdForeign.json(),
+);
+const bdAncientPeriod = await admin.get(`/api/leadership/leaders/${TLB}/breakdown?period=0001-Q1`);
+check('Breakdown mit Zeitraum vor 1900 → 400 statt 500', bdAncientPeriod.statusCode === 400, bdAncientPeriod.json());
+
+// Zeitraum, in dem NUR eine Unterkategorie bewertet wurde: Die Zelle bleibt
+// erreichbar (score null), sonst wären Bewertung und Kommentar unsichtbar.
+const prevPeriod = shiftPeriod(period, -1);
+const onlySub = await tlb.put(`/api/leadership/me/employees/${DEV2}/ratings`, {
+  period_key: prevPeriod,
+  ratings: [{ category_id: leistung.id, score: 4, comment: 'Nur Leistung erfasst' }],
+});
+check('Nur Unterkategorie im Vorzeitraum bewerten → 200', onlySub.statusCode === 200, onlySub.json());
+const bdSub = (await admin.get(`/api/leadership/leaders/${TLB}/breakdown?period=${period}`)).json() as LeaderBreakdown;
+const subCell = bdSub.rows.find((r) => r.employee_id === DEV2)?.cells.find((c) => c.period_key === prevPeriod);
+check(
+  'Zelle ohne Gesamtbewertung: score/scale null, category_count 1, Zeitstempel gesetzt',
+  subCell !== undefined && subCell.score === null && subCell.scale === null && subCell.category_count === 1 && !!subCell.updated_at,
+  subCell,
+);
+const subDetail = await admin.get(`/api/leadership/leaders/${TLB}/employees/${DEV2}/ratings?period=${prevPeriod}`);
+check(
+  'Detail dieser Zelle liefert die Unterkategorie samt Kommentar',
+  subDetail.statusCode === 200 &&
+    (subDetail.json() as RatingDetail).ratings.length === 1 &&
+    (subDetail.json() as RatingDetail).ratings[0].comment === 'Nur Leistung erfasst',
+  subDetail.json(),
+);
+// Zellen-Zeitstempel ist das Maximum über alle Kategorien des Zeitraums.
+const dev1Cell = bdSub.rows.find((r) => r.employee_id === DEV1)?.cells.find((c) => c.period_key === period);
+const maxStamp = (db
+  .prepare('SELECT MAX(updated_at) AS m FROM leadership_ratings WHERE leader_employee_id = ? AND employee_id = ? AND period_key = ?')
+  .get([TLB, DEV1, period]) as { m: string }).m;
+check('Zellen-Zeitstempel = jüngster Stand aller Kategorien', dev1Cell?.updated_at === maxStamp, { cell: dev1Cell?.updated_at, max: maxStamp });
+
 const bdDetailUnknown = await admin.get(`/api/leadership/leaders/${TLB}/employees/99999/ratings`);
 check('Detail unbekannter Person → 404', bdDetailUnknown.statusCode === 404);
 

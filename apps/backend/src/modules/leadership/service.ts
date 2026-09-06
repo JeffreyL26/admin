@@ -32,6 +32,7 @@ import {
   type LeaderBreakdown,
   type LeaderCreateResponse,
   type LeaderStatus,
+  type MyTeamResponse,
   type LeaderTeamResponse,
   type LeadershipAssignment,
   type LeadershipAssignmentInput,
@@ -51,6 +52,7 @@ import {
   type ReportLeaderRow,
   type ScopeSource,
   type TeamMember,
+  type TeamScopeSummary,
 } from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
@@ -147,6 +149,13 @@ export function resolvePeriod(param: unknown, settings: LeadershipSettings): Rat
     throw badRequest(
       `Ungültiger Zeitraum. Erwartet wird ein Schlüssel der eingestellten Kadenz (${RATING_PERIOD_LABELS[settings.period]}).`,
     );
+  }
+  // Untere Schranke: Die Aufschlüsselung blättert von hier aus rückwärts
+  // (recentPeriods) und liefe bei Jahr 0001 unter das Jahr 0000 — mit einem
+  // 500er statt einer verständlichen Meldung. Ein Personalsystem braucht
+  // keine Zeiträume vor 1900.
+  if (Number(param.slice(0, 4)) < 1900) {
+    throw badRequest('Zeiträume vor dem Jahr 1900 sind nicht vorgesehen.');
   }
   return periodFromKey(param);
 }
@@ -1331,21 +1340,29 @@ export function leaderBreakdown(
     is_overall: number;
   }[];
 
+  // Eine Zelle je (Person, Zeitraum) mit MINDESTENS EINER Bewertung — nicht
+  // nur mit Gesamtbewertung. Wer in einem Zeitraum ausschließlich Leistung
+  // bewertet hat, soll die Zelle trotzdem öffnen können; `score` bleibt dann
+  // null und die Oberfläche zeigt statt einer Stufe die Kategorienzahl.
   const cellsByEmployee = new Map<number, Map<string, BreakdownCell>>();
-  const countsByEmployee = new Map<number, Map<string, number>>();
   for (const r of ratings) {
-    const counts = countsByEmployee.get(r.employee_id) ?? new Map<string, number>();
-    counts.set(r.period_key, (counts.get(r.period_key) ?? 0) + 1);
-    countsByEmployee.set(r.employee_id, counts);
-    if (r.is_overall !== 1) continue;
     const cells = cellsByEmployee.get(r.employee_id) ?? new Map<string, BreakdownCell>();
-    cells.set(r.period_key, {
+    const cell = cells.get(r.period_key) ?? {
       period_key: r.period_key,
-      score: r.score,
-      scale: r.scale,
-      category_count: 0, // unten gesetzt, wenn alle Kategorien gezählt sind
+      score: null,
+      scale: null,
+      category_count: 0,
       updated_at: r.updated_at,
-    });
+    };
+    cell.category_count += 1;
+    // Zellen-Zeitstempel ist der jüngste Stand über alle Kategorien — der
+    // Tooltip nennt ihn neben der Kategorienzahl, also muss er zu beidem passen.
+    if (r.updated_at > cell.updated_at) cell.updated_at = r.updated_at;
+    if (r.is_overall === 1) {
+      cell.score = r.score;
+      cell.scale = r.scale;
+    }
+    cells.set(r.period_key, cell);
     cellsByEmployee.set(r.employee_id, cells);
   }
 
@@ -1366,7 +1383,6 @@ export function leaderBreakdown(
 
   const rows: BreakdownRow[] = employees.map((e) => {
     const cells = cellsByEmployee.get(e.id);
-    const counts = countsByEmployee.get(e.id);
     return {
       employee_id: e.id,
       first_name: e.first_name,
@@ -1378,11 +1394,8 @@ export function leaderBreakdown(
       sources: scope.get(e.id) ?? [],
       former: scope.has(e.id) ? 0 : 1,
       cells: periodKeys
-        .map((key) => {
-          const cell = cells?.get(key);
-          return cell ? { ...cell, category_count: counts?.get(key) ?? 1 } : null;
-        })
-        .filter((c): c is BreakdownCell => c !== null),
+        .map((key) => cells?.get(key))
+        .filter((c): c is BreakdownCell => c !== undefined),
     };
   });
 
@@ -1419,6 +1432,20 @@ function leaderSummary(leader: Leader): LeaderBreakdown['leader'] {
  */
 export function ratingDetail(leaderId: number, employeeId: number, period: RatingPeriod): RatingDetail {
   const db = getDb();
+  // Erst die Führungskraft: Ohne diese Prüfung beantwortete die Route jede
+  // beliebige Personal-ID — und gäbe damit Stammdaten (Personalnummer, Titel,
+  // Abteilung) an Konten heraus, die nur `fuehrung: lesen` haben. Sie sollen
+  // sehen, was der Report zeigt, und nicht das Personalverzeichnis.
+  loadLeader(leaderId);
+
+  const ratings = ratingsFor(leaderId, employeeId, period.key);
+  // Zweite Schranke: Die Person muss zum Bereich dieser Führungskraft gehören
+  // ODER von ihr in diesem Zeitraum bewertet worden sein — genau die beiden
+  // Fälle, die in der Aufschlüsselung als Zeile stehen.
+  if (ratings.length === 0 && !scopeFor(leaderId).has(employeeId)) {
+    throw notFound('Für diese Person liegt bei dieser Führungskraft keine Bewertung vor');
+  }
+
   const employee = db
     .prepare(
       `SELECT e.id, e.first_name, e.last_name, e.personnel_number, e.job_title, d.name AS department_name
@@ -1430,8 +1457,6 @@ export function ratingDetail(leaderId: number, employeeId: number, period: Ratin
   const leader = db
     .prepare('SELECT id AS employee_id, first_name, last_name FROM employees WHERE id = ?')
     .get(leaderId) as RatingDetail['leader'];
-
-  const ratings = ratingsFor(leaderId, employeeId, period.key);
   const history = db
     .prepare(
       `${HISTORY_SELECT}
@@ -1441,4 +1466,129 @@ export function ratingDetail(leaderId: number, employeeId: number, period: Ratin
     .all({ leader: leaderId, employee: employeeId, period: period.key }) as RatingHistoryEntry[];
 
   return { employee, leader: leader ?? null, period, ratings, history };
+}
+
+// ---------------------------------------------------------------------------
+// Übersicht der Führungsfunktion („Mein Team“)
+// ---------------------------------------------------------------------------
+
+/** Spalten der Verlaufsleiste je Person — der aktuelle Zeitraum plus drei zurück. */
+export const TEAM_HISTORY_COLUMNS = 4;
+
+/**
+ * Woraus sich der Bereich zusammensetzt: Abteilungen und Teams der
+ * zugeordneten Personen, absteigend nach Kopfzahl. Bewusst aus den
+ * Personalprofilen abgeleitet und nicht aus der Leitungsfunktion — wer über
+ * eine manuelle Zuweisung jemanden aus einer fremden Abteilung betreut, soll
+ * das in der Kopfzeile sehen.
+ */
+export function scopeSummary(employeeIds: number[]): TeamScopeSummary {
+  if (employeeIds.length === 0) return { total: 0, departments: [], teams: [] };
+  const placeholders = employeeIds.map(() => '?').join(',');
+  const db = getDb();
+  const departments = db
+    .prepare(
+      `SELECT e.department_id AS id, COALESCE(d.name, 'Ohne Abteilung') AS name, COUNT(*) AS count
+       FROM employees e
+       LEFT JOIN departments d ON d.id = e.department_id
+       WHERE e.id IN (${placeholders})
+       GROUP BY e.department_id
+       ORDER BY count DESC, name COLLATE NOCASE`,
+    )
+    .all(employeeIds) as TeamScopeSummary['departments'];
+  const teams = db
+    .prepare(
+      `SELECT e.team_id AS id, t.name AS name, COUNT(*) AS count
+       FROM employees e JOIN teams t ON t.id = e.team_id
+       WHERE e.id IN (${placeholders})
+       GROUP BY e.team_id
+       ORDER BY count DESC, name COLLATE NOCASE`,
+    )
+    .all(employeeIds) as TeamScopeSummary['teams'];
+  return { total: employeeIds.length, departments, teams };
+}
+
+/**
+ * Bisherige Bewertungen je Person über mehrere Zeiträume — dieselbe Zellenform
+ * wie in der Report-Aufschlüsselung (`leaderBreakdown`), damit die
+ * Verlaufsleiste in „Mein Team“ und die Report-Tabelle dasselbe zeigen.
+ */
+function historyCells(
+  leaderId: number,
+  employeeIds: number[],
+  periodKeys: string[],
+): Map<number, BreakdownCell[]> {
+  const result = new Map<number, BreakdownCell[]>();
+  if (employeeIds.length === 0 || periodKeys.length === 0) return result;
+  const rows = getDb()
+    .prepare(
+      `SELECT r.employee_id, r.period_key, r.score, r.scale, r.updated_at, c.is_overall
+       FROM leadership_ratings r
+       JOIN rating_categories c ON c.id = r.category_id
+       WHERE r.leader_employee_id = ?
+         AND r.employee_id IN (${employeeIds.map(() => '?').join(',')})
+         AND r.period_key IN (${periodKeys.map(() => '?').join(',')})`,
+    )
+    .all([leaderId, ...employeeIds, ...periodKeys]) as {
+    employee_id: number;
+    period_key: string;
+    score: number;
+    scale: RatingScaleKey;
+    updated_at: string;
+    is_overall: number;
+  }[];
+
+  const byEmployee = new Map<number, Map<string, BreakdownCell>>();
+  for (const r of rows) {
+    const cells = byEmployee.get(r.employee_id) ?? new Map<string, BreakdownCell>();
+    const cell = cells.get(r.period_key) ?? {
+      period_key: r.period_key,
+      score: null,
+      scale: null,
+      category_count: 0,
+      updated_at: r.updated_at,
+    };
+    cell.category_count += 1;
+    if (r.updated_at > cell.updated_at) cell.updated_at = r.updated_at;
+    if (r.is_overall === 1) {
+      cell.score = r.score;
+      cell.scale = r.scale;
+    }
+    cells.set(r.period_key, cell);
+    byEmployee.set(r.employee_id, cells);
+  }
+  for (const [employeeId, cells] of byEmployee) {
+    result.set(
+      employeeId,
+      periodKeys.map((key) => cells.get(key)).filter((c): c is BreakdownCell => c !== undefined),
+    );
+  }
+  return result;
+}
+
+/**
+ * Vollständige Antwort der Führungsfunktion: eigener Bereich mit Stammdaten,
+ * Bewertungsstand im Zeitraum, Bereichszusammenfassung für die Kopfzeile und
+ * Verlauf je Person. Alles in EINER Antwort, weil die Seite ohne jedes Stück
+ * unvollständig ist — und weil die Führungskraft nicht zwingend das Recht
+ * `personal` hat, also keine zweite Quelle für Abteilungsnamen kennt.
+ */
+export function myTeam(leaderId: number, period: RatingPeriod, settings = getSettings()): MyTeamResponse {
+  const scope = scopeFor(leaderId);
+  const team = teamMembers(leaderId, period, scope);
+  const historyPeriods = recentPeriods(period.key, TEAM_HISTORY_COLUMNS);
+  const cells = historyCells(
+    leaderId,
+    team.map((m) => m.id),
+    historyPeriods.map((p) => p.key),
+  );
+  return {
+    period,
+    current_period: currentPeriod(settings),
+    settings: { period: settings.period, uniform_scale: settings.uniform_scale, scale: settings.scale },
+    categories: listCategories(true, settings),
+    team: team.map((m) => ({ ...m, history: cells.get(m.id) ?? [] })),
+    scope: scopeSummary([...scope.keys()]),
+    history_periods: historyPeriods,
+  };
 }

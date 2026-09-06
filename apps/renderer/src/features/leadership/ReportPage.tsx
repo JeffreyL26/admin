@@ -276,12 +276,17 @@ function LeaderReportRow({
   const headId = `${panelId}-head`;
   return (
     <div className={`hm-card lead-report-card${expanded ? ' lead-report-card--open' : ''}`}>
+      {/* aria-controls nur im aufgeklappten Zustand: Das Panel ist sonst nicht
+          im DOM, und ein Verweis auf eine fehlende ID ist eine Sackgasse.
+          aria-label ersetzt den zusammengesetzten Kopfinhalt (Kennzahlen,
+          Balken, Legende) — sonst liest der Screenreader einen Absatz vor. */}
       <button
         type="button"
         id={headId}
         className="lead-report-row lead-report-head"
         aria-expanded={expanded}
-        aria-controls={panelId}
+        aria-controls={expanded ? panelId : undefined}
+        aria-label={`${fullName(row)} — Aufschlüsselung ${expanded ? 'schließen' : 'öffnen'}`}
         onClick={onToggle}
       >
         <div className="lead-report-row__person">

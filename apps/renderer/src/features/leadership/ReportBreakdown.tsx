@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { UserMinus, UsersRound } from 'lucide-react';
+import { UserMinus, UserX, UsersRound } from 'lucide-react';
 import { formatDateTime, type BreakdownCell, type BreakdownRow, type RatingPeriodKind } from '@ohrganize/shared';
 import { Badge, EmptyState, Spinner } from '../../components/ui';
 import { Tooltip } from '../../components/Tooltip';
@@ -40,7 +40,9 @@ export function ReportBreakdown({
   useEffect(() => setOpen(null), [periodKey]);
 
   if (isLoading) return <Spinner center />;
-  if (error || !data) {
+  // Nur wenn noch nie Daten kamen: Ein gescheiterter Hintergrund-Refetch darf
+  // die bereits sichtbare Tabelle nicht verdrängen (siehe ReportPage).
+  if (!data) {
     return (
       <EmptyState
         title="Aufschlüsselung konnte nicht geladen werden"
@@ -64,8 +66,18 @@ export function ReportBreakdown({
 
   return (
     <>
+      {error && (
+        <div className="lead-breakdown__notice">
+          Der Stand konnte nicht aktualisiert werden: {error instanceof Error ? error.message : 'Server nicht erreichbar.'}
+        </div>
+      )}
       <div className="hm-table-wrap lead-breakdown">
-        <table className="hm-table" aria-labelledby={labelledBy}>
+        <table className="hm-table">
+          {/* Eigener, knapper Tabellenname: `aria-labelledby` auf den
+              Widget-Kopf ergäbe einen Satz aus einem Dutzend Fragmenten. */}
+          <caption className="lead-sr-only">
+            Aufschlüsselung: {data.leader.first_name} {data.leader.last_name}
+          </caption>
           <thead>
             <tr>
               <th>Mitarbeiter:in</th>
@@ -83,23 +95,42 @@ export function ReportBreakdown({
                 <td>
                   <div className="lead-breakdown__name">
                     {row.last_name}, {row.first_name}
-                    {row.former === 1 && (
+                    {row.status !== 'aktiv' ? (
                       <Tooltip
                         content={
                           <>
-                            <div className="hm-tooltip__title">Nicht mehr zuständig</div>
+                            <div className="hm-tooltip__title">Ausgeschieden</div>
                             <div className="hm-tooltip__line">
-                              Frühere Bewertungen bleiben sichtbar · aktuelle Zuordnung entfallen
+                              Frühere Bewertungen bleiben sichtbar · keine neuen möglich
                             </div>
                           </>
                         }
                       >
                         <span>
                           <Badge tone="neutral">
-                            <UserMinus size={12} /> ehemals
+                            <UserX size={12} /> ausgeschieden
                           </Badge>
                         </span>
                       </Tooltip>
+                    ) : (
+                      row.former === 1 && (
+                        <Tooltip
+                          content={
+                            <>
+                              <div className="hm-tooltip__title">Nicht mehr zuständig</div>
+                              <div className="hm-tooltip__line">
+                                Frühere Bewertungen bleiben sichtbar · aktuelle Zuordnung entfallen
+                              </div>
+                            </>
+                          }
+                        >
+                          <span>
+                            <Badge tone="neutral">
+                              <UserMinus size={12} /> ehemals
+                            </Badge>
+                          </span>
+                        </Tooltip>
+                      )
                     )}
                   </div>
                   <div className="lead-breakdown__sub">
@@ -129,6 +160,9 @@ export function ReportBreakdown({
                                 {cell.category_count === 1 ? 'Kategorie' : 'Kategorien'} ·{' '}
                                 {formatDateTime(cell.updated_at)}
                               </div>
+                              {cell.score === null && (
+                                <div className="hm-tooltip__line">Ohne Gesamtbewertung</div>
+                              )}
                             </>
                           }
                         >
@@ -138,12 +172,22 @@ export function ReportBreakdown({
                             aria-label={`Bewertung von ${row.first_name} ${row.last_name} für ${p.label} ansehen`}
                             onClick={() => setOpen({ memberId: row.employee_id, periodKey: p.key })}
                           >
-                            <ScoreBadge scale={cell.scale} score={cell.score} />
+                            {/* Ohne Gesamtbewertung gibt es keine Stufe — die Zelle
+                                bleibt trotzdem erreichbar, sonst wären die
+                                erfassten Kategorien im Report unsichtbar. */}
+                            {cell.score !== null && cell.scale !== null ? (
+                              <ScoreBadge scale={cell.scale} score={cell.score} />
+                            ) : (
+                              <Badge tone="neutral">
+                                {cell.category_count} {cell.category_count === 1 ? 'Kategorie' : 'Kategorien'}
+                              </Badge>
+                            )}
                           </button>
                         </Tooltip>
                       ) : (
-                        <span className="lead-breakdown__empty" aria-label="Nicht bewertet">
-                          —
+                        <span className="lead-breakdown__empty">
+                          <span aria-hidden="true">—</span>
+                          <span className="lead-sr-only">Nicht bewertet</span>
                         </span>
                       )}
                     </td>
