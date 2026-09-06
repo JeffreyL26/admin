@@ -109,7 +109,15 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   unveränderlichem Protokoll `leadership_rating_history`: Trigger gegen UPDATE,
   keine Löschroute — die einzige Löschung ist die Kaskade beim Entfernen eines
   Personalprofils. Keine der Tabellen referenziert `files`; beim
-  Dateiaufräumen ist hier nichts nachzuziehen.
+  Dateiaufräumen ist hier nichts nachzuziehen. Im **Satisfaction-Report**
+  klappt ein Klick auf ein Widget die Aufschlüsselung auf:
+  `GET …/leaders/:employeeId/breakdown` liefert die verantworteten Personen
+  (heutiger Bereich PLUS früher Bewertete als `former`) mit ihrer
+  Gesamtbewertung je Zeitraum — bewusst OHNE Kommentare; die holt erst
+  `GET …/leaders/:employeeId/employees/:memberId/ratings` für genau eine
+  Zelle (Detail-Pop-up). Der zweite Pfadparameter heißt `memberId`, weil
+  find-my-way an derselben Baumposition denselben Parameternamen verlangt wie
+  `/leaders/:employeeId/team`.
 - **Desktop-Embedding:** `desktop/src/main.ts` ruft `startServer(0)` aus dem
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.ohrganize.apiBaseUrl`.

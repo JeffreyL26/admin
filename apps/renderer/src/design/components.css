@@ -1674,3 +1674,182 @@ button.lead-star:disabled {
     gap: 14px;
   }
 }
+
+/* ---------- Report: aufklappbares Widget mit Aufschlüsselung ---------- */
+.lead-report-card--open {
+  border-color: var(--blue-200);
+  box-shadow: var(--shadow);
+}
+/* Der Kopf ist ein Button und muss deshalb Schriftvererbung, Ausrichtung und
+   Breite zurücksetzen — sonst zentriert der Browser den Inhalt. */
+.lead-report-head {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  grid-template-columns: minmax(240px, 1.1fr) minmax(0, 2.4fr) auto;
+  transition: background 0.14s ease;
+}
+.lead-report-head:hover {
+  background: var(--bg-tint-1);
+}
+.lead-report-head:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--brand-primary);
+  border-radius: var(--radius);
+}
+.lead-report-row__toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  flex: none;
+}
+.lead-report-row__toggle svg {
+  transition: transform 0.18s ease;
+}
+.lead-report-card--open .lead-report-row__toggle svg {
+  transform: rotate(180deg);
+}
+.lead-report-row__toggle-text {
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.lead-report-panel {
+  border-top: 1px solid var(--border);
+  padding: 4px 0 0;
+  animation: hm-fade 0.16s ease;
+}
+
+/* ---------- Report: Tabelle der verantworteten Personen ---------- */
+.lead-breakdown {
+  max-height: 460px;
+}
+.lead-breakdown__period {
+  text-align: center;
+  white-space: nowrap;
+}
+.lead-breakdown__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.lead-breakdown__sub {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.lead-breakdown__number {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.lead-breakdown__cell {
+  text-align: center;
+}
+/* Wert-Schaltfläche: der Badge trägt die Farbe, der Button nur das Verhalten. */
+.lead-breakdown__score {
+  border: none;
+  background: none;
+  padding: 2px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.lead-breakdown__score:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.lead-breakdown__score:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.lead-breakdown__empty {
+  color: var(--text-muted);
+}
+.lead-breakdown__foot {
+  padding: 10px 22px 16px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ---------- Report: Detail-Pop-up einer Bewertung ---------- */
+.lead-detail__title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.lead-detail__period {
+  font-size: var(--text-base);
+  font-weight: 550;
+  color: var(--text-muted);
+}
+.lead-detail__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.lead-detail__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lead-detail__item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--gray-25);
+  padding: 14px 16px;
+}
+.lead-detail__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.lead-detail__category {
+  font-weight: 620;
+}
+.lead-detail__comment {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+.lead-detail__stand {
+  margin-top: 8px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.lead-detail__history > summary {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-sm);
+  font-weight: 550;
+  color: var(--text-secondary);
+}
+.lead-detail__history > summary:hover {
+  color: var(--text-primary);
+}
+
+@media (max-width: 900px) {
+  .lead-report-head {
+    grid-template-columns: 1fr;
+  }
+  .lead-report-row__toggle {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+}

@@ -260,3 +260,16 @@ solange die Führungskraft im System ist. Das Protokoll trägt seither auch
 jeder Schreibstelle des Moduls in der Transaktion geprüft (`assertMutualAllowed`);
 Organisationsänderungen sieht das Modul nicht, deshalb liefert
 `GET /api/leadership/settings` die bestehenden Paare zur Warnung.
+
+**Report-Aufschlüsselung: zwei Endpunkte statt einer Antwort.** Das Widget im
+Satisfaction-Report klappt auf und zeigt eine Tabelle „Person × Zeitraum“.
+Naheliegend wäre eine Antwort mit allem gewesen — Personen, Zeiträume,
+Kategorien, Kommentare. Das skaliert nicht: 30 Personen × 6 Zeiträume × 5
+Kategorien sind 900 Kommentartexte je aufgeklapptem Widget, von denen man
+einen liest. Deshalb liefert `…/breakdown` nur die Gesamtbewertung je Zelle
+(Wert, Skala, Anzahl bewerteter Kategorien, Zeitstempel) und
+`…/employees/:memberId/ratings` beim Klick die vollständige Aufschlüsselung
+genau einer Zelle. Die Tabelle enthält auch Personen, die heute nicht mehr zum
+Bereich gehören (`former = 1`): Sonst verschwänden abgegebene Bewertungen aus
+der Aufschlüsselung, sobald sich die Organisation ändert — im
+Verteilungsbalken darüber zählen sie ohnehin mit.

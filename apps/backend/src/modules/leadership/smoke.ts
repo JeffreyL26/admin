@@ -20,11 +20,13 @@ import os from 'node:os';
 import path from 'node:path';
 import type {
   Leader,
+  LeaderBreakdown,
   LeaderTeamResponse,
   LeadershipAssignment,
   LeadershipReport,
   Rating,
   RatingCategory,
+  RatingDetail,
   RatingHistoryEntry,
   ScopeSource,
   TeamMember,
@@ -944,6 +946,111 @@ check(
 const reportDefault = await admin.get('/api/leadership/report');
 check('Report ohne period = aktueller Zeitraum', reportDefault.statusCode === 200 && (reportDefault.json() as LeadershipReport).period.key === period);
 
+// ================ 11b. Aufschlüsselung eines Report-Widgets ================
+
+const bdRes = await admin.get(`/api/leadership/leaders/${TLB}/breakdown?period=${period}`);
+const bd = bdRes.json() as LeaderBreakdown;
+check(
+  'Breakdown → 200 mit Führungskraft, Gesamtbewertungs-Kategorie und 6 Spalten (neueste zuerst)',
+  bdRes.statusCode === 200 &&
+    bd.leader.employee_id === TLB &&
+    bd.category.is_overall === 1 &&
+    bd.periods.length === 6 &&
+    bd.periods[0].key === period &&
+    bd.periods[1].key === shiftPeriod(period, -1) &&
+    bd.periods.every((p) => p.kind === 'quartal'),
+  { leader: bd.leader, periods: bd.periods?.map((p) => p.key), category: bd.category?.name },
+);
+const bdDev1 = bd.rows.find((r) => r.employee_id === DEV1);
+const bdDev2 = bd.rows.find((r) => r.employee_id === DEV2);
+check(
+  'Breakdown-Zeilen: DEV1 und DEV2 mit Personalnummer, Quellen und former = 0',
+  bd.rows.length === 2 &&
+    bdDev1?.personnel_number === (db.prepare('SELECT personnel_number AS n FROM employees WHERE id = ?').get(DEV1) as { n: string }).n &&
+    bdDev1?.former === 0 &&
+    bdDev1?.sources.includes('direkt') &&
+    bdDev2?.former === 0,
+  bd.rows.map((r) => [r.last_name, r.personnel_number, r.former, r.sources]),
+);
+check(
+  'Breakdown-Zellen: DEV1 Gesamtbewertung 3 auf stars5 mit 2 Kategorien, nur im aktuellen Zeitraum',
+  bdDev1?.cells.length === 1 &&
+    bdDev1?.cells[0].period_key === period &&
+    bdDev1?.cells[0].score === 3 &&
+    bdDev1?.cells[0].scale === 'stars5' &&
+    bdDev1?.cells[0].category_count === 2,
+  bdDev1?.cells,
+);
+check(
+  'Breakdown-Zellen: DEV2 trägt seine Ampel-Bewertung (Skala je Zeile, nicht umgedeutet)',
+  bdDev2?.cells.length === 1 && bdDev2?.cells[0].scale === 'ampel' && bdDev2?.cells[0].score === 3,
+  bdDev2?.cells,
+);
+const bdCols = (await admin.get(`/api/leadership/leaders/${TLB}/breakdown?columns=2`)).json() as LeaderBreakdown;
+check('Breakdown columns=2 → zwei Spalten', bdCols.periods.length === 2, bdCols.periods.map((p) => p.key));
+const bdColsBad = await admin.get(`/api/leadership/leaders/${TLB}/breakdown?columns=99`);
+check('Breakdown columns=99 → 400', bdColsBad.statusCode === 400, bdColsBad.json());
+const bdPeriodBad = await admin.get(`/api/leadership/leaders/${TLB}/breakdown?period=${periodKeyForDate(todayIsoLocal(), 'monat')}`);
+check('Breakdown mit falscher Kadenz → 400', bdPeriodBad.statusCode === 400);
+const bdNoLeader = await admin.get(`/api/leadership/leaders/${DEV1}/breakdown`);
+check('Breakdown für Nicht-Führungskraft → 404', bdNoLeader.statusCode === 404);
+
+// Ehemals Verantwortete bleiben sichtbar: Ohne sie verschwänden abgegebene
+// Bewertungen aus dem Report, sobald sich die Organisation ändert.
+const excludeDev1 = await admin.post(`/api/leadership/leaders/${TLB}/assignments`, {
+  kind: 'exclude',
+  target_type: 'employee',
+  target_id: DEV1,
+});
+check('DEV1 vorübergehend ausnehmen → 201', excludeDev1.statusCode === 201, excludeDev1.json());
+const bdFormer = (await admin.get(`/api/leadership/leaders/${TLB}/breakdown?period=${period}`)).json() as LeaderBreakdown;
+const formerDev1 = bdFormer.rows.find((r) => r.employee_id === DEV1);
+check(
+  'Ausgenommene Person erscheint weiter als „ehemals“ (former = 1, keine Quellen), Bewertung bleibt',
+  formerDev1?.former === 1 && formerDev1?.sources.length === 0 && formerDev1?.cells[0]?.score === 3,
+  formerDev1,
+);
+check(
+  'Ehemalige stehen hinter den aktuell Verantworteten',
+  bdFormer.rows[bdFormer.rows.length - 1].employee_id === DEV1,
+  bdFormer.rows.map((r) => [r.last_name, r.former]),
+);
+await admin.del(`/api/leadership/assignments/${excludeDev1.json().assignment.id}`);
+
+const bdDetailRes = await admin.get(`/api/leadership/leaders/${TLB}/employees/${DEV1}/ratings?period=${period}`);
+const bdDetail = bdDetailRes.json() as RatingDetail;
+check(
+  'Detail → 200: Person, Führungskraft, Zeitraum und beide Kategorien mit Kommentar (Gesamtbewertung zuerst)',
+  bdDetailRes.statusCode === 200 &&
+    bdDetail.employee.id === DEV1 &&
+    bdDetail.leader?.employee_id === TLB &&
+    bdDetail.period.key === period &&
+    bdDetail.ratings.length === 2 &&
+    bdDetail.ratings[0].category_id === gesamt.id &&
+    bdDetail.ratings[0].comment.length > 0 &&
+    bdDetail.ratings[1].category_id === leistung.id,
+  bdDetail.ratings?.map((r) => [r.category_name, r.score, r.version, r.comment]),
+);
+check(
+  'Detail-Protokoll ist auf den Zeitraum gefiltert und enthält die Korrektur',
+  bdDetail.history.length === 3 &&
+    bdDetail.history.every((h) => h.period_key === period) &&
+    bdDetail.history.some((h) => h.change_kind === 'geaendert' && h.previous_score === 4),
+  bdDetail.history?.map((h) => [h.category_name, h.change_kind, h.version]),
+);
+const bdDetailEmpty = await admin.get(
+  `/api/leadership/leaders/${TLB}/employees/${DEV1}/ratings?period=${shiftPeriod(period, -1)}`,
+);
+check(
+  'Detail eines unbewerteten Zeitraums → 200 mit leeren Listen',
+  bdDetailEmpty.statusCode === 200 &&
+    (bdDetailEmpty.json() as RatingDetail).ratings.length === 0 &&
+    (bdDetailEmpty.json() as RatingDetail).history.length === 0,
+  bdDetailEmpty.json(),
+);
+const bdDetailUnknown = await admin.get(`/api/leadership/leaders/${TLB}/employees/99999/ratings`);
+check('Detail unbekannter Person → 404', bdDetailUnknown.statusCode === 404);
+
 // ============================ 12. Entziehen ============================
 
 const revoke = await admin.del(`/api/leadership/leaders/${TLB}`);
@@ -988,6 +1095,12 @@ const readerReport = await reader.get(`/api/leadership/report?period=${period}`)
 check('Report-Leser: GET /api/leadership/report → 200', readerReport.statusCode === 200 && (readerReport.json() as LeadershipReport).leaders.length === 1, readerReport.json());
 const readerLeaders = await reader.get('/api/leadership/leaders');
 check('Report-Leser: GET /api/leadership/leaders → 200 (lesen)', readerLeaders.statusCode === 200);
+const readerBreakdown = await reader.get(`/api/leadership/leaders/${CTO}/breakdown`);
+check('Report-Leser: GET breakdown → 200 (lesen)', readerBreakdown.statusCode === 200, readerBreakdown.json());
+const readerDetail = await reader.get(`/api/leadership/leaders/${CTO}/employees/${PLAT1}/ratings`);
+check('Report-Leser: GET Detail → 200 (lesen)', readerDetail.statusCode === 200, readerDetail.json());
+const leaderRoleBreakdown = await tlb.get(`/api/leadership/leaders/${CTO}/breakdown`);
+check('Rolle „Führungskraft“ (fuehrung kein): GET breakdown → 403', leaderRoleBreakdown.statusCode === 403, leaderRoleBreakdown.json());
 const readerGrant = await reader.post('/api/leadership/leaders', { employee_id: TLB });
 check('Report-Leser: POST /api/leadership/leaders → 403', readerGrant.statusCode === 403, readerGrant.json());
 const readerSettings = await reader.put('/api/leadership/settings', { scale: 'ampel' });

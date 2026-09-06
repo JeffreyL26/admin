@@ -33,6 +33,23 @@ const idParamSchema = z.object({ id: z.coerce.number().int().positive() });
 const employeeParamSchema = z.object({ employeeId: z.coerce.number().int().positive() });
 const periodQuerySchema = z.object({ period: z.string().max(10).optional() });
 
+/**
+ * Zusätzlich zur Zeitraumwahl: Spaltenzahl der Report-Aufschlüsselung.
+ * Der Service deckelt den Wert nochmals (BREAKDOWN_COLUMNS_MAX) — hier steht
+ * die Grenze, damit unsinnige Eingaben schon als 400 auffallen.
+ */
+const breakdownQuerySchema = periodQuerySchema.extend({
+  columns: z.coerce.number().int().min(1).max(service.BREAKDOWN_COLUMNS_MAX).optional(),
+});
+
+/**
+ * Zweiter Pfadparameter der Detail-Route. Er heißt `memberId` und nicht
+ * `employeeId`, weil das erste Segment (`/leaders/:employeeId/…`) diesen Namen
+ * schon trägt: find-my-way verlangt an derselben Baumposition denselben
+ * Parameternamen, sonst scheitert die Registrierung.
+ */
+const memberParamSchema = z.object({ memberId: z.coerce.number().int().positive() });
+
 const settingsPatchSchema = z.object({
   period: z.enum(RATING_PERIOD_KINDS).optional(),
   uniform_scale: z.boolean().optional(),
@@ -233,6 +250,23 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
   app.delete('/api/leadership/leaders/:employeeId', async (req, reply) => {
     service.revokeLeader(req, employeeParam(req));
     reply.status(204);
+  });
+
+  // Aufschlüsselung des Report-Widgets: verantwortete Personen mit ihrer
+  // Gesamtbewertung je Zeitraum (ohne Kommentare — die holt die Detail-Route).
+  app.get('/api/leadership/leaders/:employeeId/breakdown', async (req) => {
+    const settings = service.getSettings();
+    const q = parse(breakdownQuerySchema, req.query ?? {});
+    const period = service.resolvePeriod(q.period, settings);
+    return service.leaderBreakdown(employeeParam(req), period, q.columns ?? service.BREAKDOWN_COLUMNS_DEFAULT);
+  });
+
+  // Eine Bewertung vollständig: alle Kategorien des Zeitraums mit Kommentaren
+  // plus Protokoll — Grundlage des Detail-Pop-ups im Report.
+  app.get('/api/leadership/leaders/:employeeId/employees/:memberId/ratings', async (req) => {
+    const { period } = periodOf(req);
+    const memberId = parse(memberParamSchema, req.params).memberId;
+    return service.ratingDetail(employeeParam(req), memberId, period);
   });
 
   app.post('/api/leadership/leaders/:employeeId/assignments', async (req, reply) => {

@@ -636,6 +636,88 @@ export interface LeadershipLookup {
   roles: { id: number; name: string }[];
 }
 
+/**
+ * Eine Zelle der Report-Aufschlüsselung: Gesamtbewertung einer Person in einem
+ * Zeitraum. Bewusst ohne Kommentar — die Tabelle zeigt viele Zeiträume auf
+ * einmal, die Texte holt erst das Detail-Pop-up
+ * (`GET /api/leadership/leaders/:leaderId/employees/:employeeId/ratings`).
+ */
+export interface BreakdownCell {
+  period_key: string;
+  score: number;
+  scale: RatingScaleKey;
+  /** Bewertete Kategorien in diesem Zeitraum (Gesamtbewertung mitgezählt). */
+  category_count: number;
+  updated_at: string;
+}
+
+/** Eine Zeile der Aufschlüsselung: eine verantwortete Person über alle Spalten. */
+export interface BreakdownRow {
+  employee_id: number;
+  first_name: string;
+  last_name: string;
+  personnel_number: string | null;
+  job_title: string | null;
+  department_name: string | null;
+  status: string;
+  /** Woher die Zuständigkeit stammt; leer bei ehemals verantworteten Personen. */
+  sources: ScopeSource[];
+  /**
+   * 1 = die Person gehört heute nicht mehr zum Bereich, erscheint aber wegen
+   * früherer Bewertungen. Ohne sie verschwänden abgegebene Bewertungen
+   * spurlos aus dem Report, sobald sich die Organisation ändert.
+   */
+  former: number;
+  /** Gesamtbewertungen, nur für Zeiträume mit Bewertung (Spaltenzuordnung über period_key). */
+  cells: BreakdownCell[];
+}
+
+/**
+ * GET /api/leadership/leaders/:employeeId/breakdown?period=…&columns=…
+ *
+ * Aufschlüsselung eines Report-Widgets: Wen verantwortet die Führungskraft,
+ * und wie hat sie diese Personen je Zeitraum in der Gesamtbewertung
+ * eingeschätzt? `periods` sind die Tabellenspalten (neueste zuerst), endend
+ * beim angefragten Zeitraum.
+ */
+export interface LeaderBreakdown {
+  leader: {
+    employee_id: number;
+    first_name: string;
+    last_name: string;
+    job_title: string | null;
+    department_name: string | null;
+  };
+  periods: RatingPeriod[];
+  scale: RatingScaleKey;
+  /** Die Gesamtbewertungs-Kategorie, auf die sich die Zellen beziehen. */
+  category: RatingCategory;
+  rows: BreakdownRow[];
+}
+
+/**
+ * GET /api/leadership/leaders/:leaderId/employees/:employeeId/ratings?period=…
+ *
+ * Aufschlüsselung EINER Bewertung für das Detail-Pop-up: alle Kategorien des
+ * Zeitraums mit Kommentaren (Gesamtbewertung zuerst) plus das Protokoll
+ * dieses Zeitraums.
+ */
+export interface RatingDetail {
+  employee: {
+    id: number;
+    first_name: string;
+    last_name: string;
+    personnel_number: string | null;
+    job_title: string | null;
+    department_name: string | null;
+  };
+  /** null, wenn das Profil der Führungskraft gelöscht wurde. */
+  leader: { employee_id: number; first_name: string; last_name: string } | null;
+  period: RatingPeriod;
+  ratings: Rating[];
+  history: RatingHistoryEntry[];
+}
+
 /** GET /api/leadership/report?period=… */
 export interface LeadershipReport {
   period: RatingPeriod;

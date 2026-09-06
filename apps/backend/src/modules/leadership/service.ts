@@ -27,6 +27,9 @@ import {
   type AssignmentCreateResponse,
   type EmployeeRatingsResponse,
   type Leader,
+  type BreakdownCell,
+  type BreakdownRow,
+  type LeaderBreakdown,
   type LeaderCreateResponse,
   type LeaderStatus,
   type LeaderTeamResponse,
@@ -39,6 +42,7 @@ import {
   type Rating,
   type RatingCategory,
   type RatingCategoryInput,
+  type RatingDetail,
   type RatingHistoryEntry,
   type RatingPeriod,
   type RatingScaleKey,
@@ -1262,4 +1266,179 @@ export function lookup(): LeadershipLookup {
       .prepare('SELECT id, name FROM roles WHERE active = 1 ORDER BY name COLLATE NOCASE')
       .all() as LeadershipLookup['roles'],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Aufschlüsselung eines Report-Widgets
+// ---------------------------------------------------------------------------
+
+/** Spaltenanzahl der Aufschlüsselung: Vorgabe und Grenzen. */
+export const BREAKDOWN_COLUMNS_DEFAULT = 6;
+export const BREAKDOWN_COLUMNS_MAX = 12;
+
+interface BreakdownEmployeeRow {
+  id: number;
+  first_name: string;
+  last_name: string;
+  personnel_number: string | null;
+  job_title: string | null;
+  status: string;
+  department_name: string | null;
+}
+
+/**
+ * Wer wird von dieser Führungskraft verantwortet, und wie hat sie diese
+ * Personen je Zeitraum in der GESAMTBEWERTUNG eingeschätzt?
+ *
+ * Zeilen sind der heutige Zuständigkeitsbereich PLUS alle Personen, die in
+ * einem der angezeigten Zeiträume bereits bewertet wurden (`former = 1`).
+ * Ohne diese Ergänzung verschwänden abgegebene Bewertungen aus dem Report,
+ * sobald sich die Organisation ändert oder eine Ausnahme greift — im
+ * Verteilungsbalken oben sind sie aber weiterhin enthalten.
+ *
+ * Kommentare bleiben bewusst draußen: Die Tabelle zeigt viele Zeiträume auf
+ * einmal; die Texte holt erst `ratingDetail` für genau eine Zelle.
+ */
+export function leaderBreakdown(
+  leaderId: number,
+  period: RatingPeriod,
+  columns: number = BREAKDOWN_COLUMNS_DEFAULT,
+): LeaderBreakdown {
+  const db = getDb();
+  const leader = loadLeader(leaderId);
+  const settings = getSettings();
+  const category = overallCategory(settings);
+  const count = Math.min(BREAKDOWN_COLUMNS_MAX, Math.max(1, Math.trunc(columns)));
+  const periods = recentPeriods(period.key, count);
+  const periodKeys = periods.map((p) => p.key);
+
+  const scope = scopeFor(leaderId);
+  // Bewertungen der Führungskraft in den angezeigten Zeiträumen — die
+  // Gesamtbewertung für die Zellen, alle übrigen Kategorien nur gezählt.
+  const ratings = db
+    .prepare(
+      `SELECT r.employee_id, r.period_key, r.score, r.scale, r.updated_at, c.is_overall
+       FROM leadership_ratings r
+       JOIN rating_categories c ON c.id = r.category_id
+       WHERE r.leader_employee_id = ? AND r.period_key IN (${periodKeys.map(() => '?').join(',')})`,
+    )
+    .all([leaderId, ...periodKeys]) as {
+    employee_id: number;
+    period_key: string;
+    score: number;
+    scale: RatingScaleKey;
+    updated_at: string;
+    is_overall: number;
+  }[];
+
+  const cellsByEmployee = new Map<number, Map<string, BreakdownCell>>();
+  const countsByEmployee = new Map<number, Map<string, number>>();
+  for (const r of ratings) {
+    const counts = countsByEmployee.get(r.employee_id) ?? new Map<string, number>();
+    counts.set(r.period_key, (counts.get(r.period_key) ?? 0) + 1);
+    countsByEmployee.set(r.employee_id, counts);
+    if (r.is_overall !== 1) continue;
+    const cells = cellsByEmployee.get(r.employee_id) ?? new Map<string, BreakdownCell>();
+    cells.set(r.period_key, {
+      period_key: r.period_key,
+      score: r.score,
+      scale: r.scale,
+      category_count: 0, // unten gesetzt, wenn alle Kategorien gezählt sind
+      updated_at: r.updated_at,
+    });
+    cellsByEmployee.set(r.employee_id, cells);
+  }
+
+  const ids = [...new Set([...scope.keys(), ...cellsByEmployee.keys()])];
+  if (ids.length === 0) {
+    return { leader: leaderSummary(leader), periods, scale: category.effective_scale, category, rows: [] };
+  }
+
+  const employees = db
+    .prepare(
+      `SELECT e.id, e.first_name, e.last_name, e.personnel_number, e.job_title, e.status,
+              d.name AS department_name
+       FROM employees e
+       LEFT JOIN departments d ON d.id = e.department_id
+       WHERE e.id IN (${ids.map(() => '?').join(',')})`,
+    )
+    .all(ids) as BreakdownEmployeeRow[];
+
+  const rows: BreakdownRow[] = employees.map((e) => {
+    const cells = cellsByEmployee.get(e.id);
+    const counts = countsByEmployee.get(e.id);
+    return {
+      employee_id: e.id,
+      first_name: e.first_name,
+      last_name: e.last_name,
+      personnel_number: e.personnel_number,
+      job_title: e.job_title,
+      department_name: e.department_name,
+      status: e.status,
+      sources: scope.get(e.id) ?? [],
+      former: scope.has(e.id) ? 0 : 1,
+      cells: periodKeys
+        .map((key) => {
+          const cell = cells?.get(key);
+          return cell ? { ...cell, category_count: counts?.get(key) ?? 1 } : null;
+        })
+        .filter((c): c is BreakdownCell => c !== null),
+    };
+  });
+
+  // Aktuell Verantwortete zuerst, dann ehemalige — innerhalb alphabetisch.
+  rows.sort(
+    (a, b) =>
+      a.former - b.former ||
+      a.last_name.localeCompare(b.last_name, 'de') ||
+      a.first_name.localeCompare(b.first_name, 'de') ||
+      a.employee_id - b.employee_id,
+  );
+
+  return { leader: leaderSummary(leader), periods, scale: category.effective_scale, category, rows };
+}
+
+function leaderSummary(leader: Leader): LeaderBreakdown['leader'] {
+  return {
+    employee_id: leader.employee_id,
+    first_name: leader.first_name,
+    last_name: leader.last_name,
+    job_title: leader.job_title,
+    department_name: leader.department_name,
+  };
+}
+
+/**
+ * Eine Bewertung vollständig aufgeschlüsselt: alle Kategorien des Zeitraums
+ * mit Kommentaren (Gesamtbewertung zuerst) plus das Protokoll dieses
+ * Zeitraums. Grundlage des Detail-Pop-ups im Report.
+ *
+ * `leaderId` ist die Führungskraft, deren Einschätzung gezeigt wird — nicht
+ * die handelnde Person: Der Report ist die Sicht der Verwaltung auf fremde
+ * Bewertungen, abgesichert über den Bereich `fuehrung`.
+ */
+export function ratingDetail(leaderId: number, employeeId: number, period: RatingPeriod): RatingDetail {
+  const db = getDb();
+  const employee = db
+    .prepare(
+      `SELECT e.id, e.first_name, e.last_name, e.personnel_number, e.job_title, d.name AS department_name
+       FROM employees e LEFT JOIN departments d ON d.id = e.department_id WHERE e.id = ?`,
+    )
+    .get(employeeId) as RatingDetail['employee'] | undefined;
+  if (!employee) throw notFound('Mitarbeiter:in nicht gefunden');
+
+  const leader = db
+    .prepare('SELECT id AS employee_id, first_name, last_name FROM employees WHERE id = ?')
+    .get(leaderId) as RatingDetail['leader'];
+
+  const ratings = ratingsFor(leaderId, employeeId, period.key);
+  const history = db
+    .prepare(
+      `${HISTORY_SELECT}
+       WHERE h.leader_employee_id = @leader AND h.employee_id = @employee AND h.period_key = @period
+       ORDER BY h.changed_at DESC, h.id DESC`,
+    )
+    .all({ leader: leaderId, employee: employeeId, period: period.key }) as RatingHistoryEntry[];
+
+  return { employee, leader: leader ?? null, period, ratings, history };
 }

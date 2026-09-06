@@ -123,6 +123,27 @@ paths:
         - { name: period, in: query, schema: { type: string } }
       responses:
         "200": { description: "{ leader, team, assignments, mutual }" }
+  /api/leadership/leaders/{employeeId}/breakdown:
+    get:
+      summary: Aufschlüsselung eines Report-Widgets — verantwortete Personen mit Gesamtbewertung je Zeitraum (ohne Kommentare)
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+        - { name: period, in: query, schema: { type: string }, description: "Jüngste Spalte; ohne Angabe der aktuelle Zeitraum" }
+        - { name: columns, in: query, schema: { type: integer, minimum: 1, maximum: 12, default: 6 }, description: Anzahl der Zeitraum-Spalten }
+      responses:
+        "200": { description: "{ leader, periods, scale, category, rows }" }
+        "400": { description: Ungültiger Zeitraum oder unzulässige Spaltenzahl }
+        "404": { description: Person ist nicht als Führungskraft freigeschaltet }
+  /api/leadership/leaders/{employeeId}/employees/{memberId}/ratings:
+    get:
+      summary: Eine Bewertung vollständig — alle Kategorien des Zeitraums mit Kommentaren plus Protokoll (Detail-Pop-up des Reports)
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer }, description: Führungskraft }
+        - { name: memberId, in: path, required: true, schema: { type: integer }, description: Bewertete Person }
+        - { name: period, in: query, schema: { type: string } }
+      responses:
+        "200": { description: "{ employee, leader, period, ratings, history }" }
+        "404": { description: Mitarbeiter:in nicht gefunden }
   /api/leadership/leaders/{employeeId}/assignments:
     post:
       summary: Manuelle Zuweisung anlegen (include/exclude; Person, Abteilung, Team oder Fachrolle; optional befristet)

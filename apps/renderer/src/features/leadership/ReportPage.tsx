@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Award, ClipboardCheck, Gauge, SlidersHorizontal, UsersRound } from 'lucide-react';
+import { AlertTriangle, Award, ChevronDown, ClipboardCheck, Gauge, SlidersHorizontal, UsersRound } from 'lucide-react';
 import {
   RATING_SCALES,
   scaleLevelLabel,
   scaleLevelsBestFirst,
   scoreTone,
+  type RatingPeriodKind,
   type RatingScaleKey,
   type ReportLeaderRow,
 } from '@ohrganize/shared';
@@ -14,6 +15,7 @@ import { Avatar, Badge, EmptyState, PageHeader, Spinner, StatCard } from '../../
 import { Tooltip } from '../../components/Tooltip';
 import { usePhotoUrl } from '../employees/api';
 import { useLeadershipReport } from './api';
+import { ReportBreakdown } from './ReportBreakdown';
 import { DistributionBar, PeriodSwitcher } from './common';
 
 /**
@@ -23,6 +25,13 @@ import { DistributionBar, PeriodSwitcher } from './common';
  * GESAMTBEWERTUNG über die Skalenstufen im gewählten Zeitraum. Die Zahlen
  * kommen fertig aus `GET /api/leadership/report` (Verteilung, Prozente nach
  * größtem Rest, normierter Mittelwert); hier wird nur summiert und sortiert.
+ *
+ * Ein Klick auf ein Widget klappt es auf: darunter erscheint die Tabelle der
+ * verantworteten Personen mit ihrer Gesamtbewertung je Zeitraum
+ * (`ReportBreakdown`), ein Klick auf einen bewerteten Zeitraum öffnet das
+ * Detail-Pop-up. Nochmals auf das Widget geklickt, schließt sich alles wieder.
+ * Es ist immer höchstens ein Widget offen — zwei Tabellen nebeneinander wären
+ * nicht mehr überblickbar, und der Report bleibt so kurz.
  */
 
 type SortKey = 'name' | 'best' | 'open';
@@ -81,6 +90,8 @@ export function ReportPage() {
   // null = aktueller Zeitraum laut Einstellung (folgt beim Datumswechsel mit).
   const [periodKey, setPeriodKey] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>('name');
+  /** Aufgeklapptes Widget (employee_id) — höchstens eines zugleich. */
+  const [expanded, setExpanded] = useState<number | null>(null);
   // keepPreviousData im Hook: Beim Zeitraumwechsel bleibt die alte Liste
   // stehen, bis die neue da ist — kein Spinner, kein Springen der Seite.
   const { data, isLoading, isPlaceholderData, error } = useLeadershipReport(periodKey);
@@ -202,7 +213,14 @@ export function ReportPage() {
             aria-busy={isPlaceholderData}
           >
             {rows.map((row) => (
-              <LeaderReportRow key={row.employee_id} row={row} />
+              <LeaderReportRow
+                key={row.employee_id}
+                row={row}
+                periodKey={periodKey}
+                kind={period.kind}
+                expanded={expanded === row.employee_id}
+                onToggle={() => setExpanded((id) => (id === row.employee_id ? null : row.employee_id))}
+              />
             ))}
           </div>
         </div>
@@ -233,17 +251,39 @@ function LeaderAvatar({ row, size }: { row: ReportLeaderRow; size: number }) {
 }
 
 /**
- * Breites Widget einer Führungskraft. Bewusst NICHT klickbar: Was ein Klick
- * öffnen soll (Teamliste? Einzelbewertungen? Verlauf?), definiert der Kunde
- * erst noch — bis dahin bleibt das Widget eine reine Anzeige. Wenn das
- * Verhalten feststeht, hier `hm-card--clickable` + Handler ergänzen.
+ * Breites Widget einer Führungskraft — zugleich Schalter für die
+ * Aufschlüsselung. Der Kopf ist ein Button (`aria-expanded`), damit Tastatur
+ * und Screenreader dasselbe können wie die Maus; die Tabelle liegt daneben im
+ * selben Karten-Rahmen und nicht im Button, weil sie eigene Schaltflächen
+ * enthält (verschachtelte Buttons sind unzulässiges HTML).
  */
-function LeaderReportRow({ row }: { row: ReportLeaderRow }) {
+function LeaderReportRow({
+  row,
+  periodKey,
+  kind,
+  expanded,
+  onToggle,
+}: {
+  row: ReportLeaderRow;
+  periodKey: string | null;
+  kind: RatingPeriodKind;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const open = openCount(row);
   const subtitle = [row.job_title, row.department_name].filter(Boolean).join(' · ');
+  const panelId = useId();
+  const headId = `${panelId}-head`;
   return (
-    <div className="hm-card">
-      <div className="lead-report-row">
+    <div className={`hm-card lead-report-card${expanded ? ' lead-report-card--open' : ''}`}>
+      <button
+        type="button"
+        id={headId}
+        className="lead-report-row lead-report-head"
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        onClick={onToggle}
+      >
         <div className="lead-report-row__person">
           <LeaderAvatar row={row} size={48} />
           <div className="lead-report-row__text">
@@ -286,7 +326,19 @@ function LeaderReportRow({ row }: { row: ReportLeaderRow }) {
             <div className="lead-report-row__avg">Ø {Math.round(row.average_normalized * 100)} % der Bestnote</div>
           )}
         </div>
-      </div>
+        <span className="lead-report-row__toggle" aria-hidden="true">
+          <ChevronDown size={18} />
+          <span className="lead-report-row__toggle-text">{expanded ? 'Schließen' : 'Aufschlüsseln'}</span>
+        </span>
+      </button>
+
+      {/* Erst beim Aufklappen gemountet: Die Abfrage soll nicht für jedes
+          Widget des Reports laufen. */}
+      {expanded && (
+        <div className="lead-report-panel" id={panelId} role="region" aria-labelledby={headId}>
+          <ReportBreakdown leaderId={row.employee_id} periodKey={periodKey} kind={kind} labelledBy={headId} />
+        </div>
+      )}
     </div>
   );
 }

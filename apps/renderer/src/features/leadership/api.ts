@@ -14,6 +14,7 @@ import type {
   AssignmentCreateResponse,
   EmployeeRatingsResponse,
   Leader,
+  LeaderBreakdown,
   LeaderCreateResponse,
   LeaderStatus,
   LeaderTeamResponse,
@@ -27,6 +28,7 @@ import type {
   Rating,
   RatingCategory,
   RatingCategoryInput,
+  RatingDetail,
   RatingsSaveRequest,
   TeamMemberDetailResponse,
 } from '@ohrganize/shared';
@@ -244,6 +246,43 @@ export function useDeleteAssignment() {
   return useMutation({
     mutationFn: (id: number) => api.delete<void>(`/api/leadership/assignments/${id}`),
     onSuccess: () => invalidateLeadership(qc),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Report: Aufschlüsselung und Detail
+// ---------------------------------------------------------------------------
+
+/**
+ * Aufschlüsselung eines Report-Widgets (verantwortete Personen mit
+ * Gesamtbewertung je Zeitraum). Lädt erst, wenn das Widget aufgeklappt ist —
+ * `employeeId: null` hält die Abfrage still.
+ */
+export function useLeaderBreakdown(employeeId: number | null, period: string | null, columns?: number) {
+  const params = new URLSearchParams();
+  if (period) params.set('period', period);
+  if (columns !== undefined) params.set('columns', String(columns));
+  const qs = params.toString();
+  return useQuery({
+    queryKey: [...LEADERSHIP_KEY, 'leaders', employeeId, 'breakdown', period ?? 'current', columns ?? 'default'],
+    queryFn: () => api.get<LeaderBreakdown>(`/api/leadership/leaders/${employeeId}/breakdown${qs ? `?${qs}` : ''}`),
+    enabled: employeeId !== null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Eine Bewertung vollständig — alle Kategorien des Zeitraums mit Kommentaren
+ * plus Protokoll. Grundlage des Detail-Pop-ups; lädt nur bei geöffnetem Dialog.
+ */
+export function useRatingDetail(leaderId: number | null, memberId: number | null, period: string | null) {
+  return useQuery({
+    queryKey: [...LEADERSHIP_KEY, 'leaders', leaderId, 'detail', memberId, period ?? 'current'],
+    queryFn: () =>
+      api.get<RatingDetail>(
+        `/api/leadership/leaders/${leaderId}/employees/${memberId}/ratings${period ? `?period=${encodeURIComponent(period)}` : ''}`,
+      ),
+    enabled: leaderId !== null && memberId !== null,
   });
 }
 
