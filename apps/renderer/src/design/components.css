@@ -1172,9 +1172,9 @@ button.lead-star:disabled {
   cursor: default;
   opacity: 0.7;
 }
-.lead-ampel__btn--green[aria-pressed='true'] { background: var(--success-bg); border-color: var(--success); color: var(--success); }
-.lead-ampel__btn--yellow[aria-pressed='true'] { background: var(--warning-bg); border-color: var(--warning); color: var(--warning); }
-.lead-ampel__btn--red[aria-pressed='true'] { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+.lead-ampel__btn--green[aria-checked='true'] { background: var(--success-bg); border-color: var(--success); color: var(--success); }
+.lead-ampel__btn--yellow[aria-checked='true'] { background: var(--warning-bg); border-color: var(--warning); color: var(--warning); }
+.lead-ampel__btn--red[aria-checked='true'] { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
 .lead-points {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1204,7 +1204,7 @@ button.lead-star:disabled {
   cursor: default;
   opacity: 0.7;
 }
-.lead-points__btn[aria-pressed='true'] {
+.lead-points__btn[aria-checked='true'] {
   background: var(--brand-primary);
   border-color: var(--brand-primary);
   color: #fff;

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   CalendarDays,
@@ -67,10 +67,16 @@ export function TeamMemberRatingPage() {
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
-  /** Zeitraum, aus dem die aktuellen Blöcke stammen — Wechsel setzt immer neu auf. */
-  const shownPeriodRef = useRef<string | null>(null);
+  /** Person + Zeitraum, aus denen die aktuellen Blöcke stammen — jeder Wechsel setzt neu auf. */
+  const shownRef = useRef<string | null>(null);
   /** Aktion, die auf Bestätigung wartet, weil Eingaben verloren gingen. */
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
+  // Verlassen der Seite (Sidebar, Befehlspalette, Tastenkürzel, Zurück-Knopf)
+  // bei offenen Eingaben abfangen. Zeitraumwechsel ändern nur die Query und
+  // laufen über guarded() — der Blocker vergleicht deshalb den Pfad.
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname,
+  );
 
   const periodKey = data?.period.key ?? null;
   // Stand des Servers als Signatur: Fokus-Refetches liefern neue Array-
@@ -84,16 +90,17 @@ export function TeamMemberRatingPage() {
 
   useEffect(() => {
     if (!data) return;
-    const periodChanged = shownPeriodRef.current !== data.period.key;
-    // Bei offenen Eingaben folgt das Formular dem Server nur, wenn der Zeitraum
-    // gewechselt hat (den Wechsel hat der Dirty-Schutz zuvor bestätigt).
-    if (!periodChanged && dirtyRef.current) return;
+    const shownKey = `${employeeId}|${data.period.key}`;
+    const contextChanged = shownRef.current !== shownKey;
+    // Bei offenen Eingaben folgt das Formular dem Server nur, wenn Person oder
+    // Zeitraum gewechselt haben (den Wechsel hat der Dirty-Schutz zuvor bestätigt).
+    if (!contextChanged && dirtyRef.current) return;
     setBlocks(buildBlocks(data.ratings, data.categories));
     setDirty(false);
-    shownPeriodRef.current = data.period.key;
-    // `data` selbst ist bewusst keine Abhängigkeit: periodKey und
+    shownRef.current = shownKey;
+    // `data` selbst ist bewusst keine Abhängigkeit: employeeId, periodKey und
     // serverSignature decken jede inhaltliche Änderung ab.
-  }, [periodKey, serverSignature]);
+  }, [employeeId, periodKey, serverSignature]);
 
   const categoryById = useMemo(
     () => new Map<number, RatingCategory>((data?.categories ?? []).map((c) => [c.id, c])),
@@ -151,7 +158,9 @@ export function TeamMemberRatingPage() {
   // Während eines Zeitraumwechsels zeigt keepPreviousData noch den alten
   // Stand — der darf nicht bearbeitet werden, sonst landen Eingaben im
   // falschen Zeitraum.
-  const readOnly = isFuture || isPlaceholderData;
+  // … und während des Speicherns: Eingaben in dieser Zeit gingen beim
+  // anschließenden Neuaufbau aus der Antwort verloren.
+  const readOnly = isFuture || isPlaceholderData || save.isPending;
   const usedIds = new Set(blocks.map((b) => b.category_id));
   const firstFree = data.categories.find((c) => !usedIds.has(c.id));
   const lastSaved = data.ratings.reduce<Rating | null>(
@@ -193,7 +202,8 @@ export function TeamMemberRatingPage() {
       );
     });
 
-  const backToTeam = () => guarded(() => navigate('/fuehrung/mein-team'));
+  // Kein guarded(): Den Pfadwechsel fängt der Blocker oben ab.
+  const backToTeam = () => navigate('/fuehrung/mein-team');
 
   const patchBlock = (uid: number, patch: Partial<RatingBlock>) => {
     setBlocks((bs) => bs.map((b) => (b.uid === uid ? { ...b, ...patch } : b)));
@@ -475,15 +485,22 @@ export function TeamMemberRatingPage() {
       </div>
 
       <ConfirmDialog
-        open={pendingAction !== null}
+        open={pendingAction !== null || blocker.state === 'blocked'}
         title="Ungespeicherte Änderungen verwerfen?"
         message="Ihre Eingaben in der Bewertungsmaske sind noch nicht gespeichert und gehen verloren."
         confirmLabel="Verwerfen"
         onConfirm={() => {
+          // Verwerfen heißt zurück auf den Serverstand — nicht nur das Flag
+          // löschen, sonst blieben geänderte Werte mit totem Speichern-Knopf stehen.
+          setBlocks(buildBlocks(data.ratings, data.categories));
           setDirty(false);
-          pendingAction?.();
+          if (blocker.state === 'blocked') blocker.proceed();
+          else pendingAction?.();
         }}
-        onClose={() => setPendingAction(null)}
+        onClose={() => {
+          if (blocker.state === 'blocked') blocker.reset();
+          setPendingAction(null);
+        }}
       />
     </>
   );

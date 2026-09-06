@@ -113,7 +113,6 @@ function AmpelInput({
             type="button"
             role="radio"
             aria-checked={value === n}
-            aria-pressed={value === n}
             className={`lead-ampel__btn lead-ampel__btn--${tone}`}
             disabled={disabled}
             onClick={() => onChange(n)}
@@ -147,7 +146,6 @@ function ButtonInput({
           type="button"
           role="radio"
           aria-checked={value === n}
-          aria-pressed={value === n}
           aria-label={scaleLevelLabel(scale, n)}
           className={`lead-points__btn lead-points__btn--${scoreTone(scale, n)}`}
           disabled={disabled}
@@ -177,7 +175,7 @@ export function RatingValue({
   const tone = scoreTone(scale, score);
   if (def.kind === 'stars') {
     return (
-      <span className="lead-stars lead-stars--static" aria-label={scaleLevelLabel(scale, score)}>
+      <span className="lead-stars lead-stars--static" role="img" aria-label={scaleLevelLabel(scale, score)}>
         {Array.from({ length: def.max }, (_, i) => i + 1).map((n) => (
           <span key={n} className={`lead-star${n <= score ? ' lead-star--on' : ''}`} aria-hidden="true">
             <Star size={size} fill={n <= score ? 'currentColor' : 'none'} strokeWidth={1.75} />

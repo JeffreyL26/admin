@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Handshake, Plus, Users, UserX } from 'lucide-react';
-import { formatDate, type Leader } from '@ohrganize/shared';
+import { formatDateTime, type Leader } from '@ohrganize/shared';
 import { Avatar, Badge, Card, EmptyState, Field, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
@@ -17,7 +17,7 @@ import { SetupEmployeeSelect, SetupNote, errorMessage, personCount } from './Set
  */
 export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
   const toast = useToast();
-  const { data: leaders, isLoading } = useLeaders();
+  const { data: leaders, isLoading, error } = useLeaders();
   const update = useUpdateLeader();
   const revoke = useRevokeLeader();
   const [granting, setGranting] = useState(false);
@@ -68,7 +68,11 @@ export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
           ) : undefined
         }
       >
-        {isLoading ? (
+        {error && !leaders ? (
+          <SetupNote tone="warning">
+            Führungskräfte konnten nicht geladen werden: {errorMessage(error, 'Server nicht erreichbar')}
+          </SetupNote>
+        ) : isLoading ? (
           <Spinner center />
         ) : (leaders?.length ?? 0) === 0 ? (
           <EmptyState
@@ -221,7 +225,7 @@ function LeaderRow({
       </td>
       <td style={{ color: 'var(--text-secondary)' }}>
         <div className="stack" style={{ gap: 3 }}>
-          <span>{formatDate(leader.created_at.slice(0, 10))}</span>
+          <span>{formatDateTime(leader.created_at)}</span>
           {leader.granted_by_name && (
             <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>von {leader.granted_by_name}</span>
           )}

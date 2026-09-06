@@ -28,7 +28,7 @@ import { SetupNote, errorMessage } from './SetupShared';
  */
 export function SetupCategoriesTab({ canEdit }: { canEdit: boolean }) {
   const toast = useToast();
-  const { data: categories, isLoading } = useRatingCategories();
+  const { data: categories, isLoading, error } = useRatingCategories();
   const { data: settings } = useLeadershipSettings();
   const update = useUpdateCategory();
   const remove = useDeleteCategory();
@@ -101,7 +101,11 @@ export function SetupCategoriesTab({ canEdit }: { canEdit: boolean }) {
           ) : undefined
         }
       >
-        {isLoading || !categories ? (
+        {error && !categories ? (
+          <SetupNote tone="warning">
+            Kategorien konnten nicht geladen werden: {errorMessage(error, 'Server nicht erreichbar')}
+          </SetupNote>
+        ) : isLoading || !categories ? (
           <Spinner center />
         ) : categories.length === 0 ? (
           <EmptyState

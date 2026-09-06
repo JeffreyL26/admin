@@ -105,6 +105,13 @@ export function ReportPage() {
             icon={<AlertTriangle size={40} />}
             title="Der Report konnte nicht geladen werden"
             hint={error instanceof Error ? error.message : 'Bitte versuchen Sie es später erneut.'}
+            action={
+              periodKey !== null ? (
+                <button type="button" className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => setPeriodKey(null)}>
+                  Aktueller Zeitraum
+                </button>
+              ) : undefined
+            }
           />
         </div>
       </>

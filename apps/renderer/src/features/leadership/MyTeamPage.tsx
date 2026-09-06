@@ -36,7 +36,17 @@ export function MyTeamPage() {
       <>
         <PageHeader title="Mein Team" />
         <div className="hm-card">
-          <EmptyState title="Mein Team konnte nicht geladen werden" hint={error.message} />
+          <EmptyState
+            title="Mein Team konnte nicht geladen werden"
+            hint={error.message}
+            action={
+              periodKey !== null ? (
+                <button type="button" className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => setPeriodKey(null)}>
+                  Aktueller Zeitraum
+                </button>
+              ) : undefined
+            }
+          />
         </div>
       </>
     );

@@ -69,13 +69,16 @@ function sampleScore(scale: RatingScaleKey): number {
 
 export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
   const toast = useToast();
-  const { data, isLoading } = useLeadershipSettings();
+  const { data, isLoading, error } = useLeadershipSettings();
   // Bestehende Paare — auch solche aus Organisationsänderungen, die das
   // Modul beim Entstehen nicht sehen konnte.
   const mutualPairs = useMutualPairs().data ?? [];
   const save = useUpdateLeadershipSettings();
   const [form, setForm] = useState<FormState | null>(null);
 
+  if (error && !data) {
+    return <SetupNote tone="warning">Einstellungen konnten nicht geladen werden: {errorMessage(error, 'Server nicht erreichbar')}</SetupNote>;
+  }
   if (isLoading || !data) return <Spinner center />;
 
   const saved = toForm(data);

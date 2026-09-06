@@ -20,6 +20,7 @@ import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../..
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { EmployeeSelect, employeeName, useEmployees } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
+import { Tooltip } from '../../components/Tooltip';
 
 const KEY = ['admin', 'admin-roles'];
 const USERS_KEY = ['admin', 'users'];
@@ -180,9 +181,18 @@ function AccountsTab() {
                         </span>
                       )}
                       {a.must_change_password === 1 && (
-                        <span style={{ marginLeft: 8 }} title="Das Konto hat noch das Erstpasswort und erreicht bis zum Wechsel nur die Passwortseite.">
-                          <Badge tone="yellow">Erstpasswort</Badge>
-                        </span>
+                        <Tooltip
+                          content={
+                            <>
+                              <div className="hm-tooltip__title">Erstpasswort noch nicht geändert</div>
+                              <div className="hm-tooltip__line">Bis zum Wechsel nur die Passwortseite erreichbar</div>
+                            </>
+                          }
+                        >
+                          <span style={{ marginLeft: 8 }}>
+                            <Badge tone="yellow">Erstpasswort</Badge>
+                          </span>
+                        </Tooltip>
                       )}
                     </td>
                     <td>{a.email}</td>
@@ -248,26 +258,44 @@ function AccountsTab() {
                     </td>
                     <td>
                       <div style={{ display: 'flex', gap: 4 }}>
-                        <button
-                          className="hm-btn hm-btn--quiet hm-btn--sm"
-                          title={
-                            self
-                              ? 'Das eigene Passwort ändern Sie unter Einstellungen.'
-                              : 'Passwort zurücksetzen'
+                        {/* Tooltip statt title (CLAUDE.md): Host ist ein span, weil ein
+                            deaktivierter Button keine Mausereignisse liefert. */}
+                        <Tooltip
+                          content={
+                            <div className="hm-tooltip__title">
+                              {self ? 'Eigenes Passwort · unter Einstellungen ändern' : 'Passwort zurücksetzen'}
+                            </div>
                           }
-                          disabled={self}
-                          onClick={() => setResetting(a)}
                         >
-                          <KeyRound size={14} />
-                        </button>
-                        <button
-                          className="hm-btn hm-btn--quiet hm-btn--sm"
-                          title={self ? 'Das eigene Konto kann nicht gelöscht werden.' : 'Konto löschen'}
-                          disabled={self}
-                          onClick={() => setDeleting(a)}
+                          <span>
+                            <button
+                              className="hm-btn hm-btn--quiet hm-btn--sm"
+                              aria-label={self ? 'Das eigene Passwort ändern Sie unter Einstellungen.' : 'Passwort zurücksetzen'}
+                              disabled={self}
+                              onClick={() => setResetting(a)}
+                            >
+                              <KeyRound size={14} />
+                            </button>
+                          </span>
+                        </Tooltip>
+                        <Tooltip
+                          content={
+                            <div className="hm-tooltip__title">
+                              {self ? 'Eigenes Konto · nicht löschbar' : 'Konto löschen'}
+                            </div>
+                          }
                         >
-                          <Trash2 size={14} />
-                        </button>
+                          <span>
+                            <button
+                              className="hm-btn hm-btn--quiet hm-btn--sm"
+                              aria-label={self ? 'Das eigene Konto kann nicht gelöscht werden.' : 'Konto löschen'}
+                              disabled={self}
+                              onClick={() => setDeleting(a)}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </span>
+                        </Tooltip>
                       </div>
                     </td>
                   </tr>
