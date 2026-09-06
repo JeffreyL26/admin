@@ -22,6 +22,7 @@ import type {
   LeadershipReport,
   LeadershipSettings,
   LeadershipSettingsPatch,
+  LeadershipSettingsResponse,
   MyTeamResponse,
   Rating,
   RatingCategory,
@@ -97,8 +98,21 @@ export function useSaveRatings(employeeId: number) {
 export function useLeadershipSettings() {
   return useQuery({
     queryKey: [...LEADERSHIP_KEY, 'settings'],
-    queryFn: () => api.get<{ settings: LeadershipSettings }>('/api/leadership/settings'),
+    queryFn: () => api.get<LeadershipSettingsResponse>('/api/leadership/settings'),
     select: (d) => d.settings,
+  });
+}
+
+/**
+ * Bestehende gegenseitige Verantwortung (gleiche Abfrage wie die
+ * Einstellungen) — die Einrichtung warnt damit auch vor Paaren, die durch
+ * Organisationsänderungen entstanden sind.
+ */
+export function useMutualPairs() {
+  return useQuery({
+    queryKey: [...LEADERSHIP_KEY, 'settings'],
+    queryFn: () => api.get<LeadershipSettingsResponse>('/api/leadership/settings'),
+    select: (d) => d.mutual_pairs,
   });
 }
 

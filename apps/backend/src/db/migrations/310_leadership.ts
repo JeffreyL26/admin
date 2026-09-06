@@ -117,9 +117,16 @@ export const leadershipMigrations: Migration[] = [
       -- landet zusätzlich unveränderlich im Protokoll darunter. Skala und
       -- Rohwert werden JE BEWERTUNG gespeichert, damit ein späterer
       -- Skalenwechsel alte Bewertungen nicht umdeutet.
+      --
+      -- Löschregeln, bewusst verschieden: Verschwindet die BEWERTETE Person
+      -- (DSGVO-Löschung), verschwinden ihre Bewertungen samt Protokoll mit
+      -- (CASCADE). Verschwindet die FÜHRUNGSKRAFT, bleiben die Bewertungen
+      -- über andere bestehen und verlieren nur die Zuordnung (SET NULL) —
+      -- sonst gälte das „unlöschbare Protokoll“ nur, solange die Führungskraft
+      -- im System ist. Das Protokoll behält die numerische ID (kein Name).
       CREATE TABLE leadership_ratings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        leader_employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        leader_employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL,
         employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
         category_id INTEGER NOT NULL REFERENCES rating_categories(id),
         period_kind TEXT NOT NULL CHECK (period_kind IN ('monat', 'quartal', 'halbjahr', 'jahr')),
@@ -147,6 +154,8 @@ export const leadershipMigrations: Migration[] = [
       CREATE TABLE leadership_rating_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         rating_id INTEGER NOT NULL REFERENCES leadership_ratings(id) ON DELETE CASCADE,
+        -- Bewusst ohne Fremdschlüssel: Der UPDATE-Trigger unten würde ein
+        -- ON DELETE SET NULL abbrechen; die ID bleibt als Pseudonym stehen.
         leader_employee_id INTEGER NOT NULL,
         employee_id INTEGER NOT NULL,
         category_id INTEGER NOT NULL,
@@ -156,6 +165,9 @@ export const leadershipMigrations: Migration[] = [
         scale TEXT NOT NULL,
         score INTEGER NOT NULL,
         comment TEXT NOT NULL,
+        -- Vorherige Stufe samt ihrer Skala: Nach einem Skalenwechsel wäre
+        -- „4 → 4“ sonst nicht als „4 von 5 Sternen → 4 Punkte“ erkennbar.
+        previous_scale TEXT,
         previous_score INTEGER,
         previous_comment TEXT,
         changed_by_user_id INTEGER REFERENCES users(id),

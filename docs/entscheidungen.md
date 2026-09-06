@@ -248,3 +248,15 @@ Seed über dieselben Funktionen (`periodFromKey`, `shiftPeriod`,
 auseinandergelaufen — und genau daran hängt, ob eine Bewertung im richtigen
 Zeitraum landet und ob der Zeitraum-Wechsler im Client dieselben Zeiträume
 zeigt, die der Server akzeptiert.
+
+**Löschregeln (Review-Ergebnis):** `leadership_ratings.leader_employee_id`
+steht auf `ON DELETE SET NULL`, `employee_id` auf `CASCADE`. Verschwindet die
+bewertete Person (DSGVO), verschwinden ihre Bewertungen samt Protokoll;
+verschwindet die Führungskraft, bleiben ihre Bewertungen über andere bestehen
+und verlieren nur die Zuordnung — sonst gälte das „unlöschbare Protokoll“ nur,
+solange die Führungskraft im System ist. Das Protokoll trägt seither auch
+`previous_scale`: Nach einem Skalenwechsel wäre „4 → 4“ sonst nicht als
+„4 von 5 Sternen → 4 Punkte“ erkennbar. Gegenseitige Verantwortung wird an
+jeder Schreibstelle des Moduls in der Transaktion geprüft (`assertMutualAllowed`);
+Organisationsänderungen sieht das Modul nicht, deshalb liefert
+`GET /api/leadership/settings` die bestehenden Paare zur Warnung.

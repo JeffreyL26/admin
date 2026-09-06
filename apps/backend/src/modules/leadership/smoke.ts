@@ -1124,6 +1124,51 @@ check(
   reportOpen.leaders.map((l) => [l.last_name, l.team_size, l.rated_count, l.open_count]),
 );
 
+// Skalenwechsel im Protokoll: previous_scale hält die Skala der Vorversion fest.
+await admin.put('/api/leadership/settings', { scale: 'points10' });
+const rescored = await tlb.put(`/api/leadership/me/employees/${DEV1}/ratings`, {
+  period_key: period,
+  ratings: [{ category_id: gesamt.id, score: 3, comment: 'Nachgebessert: solide, aber Luft nach oben' }],
+});
+const rescoredHistory = (await tlb.get(`/api/leadership/me/employees/${DEV1}`)).json().history as RatingHistoryEntry[];
+check(
+  'Gleicher Rohwert auf neuer Skala → neue Version mit previous_scale stars5 und scale points10',
+  rescored.statusCode === 200 &&
+    rescoredHistory[0]?.change_kind === 'geaendert' &&
+    rescoredHistory[0]?.scale === 'points10' &&
+    rescoredHistory[0]?.previous_scale === 'stars5' &&
+    rescoredHistory[0]?.previous_score === 3,
+  rescoredHistory[0],
+);
+await admin.put('/api/leadership/settings', { scale: 'stars5' });
+
+// Einstellungen liefern bestehende Paare — auch aus Organisationsänderungen.
+const settingsWithPairs = await admin.get('/api/leadership/settings');
+check('GET settings liefert mutual_pairs (Array)', settingsWithPairs.statusCode === 200 && Array.isArray(settingsWithPairs.json().mutual_pairs), settingsWithPairs.json());
+
+// Löschregeln: Profil der FÜHRUNGSKRAFT löschen → Bewertungen über andere
+// bleiben, verlieren nur die Zuordnung. (TLB hat Konto und Zuweisungen:
+// users.employee_id ist ON DELETE SET NULL, Zuweisungen kaskadieren.)
+const ratingsBeforeDelete = ((await admin.get(`/api/leadership/employees/${DEV1}/ratings`)).json() as { ratings: Rating[]; history: RatingHistoryEntry[] });
+const delLeader = await admin.del(`/api/employees/${TLB}`);
+check('Profil der Führungskraft TLB löschen → 204', delLeader.statusCode === 204, delLeader.body);
+const ratingsAfterDelete = ((await admin.get(`/api/leadership/employees/${DEV1}/ratings`)).json() as { ratings: Rating[]; history: RatingHistoryEntry[] });
+check(
+  'Bewertungen über DEV1 bleiben mit leader_employee_id null und Beschriftung „(gelöschte Führungskraft)“; Protokoll vollständig',
+  ratingsAfterDelete.ratings.length === ratingsBeforeDelete.ratings.length &&
+    ratingsAfterDelete.ratings.every((r) => r.leader_employee_id === null && r.leader_name === '(gelöschte Führungskraft)') &&
+    ratingsAfterDelete.history.length === ratingsBeforeDelete.history.length,
+  { before: ratingsBeforeDelete.ratings.length, after: ratingsAfterDelete.ratings.map((r) => [r.leader_employee_id, r.leader_name]), history: ratingsAfterDelete.history.length },
+);
+// Bewertete Person löschen → ihre Bewertungen und ihr Protokoll verschwinden (DSGVO).
+const delRatedPerson = await admin.del(`/api/employees/${DEV1}`);
+check('Profil der bewerteten Person DEV1 löschen → 204', delRatedPerson.statusCode === 204, delRatedPerson.body);
+check(
+  'Bewertungen und Protokoll über DEV1 sind weg',
+  (db.prepare('SELECT COUNT(*) AS n FROM leadership_ratings WHERE employee_id = ?').get(DEV1) as { n: number }).n === 0 &&
+    (db.prepare('SELECT COUNT(*) AS n FROM leadership_rating_history WHERE employee_id = ?').get(DEV1) as { n: number }).n === 0,
+);
+
 // Audit-Log wurde befüllt
 const auditCount = db
   .prepare(

@@ -442,7 +442,8 @@ export interface TeamMember {
 
 export interface Rating {
   id: number;
-  leader_employee_id: number;
+  /** null, wenn das Profil der Führungskraft gelöscht wurde (Bewertung bleibt). */
+  leader_employee_id: number | null;
   employee_id: number;
   category_id: number;
   category_name: string;
@@ -489,6 +490,8 @@ export interface RatingHistoryEntry {
   scale: RatingScaleKey;
   score: number;
   comment: string;
+  /** Skala der vorherigen Version — kann sich von `scale` unterscheiden. */
+  previous_scale: RatingScaleKey | null;
   previous_score: number | null;
   previous_comment: string | null;
   changed_at: string;
@@ -498,6 +501,24 @@ export interface RatingHistoryEntry {
 // ---------------------------------------------------------------------------
 // API-Antworten
 // ---------------------------------------------------------------------------
+
+/** Ein Paar gegenseitiger Verantwortung (a < b), mit lesbarer Beschriftung. */
+export interface MutualPair {
+  a: number;
+  b: number;
+  label: string;
+}
+
+/**
+ * GET /api/leadership/settings. `mutual_pairs` zeigt bestehende gegenseitige
+ * Verantwortung — auch solche, die durch Organisationsänderungen (Vorgesetzte,
+ * Abteilungs-/Teamleitung) entstanden ist und deshalb an keiner Schreibstelle
+ * des Moduls abgefangen werden konnte.
+ */
+export interface LeadershipSettingsResponse {
+  settings: LeadershipSettings;
+  mutual_pairs: MutualPair[];
+}
 
 /** GET /api/leadership/me/status — für jedes Admin-Konto beantwortbar. */
 export interface LeaderStatus {

@@ -406,12 +406,18 @@ export function updateLeader(
   return { leader: loadLeader(employeeId), warnings };
 }
 
-/** Freischaltung entziehen. Bewertungen und Protokoll bleiben erhalten. */
+/**
+ * Freischaltung entziehen. Bewertungen und Protokoll bleiben erhalten; die
+ * manuellen Zuweisungen der Führungskraft fallen mit (FK-Kaskade auf
+ * leadership_leaders) — ein erneutes Freischalten startet ohne sie. Die Zahl
+ * steht im Audit und in der Bestätigung der Einrichtung.
+ */
 export function revokeLeader(req: FastifyRequest, employeeId: number): void {
   const leader = loadLeader(employeeId);
   getDb().prepare('DELETE FROM leadership_leaders WHERE employee_id = ?').run(employeeId);
   audit(req, 'revoke', 'leadership_leader', employeeId, {
     name: `${leader.first_name} ${leader.last_name}`,
+    removed_assignments: leader.assignment_count,
   });
 }
 
@@ -863,7 +869,7 @@ export function leaderTeam(
 
 const RATING_SELECT = `
   SELECT r.*, c.name AS category_name, cu.name AS created_by_name, uu.name AS updated_by_name,
-         le.first_name || ' ' || le.last_name AS leader_name
+         COALESCE(le.first_name || ' ' || le.last_name, '(gelöschte Führungskraft)') AS leader_name
   FROM leadership_ratings r
   JOIN rating_categories c ON c.id = r.category_id
   LEFT JOIN users cu ON cu.id = r.created_by_user_id
@@ -1037,9 +1043,9 @@ export function saveRatings(
         db.prepare(
           `INSERT INTO leadership_rating_history
              (rating_id, leader_employee_id, employee_id, category_id, period_key, version, change_kind,
-              scale, score, comment, previous_score, previous_comment, changed_by_user_id)
+              scale, score, comment, previous_scale, previous_score, previous_comment, changed_by_user_id)
            VALUES (@rating_id, @leader, @employee, @category, @period, @version, 'geaendert',
-                   @scale, @score, @comment, @previous_score, @previous_comment, @user)`,
+                   @scale, @score, @comment, @previous_scale, @previous_score, @previous_comment, @user)`,
         ).run({
           rating_id: existing.id,
           leader: leaderId,
@@ -1050,6 +1056,7 @@ export function saveRatings(
           scale,
           score: item.score,
           comment: item.comment,
+          previous_scale: existing.scale,
           previous_score: existing.score,
           previous_comment: existing.comment,
           user: req.user.id,
@@ -1077,9 +1084,9 @@ export function saveRatings(
         db.prepare(
           `INSERT INTO leadership_rating_history
              (rating_id, leader_employee_id, employee_id, category_id, period_key, version, change_kind,
-              scale, score, comment, previous_score, previous_comment, changed_by_user_id)
+              scale, score, comment, previous_scale, previous_score, previous_comment, changed_by_user_id)
            VALUES (@rating_id, @leader, @employee, @category, @period, 1, 'erstellt',
-                   @scale, @score, @comment, NULL, NULL, @user)`,
+                   @scale, @score, @comment, NULL, NULL, NULL, @user)`,
         ).run({
           rating_id: Number(info.lastInsertRowid),
           leader: leaderId,

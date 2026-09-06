@@ -514,7 +514,7 @@ function HistoryItem({ entry, kind }: { entry: RatingHistoryEntry; kind: RatingP
           <ScoreBadge scale={entry.scale} score={entry.score} />
           {changed && entry.previous_score !== null && (
             <span style={{ color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              vorher: <ScoreBadge scale={entry.scale} score={entry.previous_score} />
+              vorher: <ScoreBadge scale={entry.previous_scale ?? entry.scale} score={entry.previous_score} />
             </span>
           )}
           <span style={{ color: 'var(--text-muted)', marginLeft: 'auto', fontSize: 'var(--text-xs)' }}>

@@ -124,8 +124,10 @@ export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
         confirmLabel="Entziehen"
         message={
           <>
-            Die Person verliert den Zugang zu „Mein Team“ und kann keine Bewertungen mehr abgeben. Ihre
-            manuellen Zuweisungen werden entfernt.{' '}
+            Die Person verliert den Zugang zu „Mein Team“ und kann keine Bewertungen mehr abgeben.{' '}
+            {revoking && revoking.assignment_count > 0
+              ? `${revoking.assignment_count === 1 ? 'Ihre eine manuelle Zuweisung wird' : `Ihre ${revoking.assignment_count} manuellen Zuweisungen werden`} dabei entfernt — ein späteres erneutes Freischalten startet ohne sie.`
+              : 'Manuelle Zuweisungen bestehen keine.'}{' '}
             <strong>Bereits abgegebene Bewertungen und das Protokoll bleiben vollständig erhalten</strong> und
             sind weiterhin in der Einsicht und im Report sichtbar.
           </>

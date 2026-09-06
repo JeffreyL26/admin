@@ -97,7 +97,13 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   (`userRoutes.ts#assertMayLinkProfile`), sonst verschaffte sich
   `benutzer: bearbeiten` über ein Zweitkonto fremde Teams. Die Einrichtung
   holt ihre Auswahllisten über `GET /api/leadership/lookup` (Bereich
-  `fuehrung`), nicht über `/api/employees` (`personal`). Bewertungen tragen Skala und
+  `fuehrung`), nicht über `/api/employees` (`personal`). Organisationsänderungen
+  (Vorgesetzte, Abteilungs-/Teamleitung) laufen NICHT durch dieses Modul und
+  können bei `allow_mutual = 0` still Paare erzeugen — `GET
+  /api/leadership/settings` liefert deshalb `mutual_pairs`, die Einrichtung
+  warnt. Löschregeln: bewertete Person gelöscht ⇒ Bewertungen samt Protokoll
+  weg (CASCADE); Führungskraft gelöscht ⇒ Bewertungen bleiben ohne Zuordnung
+  (`leader_employee_id` SET NULL, Anzeige „(gelöschte Führungskraft)“). Bewertungen tragen Skala und
   Rohwert **je Zeile** (ein späterer Skalenwechsel deutet Altes nicht um);
   Speichern ist ein Upsert je (Führungskraft, Person, Kategorie, Zeitraum) mit
   unveränderlichem Protokoll `leadership_rating_history`: Trigger gegen UPDATE,

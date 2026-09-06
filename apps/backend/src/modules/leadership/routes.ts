@@ -174,7 +174,12 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
   await app.register(leaderRoutes);
 
   // ------------------------------------------------------ Einstellungen --
-  app.get('/api/leadership/settings', async () => ({ settings: service.getSettings() }));
+  // mutual_pairs: bestehende gegenseitige Verantwortung — auch die aus
+  // Organisationsänderungen, die keine Schreibstelle des Moduls sehen konnte.
+  app.get('/api/leadership/settings', async () => ({
+    settings: service.getSettings(),
+    mutual_pairs: service.mutualPairs(),
+  }));
 
   app.put('/api/leadership/settings', async (req) => ({
     settings: service.updateSettings(req, parse(settingsPatchSchema, req.body)),

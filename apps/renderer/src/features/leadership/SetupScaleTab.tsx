@@ -13,7 +13,7 @@ import {
 } from '@ohrganize/shared';
 import { Card, Field, Spinner } from '../../components/ui';
 import { useToast } from '../../components/Toast';
-import { useLeadershipSettings, useUpdateLeadershipSettings } from './api';
+import { useLeadershipSettings, useMutualPairs, useUpdateLeadershipSettings } from './api';
 import { RatingInput } from './RatingInput';
 import { SetupNote, errorMessage } from './SetupShared';
 
@@ -70,6 +70,9 @@ function sampleScore(scale: RatingScaleKey): number {
 export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
   const toast = useToast();
   const { data, isLoading } = useLeadershipSettings();
+  // Bestehende Paare — auch solche aus Organisationsänderungen, die das
+  // Modul beim Entstehen nicht sehen konnte.
+  const mutualPairs = useMutualPairs().data ?? [];
   const save = useUpdateLeadershipSettings();
   const [form, setForm] = useState<FormState | null>(null);
 
@@ -179,6 +182,17 @@ export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
       </Card>
 
       <Card title="Gegenseitige Verantwortung">
+        {mutualPairs.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <SetupNote tone={state.allow_mutual ? 'info' : 'warning'} icon={<Handshake size={15} />}>
+              {state.allow_mutual ? 'Bestehende gegenseitige Verantwortung: ' : 'Nicht zugelassen, aber vorhanden — entstanden durch Änderungen an Vorgesetzten, Abteilungs- oder Teamleitungen: '}
+              <strong>{mutualPairs.map((p) => p.label).join(', ')}</strong>
+              {state.allow_mutual
+                ? '.'
+                : '. Nehmen Sie eine Seite über eine Ausnahme (Einrichtung → Zuständigkeit) heraus oder lassen Sie gegenseitige Verantwortung zu.'}
+            </SetupNote>
+          </div>
+        )}
         <label className="hm-checkbox">
           <input
             type="checkbox"
