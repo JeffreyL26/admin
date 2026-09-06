@@ -300,7 +300,14 @@ Wer die Funktion nicht einsetzt, überspringt diesen Punkt.
    **„Führungskraft"** zuweisen — sie hat keinen HR-Bereich, nur Dashboard und
    nach der Freischaltung „Mein Team" — und das Konto mit dem Personalprofil
    der Person verknüpfen. Hat die Person bereits ein Admin-Konto (etwa
-   HR-Sachbearbeitung), genügt die Verknüpfung.
+   HR-Sachbearbeitung), genügt die Verknüpfung (Benutzer & Rechte →
+   Personalprofil verknüpfen). Hat sie bislang nur ein **Portal-Konto**, kann
+   für dasselbe Profil kein zweites Konto entstehen (ein Konto je Profil):
+   Das Portal-Konto löschen und das Desktop-Konto mit dem Profil verknüpfen —
+   es ist zugleich portalfähig, die Person meldet sich im Portal künftig damit
+   an. Verknüpfen und Lösen eines bereits freigeschalteten Profils verlangt
+   zusätzlich `fuehrung: bearbeiten` — sonst könnte die Benutzerverwaltung
+   sich die Führungsfunktion einer anderen Person aneignen.
 2. **Freischalten.** Unter Führung → Einrichtung → Führungskräfte das Profil
    hinzufügen. Ein Profil ohne Konto lässt sich bereits freischalten; die
    Einrichtung weist dann auf das fehlende Konto hin.

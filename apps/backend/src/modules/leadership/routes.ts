@@ -19,8 +19,9 @@
  */
 import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { RATING_PERIOD_KINDS, RATING_SCALE_KEYS } from '@ohrganize/shared';
+import { RATING_PERIOD_KINDS, RATING_SCALE_KEYS, permits } from '@ohrganize/shared';
 import { forbidden, parse } from '../../core/errors.js';
+import { permissionsFor } from '../../core/permissions.js';
 import { isoDateString } from '../../core/validation.js';
 import * as service from './service.js';
 
@@ -90,6 +91,15 @@ function idParam(req: FastifyRequest): number {
 
 function employeeParam(req: FastifyRequest): number {
   return parse(employeeParamSchema, req.params).employeeId;
+}
+
+/**
+ * Fotos in Verwaltungsantworten nur, wenn das Konto sie auch selbst signieren
+ * dürfte (Bereich `personal`, siehe core/files.ts assertMayReadFile) — sonst
+ * weitete `fuehrung: lesen` still auf Mitarbeiterfotos aus.
+ */
+function photoView(req: FastifyRequest): service.ViewOptions {
+  return { photos: permits(permissionsFor(req.user.admin_role_id ?? null).personal, 'lesen') };
 }
 
 function periodOf(req: FastifyRequest) {
@@ -208,7 +218,7 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
 
   app.get('/api/leadership/leaders/:employeeId/team', async (req) => {
     const { period } = periodOf(req);
-    return service.leaderTeam(employeeParam(req), period);
+    return service.leaderTeam(employeeParam(req), period, photoView(req));
   });
 
   app.patch('/api/leadership/leaders/:employeeId', async (req) => ({
@@ -234,7 +244,7 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
   // ------------------------------------------------ Report und Einsicht --
   app.get('/api/leadership/report', async (req) => {
     const { period } = periodOf(req);
-    return service.buildReport(period);
+    return service.buildReport(period, photoView(req));
   });
 
   app.get('/api/leadership/employees/:id/ratings', async (req) =>

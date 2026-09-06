@@ -136,6 +136,32 @@ function ownPermissions(req: FastifyRequest): AdminPermissions {
 }
 
 /**
+ * Profilverknüpfung mit einer freigeschalteten Führungskraft.
+ *
+ * Die Führungsfunktion (modules/leadership, „Mein Team“) hängt an der PERSON
+ * hinter `users.employee_id`, nicht an einem Admin-Bereich — assertWithinOwnRights
+ * sieht sie deshalb nicht. Ohne diese Prüfung könnte ein Konto mit
+ * `benutzer: bearbeiten`, aber `fuehrung: kein` das Konto einer Führungskraft
+ * vom Profil lösen und ein eigenes Zweitkonto daran hängen — und damit deren
+ * Team lesen und in deren Namen bewerten. Verknüpfen und Lösen eines
+ * freigeschalteten Profils verlangen darum dasselbe Recht wie die
+ * Freischaltung selbst. Bewusst per SQL statt über das Leadership-Modul:
+ * Die Benutzerverwaltung soll keine Fachmodule importieren.
+ */
+function assertMayLinkProfile(req: FastifyRequest, employeeId: number | null): void {
+  if (employeeId === null) return;
+  const leader = getDb()
+    .prepare('SELECT 1 FROM leadership_leaders WHERE employee_id = ?')
+    .get(employeeId);
+  if (!leader) return;
+  if (ownPermissions(req).fuehrung !== 'bearbeiten') {
+    throw forbidden(
+      'Dieses Personalprofil ist als Führungskraft freigeschaltet. Die Verknüpfung darf nur ändern, wer „Führung & Bewertung“ bearbeiten darf.',
+    );
+  }
+}
+
+/**
  * Eskalationsdeckel: Niemand darf Rechte vergeben oder anfassen, die über die
  * eigenen hinausgehen.
  *
@@ -409,6 +435,9 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
       );
     }
 
+    // Freigeschaltete Führungskraft: Verknüpfung nur mit fuehrung: bearbeiten.
+    assertMayLinkProfile(req, employeeId);
+
     const initialPassword = generateInitialPassword();
     const passwordHash = bcrypt.hashSync(initialPassword, 10);
 
@@ -558,8 +587,10 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
       'Dieses Konto hat mehr Rechte als Sie selbst und kann deshalb nur von einer entsprechend berechtigten Person geändert werden.',
     );
 
-    if (body.employee_id !== undefined) {
-      const employeeId = body.employee_id;
+    // ---- Alle Prüfungen VOR dem ersten Schreibzugriff: Scheitert eines der
+    // beiden Felder, bleibt das Konto vollständig unverändert. ----
+    const employeeId = body.employee_id;
+    if (employeeId !== undefined) {
       if (target.role === 'mitarbeiter' && employeeId === null) {
         throw badRequest('Ein Portal-Konto braucht ein verknüpftes Personalprofil.');
       }
@@ -573,20 +604,17 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           throw conflict(`Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft.`);
         }
       }
-      db().prepare('UPDATE users SET employee_id = ? WHERE id = ?').run([employeeId, id]);
-      audit(req, 'update', 'user_employee_link', id, {
-        user: target.name,
-        before: target.employee_id,
-        after: employeeId,
-      });
+      // Bisheriges wie neues Profil: Ist eines davon als Führungskraft
+      // freigeschaltet, braucht die Änderung fuehrung: bearbeiten.
+      assertMayLinkProfile(req, target.employee_id);
+      assertMayLinkProfile(req, employeeId);
     }
 
-    if (body.admin_role_id !== undefined) {
-      const adminRoleId = body.admin_role_id;
+    const adminRoleId = body.admin_role_id;
+    if (adminRoleId !== undefined) {
       if (target.role !== 'admin') {
         throw badRequest('Admin-Rollen gelten nur für Konten der HR-Administration.');
       }
-
       // Eskalationsdeckel (Audit S4), zwei weitere Fälle:
       // 1. `admin_role_id: null` bedeutet VOLLZUGRIFF (Migration 002). Wer selbst
       //    eingeschränkt ist, würde damit über ein fremdes Konto genau die Rechte
@@ -607,17 +635,33 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           'Sie können keine Rolle zuweisen, die mehr Rechte hat als Sie selbst.',
         );
       }
+    }
 
-      db().prepare('UPDATE users SET admin_role_id = ? WHERE id = ?').run(adminRoleId, id);
-
-      // Erreichbarkeit sichern: Es muss jemand übrig bleiben, der Rechte vergibt.
-      if (userAdminCount() === 0) {
-        db().prepare('UPDATE users SET admin_role_id = ? WHERE id = ?').run(target.admin_role_id, id);
-        throw conflict(
-          'Das wäre das letzte Konto mit Benutzerverwaltung. Vergeben Sie das Recht zuerst an jemand anderen.',
-        );
+    // ---- Schreiben in EINER Transaktion; die Erreichbarkeitsprüfung rollt
+    // bei Verstoß alles zurück. ----
+    inTransaction(() => {
+      if (employeeId !== undefined) {
+        db().prepare('UPDATE users SET employee_id = ? WHERE id = ?').run([employeeId, id]);
       }
+      if (adminRoleId !== undefined) {
+        db().prepare('UPDATE users SET admin_role_id = ? WHERE id = ?').run([adminRoleId, id]);
+        // Erreichbarkeit sichern: Es muss jemand übrig bleiben, der Rechte vergibt.
+        if (userAdminCount() === 0) {
+          throw conflict(
+            'Das wäre das letzte Konto mit Benutzerverwaltung. Vergeben Sie das Recht zuerst an jemand anderen.',
+          );
+        }
+      }
+    });
 
+    if (employeeId !== undefined) {
+      audit(req, 'update', 'user_employee_link', id, {
+        user: target.name,
+        before: target.employee_id,
+        after: employeeId,
+      });
+    }
+    if (adminRoleId !== undefined) {
       audit(req, 'update', 'user_admin_role', id, {
         user: target.name,
         before: target.admin_role_id,

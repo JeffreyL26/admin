@@ -196,6 +196,7 @@ function LeaderRow({
                 <div className="hm-tooltip__title">Kein Desktop-Konto verknüpft</div>
                 <div className="hm-tooltip__line">Verwaltung → Benutzer &amp; Rechte: Konto anlegen</div>
                 <div className="hm-tooltip__line">Mit diesem Profil verknüpfen · z. B. Admin-Rolle „Führungskraft“</div>
+                <div className="hm-tooltip__line">Bestehendes Portal-Konto? Löschen · Desktop-Konto ist zugleich portalfähig</div>
                 <div className="hm-tooltip__line">Bis dahin sieht die Person „Mein Team“ nicht</div>
               </>
             }

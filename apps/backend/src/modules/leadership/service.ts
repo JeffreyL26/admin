@@ -590,10 +590,22 @@ const MEMBER_SELECT = `
  * Führungskraft hat nicht zwingend das Recht `personal`, könnte also
  * /api/files/:id/sign selbst nicht aufrufen.
  */
+/**
+ * Anzeigeoptionen der Verwaltungsrouten. `photos: false` unterdrückt signierte
+ * Foto-URLs: Ein Konto mit `fuehrung: lesen`, aber ohne `personal`, bekäme die
+ * Fotos über POST /api/files/:id/sign nicht (assertMayReadFile) — dann darf
+ * der Report sie auch nicht mitliefern. Die Führungsfunktion (/me/*) liefert
+ * die Fotos des eigenen Bereichs bewusst immer.
+ */
+export interface ViewOptions {
+  photos?: boolean;
+}
+
 export function teamMembers(
   leaderId: number,
   period: RatingPeriod,
   scope: Map<number, ScopeSource[]> = scopeFor(leaderId),
+  view: ViewOptions = {},
 ): TeamMember[] {
   const ids = [...scope.keys()];
   if (ids.length === 0) return [];
@@ -635,7 +647,7 @@ export function teamMembers(
     const mutual = isLeaderEmployee(row.id) && scopeFor(row.id).has(leaderId) ? 1 : 0;
     return {
       ...row,
-      photo_url: row.photo_file_id ? signDownloadUrl(row.photo_file_id) : null,
+      photo_url: view.photos !== false && row.photo_file_id ? signDownloadUrl(row.photo_file_id) : null,
       sources: scope.get(row.id) ?? [],
       mutual,
       overall: stats?.overall ?? null,
@@ -764,11 +776,15 @@ export function deleteAssignment(req: FastifyRequest, id: number): void {
   });
 }
 
-export function leaderTeam(leaderId: number, period: RatingPeriod): LeaderTeamResponse {
+export function leaderTeam(
+  leaderId: number,
+  period: RatingPeriod,
+  view: ViewOptions = {},
+): LeaderTeamResponse {
   const leader = loadLeader(leaderId);
   return {
     leader,
-    team: teamMembers(leaderId, period),
+    team: teamMembers(leaderId, period, scopeFor(leaderId), view),
     assignments: listAssignments(leaderId),
     mutual: mutualPartners(leaderId),
   };
@@ -1066,7 +1082,7 @@ function percentages(counts: number[]): number[] {
   return floors;
 }
 
-export function buildReport(period: RatingPeriod): LeadershipReport {
+export function buildReport(period: RatingPeriod, view: ViewOptions = {}): LeadershipReport {
   const settings = getSettings();
   const category = overallCategory(settings);
   const scale = category.effective_scale;
@@ -1105,7 +1121,7 @@ export function buildReport(period: RatingPeriod): LeadershipReport {
       job_title: leader.job_title,
       department_name: leader.department_name,
       photo_file_id: leader.photo_file_id,
-      photo_url: leader.photo_file_id ? signDownloadUrl(leader.photo_file_id) : null,
+      photo_url: view.photos !== false && leader.photo_file_id ? signDownloadUrl(leader.photo_file_id) : null,
       team_size: leader.team_size,
       rated_count: onScale.length,
       distribution,

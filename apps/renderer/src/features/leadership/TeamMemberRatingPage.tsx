@@ -248,7 +248,13 @@ export function TeamMemberRatingPage() {
         })),
       },
       {
-        onSuccess: () => {
+        onSuccess: (res) => {
+          // Die Invalidierung im Hook läuft VOR diesem Callback: Der Refetch
+          // trifft ein, solange `dirty` noch gesetzt ist, und wird vom Effekt
+          // oben bewusst ignoriert. Deshalb hier direkt aus der Antwort neu
+          // aufbauen — sie ist derselbe Stand wie der Refetch (Versionen,
+          // gespeicherte Blöcke, umgestellte Skalen).
+          setBlocks(buildBlocks(res.ratings, data.categories));
           setDirty(false);
           toast.success('Bewertung gespeichert');
         },
