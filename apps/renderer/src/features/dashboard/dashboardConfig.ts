@@ -2,7 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Users, CalendarDays, Send, Stethoscope, FolderClock, Wallet, Briefcase,
   CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
-  UserPlus,
+  UserPlus, UsersRound, Gauge,
 } from 'lucide-react';
 import type { AdminArea } from '@ohrganize/shared';
 import type { DashboardStats } from './api';
@@ -133,7 +133,9 @@ export type WidgetKey =
   | 'announcements'
   | 'surveys'
   | 'birthdays'
-  | 'onboarding';
+  | 'onboarding'
+  | 'leadership-team'
+  | 'leadership-report';
 
 export interface WidgetDef {
   title: string;
@@ -165,6 +167,14 @@ export const WIDGET_DEFS: Record<WidgetKey, WidgetDef> = {
   // antwortet das Backend mit 403 und das Widget behauptete sonst, es sei
   // niemand im On-/Offboarding.
   onboarding: { title: 'On- & Offboarding', description: 'Wer gerade an- oder abreist', icon: UserPlus, area: 'verwaltung' },
+  // Kein `area`: Wie der Sidebar-Eintrag „Mein Team“ (nav.ts, leaderOnly)
+  // hängt die Führungsfunktion an der Freischaltung der Person, nicht am
+  // Rechtebereich `fuehrung`. Mit einem Bereich wäre das Widget für genau die
+  // Führungskräfte ohne HR-Rechte nicht anbietbar, für die es gedacht ist. Das
+  // Widget lädt seine Daten selbst und blendet sich für Nicht-Führungskräfte
+  // inhaltlich aus, statt gar nicht erst angeboten zu werden.
+  'leadership-team': { title: 'Mein Team', description: 'Bewertungsstand Ihres Zuständigkeitsbereichs', icon: UsersRound },
+  'leadership-report': { title: 'Satisfaction-Report', description: 'Bewertungsstand je Führungskraft im Zeitraum', icon: Gauge, area: 'fuehrung' },
 };
 
 export const ALL_WIDGETS = Object.keys(WIDGET_DEFS) as WidgetKey[];

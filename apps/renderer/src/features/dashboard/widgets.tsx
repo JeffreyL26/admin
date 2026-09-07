@@ -7,6 +7,7 @@ import {
   formatDate, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, ONBOARDING_KIND_LABELS,
 } from '@ohrganize/shared';
 import { useOnboardingProcesses } from '../admin/api';
+import { useLeaderStatus, useLeadershipReport } from '../leadership/api';
 import type { DashboardData } from './api';
 
 /* Reine Widget-Inhalte des Dashboards — der Card-Rahmen (Titel, Icon,
@@ -192,6 +193,66 @@ export function OnboardingWidget() {
           )}
         </Link>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Lädt seine Daten selbst (Führungsfunktion, personengebunden statt an einen
+ * Rechtebereich). Wer keine Führungskraft ist, sieht einen Hinweis statt
+ * Zahlen, die für das Konto gar nicht gelten.
+ */
+export function LeadershipTeamWidget() {
+  const { data: status } = useLeaderStatus();
+  if (!status) return null;
+  if (!status.is_leader) {
+    return <Empty text="Sie sind derzeit keiner Führungsrolle zugewiesen." />;
+  }
+  const open = status.team_size - status.rated_count;
+  return (
+    <Link to="/fuehrung/mein-team" style={{ color: 'inherit', textDecoration: 'none' }}>
+      <div className="row row--between">
+        <span style={{ fontWeight: 550 }}>{status.period?.label ?? 'Laufender Zeitraum'}</span>
+        <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+          {status.rated_count}/{status.team_size} bewertet
+        </span>
+      </div>
+      <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
+        {open > 0 ? `${open} Person${open === 1 ? '' : 'en'} noch offen` : 'Alle bewertet für diesen Zeitraum.'}
+      </div>
+    </Link>
+  );
+}
+
+/** Bis zu fünf Führungskräfte mit offenen Bewertungen, absteigend sortiert. */
+export function LeadershipReportWidget() {
+  const { data } = useLeadershipReport(null);
+  if (!data) return null;
+  if (data.leaders.length === 0) return <Empty text="Noch keine Führungskräfte eingerichtet." />;
+  const open = data.leaders.filter((l) => l.open_count > 0).sort((a, b) => b.open_count - a.open_count);
+  const done = data.leaders.length - open.length;
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      <Link to="/fuehrung/report" style={{ color: 'inherit', textDecoration: 'none' }}>
+        <div className="row row--between">
+          <span style={{ fontWeight: 550 }}>{data.period.label}</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+            {done}/{data.leaders.length} vollständig
+          </span>
+        </div>
+      </Link>
+      {open.length === 0 ? (
+        <Empty text="Alle Führungskräfte haben ihr Team bewertet. 🎉" />
+      ) : (
+        open.slice(0, 5).map((l) => (
+          <Link key={l.employee_id} to="/fuehrung/report" style={{ color: 'inherit', textDecoration: 'none' }}>
+            <div className="row row--between">
+              <span>{l.first_name} {l.last_name}</span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>{l.open_count} offen</span>
+            </div>
+          </Link>
+        ))
+      )}
     </div>
   );
 }

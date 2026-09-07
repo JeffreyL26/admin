@@ -14,6 +14,7 @@ import {
 import {
   AbsenceChartWidget, DepartmentChartWidget, AbsentTodayWidget, InterviewsWidget,
   MeetingsWidget, AnnouncementsWidget, SurveysWidget, BirthdaysWidget, OnboardingWidget,
+  LeadershipTeamWidget, LeadershipReportWidget,
 } from './widgets';
 
 /** Widgets, deren Inhalt bis an den Card-Rand läuft (Tabellen). */
@@ -30,6 +31,8 @@ function widgetBody(key: WidgetKey, data: DashboardData): React.ReactNode {
     case 'surveys': return <SurveysWidget data={data} />;
     case 'birthdays': return <BirthdaysWidget data={data} />;
     case 'onboarding': return <OnboardingWidget />;
+    case 'leadership-team': return <LeadershipTeamWidget />;
+    case 'leadership-report': return <LeadershipReportWidget />;
     default: return null;
   }
 }
