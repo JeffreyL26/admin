@@ -5,14 +5,16 @@ import { NAV_SECTIONS, type NavSection } from './nav';
  * Reihenfolge der Seitenleiste. Wie die Dashboard-Konfiguration eine
  * Arbeitsplatz-, keine Firmeneinstellung: im localStorage
  * (`ohrganize.sidebar`), nicht im Backend. Zwei Abschnitte sind fest:
- * das Dashboard steht immer an erster, „System“ (Einstellungen) immer an
- * zweiter Stelle; alles dazwischen ordnet die Person selbst.
+ * das Dashboard steht immer ganz oben, „System“ (Einstellungen) immer ganz
+ * unten; alles dazwischen ordnet die Person selbst.
  */
 const STORAGE_KEY = 'ohrganize.sidebar';
 const EVENT = 'ohrganize:sidebar';
 
-/** Feste Plätze, in dieser Reihenfolge. Nicht verschiebbar. */
-export const SIDEBAR_FIXED_KEYS = ['dashboard', 'system'] as const;
+/** Feste Plätze: Dashboard oben, System unten. Nicht verschiebbar. */
+export const SIDEBAR_FIRST_KEY = 'dashboard';
+export const SIDEBAR_LAST_KEY = 'system';
+const SIDEBAR_FIXED_KEYS = [SIDEBAR_FIRST_KEY, SIDEBAR_LAST_KEY] as const;
 
 const isFixed = (key: string) => (SIDEBAR_FIXED_KEYS as readonly string[]).includes(key);
 
@@ -51,10 +53,10 @@ export function resetSidebarOrder(): void {
   saveSidebarOrder([...SIDEBAR_DEFAULT_ORDER]);
 }
 
-/** Abschnitte in Anzeigereihenfolge: Dashboard, System, dann die gewählte Ordnung. */
+/** Abschnitte in Anzeigereihenfolge: Dashboard, die gewählte Ordnung, System. */
 export function orderedSections(order: string[] = loadSidebarOrder()): NavSection[] {
   const byKey = new Map(NAV_SECTIONS.map((s) => [s.key, s]));
-  const keys = [...SIDEBAR_FIXED_KEYS, ...order];
+  const keys = [SIDEBAR_FIRST_KEY, ...order, SIDEBAR_LAST_KEY];
   return keys.map((k) => byKey.get(k)).filter((s): s is NavSection => s !== undefined);
 }
 

@@ -177,8 +177,8 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   von `fields=lite`: Diese schlanke Form ist Kontrakt für andere Module.
 - **Seitenleiste ist je Gerät sortierbar** (Einstellungen → Seitenleiste):
   Reihenfolge der Abschnitte im localStorage (`ohrganize.sidebar`,
-  `layout/sidebarConfig.ts`), Dashboard immer erster, System/Einstellungen
-  immer zweiter Platz. Abschnitte tragen dafür einen stabilen `key` in
+  `layout/sidebarConfig.ts`), Dashboard immer ganz oben, System/Einstellungen
+  immer ganz unten. Abschnitte tragen dafür einen stabilen `key` in
   `layout/nav.ts`; ein neuer Abschnitt braucht einen und hängt sich bei
   bestehenden Konfigurationen hinten an.
 - **Dashboard ist personalisierbar:** Widgets/KPI-Kacheln sind pro Gerät wählbar

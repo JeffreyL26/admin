@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, Lock, RotateCcw } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, RotateCcw } from 'lucide-react';
 import { BUNDESLAND_LABELS } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Card, Field, PageHeader, Spinner } from '../../components/ui';
@@ -162,8 +162,8 @@ export function SettingsPage() {
 
 /**
  * Reihenfolge der Seitenleiste, je Gerät (localStorage, siehe
- * layout/sidebarConfig.ts). Dashboard und Einstellungen sind fest und werden
- * nur zur Orientierung angezeigt.
+ * layout/sidebarConfig.ts). Dashboard (oben) und Einstellungen (unten) sind
+ * fest und tauchen hier nicht auf.
  */
 function SidebarCard() {
   const order = useSidebarOrder();
@@ -195,21 +195,14 @@ function SidebarCard() {
       }
     >
       <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
-        Die Reihenfolge der Abschnitte gilt sofort und wird auf diesem Gerät gespeichert. Dashboard und Einstellungen
-        stehen immer an erster und zweiter Stelle.
+        Die Reihenfolge der Abschnitte gilt sofort und wird auf diesem Gerät gespeichert. Das Dashboard bleibt immer
+        ganz oben, die Einstellungen ganz unten.
       </p>
       <div className="stack" style={{ gap: 6 }}>
-        {['dashboard', 'system'].map((key, i) => (
-          <div key={key} style={{ ...rowStyle, color: 'var(--text-muted)' }}>
-            <span style={{ width: 22, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{i + 1}.</span>
-            <span style={{ flex: 1 }}>{key === 'system' ? 'Einstellungen' : titles.get(key)}</span>
-            <Lock size={14} aria-label="Fester Platz" />
-          </div>
-        ))}
         {order.map((key, i) => (
           <div key={key} style={rowStyle}>
             <span style={{ width: 22, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>
-              {i + 3}.
+              {i + 1}.
             </span>
             <span style={{ flex: 1, fontWeight: 600 }}>{titles.get(key)}</span>
             <button
