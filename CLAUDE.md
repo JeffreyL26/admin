@@ -175,6 +175,12 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   Sortierfelder sind eine Whitelist in `employeeRoutes.ts` (`SORT_COLUMNS`) —
   der Wert geht direkt ins SQL. `personnel_number` ist bewusst **nicht** Teil
   von `fields=lite`: Diese schlanke Form ist Kontrakt für andere Module.
+- **Seitenleiste ist je Gerät sortierbar** (Einstellungen → Seitenleiste):
+  Reihenfolge der Abschnitte im localStorage (`ohrganize.sidebar`,
+  `layout/sidebarConfig.ts`), Dashboard immer erster, System/Einstellungen
+  immer zweiter Platz. Abschnitte tragen dafür einen stabilen `key` in
+  `layout/nav.ts`; ein neuer Abschnitt braucht einen und hängt sich bei
+  bestehenden Konfigurationen hinten an.
 - **Dashboard ist personalisierbar:** Widgets/KPI-Kacheln sind pro Gerät wählbar
   und anordenbar; Registry + localStorage-Persistenz (`ohrganize.dashboard`) in
   `renderer/src/features/dashboard/dashboardConfig.ts`. Neue Module registrieren

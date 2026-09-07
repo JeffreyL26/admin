@@ -165,6 +165,13 @@ export function Select({ value, onChange, children, disabled, className, style, 
     };
   }, [open, measure]);
 
+  // Fokus erst, wenn die Liste positioniert und sichtbar ist: Ein Element mit
+  // visibility: hidden nimmt keinen Fokus an, die Tastatur bliebe am Knopf.
+  const positioned = pos !== null;
+  useEffect(() => {
+    if (open && positioned) listRef.current?.focus({ preventScroll: true });
+  }, [open, positioned]);
+
   useEffect(() => {
     if (!open) return;
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
@@ -244,7 +251,8 @@ export function Select({ value, onChange, children, disabled, className, style, 
             style={{
               top: pos?.top ?? -9999,
               left: pos?.left ?? -9999,
-              width: pos?.width,
+              minWidth: pos?.width,
+              maxWidth: `calc(100vw - ${2 * RAND}px)`,
               maxHeight: pos?.maxHeight,
               visibility: pos ? 'visible' : 'hidden',
             }}

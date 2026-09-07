@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, Lock, RotateCcw } from 'lucide-react';
 import { BUNDESLAND_LABELS } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Card, Field, PageHeader, Spinner } from '../../components/ui';
@@ -8,6 +8,8 @@ import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
 import { applyTheme, getTheme, THEMES, type ThemeName } from '../../design/theme';
 import { Select } from '../../components/Select';
+import { NAV_SECTIONS } from '../../layout/nav';
+import { SIDEBAR_DEFAULT_ORDER, resetSidebarOrder, saveSidebarOrder, useSidebarOrder } from '../../layout/sidebarConfig';
 
 /** Passwortregel des Backends (MIN_PASSWORD_CHARS in core/auth.ts). Als
  *  Konstante statt als Zahl im Hinweistext UND in der Absende-Bedingung: Beide
@@ -55,6 +57,7 @@ export function SettingsPage() {
       <PageHeader title="Einstellungen" subtitle="Unternehmensweite Konfiguration von oHRganize." />
       <div className="stack" style={{ maxWidth: 760 }}>
         <ThemeCard />
+        <SidebarCard />
         <Card title="Unternehmen">
           <div className="hm-form-grid">
             <Field label="Firmenname" span2>
@@ -154,6 +157,81 @@ export function SettingsPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+/**
+ * Reihenfolge der Seitenleiste, je Gerät (localStorage, siehe
+ * layout/sidebarConfig.ts). Dashboard und Einstellungen sind fest und werden
+ * nur zur Orientierung angezeigt.
+ */
+function SidebarCard() {
+  const order = useSidebarOrder();
+  const titles = new Map(NAV_SECTIONS.map((s) => [s.key, s.title ?? 'Dashboard']));
+  const isDefault = order.join() === SIDEBAR_DEFAULT_ORDER.join();
+  const move = (from: number, to: number) => {
+    if (to < 0 || to >= order.length) return;
+    const next = [...order];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item!);
+    saveSidebarOrder(next);
+  };
+  const rowStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '8px 12px',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-surface)',
+  };
+  return (
+    <Card
+      title="Seitenleiste"
+      actions={
+        <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={resetSidebarOrder} disabled={isDefault}>
+          <RotateCcw size={15} /> Standard
+        </button>
+      }
+    >
+      <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
+        Die Reihenfolge der Abschnitte gilt sofort und wird auf diesem Gerät gespeichert. Dashboard und Einstellungen
+        stehen immer an erster und zweiter Stelle.
+      </p>
+      <div className="stack" style={{ gap: 6 }}>
+        {['dashboard', 'system'].map((key, i) => (
+          <div key={key} style={{ ...rowStyle, color: 'var(--text-muted)' }}>
+            <span style={{ width: 22, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{i + 1}.</span>
+            <span style={{ flex: 1 }}>{key === 'system' ? 'Einstellungen' : titles.get(key)}</span>
+            <Lock size={14} aria-label="Fester Platz" />
+          </div>
+        ))}
+        {order.map((key, i) => (
+          <div key={key} style={rowStyle}>
+            <span style={{ width: 22, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>
+              {i + 3}.
+            </span>
+            <span style={{ flex: 1, fontWeight: 600 }}>{titles.get(key)}</span>
+            <button
+              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+              onClick={() => move(i, i - 1)}
+              disabled={i === 0}
+              aria-label={`${titles.get(key)} nach oben`}
+            >
+              <ArrowUp size={15} />
+            </button>
+            <button
+              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+              onClick={() => move(i, i + 1)}
+              disabled={i === order.length - 1}
+              aria-label={`${titles.get(key)} nach unten`}
+            >
+              <ArrowDown size={15} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 

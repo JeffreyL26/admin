@@ -344,7 +344,8 @@ export function Select({
             style={{
               top: pos?.top ?? -9999,
               left: pos?.left ?? -9999,
-              width: pos?.width,
+              minWidth: pos?.width,
+              maxWidth: `calc(100vw - ${2 * RAND}px)`,
               maxHeight: pos?.maxHeight,
               visibility: pos ? 'visible' : 'hidden',
             }}

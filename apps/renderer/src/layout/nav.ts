@@ -23,6 +23,8 @@ export interface NavItem {
 }
 
 export interface NavSection {
+  /** Stabiler Schlüssel; die Reihenfolge der Seitenleiste wird darüber gespeichert (layout/sidebarConfig.ts). */
+  key: string;
   title: string | null;
   items: NavItem[];
   /**
@@ -39,10 +41,12 @@ export interface NavSection {
  */
 export const NAV_SECTIONS: NavSection[] = [
   {
+    key: 'dashboard',
     title: null,
     items: [{ path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }],
   },
   {
+    key: 'personal',
     title: 'Personal',
     area: 'personal',
     items: [
@@ -52,6 +56,7 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: 'recruiting',
     title: 'Recruiting',
     area: 'recruiting',
     items: [
@@ -63,6 +68,7 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: 'abwesenheit',
     title: 'Abwesenheit',
     area: 'abwesenheit',
     items: [
@@ -77,6 +83,7 @@ export const NAV_SECTIONS: NavSection[] = [
     // getrennt (Einträge mit `area: 'fuehrung'` prüfen ihren eigenen Bereich,
     // „Mein Team“ hängt an der Freischaltung der Person), aber fachlich gehört
     // die Bewertung durch die Führungskraft neben Gespräche und Beurteilungen.
+    key: 'leistung',
     title: 'Leistung & Führung',
     area: 'leistung',
     items: [
@@ -91,6 +98,7 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: 'verguetung',
     title: 'Vergütung',
     area: 'verguetung',
     items: [
@@ -102,6 +110,7 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: 'kommunikation',
     title: 'Kommunikation',
     area: 'kommunikation',
     items: [
@@ -113,6 +122,7 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: 'verwaltung',
     title: 'Verwaltung',
     area: 'verwaltung',
     items: [
@@ -125,6 +135,7 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: 'system',
     title: 'System',
     area: 'einstellungen',
     items: [{ path: '/einstellungen', label: 'Einstellungen', icon: Settings }],

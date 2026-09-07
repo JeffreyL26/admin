@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, Search } from 'lucide-react';
 import type { AdminArea } from '@ohrganize/shared';
-import { NAV_SECTIONS } from './nav';
+import { useSidebarSections } from './sidebarConfig';
 import { useAuth } from '../auth/AuthContext';
 import { Avatar } from '../components/ui';
 import { CommandPalette } from '../components/CommandPalette';
@@ -17,6 +17,9 @@ export function AppShell() {
   // Führungsfunktion: sichtbar nur für freigeschaltete Personalprofile —
   // unabhängig von der Admin-Rolle (Details in features/leadership/api.ts).
   const isLeader = useLeaderStatus().data?.is_leader === true;
+  // Reihenfolge der Abschnitte ist eine Arbeitsplatz-Einstellung
+  // (Einstellungen → Seitenleiste); Dashboard und System stehen fest.
+  const sections = useSidebarSections();
 
   // Tastaturkürzel (früher im nativen Menü): globale Suche, Modul-Navigation,
   // Ansicht. Da es kein natives Menü mehr gibt, hier im Renderer registriert.
@@ -90,7 +93,7 @@ export function AppShell() {
           {/* Gesperrte Bereiche werden gar nicht erst angeboten. Ein leerer
               Abschnitt entfällt samt Überschrift, sonst bliebe eine sinnlose
               Zwischenzeile stehen. Die eigentliche Sperre sitzt im Backend. */}
-          {NAV_SECTIONS.map((section, i) => {
+          {sections.map((section) => {
             const items = section.items.filter((item) =>
               item.leaderOnly
                 ? isLeader
@@ -102,7 +105,7 @@ export function AppShell() {
             );
             if (items.length === 0) return null;
             return (
-              <div key={i}>
+              <div key={section.key}>
                 {section.title && <div className="sidebar__section">{section.title}</div>}
                 {items.map((item) => (
                   <NavLink key={item.path} to={item.path} className="sidebar__link">
