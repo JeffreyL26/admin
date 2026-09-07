@@ -246,6 +246,54 @@ export interface OrgTreeNode {
   children: OrgTreeNode[];
 }
 
+/**
+ * Woran eine Karte im Personen-Organigramm hängt. `manager` ist das gepflegte
+ * Feld „Vorgesetzte:r"; die beiden anderen springen ersatzweise ein.
+ */
+export type OrgChartParentSource = 'manager' | 'team_lead' | 'department_head';
+
+/**
+ * Eine Person im Personen-Organigramm (`GET /api/org/chart`).
+ *
+ * `parent_id` ist die Person, unter der die Karte hängt: der hinterlegte
+ * Vorgesetzte, sonst die Teamleitung, sonst die nächste Abteilungsleitung
+ * aufwärts (`parent_source` nennt die Quelle). Ohne diesen Ersatz stünde jede
+ * Person ohne gepflegtes Feld „Vorgesetzte:r" als eigener Baum neben der
+ * Geschäftsführung. Zyklen in `manager_id` trennt der Server auf; der Baum
+ * ist also immer zeichenbar. `manager_id` bleibt daneben roh erhalten, damit
+ * die Oberfläche gepflegte und abgeleitete Linien unterscheiden kann.
+ * `photo_url` ist kurzlebig signiert (core/files.ts): sofort konsumieren.
+ */
+export interface OrgChartPerson {
+  id: number;
+  first_name: string;
+  last_name: string;
+  job_title: string | null;
+  employee_type: EmployeeType;
+  personnel_number: string | null;
+  email: string | null;
+  phone: string | null;
+  hire_date: string | null;
+  manager_id: number | null;
+  parent_id: number | null;
+  parent_source: OrgChartParentSource | null;
+  department_id: number | null;
+  department_name: string | null;
+  team_id: number | null;
+  team_name: string | null;
+  location_id: number | null;
+  location_name: string | null;
+  photo_file_id: number | null;
+  photo_url: string | null;
+}
+
+export interface OrgChartResponse {
+  /** Nur aktive Mitarbeitende, nach Nachname sortiert. */
+  people: OrgChartPerson[];
+  /** Alle Abteilungen, nach Name sortiert (stabile Farbzuordnung, auch ohne Personen). */
+  departments: { id: number; name: string; parent_id: number | null; head_employee_id: number | null }[];
+}
+
 // ---------------------------------------------------------------------------
 // Mitarbeiterliste: Spalten, Sortierung, Seniorität
 // ---------------------------------------------------------------------------

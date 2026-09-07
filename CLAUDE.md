@@ -186,6 +186,20 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   etwas sagt, was die Fläche nicht schon zeigt (kein Datums-Tooltip auf jeder
   Kalenderzelle). `title` bleibt allein für Nicht-React-Ausgaben (SVG-Export).
   Bestehende `title`-Attribute werden beim nächsten Anfassen der Datei migriert.
+- **Organigramm:** zwei Darstellungen unter Personal → Organisation. Das
+  **Personen-Organigramm** (`features/employees/OrgChart.tsx`, Layout ohne DOM
+  in `orgChartModel.ts`) hängt jede aktive Person unter ihren Vorgesetzten;
+  `GET /api/org/chart` (`buildOrgChart` in `orgRoutes.ts`) liefert dafür
+  `parent_id` fertig aufgelöst: `manager_id`, sonst Teamleitung, sonst die
+  nächste Abteilungsleitung aufwärts (`parent_source`), Ringe aufgetrennt,
+  Fotos signiert. Die Abteilungsfarben sind die Tokens `--org-1…6` (in
+  BEIDEN tokens.css). Der ältere **Abteilungsbaum** (`GET /api/org/tree`)
+  bleibt als zweite Ansicht, weil das Web-Portal exakt ihn zeigt
+  (`/api/me/org-tree`, dieselbe `buildOrgTree`). Karten sind HTML auf einer
+  per Transform bewegten Fläche mit `overflow: clip` (nicht `hidden`: der
+  Browser scrollt einen hidden-Container beim Fokussieren still mit); der
+  SVG-Export zeichnet die Karten getrennt nach. Deep-Link aus der
+  Personalakte: `/personal/organisation?tab=organigramm&person=<id>`.
 
 ## Modul-Erweiterungspunkte (parallel konfliktfrei)
 

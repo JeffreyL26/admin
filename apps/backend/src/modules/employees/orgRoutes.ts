@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
-import type { OrgTreeNode } from '@ohrganize/shared';
+import type { OrgChartPerson, OrgChartResponse, OrgTreeNode } from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
+import { signDownloadUrl } from '../../core/files.js';
 import { departmentBodySchema, locationBodySchema, teamBodySchema } from './validation.js';
 
 interface DepartmentRow {
@@ -81,6 +82,114 @@ export function buildOrgTree(): { tree: OrgTreeNode[]; unassigned_count: number 
   return { tree: roots, unassigned_count: unassigned.n };
 }
 
+interface ChartRow {
+  id: number;
+  first_name: string;
+  last_name: string;
+  job_title: string | null;
+  employee_type: OrgChartPerson['employee_type'];
+  personnel_number: string | null;
+  email: string | null;
+  phone: string | null;
+  hire_date: string | null;
+  manager_id: number | null;
+  department_id: number | null;
+  department_name: string | null;
+  team_id: number | null;
+  team_name: string | null;
+  team_lead_id: number | null;
+  location_id: number | null;
+  location_name: string | null;
+  photo_file_id: number | null;
+}
+
+/**
+ * Personen-Organigramm: alle aktiven Mitarbeitenden mit der Person, unter der
+ * ihre Karte hängt.
+ *
+ * Quelle der Linie in dieser Reihenfolge: das gepflegte Feld `manager_id`,
+ * sonst die Teamleitung, sonst die nächste Abteilungsleitung aufwärts (wer
+ * selbst die Leitung ist, hängt an der Leitung der übergeordneten
+ * Abteilung). Ohne den Ersatz stünde jede Person ohne Vorgesetzten als
+ * eigener Baum neben der Geschäftsführung, und Bestandsdaten pflegen das Feld
+ * selten lückenlos. Zeiger auf Ausgeschiedene oder auf sich selbst zählen
+ * nicht.
+ *
+ * Fotos kommen signiert mit (wie im Mitarbeiterverzeichnis): `/api/org` hängt
+ * am Bereich `personal`, demselben Bereich, dem Mitarbeiterfotos zugeordnet
+ * sind (core/files.ts). Wer diese Route erreicht, dürfte also auch selbst
+ * signieren; hier wird nur ein Roundtrip je Karte gespart.
+ */
+export function buildOrgChart(): OrgChartResponse {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT e.id, e.first_name, e.last_name, e.job_title, e.employee_type, e.personnel_number,
+              e.email, e.phone, e.hire_date, e.manager_id,
+              e.department_id, d.name AS department_name,
+              e.team_id, t.name AS team_name, t.lead_employee_id AS team_lead_id,
+              e.location_id, l.name AS location_name, e.photo_file_id
+       FROM employees e
+       LEFT JOIN departments d ON d.id = e.department_id
+       LEFT JOIN teams t ON t.id = e.team_id
+       LEFT JOIN locations l ON l.id = e.location_id
+       WHERE e.status = 'aktiv'
+       ORDER BY e.last_name COLLATE NOCASE, e.first_name COLLATE NOCASE`,
+    )
+    .all() as ChartRow[];
+  const departments = db
+    .prepare('SELECT id, name, parent_id, head_employee_id FROM departments ORDER BY name COLLATE NOCASE')
+    .all() as OrgChartResponse['departments'];
+  const departmentById = new Map(departments.map((d) => [d.id, d]));
+  const active = new Set(rows.map((r) => r.id));
+
+  const resolveParent = (r: ChartRow): Pick<OrgChartPerson, 'parent_id' | 'parent_source'> => {
+    const usable = (id: number | null): id is number => id !== null && id !== r.id && active.has(id);
+    if (usable(r.manager_id)) return { parent_id: r.manager_id, parent_source: 'manager' };
+    if (usable(r.team_lead_id)) return { parent_id: r.team_lead_id, parent_source: 'team_lead' };
+    let department = r.department_id !== null ? departmentById.get(r.department_id) : undefined;
+    let guard = 0;
+    while (department && guard++ < 100) {
+      if (usable(department.head_employee_id)) {
+        return { parent_id: department.head_employee_id, parent_source: 'department_head' };
+      }
+      department = department.parent_id !== null ? departmentById.get(department.parent_id) : undefined;
+    }
+    return { parent_id: null, parent_source: null };
+  };
+
+  const people: OrgChartPerson[] = rows.map((row) => {
+    const { team_lead_id: _lead, ...person } = row;
+    return {
+      ...person,
+      ...resolveParent(row),
+      photo_url: row.photo_file_id ? signDownloadUrl(row.photo_file_id) : null,
+    };
+  });
+
+  // Gegenseitige oder ringförmige `manager_id`-Einträge sind in den Daten
+  // möglich (kein Zyklen-Check beim Speichern). Der erste Zeiger, der die
+  // Kette wieder auf sich selbst zurückführt, wird gekappt; die Person steht
+  // dann als eigene Wurzel. Reihenfolge nach Name, also reproduzierbar.
+  const byId = new Map(people.map((p) => [p.id, p]));
+  for (const person of people) {
+    const path = new Set<number>([person.id]);
+    let current = person;
+    while (current.parent_id !== null) {
+      const next = byId.get(current.parent_id)!;
+      if (path.has(next.id)) {
+        current.parent_id = null;
+        current.parent_source = null;
+        break;
+      }
+      path.add(next.id);
+      current = next;
+    }
+  }
+
+  return { people, departments };
+}
+
 /** Zyklen-Check: läuft vom neuen Parent aufwärts — trifft er self, wäre es ein Zyklus. */
 function assertNoCycle(departmentId: number, newParentId: number): void {
   if (departmentId === newParentId) {
@@ -102,6 +211,7 @@ function assertNoCycle(departmentId: number, newParentId: number): void {
 
 export async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/org/tree', async () => buildOrgTree());
+  app.get('/api/org/chart', async () => buildOrgChart());
 
   // ---------------- Abteilungen ----------------
   app.get('/api/departments', async () => ({ departments: loadDepartments() }));

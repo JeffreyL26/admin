@@ -87,6 +87,11 @@ paths:
       summary: Organisationsbaum (Abteilungen → Teams) mit Mitarbeiterzahlen
       responses:
         "200": { description: "{ tree: [...], unassigned_count }" }
+  /api/org/chart:
+    get:
+      summary: Personen-Organigramm (aktive Mitarbeitende mit Berichtslinie aus Vorgesetzten-, Team- oder Abteilungsleitung, Fotos signiert)
+      responses:
+        "200": { description: "{ people: [...], departments: [...] }" }
   /api/departments:
     get:
       summary: Abteilungen auflisten

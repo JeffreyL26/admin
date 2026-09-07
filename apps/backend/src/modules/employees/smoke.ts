@@ -290,6 +290,75 @@ check(
   roots,
 );
 
+// ---------- Personen-Organigramm ----------
+// Erika leitet die Abteilung „Entwicklung", Tim steht ohne Vorgesetzten in
+// derselben Abteilung, Frank ist Erikas gepflegter Vorgesetzter. Erwartet:
+// Tim hängt ersatzweise an Erika (Abteilungsleitung), Erika am gepflegten
+// Feld unter Frank, Frank ist Wurzel.
+const frankId = freiberufler.json().employee.id as number;
+await app.inject({
+  method: 'PATCH',
+  url: `/api/departments/${depBId}`,
+  headers: auth,
+  payload: { head_employee_id: empId },
+});
+await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${werkstudentId}`,
+  headers: auth,
+  payload: { department_id: depBId },
+});
+await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { manager_id: frankId },
+});
+const chart = await app.inject({ method: 'GET', url: '/api/org/chart', headers: auth });
+type ChartPerson = { id: number; parent_id: number | null; parent_source: string | null; photo_url: string | null };
+const people = chart.json().people as ChartPerson[];
+const byId = new Map(people.map((p) => [p.id, p]));
+check(
+  'Personen-Organigramm: gepflegte und abgeleitete Berichtslinie',
+  chart.statusCode === 200 &&
+    byId.get(empId)?.parent_id === frankId &&
+    byId.get(empId)?.parent_source === 'manager' &&
+    byId.get(werkstudentId)?.parent_id === empId &&
+    byId.get(werkstudentId)?.parent_source === 'department_head' &&
+    byId.get(frankId)?.parent_id === null &&
+    people.every((p) => p.photo_url === null),
+  people,
+);
+
+// Ring: Frank soll unter Tim hängen, Tim hängt (abgeleitet) unter Erika,
+// Erika unter Frank. Der Server muss die Kette an einer Stelle kappen.
+await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${frankId}`,
+  headers: auth,
+  payload: { manager_id: werkstudentId },
+});
+const ring = await app.inject({ method: 'GET', url: '/api/org/chart', headers: auth });
+const ringPeople = ring.json().people as ChartPerson[];
+const ringById = new Map(ringPeople.map((p) => [p.id, p]));
+const reachesRoot = (id: number): boolean => {
+  const seen = new Set<number>();
+  let cursor: number | null = id;
+  while (cursor !== null) {
+    if (seen.has(cursor)) return false;
+    seen.add(cursor);
+    cursor = ringById.get(cursor)?.parent_id ?? null;
+  }
+  return true;
+};
+check(
+  'Personen-Organigramm: Ring in manager_id wird aufgetrennt',
+  ring.statusCode === 200 &&
+    ringPeople.some((p) => p.parent_id === null) &&
+    ringPeople.every((p) => reachesRoot(p.id)),
+  ringPeople,
+);
+
 // ---------- Dokumente (Upload + FTS + Ablauf) ----------
 const boundary = '----ohrganizeSmokeBoundary';
 const filePart = (name: string, content: string) =>

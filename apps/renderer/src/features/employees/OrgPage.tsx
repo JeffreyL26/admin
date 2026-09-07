@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
   Building2, Check, Download, MapPin, Maximize2, Network, Pencil, Plus, Trash2,
   Users, X, ZoomIn, ZoomOut,
@@ -11,16 +12,25 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useLocations, useOrgTree, type Location } from './api';
+import { PeopleOrgChart } from './OrgChart';
 
 type DragPayload = { kind: 'department' | 'team'; id: number };
 
+const TABS = ['struktur', 'organigramm', 'standorte'];
+
 export function OrgPage() {
-  const [tab, setTab] = useState('struktur');
+  // Einstieg aus der Personalakte: ?tab=organigramm&person=<id> öffnet das
+  // Organigramm mit dieser Person ausgewählt und zentriert.
+  const [params] = useSearchParams();
+  const requestedTab = params.get('tab');
+  const [tab, setTab] = useState(requestedTab && TABS.includes(requestedTab) ? requestedTab : 'struktur');
+  const personParam = Number(params.get('person'));
+  const initialPersonId = Number.isInteger(personParam) && personParam > 0 ? personParam : null;
   return (
     <>
       <PageHeader
         title="Organisation"
-        subtitle="Abteilungen, Teams und Standorte. Struktur per Drag-and-Drop anpassen."
+        subtitle="Abteilungen, Teams und Standorte. Struktur per Drag-and-Drop anpassen, Organigramm entlang der Berichtslinie."
       />
       <Tabs
         tabs={[
@@ -33,7 +43,7 @@ export function OrgPage() {
       />
       <div style={{ marginTop: 16 }}>
         {tab === 'struktur' && <StructureTab />}
-        {tab === 'organigramm' && <OrgChartTab />}
+        {tab === 'organigramm' && <OrgChartTab initialPersonId={initialPersonId} />}
         {tab === 'standorte' && <LocationsTab />}
       </div>
     </>
@@ -492,7 +502,41 @@ function TeamNode({
 }
 
 // ---------------------------------------------------------------------------
-// Organigramm (SVG, hierarchisch) + Export
+// Organigramm: Personen (Berichtslinie) oder Abteilungen
+// ---------------------------------------------------------------------------
+
+/**
+ * Zwei Darstellungen: das Personen-Organigramm (OrgChart.tsx) als Standard und
+ * der bisherige Abteilungsbaum. Letzterer bleibt, weil das Mitarbeitenden-
+ * Portal genau diesen Baum zeigt (`GET /api/me/org-tree`, dieselbe
+ * `buildOrgTree`) und beide Clients dasselbe Bild liefern sollen.
+ */
+function OrgChartTab({ initialPersonId }: { initialPersonId: number | null }) {
+  const [mode, setMode] = useState('personen');
+  return (
+    <div className="stack" style={{ gap: 12 }}>
+      <div className="row row--wrap" style={{ gap: 12 }}>
+        <Tabs
+          tabs={[
+            { key: 'personen', label: 'Personen' },
+            { key: 'abteilungen', label: 'Abteilungen' },
+          ]}
+          active={mode}
+          onChange={setMode}
+        />
+        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+          {mode === 'personen'
+            ? 'Wer berichtet an wen: alle aktiven Mitarbeitenden entlang der Berichtslinie.'
+            : 'Abteilungen mit Leitung und Kopfzahl, wie im Mitarbeitenden-Portal.'}
+        </span>
+      </div>
+      {mode === 'personen' ? <PeopleOrgChart initialPersonId={initialPersonId} /> : <DepartmentChart />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Abteilungs-Organigramm (SVG, hierarchisch) + Export
 // ---------------------------------------------------------------------------
 
 const NODE_W = 216;
@@ -560,7 +604,7 @@ function useChartColors() {
   }, []);
 }
 
-function OrgChartTab() {
+function DepartmentChart() {
   const { data, isLoading } = useOrgTree();
   const toast = useToast();
   const svgRef = useRef<SVGSVGElement>(null);

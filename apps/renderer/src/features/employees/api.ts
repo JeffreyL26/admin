@@ -6,6 +6,7 @@ import type {
   EmployeeSortField,
   EmployeeStatus,
   EmployeeType,
+  OrgChartResponse,
 } from '@ohrganize/shared';
 import { API_BASE, api } from '../../api/client';
 
@@ -186,6 +187,18 @@ export function useOrgTree() {
   return useQuery({
     queryKey: ['org', 'tree'],
     queryFn: () => api.get<{ tree: OrgTreeNode[]; unassigned_count: number }>('/api/org/tree'),
+  });
+}
+
+/**
+ * Personen-Organigramm. Unter dem Präfix 'org', damit Änderungen an der
+ * Struktur (Leitung setzen, Team umhängen) es mit invalidieren; die
+ * Personalakte invalidiert 'employees' und trifft es deshalb ebenfalls.
+ */
+export function useOrgChart() {
+  return useQuery({
+    queryKey: ['org', 'chart', 'employees'],
+    queryFn: () => api.get<OrgChartResponse>('/api/org/chart'),
   });
 }
 

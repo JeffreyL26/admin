@@ -48,6 +48,13 @@
   --info-bg: var(--blue-50);
   /* Bewertungssterne (Führung & Bewertung) — Spiegel des Renderer-Tokens */
   --rating-star: #d99a06;
+  /* Kategoriefarben des Personen-Organigramms — Spiegel der Renderer-Tokens */
+  --org-1: var(--brand-primary);
+  --org-2: #0f9d8f;
+  --org-3: #6f5bd8;
+  --org-4: #d98a1e;
+  --org-5: #d0487f;
+  --org-6: #5e6f88;
 
   /* Flächen und Linien */
   --bg-app: #f3f6fb;
@@ -146,6 +153,12 @@
   --info: var(--blue-500);
   --info-bg: var(--blue-50);
   --rating-star: #f2c14e;
+  --org-1: var(--brand-primary);
+  --org-2: #2fc4b4;
+  --org-3: #9d8cf2;
+  --org-4: #f0a94a;
+  --org-5: #ee7fae;
+  --org-6: #9fb0c9;
 
   --bg-app: #0c1830;
   --bg-surface: #13233d;
@@ -193,6 +206,12 @@
   --blue-300: #e28cba;
   --blue-500: #d4548f;
   --blue-700: #a93a71;
+  --org-1: var(--brand-primary);
+  --org-2: #2aa79a;
+  --org-3: #8a6fd8;
+  --org-4: #d6912f;
+  --org-5: #a25bb0;
+  --org-6: #7a6d78;
 
   --gray-25: #fdfafc;
   --gray-50: #faf3f7;
@@ -245,6 +264,12 @@
   --blue-300: #a9b2c2;
   --blue-500: #64708a;
   --blue-700: #475066;
+  --org-1: var(--brand-primary);
+  --org-2: #4f8f8a;
+  --org-3: #7a6fb0;
+  --org-4: #b58a3a;
+  --org-5: #b06080;
+  --org-6: #8a93a3;
 
   --gray-25: #fafbfc;
   --gray-50: #f5f6f8;

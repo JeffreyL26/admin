@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowLeft, Download, FileClock, FilePlus2, FileText, Pencil, Plus, Trash2, Users,
+  AlertTriangle, ArrowLeft, Download, FileClock, FilePlus2, FileText, Network, Pencil, Plus, Trash2, Users,
 } from 'lucide-react';
 import {
   CONTRACT_TYPE_LABELS,
@@ -487,7 +487,17 @@ function OrgTab({
   const navigate = useNavigate();
   return (
     <div className="stack">
-      <Card title="Organisatorische Zuordnung">
+      <Card
+        title="Organisatorische Zuordnung"
+        actions={
+          <button
+            className="hm-btn hm-btn--secondary hm-btn--sm"
+            onClick={() => navigate(`/personal/organisation?tab=organigramm&person=${employee.id}`)}
+          >
+            <Network size={14} /> Im Organigramm zeigen
+          </button>
+        }
+      >
         <div className="hm-form-grid">
           <ReadonlyField label="Abteilung" value={employee.department_name} />
           <ReadonlyField label="Team" value={employee.team_name} />

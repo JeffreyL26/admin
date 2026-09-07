@@ -2110,3 +2110,554 @@ button.lead-star:disabled {
   color: var(--warning);
   font-size: var(--text-sm);
 }
+
+/* ===================================================== Organigramm (Personen) === */
+/* Personenbaum nach Berichtslinie (features/employees/OrgChart.tsx): HTML-Karten
+   auf einer verschieb- und zoombaren Fläche, Verbindungslinien als SVG darunter.
+   Die Abteilungsfarbe kommt je Element als --orgc-accent (--org-N aus tokens.css). */
+.orgc {
+  display: flex;
+  flex-direction: column;
+}
+.orgc__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.orgc__search {
+  position: relative;
+  flex: 1 1 240px;
+  max-width: 340px;
+}
+.orgc__search .hm-input {
+  height: 36px;
+  padding-left: 36px;
+}
+.orgc__search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.orgc__results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 6;
+  padding: 6px;
+  max-height: 340px;
+  overflow: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  animation: orgc-pop 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.orgc__result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.orgc__result:hover,
+.orgc__result:focus-visible {
+  background: var(--gray-50);
+  outline: none;
+}
+.orgc__result-name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orgc__result-sub,
+.orgc__result-empty {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orgc__result-empty {
+  padding: 8px 10px;
+}
+.orgc__legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.orgc__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 550;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.orgc__chip:hover {
+  border-color: var(--gray-300);
+}
+.orgc__chip.is-active {
+  border-color: var(--orgc-accent, var(--gray-400));
+  background: color-mix(in srgb, var(--orgc-accent, var(--gray-400)) 12%, transparent);
+  color: var(--text-primary);
+}
+.orgc__chip-count {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.orgc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--orgc-accent, var(--gray-400));
+  flex-shrink: 0;
+}
+.orgc__stats {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.orgc__stage {
+  position: relative;
+  height: clamp(520px, calc(100vh - 330px), 900px);
+}
+.orgc__canvas {
+  position: absolute;
+  inset: 0;
+  /* clip statt hidden: hidden macht die Fläche zum Scroll-Container, den der
+     Browser beim Fokussieren einer Karte still verschiebt; die Ansicht wäre
+     dann gegenüber dem eigenen Transform um diesen Betrag versetzt. */
+  overflow: hidden;
+  overflow: clip;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  background-color: var(--gray-25);
+  background-image: radial-gradient(var(--gray-200) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.orgc__canvas.is-panning {
+  cursor: grabbing;
+}
+.orgc__world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.orgc__world.is-smooth {
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.orgc__edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.orgc__edge {
+  fill: none;
+  stroke: var(--gray-300);
+  stroke-width: 1.6;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease,
+    d 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.orgc__edge.is-derived {
+  stroke-dasharray: 5 4;
+}
+.orgc__edge.is-hot {
+  stroke: var(--brand-primary);
+  stroke-width: 2.4;
+}
+.orgc__edge.is-faint {
+  opacity: 0.3;
+}
+
+/* Karte: Position über left/top, damit Umlayouten weich gleitet. */
+.orgc-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  transition: left 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.15s ease, border-color 0.15s ease, opacity 0.2s ease;
+  animation: orgc-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+.orgc-card:hover {
+  box-shadow: var(--shadow);
+  border-color: var(--blue-300);
+}
+.orgc-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--focus-ring);
+  border-color: var(--brand-primary);
+}
+.orgc-card.is-path {
+  border-color: var(--brand-primary);
+}
+.orgc-card.is-selected {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px var(--focus-ring), var(--shadow);
+}
+.orgc-card.is-hit {
+  border-color: var(--orgc-accent, var(--brand-primary));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--orgc-accent, var(--brand-primary)) 25%, transparent);
+}
+.orgc-card.is-dim {
+  opacity: 0.3;
+}
+.orgc-card__accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--orgc-accent, var(--gray-400));
+}
+.orgc-card__body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 10px 18px;
+  min-width: 0;
+}
+.orgc-card__avatar {
+  width: 46px;
+  height: 46px;
+  font-size: 16px;
+}
+.orgc-card__text {
+  flex: 1;
+  min-width: 0;
+}
+.orgc-card__name {
+  font-weight: 650;
+  font-size: var(--text-base);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orgc-card__title {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orgc-card__dept {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  min-width: 0;
+}
+.orgc-card__dept-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orgc-card__foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px 0 18px;
+  border-top: 1px solid var(--gray-100);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.orgc-card__loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orgc-card__loc--none {
+  color: var(--gray-400);
+}
+.orgc-card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--gray-50);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.orgc-card__chip:hover {
+  background: var(--blue-50);
+  border-color: var(--blue-200);
+  color: var(--brand-primary);
+}
+.orgc-card__chip.is-open {
+  background: color-mix(in srgb, var(--brand-primary) 12%, transparent);
+  border-color: transparent;
+  color: var(--brand-primary);
+}
+@keyframes orgc-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@keyframes orgc-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* Schwebende Bedienelemente über der Fläche */
+.orgc__overlay {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  z-index: 2;
+}
+.orgc__zoom {
+  right: 14px;
+  bottom: 14px;
+}
+.orgc__zoom-value {
+  min-width: 44px;
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.orgc__crumbs {
+  left: 14px;
+  top: 14px;
+  padding: 4px 8px;
+  max-width: calc(100% - 28px);
+  overflow: hidden;
+}
+.orgc__crumb {
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--brand-primary);
+  padding: 3px 7px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.orgc__crumb:hover:not(.is-current) {
+  background: var(--blue-50);
+}
+.orgc__crumb.is-current {
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: default;
+}
+.orgc__crumb-sep {
+  color: var(--gray-400);
+  flex-shrink: 0;
+}
+.orgc__hint {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 2;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* Detailspalte zur ausgewählten Person */
+.orgc__panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  z-index: 3;
+  overflow: hidden;
+  animation: orgc-panel-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes orgc-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+.orgc__panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.orgc__panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.orgc__panel-foot {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.orgc__panel-name {
+  font-weight: 650;
+  font-size: var(--text-md);
+  letter-spacing: -0.01em;
+}
+.orgc__panel-title {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.orgc__dept-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--orgc-accent, var(--gray-400)) 14%, transparent);
+}
+.orgc__section-title {
+  margin-bottom: 8px;
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.orgc__fact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.orgc__fact svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.orgc__fact span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.orgc__muted {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.orgc__derived {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px dashed var(--border-strong);
+  background: var(--gray-50);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.orgc__person-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.orgc__person-row:hover {
+  background: var(--gray-50);
+  border-color: var(--border);
+}
+.orgc__person-row-name {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.orgc__person-row-sub {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
