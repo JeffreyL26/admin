@@ -591,7 +591,7 @@ Verzeichnis eines anderen Kunden noch das Programmverzeichnis beschreiben
 Stände; der Ernstfall-Restore aus Abschnitt 5 funktioniert je Kunde und
 behält das Secret. Hinweis: Wer eine Sicherung von Hand in schneller Folge
 startet, läuft in systemds Startlimit (5 Starts je 10 s) — dann
-; der tägliche Timer ist
+`systemctl reset-failed ohrganize-backup@<kunde>`; der tägliche Timer ist
 davon nicht betroffen.
 
 **Nicht** erprobt und beim ersten echten Kunden zu prüfen:
