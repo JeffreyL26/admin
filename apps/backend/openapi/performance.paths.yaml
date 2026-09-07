@@ -106,7 +106,7 @@ paths:
       summary: Beurteilung anlegen (selbst / feedback360; vorgesetzt gehört zu Führung → Mein Team)
       responses:
         "201": { description: Angelegte Beurteilung }
-        "400": { description: Art vorgesetzt wird abgelehnt }
+        "400": { description: Art vorgesetzt gibt es hier nicht (Bewertung durch die Führungskraft unter Mein Team) }
         "409": { description: Kombination existiert bereits }
   /api/performance/reviews/{id}:
     put:

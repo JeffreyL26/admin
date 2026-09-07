@@ -98,14 +98,13 @@ const cycleCreateSchema = z.object({
   status: cycleStatus.default('geplant'),
 });
 
-// Skala aus den zentralen Skalen (leadership.ts). `scale_max` nimmt der
-// Server nur noch aus Altbeständen entgegen und rechnet ihn um.
+// Skala aus den zentralen Skalen (leadership.ts); bei Bezug auf eine
+// Kategorie kommt sie von dort.
 const criterionSchema = z.object({
   key: z.string().trim().min(1),
   label: z.string().trim().min(1),
   description: z.string().optional(),
-  scale: z.enum(RATING_SCALE_KEYS).optional(),
-  scale_max: z.number().int().min(2).max(10).optional(),
+  scale: z.enum(RATING_SCALE_KEYS).default('stars5'),
   category_id: z.number().int().positive().nullish(),
 });
 
@@ -114,7 +113,7 @@ const templateSchema = z.object({
   criteria: z.array(criterionSchema).min(1, 'Mindestens ein Kriterium ist erforderlich'),
 });
 
-const reviewKind = z.enum(['selbst', 'vorgesetzt', 'feedback360']);
+const reviewKind = z.enum(['selbst', 'feedback360']);
 
 const reviewCreateSchema = z.object({
   cycle_id: z.number().int().positive(),
@@ -264,18 +263,12 @@ function recomputeObjectiveProgress(objectiveId: number): void {
   }
 }
 
-/**
- * Altbestand vor der Zusammenführung kannte nur `scale_max` (5 oder 10);
- * beim Lesen wird daraus die passende zentrale Skala. Sonst stünden alte
- * Bögen ohne Skala da und ließen sich weder anzeigen noch ausfüllen.
- */
 function normalizeCriterion(raw: Partial<ReviewCriterion> & { key: string; label: string }): ReviewCriterion {
-  const scale: RatingScaleKey = raw.scale ?? (raw.scale_max === 10 ? 'points10' : raw.scale_max === 3 ? 'ampel' : 'stars5');
   return {
     key: raw.key,
     label: raw.label,
     description: raw.description || undefined,
-    scale,
+    scale: raw.scale ?? 'stars5',
     category_id: raw.category_id ?? null,
   };
 }
@@ -619,7 +612,6 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
         `SELECT r.employee_id, e.first_name, e.last_name,
                 COUNT(*) AS reviews_total,
                 SUM(CASE WHEN r.status = 'abgeschlossen' THEN 1 ELSE 0 END) AS reviews_completed,
-                AVG(CASE WHEN r.status = 'abgeschlossen' THEN r.overall_score END) AS avg_overall_score,
                 ROUND(AVG(CASE WHEN r.status = 'abgeschlossen' THEN r.overall_percent END)) AS avg_overall_percent
          FROM reviews r
          JOIN employees e ON e.id = r.employee_id
@@ -732,15 +724,16 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
   });
 
   app.post('/api/performance/reviews', async (req, reply) => {
-    const body = parse(reviewCreateSchema, req.body);
-    // Die Vorgesetztenbewertung ist seit der Zusammenführung die Bewertung im
-    // Bereich Führung: mit Zuständigkeit, Pflichtkommentar und Protokoll.
-    // Zwei Wege für dieselbe Aussage liefen sonst auseinander.
-    if (body.kind === 'vorgesetzt') {
+    // Die Vorgesetztenbewertung ist die Bewertung im Bereich Führung: mit
+    // Zuständigkeit, Pflichtkommentar und Protokoll. Zwei Wege für dieselbe
+    // Aussage liefen auseinander, deshalb eine sprechende Antwort statt des
+    // nackten Schemafehlers.
+    if ((req.body as { kind?: unknown } | null)?.kind === 'vorgesetzt') {
       throw badRequest(
         'Vorgesetztenbewertungen werden im Bereich Führung unter „Mein Team" abgegeben. Hier legen Sie Selbstbewertungen und 360°-Feedback an.',
       );
     }
+    const body = parse(reviewCreateSchema, req.body);
     getRowOrThrow('review_cycles', body.cycle_id, 'Zyklus nicht gefunden');
     getRowOrThrow('review_templates', body.template_id, 'Bogen nicht gefunden');
     ensureEmployeeExists(body.employee_id);
@@ -815,15 +808,14 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     if (missing.length > 0) {
       throw badRequest(`Es fehlen Bewertungen für: ${missing.map((c) => c.label).join(', ')}`);
     }
-    const overall = Math.round((scores.reduce((sum, s) => sum + s.score, 0) / scores.length) * 100) / 100;
     const percent = percentOf(scores, criteria);
     getDb()
       .prepare(
-        `UPDATE reviews SET status = 'abgeschlossen', overall_score = ?, overall_percent = ?, completed_at = datetime('now')
+        `UPDATE reviews SET status = 'abgeschlossen', overall_percent = ?, completed_at = datetime('now')
          WHERE id = ?`,
       )
-      .run(overall, percent, id);
-    audit(req, 'review.completed', 'review', id, { overall_score: overall, overall_percent: percent });
+      .run(percent, id);
+    audit(req, 'review.completed', 'review', id, { overall_percent: percent });
     return { review: reviewToApi(getRowOrThrow('reviews', id, 'Beurteilung nicht gefunden')) };
   });
 
@@ -850,12 +842,11 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     };
     const rows = getDb()
       .prepare(
-        `SELECT r.scores, r.overall_score, r.overall_percent, r.template_id FROM reviews r
+        `SELECT r.scores, r.overall_percent, r.template_id FROM reviews r
          WHERE r.cycle_id = ? AND r.employee_id = ? AND r.status = 'abgeschlossen'`,
       )
       .all(p.cycleId, p.employeeId) as {
       scores: string;
-      overall_score: number | null;
       overall_percent: number | null;
       template_id: number;
     }[];
@@ -891,7 +882,6 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     }));
     const mean = (values: number[]) =>
       values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null;
-    const overallScore = mean(rows.map((r) => r.overall_score).filter((v): v is number => v !== null));
     const overallPercent = mean(rows.map((r) => r.overall_percent).filter((v): v is number => v !== null));
     return {
       aggregate: {
@@ -899,7 +889,6 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
         employee_id: p.employeeId,
         reviews_count: rows.length,
         criteria,
-        overall_score: overallScore === null ? null : Math.round(overallScore * 100) / 100,
         overall_percent: overallPercent === null ? null : Math.round(overallPercent),
         supervisor: supervisorRatings(p.employeeId, cycle.period_from, cycle.period_to),
       },

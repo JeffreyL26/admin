@@ -160,19 +160,42 @@ const tmplRes = await app.inject({
   payload: {
     name: 'Standardbogen',
     criteria: [
-      { key: 'qualitaet', label: 'Arbeitsqualität', scale_max: 5 },
-      { key: 'teamwork', label: 'Zusammenarbeit', scale_max: 5 },
+      { key: 'qualitaet', label: 'Arbeitsqualität', scale: 'stars5' },
+      { key: 'teamwork', label: 'Zusammenarbeit' },
     ],
   },
 });
 check('Bogen anlegen', tmplRes.statusCode === 201);
 const templateId = tmplRes.json().template.id as number;
+check(
+  'Kriterien tragen die zentrale Skala (Standard stars5)',
+  tmplRes.json().template.criteria.every((c: { scale: string }) => c.scale === 'stars5'),
+  tmplRes.json(),
+);
+
+const categoriesRes = await app.inject({ method: 'GET', url: '/api/performance/rating-categories', headers: auth });
+check('Zentrale Kategorien für Bögen abrufbar', categoriesRes.statusCode === 200 && Array.isArray(categoriesRes.json().categories));
+
+const supervisorKind = await app.inject({
+  method: 'POST',
+  url: '/api/performance/reviews',
+  headers: auth,
+  payload: { cycle_id: cycleId, employee_id: anna, template_id: templateId, kind: 'vorgesetzt' },
+});
+check(
+  'Vorgesetztenbewertung als Beurteilung → 400 mit Verweis auf Mein Team',
+  supervisorKind.statusCode === 400 && /Mein Team/.test(supervisorKind.json().error.message),
+  supervisorKind.json(),
+);
+
+const suggestions = await app.inject({ method: 'GET', url: `/api/performance/reviews/suggestions/${anna}`, headers: auth });
+check('Reviewer-Vorschläge abrufbar', suggestions.statusCode === 200 && Array.isArray(suggestions.json().suggestions));
 
 const dupKeys = await app.inject({
   method: 'POST',
   url: '/api/performance/review-templates',
   headers: auth,
-  payload: { name: 'Doppelt', criteria: [{ key: 'a', label: 'A', scale_max: 5 }, { key: 'a', label: 'B', scale_max: 5 }] },
+  payload: { name: 'Doppelt', criteria: [{ key: 'a', label: 'A', scale: 'stars5' }, { key: 'a', label: 'B', scale: 'stars5' }] },
 });
 check('Validierung: doppelte Kriterien-Keys → 400', dupKeys.statusCode === 400);
 
@@ -220,10 +243,8 @@ const selfComplete = await app.inject({
   headers: auth,
 });
 check(
-  'Abschluss mit Gesamtergebnis 4.5 und 88 %',
-  selfComplete.statusCode === 200 &&
-    selfComplete.json().review.overall_score === 4.5 &&
-    selfComplete.json().review.overall_percent === 88,
+  'Abschluss mit Ergebnis 88 % (4 und 5 Sterne)',
+  selfComplete.statusCode === 200 && selfComplete.json().review.overall_percent === 88,
   selfComplete.json(),
 );
 

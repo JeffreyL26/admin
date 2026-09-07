@@ -300,14 +300,15 @@ anlegbare Arten nur noch **Selbstbewertung** und **360°-Feedback**. Die
 Vorgesetztenbewertung gibt es genau einmal, im Bereich Führung („Mein Team“):
 mit Zuständigkeit aus `service.scopeFor`, Pflichtkommentar und unveränderlichem
 Protokoll. `POST …/reviews` mit `kind: 'vorgesetzt'` antwortet 400 mit
-Verweis; Altbestand bleibt lesbar (Label „Altbestand“). Beurteilungsbögen
+Verweis. Beurteilungsbögen
 nutzen die **zentralen Skalen** (`RatingScaleKey`) je Kriterium und können
 Kriterien an zentrale Bewertungskategorien binden (`category_id`; Name,
 Beschreibung, Skala werden beim Speichern übernommen, damit Selbstbild und
 Führungsbewertung dieselbe Frage auf derselben Skala beantworten). Weil
 Skalen je Kriterium verschieden sein dürfen, ist das Ergebnis eines Bogens
-`overall_percent` (Anteil der Bestnote, Migration `320_reviews_unified_scales`);
-`overall_score` bleibt als Rohmittel für Altbestand. Das Aggregat liefert
+`overall_percent` (Anteil der Bestnote; endgültiges Schema in
+`321_reviews_final_schema`, das `overall_score` und die Art `vorgesetzt`
+entfernt). Das Aggregat liefert
 dazu die Führungsbewertungen, deren Zeitraum den Zyklus berührt
 (`supervisor`, ohne Kommentare, die bleiben im Bereich Führung).
 Navigation: ein Abschnitt „Leistung & Führung“; die Rechtebereiche `leistung`
@@ -321,6 +322,9 @@ mehrere Reviewer:innen) haben verschiedene Lebenszyklen; ein gemeinsames
 Schema hätte beiden Sonderfälle aufgezwungen. Verschmolzen sind deshalb die
 Begriffe (Kategorien, Skalen, Ergebnisdarstellung), nicht die Speicherung.
 
-**Legacy-Skalen:** `scale_max` 5 → `stars5`, 10 → `points10`, 3 → `ampel`
-(`normalizeCriterion` beim Lesen). Alte Bögen bleiben so ohne Migration
-ausfüllbar.
+**Umstellung vorhandener Daten (nur Entwicklungs- und Testsysteme, es gibt
+noch keine Kundeninstallation):** Migration 321 baut `reviews` neu auf,
+führt Zeilen der alten Art `vorgesetzt` als 360°-Feedback weiter (Bewertung
+durch eine andere Person), rechnet `overall_score` in Prozent um und ersetzt
+`scale_max` in Bögen durch die passende Skala (5 → `stars5`,
+10 → `points10`, 3 → `ampel`).

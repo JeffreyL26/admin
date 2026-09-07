@@ -16,6 +16,7 @@ import {
   REVIEW_KIND_DESCRIPTIONS,
   REVIEW_KIND_LABELS,
   REVIEW_STATUS_LABELS,
+  SUPERVISOR_RATING_DESCRIPTION,
   formatDate,
   type RatingScaleKey,
   type Review,
@@ -36,12 +37,11 @@ import { SetupNote } from '../leadership/SetupShared';
 import { RatingInput, RatingValue } from '../leadership/RatingInput';
 
 /**
- * Beurteilungen (Bereich `leistung`). Seit der Zusammenführung mit Führung &
- * Bewertung gilt: Die Vorgesetztenbewertung wird NICHT mehr hier, sondern
- * unter Führung → „Mein Team“ abgegeben (Zuständigkeit, Pflichtkommentar,
- * Protokoll). Hier bleiben Selbstbewertung und 360°-Feedback, beide auf den
- * zentralen Kategorien und Skalen, und das Aggregat zeigt die
- * Vorgesetztenbewertung als Ergebnis daneben. Deep-Link aus den Gesprächen:
+ * Beurteilungen (Bereich `leistung`). Die Vorgesetztenbewertung wird NICHT
+ * hier, sondern unter Führung → „Mein Team“ abgegeben (Zuständigkeit,
+ * Pflichtkommentar, Protokoll). Hier leben Selbstbewertung und
+ * 360°-Feedback, beide auf den zentralen Kategorien und Skalen, und das
+ * Aggregat zeigt die Vorgesetztenbewertung als Ergebnis daneben. Deep-Link aus den Gesprächen:
  * `/leistung/beurteilungen?tab=conduct&employee=<id>`.
  */
 export function ReviewsPage() {
@@ -78,7 +78,7 @@ export function ReviewsPage() {
   );
 }
 
-const KIND_ICONS: Record<ReviewKind, React.ReactNode> = {
+const KIND_ICONS: Record<ReviewKind | 'vorgesetzt', React.ReactNode> = {
   selbst: <UserRound size={15} />,
   vorgesetzt: <UserCheck size={15} />,
   feedback360: <Orbit size={15} />,
@@ -120,7 +120,7 @@ function KindLegend() {
   return (
     <div className="stack" style={{ gap: 8, marginBottom: 16 }}>
       <SetupNote icon={KIND_ICONS.vorgesetzt}>
-        <strong>Vorgesetztenbewertung</strong> · {REVIEW_KIND_DESCRIPTIONS.vorgesetzt}{' '}
+        <strong>Vorgesetztenbewertung</strong> · {SUPERVISOR_RATING_DESCRIPTION}{' '}
         <Link to="/fuehrung/mein-team">Zu „Mein Team“</Link>
       </SetupNote>
       <SetupNote icon={KIND_ICONS.selbst}>
@@ -145,7 +145,7 @@ function KindLegend() {
 
 function KindBadge({ kind }: { kind: ReviewKind }) {
   return (
-    <Badge tone={kind === 'selbst' ? 'blue' : kind === 'feedback360' ? 'navy' : 'neutral'}>
+    <Badge tone={kind === 'selbst' ? 'blue' : 'navy'}>
       <span className="row" style={{ gap: 5 }}>
         {KIND_ICONS[kind]}
         {REVIEW_KIND_LABELS[kind]}
@@ -194,7 +194,6 @@ function CyclesTab() {
           last_name: string;
           reviews_total: number;
           reviews_completed: number;
-          avg_overall_score: number | null;
           avg_overall_percent: number | null;
         }[];
       }>(`/api/performance/review-cycles/${selectedId}/overview`),
@@ -522,7 +521,7 @@ function TemplateEditor({ template, onClose }: { template: ReviewTemplate | null
   const qc = useQueryClient();
 
   const saveMutation = useMutation({
-    mutationFn: (payload: { name: string; criteria: Omit<ReviewCriterion, 'scale_max'>[] }) =>
+    mutationFn: (payload: { name: string; criteria: ReviewCriterion[] }) =>
       template
         ? api.put(`/api/performance/review-templates/${template.id}`, payload)
         : api.post('/api/performance/review-templates', payload),
@@ -870,13 +869,7 @@ function ConductTab() {
                     <td>
                       <Badge tone={REVIEW_STATUS_TONES[r.status]}>{REVIEW_STATUS_LABELS[r.status]}</Badge>
                     </td>
-                    <td style={{ fontVariantNumeric: 'tabular-nums' }}>
-                      {r.overall_percent !== null
-                        ? `${r.overall_percent} %`
-                        : r.overall_score !== null
-                          ? `Ø ${r.overall_score.toFixed(2)}`
-                          : '—'}
-                    </td>
+                    <td style={{ fontVariantNumeric: 'tabular-nums' }}>{percentText(r.overall_percent)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => setOpenReview(r)}>
                         {r.status === 'abgeschlossen' ? 'Ansehen' : 'Durchführen'}
@@ -1168,9 +1161,7 @@ function ReviewFormModal({
       {readOnly && (
         <p style={{ color: 'var(--text-secondary)', margin: '12px 0' }}>
           Abgeschlossen am {formatDate(review.completed_at?.slice(0, 10))} — Ergebnis{' '}
-          <strong>
-            {review.overall_percent !== null ? `${review.overall_percent} %` : `Ø ${review.overall_score?.toFixed(2) ?? '—'}`}
-          </strong>
+          <strong>{percentText(review.overall_percent)}</strong>
         </p>
       )}
       <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>

@@ -552,27 +552,30 @@ inTransaction(() => {
   const tpl = insert('review_templates', {
     name: 'Standardbogen',
     criteria: JSON.stringify([
-      { key: 'fachkompetenz', label: 'Fachkompetenz', description: 'Beherrschung der fachlichen Anforderungen', scale_max: 5 },
-      { key: 'qualitaet', label: 'Arbeitsqualität', description: 'Sorgfalt, Verlässlichkeit, Ergebnisse', scale_max: 5 },
-      { key: 'zusammenarbeit', label: 'Zusammenarbeit', description: 'Teamarbeit und Kommunikation', scale_max: 5 },
-      { key: 'eigenverantwortung', label: 'Eigenverantwortung', description: 'Initiative und Selbstorganisation', scale_max: 5 },
-      { key: 'entwicklung', label: 'Entwicklung', description: 'Lernbereitschaft und Wachstum', scale_max: 5 },
+      { key: 'fachkompetenz', label: 'Fachkompetenz', description: 'Beherrschung der fachlichen Anforderungen', scale: 'stars5', category_id: null },
+      { key: 'qualitaet', label: 'Arbeitsqualität', description: 'Sorgfalt, Verlässlichkeit, Ergebnisse', scale: 'stars5', category_id: null },
+      { key: 'zusammenarbeit', label: 'Zusammenarbeit', description: 'Teamarbeit und Kommunikation', scale: 'stars5', category_id: null },
+      { key: 'eigenverantwortung', label: 'Eigenverantwortung', description: 'Initiative und Selbstorganisation', scale: 'stars5', category_id: null },
+      { key: 'entwicklung', label: 'Entwicklung', description: 'Lernbereitschaft und Wachstum', scale: 'stars5', category_id: null },
     ]),
   });
   const review = (emp: number, reviewer: number | null, kind: string, status: string, scores?: [number, number, number, number, number], summary?: string) => {
     const keys = ['fachkompetenz', 'qualitaet', 'zusammenarbeit', 'eigenverantwortung', 'entwicklung'];
     const sc = scores ? keys.map((k, i) => ({ key: k, score: scores[i] })) : [];
-    const overall = scores ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+    // Anteil der Bestnote auf 5 Sternen, wie percentOf im Modul.
+    const percent = scores ? Math.round((scores.reduce((a, b) => a + (b - 1) / 4, 0) / scores.length) * 100) : null;
     return insert('reviews', {
       cycle_id: cyc, employee_id: emp, template_id: tpl, reviewer_employee_id: reviewer,
-      kind, status, scores: JSON.stringify(sc), overall_score: status === 'abgeschlossen' ? overall : null,
+      kind, status, scores: JSON.stringify(sc), overall_percent: status === 'abgeschlossen' ? percent : null,
       summary: summary ?? null, completed_at: status === 'abgeschlossen' ? '2026-06-30' : null,
     });
   };
-  review(DEV1, TLB, 'vorgesetzt', 'abgeschlossen', [5, 4, 4, 5, 4], 'Sehr starkes Jahr; Architekturthemen weiter ausbauen.');
+  // Die Bewertung durch die Führungskraft entsteht im Bereich Führung
+  // (leadership_ratings); hier nur Selbstbild und Umfeld.
+  review(DEV1, TLB, 'feedback360', 'abgeschlossen', [5, 4, 4, 5, 4], 'Sehr starkes Jahr; Architekturthemen weiter ausbauen.');
   review(DEV1, null, 'selbst', 'abgeschlossen', [4, 4, 4, 5, 5]);
-  review(DEV2, TLB, 'vorgesetzt', 'in_bearbeitung', [4, 4, 3, 3, 4]);
-  review(AE1, VTL, 'vorgesetzt', 'offen');
+  review(DEV2, TLB, 'feedback360', 'in_bearbeitung', [4, 4, 3, 3, 4]);
+  review(AE1, VTL, 'feedback360', 'offen');
   // 360° für Teamlead Frontend
   review(TLF, CTO, 'feedback360', 'abgeschlossen', [4, 4, 5, 4, 4]);
   review(TLF, DEV3, 'feedback360', 'abgeschlossen', [4, 5, 5, 4, 4]);

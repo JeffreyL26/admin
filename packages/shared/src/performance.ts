@@ -69,13 +69,11 @@ export interface ReviewCycle {
 }
 
 /**
- * Ein Kriterium eines Beurteilungsbogens. Seit der Zusammenführung mit
- * Führung & Bewertung trägt jedes Kriterium eine der zentralen Skalen
- * (`RatingScaleKey`, siehe leadership.ts) und stammt entweder aus einer
- * zentralen Bewertungskategorie (`category_id`, Name und Skala werden beim
- * Speichern des Bogens übernommen) oder ist frei formuliert (z. B. eine
- * 360°-Frage). `scale_max` ist der Altbestand vor der Zusammenführung; der
- * Server rechnet ihn beim Lesen in eine Skala um.
+ * Ein Kriterium eines Beurteilungsbogens. Jedes Kriterium trägt eine der
+ * zentralen Skalen (`RatingScaleKey`, siehe leadership.ts) und stammt
+ * entweder aus einer zentralen Bewertungskategorie (`category_id`, Name und
+ * Skala werden beim Speichern des Bogens übernommen) oder ist frei
+ * formuliert (z. B. eine 360°-Frage).
  */
 export interface ReviewCriterion {
   key: string;
@@ -83,8 +81,6 @@ export interface ReviewCriterion {
   description?: string;
   scale: RatingScaleKey;
   category_id?: number | null;
-  /** @deprecated Altbestand; wird beim Lesen zu `scale` aufgelöst. */
-  scale_max?: number;
 }
 
 export interface ReviewTemplate {
@@ -103,20 +99,19 @@ export interface ReviewCategoryOption {
   is_overall: number;
 }
 
-export type ReviewKind = 'selbst' | 'vorgesetzt' | 'feedback360';
+export type ReviewKind = 'selbst' | 'feedback360';
 export type ReviewStatus = 'offen' | 'in_bearbeitung' | 'abgeschlossen';
 
 export const REVIEW_KIND_LABELS: Record<ReviewKind, string> = {
   selbst: 'Selbstbewertung',
-  vorgesetzt: 'Vorgesetztenbewertung (Altbestand)',
   feedback360: '360°-Feedback',
 };
 
 /**
- * Anlegbare Arten. Die Vorgesetztenbewertung ist keine Beurteilung mehr,
- * sondern die Bewertung im Bereich Führung („Mein Team"): dort bewertet die
+ * Anlegbare Arten. Die Vorgesetztenbewertung ist keine Beurteilung, sondern
+ * die Bewertung im Bereich Führung („Mein Team"): dort bewertet die
  * zuständige Führungskraft je Zeitraum mit Pflichtkommentar und
- * unveränderlichem Protokoll. Altbestand bleibt lesbar.
+ * unveränderlichem Protokoll.
  */
 export const REVIEW_CREATABLE_KINDS = ['selbst', 'feedback360'] as const satisfies readonly ReviewKind[];
 
@@ -124,11 +119,13 @@ export const REVIEW_CREATABLE_KINDS = ['selbst', 'feedback360'] as const satisfi
 export const REVIEW_KIND_DESCRIPTIONS: Record<ReviewKind, string> = {
   selbst:
     'Die Person schätzt sich selbst ein, auf denselben Kategorien und Skalen wie die Führungskraft. Dient dem Abgleich im Gespräch, ist keine Bewertung durch andere.',
-  vorgesetzt:
-    'Bewertung durch die zuständige Führungskraft. Seit der Zusammenführung wird sie ausschließlich im Bereich Führung unter „Mein Team" abgegeben; hier erscheint sie als Ergebnis. Ältere Einträge bleiben lesbar.',
   feedback360:
     'Rückmeldung aus dem Umfeld: Kolleg:innen, Projektpartner, interne Kund:innen. Mehrere Bögen je Person, die gemittelt werden. Bewusst getrennt von der Vorgesetztenbewertung.',
 };
+
+/** Erklärtext zur Vorgesetztenbewertung: entsteht im Bereich Führung, erscheint hier als Ergebnis. */
+export const SUPERVISOR_RATING_DESCRIPTION =
+  'Bewertung durch die zuständige Führungskraft. Sie wird ausschließlich im Bereich Führung unter „Mein Team" abgegeben, mit Pflichtkommentar und unveränderlichem Protokoll; hier erscheint sie als Ergebnis neben Selbstbild und Umfeld.';
 
 /** Vorgesetztenbewertung aus dem Bereich Führung, wie sie das Aggregat mitliefert. */
 export interface SupervisorRatingSummary {
@@ -168,8 +165,6 @@ export interface Review {
   kind: ReviewKind;
   status: ReviewStatus;
   scores: ReviewScore[];
-  /** Altbestand: Mittel der Rohwerte. Neue Abschlüsse füllen `overall_percent`. */
-  overall_score: number | null;
   /** 0…100, Anteil der Bestnote über alle Kriterien (skalenübergreifend vergleichbar). */
   overall_percent: number | null;
   summary: string | null;
@@ -191,7 +186,6 @@ export interface ReviewAggregate {
   employee_id: number;
   reviews_count: number;
   criteria: ReviewAggregateCriterion[];
-  overall_score: number | null;
   overall_percent: number | null;
   /** Vorgesetztenbewertungen aus dem Bereich Führung, deren Zeitraum den Zyklus berührt. */
   supervisor: SupervisorRatingSummary[];

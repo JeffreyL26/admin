@@ -47,7 +47,9 @@ export const performanceMigrations: Migration[] = [
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
-      -- criteria: JSON-Array [{key, label, description, scale_max}]
+      -- criteria: JSON-Array [{key, label, description, scale, category_id}]
+      -- (scale = zentrale Skala aus leadership.ts; category_id verweist auf
+      -- eine zentrale Bewertungskategorie, Name/Skala werden übernommen)
       CREATE TABLE review_templates (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -64,6 +66,7 @@ export const performanceMigrations: Migration[] = [
         employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
         template_id INTEGER NOT NULL REFERENCES review_templates(id),
         reviewer_employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL,
+        -- Endgültige Form (nur selbst/feedback360): 321_reviews_final_schema.
         kind TEXT NOT NULL DEFAULT 'vorgesetzt'
           CHECK (kind IN ('selbst', 'vorgesetzt', 'feedback360')),
         status TEXT NOT NULL DEFAULT 'offen'
@@ -204,11 +207,58 @@ export const performanceMigrations: Migration[] = [
     `,
   },
   {
-    // Zusammenführung mit Führung & Bewertung: Bögen nutzen die zentralen
-    // Skalen (verschiedene Skalen je Kriterium sind möglich), deshalb ist das
-    // Gesamtergebnis ein Anteil der Bestnote in Prozent statt eines Mittels
-    // roher Zahlen. `overall_score` bleibt für Altbestand stehen.
+    // Bögen nutzen die zentralen Skalen (verschiedene Skalen je Kriterium
+    // sind möglich), deshalb ist das Gesamtergebnis ein Anteil der Bestnote
+    // in Prozent statt eines Mittels roher Zahlen.
     name: '320_reviews_unified_scales',
     sql: `ALTER TABLE reviews ADD COLUMN overall_percent INTEGER;`,
+  },
+  {
+    // Endgültiges Schema der Beurteilungen: Es gibt nur Selbstbewertung und
+    // 360°-Feedback; die Bewertung durch die Führungskraft lebt im Bereich
+    // Führung (leadership_ratings). Vorhandene Zeilen der Art 'vorgesetzt'
+    // sind Bewertungen durch eine andere Person und laufen als 360°-Feedback
+    // weiter, overall_score (Rohmittel auf 5 Sternen) wird in Prozent
+    // umgerechnet. Bogen-Kriterien mit scale_max erhalten die passende Skala.
+    name: '321_reviews_final_schema',
+    sql: `
+      CREATE TABLE reviews_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cycle_id INTEGER NOT NULL REFERENCES review_cycles(id) ON DELETE CASCADE,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        template_id INTEGER NOT NULL REFERENCES review_templates(id),
+        reviewer_employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL,
+        kind TEXT NOT NULL DEFAULT 'selbst' CHECK (kind IN ('selbst', 'feedback360')),
+        status TEXT NOT NULL DEFAULT 'offen'
+          CHECK (status IN ('offen', 'in_bearbeitung', 'abgeschlossen')),
+        scores TEXT NOT NULL DEFAULT '[]',
+        overall_percent INTEGER,
+        summary TEXT,
+        completed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO reviews_new (id, cycle_id, employee_id, template_id, reviewer_employee_id, kind, status,
+                               scores, overall_percent, summary, completed_at, created_at)
+      SELECT id, cycle_id, employee_id, template_id, reviewer_employee_id,
+             CASE WHEN kind = 'vorgesetzt' THEN 'feedback360' ELSE kind END,
+             status, scores,
+             COALESCE(overall_percent, CAST(ROUND((overall_score - 1) / 4.0 * 100) AS INTEGER)),
+             summary, completed_at, created_at
+      FROM reviews;
+      DROP TABLE reviews;
+      ALTER TABLE reviews_new RENAME TO reviews;
+      CREATE INDEX idx_reviews_cycle_employee ON reviews(cycle_id, employee_id);
+
+      UPDATE review_templates SET criteria = (
+        SELECT json_group_array(
+          json_set(
+            json_remove(value, '$.scale_max'),
+            '$.scale', CASE json_extract(value, '$.scale_max')
+                         WHEN 10 THEN 'points10' WHEN 3 THEN 'ampel' ELSE 'stars5' END,
+            '$.category_id', json_extract(value, '$.category_id')
+          )
+        ) FROM json_each(review_templates.criteria)
+      ) WHERE criteria LIKE '%scale_max%';
+    `,
   },
 ];

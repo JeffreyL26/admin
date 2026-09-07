@@ -126,14 +126,15 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   find-my-way an derselben Baumposition denselben Parameternamen verlangt wie
   `/leaders/:employeeId/team`.
 - **Leistung & Führung sind verzahnt, nicht verschmolzen.** Beurteilungen
-  (`modules/performance`) legen nur Selbstbewertung und 360°-Feedback an;
-  `kind: 'vorgesetzt'` wird mit 400 abgewiesen, weil die Vorgesetztenbewertung
-  ausschließlich unter „Mein Team“ entsteht (Altbestand bleibt lesbar). Bögen
-  tragen je Kriterium eine zentrale Skala (`scale`, Altbestand `scale_max`
-  wird beim Lesen umgerechnet) und binden Kriterien optional an zentrale
-  Kategorien (`category_id`, Snapshot beim Speichern). Ergebnis eines Bogens
-  ist `overall_percent` (Anteil der Bestnote); das Aggregat liefert die
-  Führungsbewertungen des Zyklus-Zeitraums als `supervisor`. Ein
+  (`modules/performance`) kennen nur Selbstbewertung und 360°-Feedback;
+  `kind: 'vorgesetzt'` wird mit 400 und Verweis abgewiesen, weil die
+  Vorgesetztenbewertung ausschließlich unter „Mein Team“ entsteht
+  (`leadership_ratings`). Bögen tragen je Kriterium eine zentrale Skala
+  (`scale`) und binden Kriterien optional an zentrale Kategorien
+  (`category_id`, Snapshot beim Speichern). Ergebnis eines Bogens ist
+  `overall_percent` (Anteil der Bestnote, skalenübergreifend); das Aggregat
+  liefert die Führungsbewertungen des Zyklus-Zeitraums als `supervisor`.
+  Endgültiges Schema: Migration `321_reviews_final_schema`. Ein
   Navigationsabschnitt „Leistung & Führung“, Rechtebereiche bleiben getrennt.
   Deep-Links: `/leistung/beurteilungen?tab=conduct&employee=<id>`,
   `/leistung/feedback?employee=<id>`. Hintergrund: docs/entscheidungen.md.
