@@ -8,6 +8,7 @@ import type {
   MeCalendarEmployee,
   MeDocument,
   MeFreelancer,
+  MeOrgChartResponse,
   MeProfile,
   MeSalary,
   MeSalaryComponent,
@@ -168,9 +169,22 @@ export function useMyFreelancer() {
 }
 
 // ---------------------------------------------------------------------------
-// Organigramm (GET /api/me/org-tree)
+// Organigramm (GET /api/me/org-chart)
 // ---------------------------------------------------------------------------
 
+/**
+ * Bewusst KEIN langes staleTime: Die Foto-Links in der Antwort sind nur 60
+ * Sekunden gültig (core/files.ts); ein gecachter Stand zeigte nach einer
+ * Minute leere Bilder. Der 15-Sekunden-Standard des QueryClients passt.
+ */
+export function useMyOrgChart() {
+  return useQuery({
+    queryKey: ['me', 'org-chart'],
+    queryFn: () => api.get<MeOrgChartResponse>('/api/me/org-chart'),
+  });
+}
+
+/** Abteilungsbaum, heute nur noch als Abteilungsfilter des Firmenkalenders. */
 export function useMyOrgTree() {
   return useQuery({
     queryKey: ['me', 'org-tree'],

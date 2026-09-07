@@ -507,9 +507,8 @@ function TeamNode({
 
 /**
  * Zwei Darstellungen: das Personen-Organigramm (OrgChart.tsx) als Standard und
- * der bisherige Abteilungsbaum. Letzterer bleibt, weil das Mitarbeitenden-
- * Portal genau diesen Baum zeigt (`GET /api/me/org-tree`, dieselbe
- * `buildOrgTree`) und beide Clients dasselbe Bild liefern sollen.
+ * der Abteilungsbaum als Blick auf die Aufbauorganisation (Leitung, Kopfzahl,
+ * Teams je Abteilung), passend zum Struktur-Tab daneben.
  */
 function OrgChartTab({ initialPersonId }: { initialPersonId: number | null }) {
   const [mode, setMode] = useState('personen');
@@ -527,7 +526,7 @@ function OrgChartTab({ initialPersonId }: { initialPersonId: number | null }) {
         <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
           {mode === 'personen'
             ? 'Wer berichtet an wen: alle aktiven Mitarbeitenden entlang der Berichtslinie.'
-            : 'Abteilungen mit Leitung und Kopfzahl, wie im Mitarbeitenden-Portal.'}
+            : 'Abteilungen mit Leitung, Kopfzahl und Teams.'}
         </span>
       </div>
       {mode === 'personen' ? <PeopleOrgChart initialPersonId={initialPersonId} /> : <DepartmentChart />}

@@ -1,26 +1,49 @@
 /**
- * Self-Service: Organigramm im Mitarbeitenden-Portal (/api/me/org-tree).
+ * Self-Service: Organigramm im Mitarbeitenden-Portal.
  *
- * Bewusst KEIN eigener Baumaufbau: es ist exakt dasselbe Abteilungs-Organigramm
- * wie in der HR-Administration (`buildOrgTree()` aus modules/employees/orgRoutes),
- * damit beide Clients nie auseinanderlaufen (Entscheidung D11 der Spezifikation).
+ * - `/api/me/org-chart`: Personen-Organigramm, dieselbe Berichtslinie wie in
+ *   der HR-Administration (`buildOrgChart()` aus modules/employees), nur auf
+ *   das projiziert, was Kolleg:innen sehen dürfen.
+ * - `/api/me/org-tree`: Abteilungsbaum (`buildOrgTree()`), im Portal heute
+ *   der Abteilungsfilter des Firmenkalenders.
+ *
+ * Bewusst KEIN eigener Baumaufbau in beiden Fällen, damit Portal und
+ * HR-Administration nie zwei verschiedene Organisationen zeigen.
  */
 import type { FastifyPluginAsync } from 'fastify';
-import type { OrgTreeNode } from '@ohrganize/shared';
-import { buildOrgTree } from '../employees/orgRoutes.js';
+import type { MeOrgChartPerson, OrgChartPerson, OrgTreeNode } from '@ohrganize/shared';
+import { buildOrgChart, buildOrgTree } from '../employees/orgRoutes.js';
 import { requireEmployee } from './lib.js';
 
 /**
- * Projektion auf genau die Felder des Vertrags `OrgTreeNode`.
- *
- * Warum überhaupt projizieren, obwohl der Inhalt unbedenklich ist? `buildOrgTree()`
- * baut die Knoten aus `SELECT d.*` bzw. `SELECT t.*` — heute kommt dadurch nur ein
- * zusätzliches `created_at` mit, künftige Spalten auf `departments`/`teams`
- * (Kostenstelle, Budget, interne Notizen) würden aber ungefragt ins Portal
- * durchschlagen. Die Aufzählung hier ist die Zugriffsgrenze: Abteilungs- und
- * Teamnamen, Leitungspersonen und Mitarbeiterzahlen sind unbedenklich (sie stehen
- * ohnehin im Mitarbeitendenverzeichnis), alles Weitere muss bewusst ergänzt werden.
- * Die Zuordnung läuft rein im Speicher — keine zusätzliche Abfrage je Knoten.
+ * Projektion auf den Vertrag `MeOrgChartPerson`. Das ist die Zugriffsgrenze:
+ * Was ein Organigramm an der Wand zeigt (Name, Titel, Zuordnung, Foto) sehen
+ * Kolleg:innen, alles andere aus `OrgChartPerson` (E-Mail, Telefon,
+ * Personalnummer, Eintrittsdatum, rohes `manager_id`) bleibt der
+ * HR-Administration vorbehalten. Neue Felder dort tauchen hier deshalb nie
+ * ungefragt auf.
+ */
+function toPortalPerson(p: OrgChartPerson): MeOrgChartPerson {
+  return {
+    id: p.id,
+    first_name: p.first_name,
+    last_name: p.last_name,
+    job_title: p.job_title,
+    department_id: p.department_id,
+    department_name: p.department_name,
+    team_name: p.team_name,
+    location_name: p.location_name,
+    parent_id: p.parent_id,
+    parent_source: p.parent_source,
+    photo_url: p.photo_url,
+  };
+}
+
+/**
+ * Projektion auf genau die Felder des Vertrags `OrgTreeNode`. `buildOrgTree()`
+ * baut die Knoten aus `SELECT d.*` bzw. `SELECT t.*`; künftige Spalten auf
+ * `departments`/`teams` (Kostenstelle, Budget, interne Notizen) würden sonst
+ * ungefragt ins Portal durchschlagen.
  */
 function toPortalNode(node: OrgTreeNode): OrgTreeNode {
   return {
@@ -44,8 +67,18 @@ function toPortalNode(node: OrgTreeNode): OrgTreeNode {
 }
 
 export const meOrgRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/api/me/org-tree', async (req) => {
+  app.get('/api/me/org-chart', async (req) => {
     // Zugriffsgrenze zuerst: nur Accounts mit aktivem Personalprofil.
+    const me = requireEmployee(req);
+    const { people, departments } = buildOrgChart();
+    return {
+      people: people.map(toPortalPerson),
+      departments: departments.map((d) => ({ id: d.id, name: d.name })),
+      self_id: me.id,
+    };
+  });
+
+  app.get('/api/me/org-tree', async (req) => {
     requireEmployee(req);
     const { tree, unassigned_count } = buildOrgTree();
     return { tree: tree.map(toPortalNode), unassigned_count };

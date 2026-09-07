@@ -961,30 +961,164 @@ button {
 }
 
 /* ========================================================== Organigramm === */
-/* Zeichenfläche des Abteilungsdiagramms. Sie ist der einzige Bereich, in dem
-   geschoben und gezoomt wird: `overflow: hidden` plus die Transformation im
-   SVG halten alles im Kasten, damit die SEITE nie waagerecht scrollt.
-   `touch-action: none` gibt Ziehen und Spreizen an die Zeigerlogik ab —
-   ohne das rollt das Telefon die Seite, statt das Diagramm zu bewegen. */
-.pt-org-canvas {
+/* Personenbaum nach Berichtslinie (pages/OrgPage.tsx): HTML-Karten auf einer
+   verschieb- und zoombaren Fläche, Verbindungslinien als SVG darunter. Die
+   Abteilungsfarbe kommt je Element als --orgc-accent (--org-N aus tokens.css).
+   Die Fläche ist der einzige Bereich, in dem geschoben und gezoomt wird:
+   `overflow: clip` (nicht hidden, sonst scrollt der Browser den Kasten beim
+   Fokussieren einer Karte still mit) und `touch-action: none`, damit das
+   Telefon das Diagramm bewegt statt die Seite. */
+.pt-orgc {
+  display: flex;
+  flex-direction: column;
+}
+.pt-orgc__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.pt-orgc__search {
   position: relative;
-  height: clamp(340px, 62vh, 560px);
+  flex: 1 1 220px;
+  max-width: 340px;
+}
+.pt-orgc__search .pt-input {
+  height: 36px;
+  padding-left: 36px;
+}
+.pt-orgc__search-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.pt-orgc__results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 6;
+  padding: 6px;
+  max-height: 340px;
+  overflow: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+}
+.pt-orgc__result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pt-orgc__result:hover,
+.pt-orgc__result:focus-visible {
+  background: var(--gray-50);
+  outline: none;
+}
+.pt-orgc__result-name {
+  display: block;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-orgc__result-sub,
+.pt-orgc__result-empty {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-orgc__result-empty {
+  padding: 8px 10px;
+}
+.pt-orgc__legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pt-orgc__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 550;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.pt-orgc__chip:hover {
+  border-color: var(--gray-300);
+}
+.pt-orgc__chip.is-active {
+  border-color: var(--orgc-accent, var(--gray-400));
+  background: color-mix(in srgb, var(--orgc-accent, var(--gray-400)) 12%, transparent);
+  color: var(--text-primary);
+}
+.pt-orgc__chip-count {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.pt-orgc-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--orgc-accent, var(--gray-400));
+  flex-shrink: 0;
+}
+.pt-orgc__stage {
+  position: relative;
+  height: clamp(420px, 66vh, 760px);
+}
+.pt-orgc__canvas {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  overflow: clip;
   touch-action: none;
+  user-select: none;
   cursor: grab;
   background-color: var(--gray-25);
   background-image: radial-gradient(var(--gray-200) 1px, transparent 1px);
   background-size: 24px 24px;
 }
-.pt-org-canvas--panning {
+.pt-orgc__canvas.is-panning {
   cursor: grabbing;
 }
 /* Im Ladezustand gibt es nichts zu ziehen. */
-.pt-org-canvas--loading {
+.pt-orgc__canvas--loading {
+  position: relative;
+  height: clamp(420px, 66vh, 760px);
   cursor: default;
   touch-action: auto;
 }
-
 .pt-org-skeleton {
   display: grid;
   justify-items: center;
@@ -997,12 +1131,227 @@ button {
   justify-content: center;
   gap: 18px;
 }
-
-/* Steuerleiste rechts unten in der Zeichenfläche. */
-.pt-org-zoom {
+.pt-orgc__world {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+.pt-orgc__world.is-smooth {
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.pt-orgc__edges {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.pt-orgc__edge {
+  fill: none;
+  stroke: var(--gray-300);
+  stroke-width: 1.6;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease,
+    d 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.pt-orgc__edge.is-derived {
+  stroke-dasharray: 5 4;
+}
+.pt-orgc__edge.is-hot {
+  stroke: var(--brand-primary);
+  stroke-width: 2.4;
+}
+.pt-orgc__edge.is-faint {
+  opacity: 0.3;
+}
+
+/* Karte: Position über left/top, damit Umlayouten weich gleitet. */
+.pt-orgc-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  transition: left 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.15s ease, border-color 0.15s ease, opacity 0.2s ease;
+  animation: pt-orgc-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+.pt-orgc-card:hover {
+  box-shadow: var(--shadow);
+  border-color: var(--blue-300);
+}
+.pt-orgc-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--focus-ring);
+  border-color: var(--brand-primary);
+}
+.pt-orgc-card.is-self {
+  background: var(--blue-50);
+  border-color: var(--brand-primary);
+}
+.pt-orgc-card.is-path {
+  border-color: var(--brand-primary);
+}
+.pt-orgc-card.is-selected {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px var(--focus-ring), var(--shadow);
+}
+.pt-orgc-card.is-hit {
+  border-color: var(--orgc-accent, var(--brand-primary));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--orgc-accent, var(--brand-primary)) 25%, transparent);
+}
+.pt-orgc-card.is-dim {
+  opacity: 0.3;
+}
+.pt-orgc-card__accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--orgc-accent, var(--gray-400));
+}
+.pt-orgc-card__me {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--brand-primary);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pt-orgc-card__body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 10px 18px;
+  min-width: 0;
+}
+.pt-orgc-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--blue-100);
+  color: var(--blue-700);
+  font-weight: 650;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.pt-orgc-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pt-orgc-card__text {
+  flex: 1;
+  min-width: 0;
+}
+.pt-orgc-card__name {
+  font-weight: 650;
+  font-size: var(--text-base);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 30px;
+}
+.pt-orgc-card.is-self .pt-orgc-card__name {
+  padding-right: 40px;
+}
+.pt-orgc-card__title {
+  min-height: 1.4em;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-orgc-card__dept {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  min-width: 0;
+}
+.pt-orgc-card__dept-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-orgc-card__foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px 0 18px;
+  border-top: 1px solid var(--gray-100);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.pt-orgc-card__loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-orgc-card__loc--none {
+  color: var(--gray-400);
+}
+.pt-orgc-card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--gray-50);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.pt-orgc-card__chip:hover {
+  background: var(--blue-50);
+  border-color: var(--blue-200);
+  color: var(--brand-primary);
+}
+.pt-orgc-card__chip.is-open {
+  background: color-mix(in srgb, var(--brand-primary) 12%, transparent);
+  border-color: transparent;
+  color: var(--brand-primary);
+}
+@keyframes pt-orgc-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+/* Schwebende Bedienelemente über der Fläche */
+.pt-orgc__overlay {
+  position: absolute;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1011,6 +1360,11 @@ button {
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   box-shadow: var(--shadow);
+  z-index: 2;
+}
+.pt-org-zoom {
+  right: 12px;
+  bottom: 12px;
 }
 .pt-org-zoom__value {
   min-width: 44px;
@@ -1039,6 +1393,194 @@ button {
   opacity: 0.45;
   cursor: default;
 }
+.pt-orgc__crumbs {
+  left: 12px;
+  top: 12px;
+  padding: 4px 8px;
+  max-width: calc(100% - 24px);
+  overflow: hidden;
+}
+.pt-orgc__crumb-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pt-orgc__crumb {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--brand-primary);
+  padding: 3px 7px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pt-orgc__crumb:hover:not(.is-current) {
+  background: var(--blue-50);
+}
+.pt-orgc__crumb.is-current {
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: default;
+}
+.pt-orgc__crumb-sep {
+  display: inline-flex;
+  color: var(--gray-400);
+}
+
+/* Detailspalte: rechts neben der Fläche, auf schmalen Bildschirmen als Bogen von unten. */
+.pt-orgc__panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-lg);
+  z-index: 3;
+  overflow: hidden;
+  animation: pt-orgc-panel-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes pt-orgc-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+.pt-orgc__panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pt-orgc__panel-body {
+  flex: 1;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pt-orgc__panel-foot {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+.pt-orgc__panel-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 650;
+  font-size: var(--text-md);
+  letter-spacing: -0.01em;
+}
+.pt-orgc__panel-me {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--brand-primary);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pt-orgc__panel-title {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.pt-orgc__panel-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pt-orgc__dept-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--orgc-accent, var(--gray-400)) 14%, transparent);
+}
+.pt-orgc__section-title {
+  margin-bottom: 8px;
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pt-orgc__fact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.pt-orgc__fact svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.pt-orgc__muted {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.pt-orgc__derived {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px dashed var(--border-strong);
+  background: var(--gray-50);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.pt-orgc__person-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.pt-orgc__person-row:hover {
+  background: var(--gray-50);
+  border-color: var(--border);
+}
+.pt-orgc__person-row-name {
+  display: block;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-orgc__person-row-sub {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .pt-org-foot {
   display: flex;
@@ -1050,52 +1592,44 @@ button {
   font-size: var(--text-sm);
   color: var(--text-muted);
 }
-.pt-org-legend {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.pt-org-legend__swatch {
-  flex: none;
-  width: 13px;
-  height: 13px;
-  border-radius: 4px;
-  background: var(--blue-50);
-  border: 2px solid var(--brand-primary);
-}
 .pt-org-hint {
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
-/* Kästen laufen gestaffelt ein — die Verzögerung setzt die Seite je Knoten. */
-.pt-org-node {
-  animation: pt-org-appear 0.34s ease both;
-}
-@keyframes pt-org-appear {
-  from {
-    opacity: 0;
-    transform: translateY(7px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
-  .pt-org-node {
+  .pt-orgc-card,
+  .pt-orgc__panel {
     animation: none;
+  }
+  .pt-orgc-card,
+  .pt-orgc__edge,
+  .pt-orgc__world.is-smooth {
+    transition: none;
   }
 }
 
 @media (max-width: 720px) {
-  /* Auf Telefonbreite fehlt in der Kartenkopfzeile der Platz; die Bedienung
-     erklärt sich dort über die Knöpfe. */
   .pt-org-hint {
     display: none;
   }
-  .pt-org-canvas {
-    height: clamp(320px, 56vh, 460px);
+  .pt-orgc__stage {
+    height: clamp(380px, 62vh, 620px);
+  }
+  .pt-orgc__panel {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: 45%;
+    animation-name: pt-orgc-sheet-in;
+  }
+  @keyframes pt-orgc-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
   }
   .pt-org-foot {
     padding-left: 16px;

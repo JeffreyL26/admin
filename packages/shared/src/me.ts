@@ -8,6 +8,7 @@ import type {
   SalaryComponentKind,
 } from './compensation.js';
 import type { DocumentCategory, DocumentSource } from './employees.js';
+import type { OrgChartBasePerson } from './orgChart.js';
 
 /** Rollen von Benutzerkonten: HR-Administration (Desktop) bzw. Web-Portal. */
 export type UserRole = 'admin' | 'mitarbeiter';
@@ -28,6 +29,24 @@ export interface AuthUserDto {
    * eines neu angelegten oder zurückgesetzten Kontos ins Leere.
    */
   must_change_password?: number;
+}
+
+/**
+ * Eine Kollegin, ein Kollege im Personen-Organigramm des Portals
+ * (`GET /api/me/org-chart`). Bewusst nur, was ein Organigramm an der Wand
+ * auch zeigt: Name, Titel, Zuordnung, Foto. Kontaktdaten, Personalnummer und
+ * Eintrittsdatum bleiben der HR-Administration vorbehalten.
+ */
+export interface MeOrgChartPerson extends OrgChartBasePerson {
+  /** Kurzlebig signiert (core/files.ts): sofort laden, nicht merken. */
+  photo_url: string | null;
+}
+
+export interface MeOrgChartResponse {
+  people: MeOrgChartPerson[];
+  departments: { id: number; name: string }[];
+  /** Eigenes Personalprofil, für die Hervorhebung „Sie". */
+  self_id: number;
 }
 
 /** Eigene Stammdaten (GET /api/me/profile) — bewusst ohne Bank-/Steuerdaten. */

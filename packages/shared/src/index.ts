@@ -3,6 +3,7 @@
 export * from './version.js';
 export * from './common.js';
 export * from './employees.js';
+export * from './orgChart.js';
 export * from './absences.js';
 export * from './performance.js';
 export * from './compensation.js';

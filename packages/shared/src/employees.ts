@@ -221,9 +221,9 @@ export interface DocumentDto {
 // ---------------------------------------------------------------------------
 
 /**
- * Knoten des Abteilungs-Organigramms (`GET /api/org/tree`, `GET /api/me/org-tree`).
- * Liegt hier, weil Backend (`buildOrgTree`), Desktop-Renderer und Web-Portal
- * dieselbe Form brauchen — Teams hängen als Blätter an ihrer Abteilung.
+ * Knoten des Abteilungsbaums (`GET /api/org/tree`, `GET /api/me/org-tree`):
+ * Struktur-Tab und Abteilungsansicht der Desktop-App, Abteilungsfilter des
+ * Portal-Kalenders. Teams hängen als Blätter an ihrer Abteilung.
  * `employee_count` zählt nur aktive Mitarbeitende der Abteilung selbst,
  * `total_employee_count` zusätzlich alle untergeordneten Abteilungen.
  */

@@ -52,7 +52,8 @@ Berechtigungsprüfung** sind damit in HR-Erfassung und Portal identisch):
 | `GET /api/me/leave-preview` | `routes.ts` | Live-Vorschau der gezählten Tage |
 | `GET/POST /api/me/sick-notes` | `routes.ts` | Krankmeldungen (AU-Frist = 3. Kalendertag) |
 | `GET /api/me/salary` · `/salary/history` · `/bonuses` · `/freelancer` | `salaryRoutes.ts` | Eigene Vergütung |
-| `GET /api/me/org-tree` | `orgRoutes.ts` | Abteilungs-Organigramm (`buildOrgTree()`) |
+| `GET /api/me/org-chart` | `orgRoutes.ts` | Personen-Organigramm (`buildOrgChart()`, projiziert auf Name, Titel, Zuordnung, Foto) |
+| `GET /api/me/org-tree` | `orgRoutes.ts` | Abteilungsbaum (`buildOrgTree()`), Abteilungsfilter des Kalenders |
 | `GET /api/me/calendar?year=&month=` | `calendarRoutes.ts` | Firmenweite Abwesenheiten |
 | `GET/POST /api/me/documents` · `POST /api/me/documents/:id/download` | `documentRoutes.ts` | Eigene Dokumente |
 
@@ -114,10 +115,11 @@ serverseitig erzeugtem Erstpasswort (siehe `docs/inbetriebnahme.md`).
   Seiten: Übersicht · Anträge · Krankmeldung · Kalender (firmenweit) · Gehalt ·
   Dokumente · Organigramm · Profil. Query-Keys beginnen **immer** mit `'me'` —
   das Portal invalidiert grobkörnig über dieses Präfix; ein abweichender Key
-  zeigt stille Altdaten. Das Organigramm löst CSS-Variablen zur Renderzeit über
-  `getComputedStyle` in konkrete Werte auf (`features/org/chartColors.ts`) und
-  liest sie bei Theme-Wechsel per `MutationObserver` neu — `var(…)` greift in
-  SVG-Präsentationsattributen nicht zuverlässig.
+  zeigt stille Altdaten. Das Organigramm ist dieselbe Personenansicht wie in
+  der Desktop-App (Baum und Layout aus `@ohrganize/shared`, `orgChart.ts`);
+  die Karten sind HTML, die Linien ein SVG mit CSS-Klassen, deshalb greifen
+  die Theme-Variablen direkt. Bewusst ohne Kontaktdaten: `/api/me/org-chart`
+  projiziert auf Name, Titel, Zuordnung und Foto (`me/orgRoutes.ts`).
   Die Login-Seite legt hinter Wortmarke, Claim und Karte eine langsam
   driftende Wellen-Ebene (harmonische Teilschwingungen einer Grundwelle,
   `HarmonyBackdrop` in `pages/LoginPage.tsx`; respektiert

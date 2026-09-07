@@ -378,7 +378,7 @@ db.prepare('UPDATE employees SET weekly_hours = 40 WHERE id = 1').run();
 const orgTree = await empGet('/api/me/org-tree');
 const tree = orgTree.json().tree as { name: string; teams: { name: string }[] }[];
 check(
-  'Organigramm: Abteilung mit Team, unassigned_count als Zahl',
+  'Abteilungsbaum: Abteilung mit Team, unassigned_count als Zahl',
   orgTree.statusCode === 200 &&
     tree.length === 1 &&
     tree[0]!.name === 'Technik' &&
@@ -388,9 +388,33 @@ check(
   orgTree.json(),
 );
 check(
-  'Organigramm: auf den Vertrag projiziert (kein created_at aus SELECT *)',
+  'Abteilungsbaum: auf den Vertrag projiziert (kein created_at aus SELECT *)',
   !hasKeyDeep(tree, 'created_at'),
   tree,
+);
+
+const orgChart = await empGet('/api/me/org-chart');
+type ChartPerson = { id: number; parent_id: number | null; parent_source: string | null; department_name: string | null };
+const chartPeople = orgChart.json().people as ChartPerson[];
+const anna = chartPeople.find((p) => p.id === 1);
+const ben = chartPeople.find((p) => p.id === 2);
+check(
+  'Organigramm: Berichtslinie und eigene Person (Anna berichtet an Ben)',
+  orgChart.statusCode === 200 &&
+    orgChart.json().self_id === 1 &&
+    anna?.parent_id === 2 &&
+    anna?.parent_source === 'manager' &&
+    ben?.parent_id === null &&
+    anna?.department_name === 'Technik' &&
+    (orgChart.json().departments as { name: string }[]).some((d) => d.name === 'Technik'),
+  orgChart.json(),
+);
+check(
+  'Organigramm: auf den Vertrag projiziert (keine Kontaktdaten, Personalnummer, Eintritt, manager_id)',
+  ['email', 'phone', 'personnel_number', 'hire_date', 'manager_id', 'employee_type', 'photo_file_id'].every(
+    (key) => !hasKeyDeep(chartPeople, key),
+  ),
+  chartPeople,
 );
 
 // ---------------------------------------------------------- Firmenkalender ---

@@ -18,22 +18,27 @@ import { useToast } from '../../components/Toast';
 import { useOrgChart, usePhotoUrl } from './api';
 import { TYPE_TONES } from './EmployeeListPage';
 import {
-  CARD_H,
-  CARD_W,
-  TONE_COUNT,
-  ancestorsOf,
+  ORG_CARD_H as CARD_H,
+  ORG_CARD_W as CARD_W,
+  ORG_TONE_COUNT as TONE_COUNT,
+  orgAncestorsOf as ancestorsOf,
   buildOrgModel,
-  defaultExpanded,
-  edgePath,
-  fullName,
-  initialsOf,
-  isWithin,
+  orgDefaultExpanded as defaultExpanded,
+  orgEdgePath as edgePath,
+  orgFullName as fullName,
+  orgInitials as initialsOf,
+  orgIsWithin as isWithin,
   layoutOrg,
-  personMatches,
-  type OrgLayout,
-  type OrgModel,
-  type OrgNode,
-} from './orgChartModel';
+  orgPersonMatches as personMatches,
+  orgToggleExpanded,
+  type OrgLayout as OrgLayoutOf,
+  type OrgModel as OrgModelOf,
+  type OrgNode as OrgNodeOf,
+} from '@ohrganize/shared';
+
+type OrgNode = OrgNodeOf<OrgChartPerson>;
+type OrgModel = OrgModelOf<OrgChartPerson>;
+type OrgLayout = OrgLayoutOf<OrgChartPerson>;
 
 /**
  * Personen-Organigramm nach Berichtslinie (GET /api/org/chart).
@@ -296,25 +301,10 @@ function OrgChartView({ data, initialPersonId }: { data: OrgChartResponse; initi
     [model],
   );
 
-  // Zuklappen nimmt alle Ebenen darunter mit: Wer eine Person schließt, will
-  // den Bereich weg haben, nicht beim nächsten Öffnen den alten Zustand.
   const toggle = useCallback(
     (id: number) => {
-      setExpanded((prev) => {
-        const next = new Set(prev);
-        if (!next.has(id)) {
-          next.add(id);
-          return next;
-        }
-        const node = model.byId.get(id);
-        const collapse = (n: OrgNode) => {
-          next.delete(n.person.id);
-          n.children.forEach(collapse);
-        };
-        if (node) collapse(node);
-        else next.delete(id);
-        return next;
-      });
+      const node = model.byId.get(id);
+      if (node) setExpanded((prev) => orgToggleExpanded(prev, node));
     },
     [model],
   );
