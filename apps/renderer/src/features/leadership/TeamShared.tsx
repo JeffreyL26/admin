@@ -6,7 +6,7 @@ import { EmptyState } from '../../components/ui';
 
 /**
  * Bausteine der Führungsfunktion („Mein Team“ und Bewertungsmaske). Beide
- * Seiten laufen ausschließlich über /api/leadership/me/* — sie müssen auch
+ * Seiten laufen ausschließlich über /api/leadership/me/*: sie müssen auch
  * für Führungskräfte OHNE das Recht „personal“ funktionieren, deshalb
  * greift hier nichts auf die Personalakte zu.
  */
@@ -16,7 +16,7 @@ export function isForbidden(error: unknown): error is ApiRequestError {
   return error instanceof ApiRequestError && error.status === 403;
 }
 
-/** Hinweisbox in Info- oder Warnton — nur Tokens, themetauglich. */
+/** Hinweisbox in Info- oder Warnton: nur Tokens, themetauglich. */
 export function TeamNotice({
   tone = 'info',
   children,
@@ -71,7 +71,7 @@ export function OutOfScopeState({ message, onBack }: { message?: string; onBack:
  * Anzeige eines Zeitraum-Schlüssels. Nur Schlüssel der eingestellten Kadenz
  * bekommen das Label („Q3 2026“); Bewertungen aus einer früheren Kadenz
  * (etwa „2026-05“ nach Umstellung auf Quartale) zeigen den rohen Schlüssel
- * mit Kadenz-Hinweis — so bleibt sichtbar, dass sie nicht ins aktuelle
+ * mit Kadenz-Hinweis, damit sichtbar bleibt, dass sie nicht ins aktuelle
  * Raster passen und im Wechsler nicht ansteuerbar sind.
  */
 export function PeriodText({ periodKey, kind }: { periodKey: string; kind: RatingPeriodKind }) {

@@ -15,7 +15,7 @@ type TabKey = 'leaders' | 'categories' | 'scale';
  * (zentral für alle) und Skala & Zeitraum (unternehmensweite Einstellungen).
  *
  * `canEdit` ist reine Anzeigehilfe: Ohne `fuehrung: bearbeiten` verschwinden
- * die Schreibaktionen und die Formulare sind gesperrt — durchgesetzt wird das
+ * die Schreibaktionen und die Formulare sind gesperrt. Durchgesetzt wird das
  * Recht im Backend-Hook (GET = lesen, alles andere = bearbeiten).
  */
 export function SetupPage() {
@@ -27,7 +27,7 @@ export function SetupPage() {
     <>
       <PageHeader
         title="Einrichtung Führung & Bewertung"
-        subtitle="Wer bewertet wen — und auf welcher Skala, in welchem Rhythmus, mit welchen Kategorien."
+        subtitle="Wer bewertet wen, auf welcher Skala, in welchem Rhythmus und mit welchen Kategorien."
       />
       {!canEdit && (
         <div style={{ marginBottom: 16 }}>

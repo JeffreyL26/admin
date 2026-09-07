@@ -23,7 +23,7 @@ import { SetupNote, errorMessage } from './SetupShared';
 /**
  * Reiter „Kategorien“: zentrale Bewertungskategorien für alle Führungskräfte.
  * Die Gesamtbewertung ist fest (Grundlage des Reports) und steht immer oben;
- * alles andere ist umbenenn-, sortier-, deaktivier- und — ohne Bewertungen —
+ * alles andere ist umbenenn-, sortier-, deaktivier- und (ohne Bewertungen)
  * löschbar.
  */
 export function SetupCategoriesTab({ canEdit }: { canEdit: boolean }) {
@@ -65,7 +65,7 @@ export function SetupCategoriesTab({ canEdit }: { canEdit: boolean }) {
   /**
    * Nachbartausch in der sortierten Liste; gesendet wird die KOMPLETTE
    * ID-Liste (Backend-Kontrakt). Die Gesamtbewertung steht an Index 0 und
-   * bleibt dort — der Server sortiert sie ohnehin immer nach vorn.
+   * bleibt dort: der Server sortiert sie ohnehin immer nach vorn.
    */
   const move = (index: number, delta: -1 | 1) => {
     if (!categories) return;
@@ -80,7 +80,7 @@ export function SetupCategoriesTab({ canEdit }: { canEdit: boolean }) {
     <div className="stack">
       <SetupNote>
         Kategorien gelten <strong>zentral für alle Führungskräfte</strong>: Was Sie hier anlegen, steht sofort in
-        jeder Bewertungsmaske zur Wahl. Die <strong>Gesamtbewertung</strong> ist fest — sie ist die Grundlage
+        jeder Bewertungsmaske zur Wahl. Die <strong>Gesamtbewertung</strong> ist fest: Sie ist die Grundlage
         des Satisfaction-Reports und steht immer an erster Stelle. Kategorien mit vorhandenen Bewertungen
         lassen sich nicht löschen, aber deaktivieren: Sie verschwinden dann aus der Auswahl, das Protokoll
         bleibt nachvollziehbar.
@@ -111,7 +111,7 @@ export function SetupCategoriesTab({ canEdit }: { canEdit: boolean }) {
           <EmptyState
             icon={<ListChecks size={40} />}
             title="Keine Kategorien vorhanden"
-            hint="Legen Sie die erste Kategorie an — z. B. „Pünktlichkeit“ oder „Fachliche Kompetenz“."
+            hint="Legen Sie die erste Kategorie an, z. B. „Pünktlichkeit“ oder „Fachliche Kompetenz“."
           />
         ) : (
           <div className="hm-table-wrap">
@@ -366,7 +366,7 @@ function CategoryDialog({
     } else {
       create.mutate(body, {
         onSuccess: (res) => {
-          toast.success(`Kategorie „${res.category.name}“ angelegt — ab sofort für alle Führungskräfte wählbar`);
+          toast.success(`Kategorie „${res.category.name}“ angelegt. Ab sofort für alle Führungskräfte wählbar.`);
           onClose();
         },
         onError: (e) => toast.error(errorMessage(e, 'Anlegen fehlgeschlagen')),
@@ -420,8 +420,8 @@ function CategoryDialog({
         {category?.is_overall === 1 && (
           <div className="span-2">
             <SetupNote>
-              Die Gesamtbewertung lässt sich umbenennen und beschreiben, aber weder deaktivieren noch löschen —
-              sie ist die Grundlage des Reports.
+              Die Gesamtbewertung lässt sich umbenennen und beschreiben, aber weder deaktivieren noch löschen:
+              Sie ist die Grundlage des Reports.
             </SetupNote>
           </div>
         )}

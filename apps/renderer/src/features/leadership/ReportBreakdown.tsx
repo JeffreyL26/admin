@@ -16,8 +16,8 @@ import { SourceBadges } from './common';
  * mit allen Kategorien und Kommentaren.
  *
  * Geladen wird erst beim Aufklappen (`useLeaderBreakdown` bleibt mit
- * `employeeId: null` still) — der Report zeigt bis zu einem Dutzend Widgets,
- * und niemand klappt alle auf.
+ * `employeeId: null` still). Der Report zeigt bis zu einem Dutzend Widgets,
+ * und niemand klappt sie alle auf.
  */
 export function ReportBreakdown({
   leaderId,
@@ -29,14 +29,14 @@ export function ReportBreakdown({
   /** Jüngste Spalte; null = aktueller Zeitraum laut Einstellung. */
   periodKey: string | null;
   kind: RatingPeriodKind;
-  /** Kopfzeile des Widgets — verknüpft die Tabelle mit ihrer Überschrift. */
+  /** Kopfzeile des Widgets: verknüpft die Tabelle mit ihrer Überschrift. */
   labelledBy: string;
 }) {
   const { data, isLoading, error } = useLeaderBreakdown(leaderId, periodKey);
   const [open, setOpen] = useState<{ memberId: number; periodKey: string } | null>(null);
 
   // Wechselt der Report den Zeitraum, während ein Detail offen ist, passt das
-  // Pop-up nicht mehr zur Tabelle darunter — dann lieber schließen.
+  // Pop-up nicht mehr zur Tabelle darunter. Dann lieber schließen.
   useEffect(() => setOpen(null), [periodKey]);
 
   if (isLoading) return <Spinner center />;
@@ -172,7 +172,7 @@ export function ReportBreakdown({
                             aria-label={`Bewertung von ${row.first_name} ${row.last_name} für ${p.label} ansehen`}
                             onClick={() => setOpen({ memberId: row.employee_id, periodKey: p.key })}
                           >
-                            {/* Ohne Gesamtbewertung gibt es keine Stufe — die Zelle
+                            {/* Ohne Gesamtbewertung gibt es keine Stufe. Die Zelle
                                 bleibt trotzdem erreichbar, sonst wären die
                                 erfassten Kategorien im Report unsichtbar. */}
                             {cell.score !== null && cell.scale !== null ? (
@@ -217,7 +217,7 @@ export function ReportBreakdown({
   );
 }
 
-/** „Quartal“, „Monat“ … — für den Fußtext der Tabelle. */
+/** „Quartal“, „Monat“ … für den Fußtext der Tabelle. */
 function kindLabel(kind: RatingPeriodKind): string {
   switch (kind) {
     case 'monat':

@@ -7,7 +7,7 @@ import { TeamNotice } from './TeamShared';
 
 /**
  * Ein Bewertungsblock der Maske: Kategorie, Skalenwert, Pflichtkommentar.
- * Reine Anzeige — den Zustand hält die Seite (TeamMemberRatingPage), weil
+ * Reine Anzeige: den Zustand hält die Seite (TeamMemberRatingPage), weil
  * Validierung, Dirty-Schutz und Speichern alle Blöcke zugleich betreffen.
  */
 
@@ -17,7 +17,7 @@ export interface RatingBlock {
   category_id: number;
   score: number | null;
   comment: string;
-  /** Gespeicherte Bewertung, aus der der Block stammt — solche Blöcke sind nicht entfernbar. */
+  /** Gespeicherte Bewertung, aus der der Block stammt; solche Blöcke sind nicht entfernbar. */
   saved: Rating | null;
   scoreError?: string;
   commentError?: string;
@@ -99,7 +99,7 @@ export function TeamRatingBlock({
 
       {scaleChanged && (
         <TeamNotice tone="warning">
-          Die Skala wurde seit der letzten Speicherung umgestellt — gespeichert war{' '}
+          Die Skala wurde seit der letzten Speicherung umgestellt, gespeichert war{' '}
           <RatingValue scale={saved.scale} score={saved.score} size={14} />. Bitte auf der neuen Skala neu bewerten.
         </TeamNotice>
       )}
@@ -119,7 +119,7 @@ export function TeamRatingBlock({
         )}
       </div>
 
-      <Field label="Kommentar" required hint="Pflichtfeld — wird protokolliert" error={block.commentError}>
+      <Field label="Kommentar" required hint="Pflichtfeld, wird protokolliert" error={block.commentError}>
         <textarea
           className="hm-textarea"
           rows={3}

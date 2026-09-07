@@ -14,15 +14,15 @@ import { PeriodText, TeamNotice } from './TeamShared';
 
 /**
  * Detail-Pop-up des Satisfaction-Reports: Klick auf ein bereits bewertetes
- * Quartal in der aufgeklappten Tabelle schlüsselt die Bewertung auf —
+ * Quartal in der aufgeklappten Tabelle schlüsselt die Bewertung auf:
  * Gesamtbewertung zuerst, darunter jede weitere bewertete Kategorie
  * (Leistung, Verhalten …) mit ihrem Kommentar.
  *
  * Bewusst ein Dialog im Fenster (components/Modal, Portal an <body>) und kein
  * neues Fenster: Der Report bleibt im Hintergrund stehen, Escape schließt.
  * Die Daten kommen erst beim Öffnen
- * (`GET /api/leadership/leaders/:employeeId/employees/:memberId/ratings`) —
- * die Tabelle darüber trägt bewusst keine Kommentartexte.
+ * (`GET /api/leadership/leaders/:employeeId/employees/:memberId/ratings`).
+ * Die Tabelle darüber trägt bewusst keine Kommentartexte.
  */
 export function ReportRatingDialog({
   leaderId,
@@ -34,7 +34,7 @@ export function ReportRatingDialog({
   leaderId: number;
   memberId: number;
   periodKey: string;
-  /** Eingestellte Kadenz — beschriftet Zeiträume aus dem Protokoll korrekt. */
+  /** Eingestellte Kadenz: beschriftet Zeiträume aus dem Protokoll korrekt. */
   kind: RatingPeriodKind;
   onClose: () => void;
 }) {

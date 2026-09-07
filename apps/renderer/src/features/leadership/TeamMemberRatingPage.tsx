@@ -42,7 +42,7 @@ import { LeaderLockedState, OutOfScopeState, PeriodText, TeamNotice, isForbidden
 /**
  * Bewertungsmaske einer Person aus dem eigenen Zuständigkeitsbereich.
  *
- * Datenquelle ist ausschließlich GET /api/leadership/me/employees/:id —
+ * Datenquelle ist ausschließlich GET /api/leadership/me/employees/:id:
  * Stammdaten, Kategorien, Bewertungen und Protokoll kommen in einer Antwort,
  * damit die Seite auch für Führungskräfte ohne Recht „personal“ funktioniert.
  * Der Zeitraum steht in der URL (?period=…), damit Links aus „Mein Team“ und
@@ -67,20 +67,20 @@ export function TeamMemberRatingPage() {
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
-  /** Person + Zeitraum, aus denen die aktuellen Blöcke stammen — jeder Wechsel setzt neu auf. */
+  /** Person + Zeitraum, aus denen die aktuellen Blöcke stammen; jeder Wechsel setzt neu auf. */
   const shownRef = useRef<string | null>(null);
   /** Aktion, die auf Bestätigung wartet, weil Eingaben verloren gingen. */
   const [pendingAction, setPendingAction] = useState<(() => void) | null>(null);
   // Verlassen der Seite (Sidebar, Befehlspalette, Tastenkürzel, Zurück-Knopf)
   // bei offenen Eingaben abfangen. Zeitraumwechsel ändern nur die Query und
-  // laufen über guarded() — der Blocker vergleicht deshalb den Pfad.
+  // laufen über guarded(): der Blocker vergleicht deshalb den Pfad.
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname,
   );
 
   const periodKey = data?.period.key ?? null;
   // Stand des Servers als Signatur: Fokus-Refetches liefern neue Array-
-  // Identitäten bei gleichem Inhalt — die dürfen offene Eingaben nicht kippen.
+  // Identitäten bei gleichem Inhalt. Die dürfen offene Eingaben nicht kippen.
   const serverSignature = data
     ? [
         ...data.ratings.map((r) => `r${r.id}:${r.version}:${r.scale}`),
@@ -156,7 +156,7 @@ export function TeamMemberRatingPage() {
   const kind = data.settings.period;
   const isFuture = data.period.from > todayIsoLocal();
   // Während eines Zeitraumwechsels zeigt keepPreviousData noch den alten
-  // Stand — der darf nicht bearbeitet werden, sonst landen Eingaben im
+  // Stand. Der darf nicht bearbeitet werden, sonst landen Eingaben im
   // falschen Zeitraum.
   // … und während des Speicherns: Eingaben in dieser Zeit gingen beim
   // anschließenden Neuaufbau aus der Antwort verloren.
@@ -183,7 +183,7 @@ export function TeamMemberRatingPage() {
   ];
 
   // ---------------------------------------------------------- Aktionen --
-  /** Führt `action` aus — bei offenen Eingaben erst nach Bestätigung. */
+  /** Führt `action` aus, bei offenen Eingaben erst nach Bestätigung. */
   const guarded = (action: () => void) => {
     if (dirtyRef.current) setPendingAction(() => action);
     else action();
@@ -239,7 +239,7 @@ export function TeamMemberRatingPage() {
     let valid = true;
     const checked = blocks.map((b) => {
       const scoreError = b.score === null ? 'Bitte einen Wert auf der Skala wählen.' : undefined;
-      const commentError = b.comment.trim() === '' ? 'Ein Kommentar ist Pflicht — er wird protokolliert.' : undefined;
+      const commentError = b.comment.trim() === '' ? 'Ein Kommentar ist Pflicht. Er wird protokolliert.' : undefined;
       if (scoreError || commentError) valid = false;
       return { ...b, scoreError, commentError };
     });
@@ -262,14 +262,14 @@ export function TeamMemberRatingPage() {
           // Die Invalidierung im Hook läuft VOR diesem Callback: Der Refetch
           // trifft ein, solange `dirty` noch gesetzt ist, und wird vom Effekt
           // oben bewusst ignoriert. Deshalb hier direkt aus der Antwort neu
-          // aufbauen — sie ist derselbe Stand wie der Refetch (Versionen,
+          // aufbauen: sie ist derselbe Stand wie der Refetch (Versionen,
           // gespeicherte Blöcke, umgestellte Skalen).
           setBlocks(buildBlocks(res.ratings, data.categories));
           setDirty(false);
           toast.success('Bewertung gespeichert');
         },
         onError: (err) =>
-          toast.error(err instanceof ApiRequestError ? err.message : 'Speichern fehlgeschlagen — Server nicht erreichbar.'),
+          toast.error(err instanceof ApiRequestError ? err.message : 'Speichern fehlgeschlagen: Server nicht erreichbar.'),
       },
     );
   };
@@ -322,7 +322,7 @@ export function TeamMemberRatingPage() {
           <div className="stack" style={{ gap: 14 }}>
             {isFuture && (
               <TeamNotice tone="warning">
-                Zukünftiger Zeitraum — Bewertungen sind erst ab dem {formatDate(data.period.from)} möglich. Die Maske ist
+                Zukünftiger Zeitraum: Bewertungen sind erst ab dem {formatDate(data.period.from)} möglich. Die Maske ist
                 schreibgeschützt.
               </TeamNotice>
             )}
@@ -464,7 +464,7 @@ export function TeamMemberRatingPage() {
         <Card title="Protokoll (unveränderlich)">
           <div className="stack" style={{ gap: 14 }}>
             <TeamNotice>
-              Jede Speicherung erzeugt eine neue Version. Einträge werden nie gelöscht oder nachträglich verändert —
+              Jede Speicherung erzeugt eine neue Version. Einträge werden nie gelöscht oder nachträglich verändert.
               Korrekturen erscheinen hier als weitere Version mit dem vorherigen Wert.
             </TeamNotice>
             {data.history.length === 0 ? (
@@ -490,7 +490,7 @@ export function TeamMemberRatingPage() {
         message="Ihre Eingaben in der Bewertungsmaske sind noch nicht gespeichert und gehen verloren."
         confirmLabel="Verwerfen"
         onConfirm={() => {
-          // Verwerfen heißt zurück auf den Serverstand — nicht nur das Flag
+          // Verwerfen heißt zurück auf den Serverstand, nicht nur das Flag
           // löschen, sonst blieben geänderte Werte mit totem Speichern-Knopf stehen.
           setBlocks(buildBlocks(data.ratings, data.categories));
           setDirty(false);

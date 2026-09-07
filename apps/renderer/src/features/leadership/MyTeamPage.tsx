@@ -15,10 +15,10 @@ import { PeriodSwitcher, TeamMemberCard } from './common';
 import { LeaderLockedState, isForbidden } from './TeamShared';
 
 /**
- * „Mein Team“ — die Führungsfunktion selbst. Oben der Zuständigkeitsbereich
+ * „Mein Team“: die Führungsfunktion selbst. Oben der Zuständigkeitsbereich
  * (Abteilung(en), Kopfzahl, Zeitraum und wie weit die Bewertungsrunde ist),
  * darunter die Personen in zwei Abschnitten: erst die ausstehenden
- * Bewertungen — von dort führt jede Karte in die Bewertungsmaske —, dann die
+ * Bewertungen (von dort führt jede Karte in die Bewertungsmaske), dann die
  * bereits bewerteten. Jede Karte trägt Stammdaten samt Eintrittsdatum und den
  * Verlauf der letzten Zeiträume.
  *
@@ -67,14 +67,14 @@ export function MyTeamPage() {
   const total = data.team.length;
   // „Bewertet“ heißt: In diesem Zeitraum liegt mindestens eine Kategorie vor.
   // Wer nur „Leistung“ ohne Gesamtbewertung erfasst hat, steht nicht mehr als
-  // ausstehend in der Liste — die Karte zeigt die Lücke stattdessen an.
+  // ausstehend in der Liste. Die Karte zeigt die Lücke stattdessen an.
   const ratedMembers = filtered.filter((m) => m.rated_categories > 0);
   const openMembers = filtered.filter((m) => m.rated_categories === 0);
   const ratedTotal = data.team.filter((m) => m.rated_categories > 0).length;
 
   const openMember = (id: number) => {
-    // Nur vom aktuellen Zeitraum abweichende Auswahl wandert in die URL —
-    // so bleibt der Standardlink stabil und folgt später dem Datum.
+    // Nur vom aktuellen Zeitraum abweichende Auswahl wandert in die URL:
+    // So bleibt der Standardlink stabil und folgt später dem Datum.
     const query =
       data.period.key !== data.current_period.key ? `?period=${encodeURIComponent(data.period.key)}` : '';
     navigate(`/fuehrung/mein-team/${id}${query}`);
@@ -260,7 +260,7 @@ function Fact({ icon, label, value }: { icon: React.ReactNode; label: string; va
   );
 }
 
-/** „Technik (10) · Vertrieb (6)“ — der Rest wandert in einen Tooltip. */
+/** „Technik (10) · Vertrieb (6)“: der Rest wandert in einen Tooltip. */
 function ScopeList({ items, max = 3 }: { items: { key: string; name: string; count: number }[]; max?: number }) {
   if (items.length === 0) return <>Ohne Zuordnung</>;
   const shown = items.slice(0, max);
@@ -282,7 +282,7 @@ function ScopeList({ items, max = 3 }: { items: { key: string; name: string; cou
           }
         >
           {/* Fokussierbar, sonst bliebe der Rest der Liste für die Tastatur
-              unerreichbar — der Tooltip öffnet auch bei Fokus. */}
+              unerreichbar. Der Tooltip öffnet auch bei Fokus. */}
           <span className="lead-scope__more" tabIndex={0}>
             {' '}
             +{rest.length} weitere
@@ -307,7 +307,7 @@ function TeamSection({
   icon: React.ReactNode;
   title: string;
   hint: string;
-  /** Text, wenn dieser Abschnitt leer ist — beides ist ein guter Zustand. */
+  /** Text, wenn dieser Abschnitt leer ist: in beiden Abschnitten ein gutes Zeichen. */
   empty: string;
   members: TeamMember[];
   cta: string;

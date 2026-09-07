@@ -4,7 +4,7 @@
  * Drei Dinge laufen hier zusammen:
  *  1. Zuständigkeit: Welche Mitarbeitenden gehören zu einer Führungskraft?
  *     Automatisch aus der Organisation (manager_id, Abteilungsleitung inklusive
- *     Unterabteilungen, Teamleitung) plus manuelle Zuweisungen und Ausnahmen —
+ *     Unterabteilungen, Teamleitung) plus manuelle Zuweisungen und Ausnahmen,
  *     siehe `scopeFor`. Das ist die EINZIGE Stelle, an der Zuständigkeit
  *     bestimmt wird; Routen, Report und Status fragen alle hier nach.
  *  2. Bewertungen: Upsert je (Führungskraft, Person, Kategorie, Zeitraum) mit
@@ -72,7 +72,7 @@ export function getSettings(): LeadershipSettings {
   const row = getDb().prepare('SELECT * FROM leadership_settings WHERE id = 1').get() as
     | SettingsRow
     | undefined;
-  if (!row) throw new Error('leadership_settings fehlt — Migration 310_leadership_ratings nicht gelaufen?');
+  if (!row) throw new Error('leadership_settings fehlt: Migration 310_leadership_ratings nicht gelaufen?');
   const { id: _id, ...settings } = row;
   return settings;
 }
@@ -109,7 +109,7 @@ export function updateSettings(req: FastifyRequest, patch: LeadershipSettingsPat
     getDb().prepare(`UPDATE leadership_settings SET ${sets.join(', ')} WHERE id = 1`).run(params);
     const next = getSettings();
     if (next.allow_mutual === 0) {
-      // Ausschluss erst möglich, wenn kein Paar mehr besteht — sonst stünde
+      // Ausschluss erst möglich, wenn kein Paar mehr besteht, sonst stünde
       // in den Einstellungen etwas, das die Daten längst verletzen.
       if (before.allow_mutual === 1) {
         const pairs = mutualPairs();
@@ -140,7 +140,7 @@ export function currentPeriod(settings: LeadershipSettings = getSettings()): Rat
 
 /**
  * Zeitraum aus dem Query-Parameter. Ohne Angabe der aktuelle; sonst muss der
- * Schlüssel zur eingestellten Kadenz passen — ein Quartalsschlüssel bei
+ * Schlüssel zur eingestellten Kadenz passen: ein Quartalsschlüssel bei
  * monatlicher Bewertung ist keine Bewertungsperiode.
  */
 export function resolvePeriod(param: unknown, settings: LeadershipSettings): RatingPeriod {
@@ -151,7 +151,7 @@ export function resolvePeriod(param: unknown, settings: LeadershipSettings): Rat
     );
   }
   // Untere Schranke: Die Aufschlüsselung blättert von hier aus rückwärts
-  // (recentPeriods) und liefe bei Jahr 0001 unter das Jahr 0000 — mit einem
+  // (recentPeriods) und liefe bei Jahr 0001 unter das Jahr 0000, mit einem
   // 500er statt einer verständlichen Meldung. Ein Personalsystem braucht
   // keine Zeiträume vor 1900.
   if (Number(param.slice(0, 4)) < 1900) {
@@ -248,7 +248,7 @@ export function updateCategory(
   const existing = getCategory(id);
   if (patch.name !== undefined) assertCategoryNameFree(patch.name, id);
   if (existing.is_overall === 1 && patch.active === false) {
-    throw conflict('Die Gesamtbewertung kann nicht deaktiviert werden — sie ist die Grundlage des Reports.');
+    throw conflict('Die Gesamtbewertung kann nicht deaktiviert werden: sie ist die Grundlage des Reports.');
   }
   const sets: string[] = [];
   const params: Record<string, unknown> = { id };
@@ -277,19 +277,19 @@ export function updateCategory(
 export function deleteCategory(req: FastifyRequest, id: number): void {
   const existing = getCategory(id);
   if (existing.is_overall === 1) {
-    throw conflict('Die Gesamtbewertung kann nicht gelöscht werden — sie ist die Grundlage des Reports.');
+    throw conflict('Die Gesamtbewertung kann nicht gelöscht werden: sie ist die Grundlage des Reports.');
   }
   if ((existing.rating_count ?? 0) > 0) {
     throw conflict(
       `„${existing.name}“ wurde bereits ${existing.rating_count === 1 ? 'einmal' : `${existing.rating_count}-mal`} bewertet. ` +
-        'Deaktivieren Sie die Kategorie stattdessen — das Protokoll bleibt so nachvollziehbar.',
+        'Deaktivieren Sie die Kategorie stattdessen: das Protokoll bleibt so nachvollziehbar.',
     );
   }
   getDb().prepare('DELETE FROM rating_categories WHERE id = ?').run(id);
   audit(req, 'delete', 'rating_category', id, { name: existing.name });
 }
 
-/** Neue Reihenfolge — die Liste muss alle Kategorien genau einmal enthalten. */
+/** Neue Reihenfolge: die Liste muss alle Kategorien genau einmal enthalten. */
 export function reorderCategories(req: FastifyRequest, ids: number[]): RatingCategory[] {
   const existing = (getDb().prepare('SELECT id FROM rating_categories').all() as { id: number }[]).map(
     (r) => r.id,
@@ -375,7 +375,7 @@ export function grantLeader(
     // Gegenseitige Verantwortung kann schon aus der Organisation entstehen
     // (A ist Vorgesetzte:r von B, B leitet die Abteilung von A). Ist sie nicht
     // zugelassen, scheitert die Freischaltung mit Erklärung statt still eine
-    // verbotene Konstellation anzulegen — die Transaktion rollt zurück.
+    // verbotene Konstellation anzulegen. Die Transaktion rollt zurück.
     warnings.push(...assertMutualAllowed(before, settings.allow_mutual, 'Die Freischaltung'));
   });
   audit(req, 'grant', 'leadership_leader', employeeId, {
@@ -409,7 +409,7 @@ export function updateLeader(
     getDb()
       .prepare(`UPDATE leadership_leaders SET ${sets.join(', ')} WHERE employee_id = @employee_id`)
       .run(params);
-    // Das Einschalten der Automatik kann Paare erzeugen — gleiche Regel wie
+    // Das Einschalten der Automatik kann Paare erzeugen: gleiche Regel wie
     // beim Freischalten.
     if (patch.auto_scope !== undefined) {
       warnings.push(...assertMutualAllowed(before, settings.allow_mutual, 'Die Änderung der Zuständigkeit'));
@@ -422,7 +422,7 @@ export function updateLeader(
 /**
  * Freischaltung entziehen. Bewertungen und Protokoll bleiben erhalten; die
  * manuellen Zuweisungen der Führungskraft fallen mit (FK-Kaskade auf
- * leadership_leaders) — ein erneutes Freischalten startet ohne sie. Die Zahl
+ * leadership_leaders). Ein erneutes Freischalten startet ohne sie. Die Zahl
  * steht im Audit und in der Bestätigung der Einrichtung.
  */
 export function revokeLeader(req: FastifyRequest, employeeId: number): void {
@@ -515,7 +515,7 @@ function resolveTargetMembers(a: AssignmentRow): number[] {
  *
  * Reihenfolge: erst die automatischen Quellen (sofern für die Führungskraft
  * und unternehmensweit eingeschaltet), dann manuelle Ergänzungen, zuletzt
- * Ausnahmen — eine Ausnahme schlägt immer, egal woher die Zuordnung kam.
+ * Ausnahmen: eine Ausnahme schlägt immer, egal woher die Zuordnung kam.
  * Die Führungskraft selbst ist nie enthalten, ausgeschiedene Personen auch
  * nicht. Zeitlich begrenzte Zuweisungen gelten am Stichtag `asOf` (heute).
  */
@@ -578,7 +578,7 @@ export function scopeFor(leaderId: number, asOf: string = todayIso()): Map<numbe
 
 /**
  * Personen im Bereich der Führungskraft, die ihrerseits (als Führungskraft)
- * für sie zuständig sind — „gegenseitige Verantwortung“.
+ * für sie zuständig sind: „gegenseitige Verantwortung“.
  */
 export function mutualPartners(
   leaderId: number,
@@ -626,7 +626,7 @@ function pairKeys(pairs: { a: number; b: number }[]): Set<string> {
 }
 
 /**
- * Gegenseitige Verantwortung durchsetzen — an JEDER Stelle, die Zuständigkeit
+ * Gegenseitige Verantwortung durchsetzen: an JEDER Stelle, die Zuständigkeit
  * verändert (Freischaltung, Zuweisung, Ausnahme entfernen, Automatik
  * umschalten, Einstellungen). Innerhalb der Transaktion aufrufen: Ein Verstoß
  * wirft 409 und rollt die Änderung zurück. Nur NEUE Paare zählen; bereits
@@ -640,7 +640,7 @@ function assertMutualAllowed(before: Set<string>, allowMutual: number, context: 
   if (allowMutual === 0) {
     throw conflict(
       `${context} würde eine gegenseitige Verantwortung erzeugen (${names}). ` +
-        'Gegenseitige Verantwortung ist in den Einstellungen nicht zugelassen — nehmen Sie eine Seite über eine Ausnahme heraus oder lassen Sie sie zu.',
+        'Gegenseitige Verantwortung ist in den Einstellungen nicht zugelassen. Nehmen Sie eine Seite über eine Ausnahme heraus oder lassen Sie sie zu.',
     );
   }
   return [`Gegenseitige Verantwortung: ${names}.`];
@@ -674,14 +674,14 @@ const MEMBER_SELECT = `
 
 /**
  * Mitglieder des Zuständigkeitsbereichs mit Stammdaten fürs Widget und dem
- * Bewertungsstand im Zeitraum. Fotos kommen als signierte URL mit — die
+ * Bewertungsstand im Zeitraum. Fotos kommen als signierte URL mit. Die
  * Führungskraft hat nicht zwingend das Recht `personal`, könnte also
  * /api/files/:id/sign selbst nicht aufrufen.
  */
 /**
  * Anzeigeoptionen der Verwaltungsrouten. `photos: false` unterdrückt signierte
  * Foto-URLs: Ein Konto mit `fuehrung: lesen`, aber ohne `personal`, bekäme die
- * Fotos über POST /api/files/:id/sign nicht (assertMayReadFile) — dann darf
+ * Fotos über POST /api/files/:id/sign nicht (assertMayReadFile), dann darf
  * der Report sie auch nicht mitliefern. Die Führungsfunktion (/me/*) liefert
  * die Fotos des eigenen Bereichs bewusst immer.
  */
@@ -832,7 +832,7 @@ export function createAssignment(
         user: req.user.id,
       });
     // Neue gegenseitige Verantwortung? Nur die durch DIESE Zuweisung
-    // entstandene zählt — bereits bestehende Paare wurden schon gemeldet.
+    // entstandene zählt. Bereits bestehende Paare wurden schon gemeldet.
     warnings.push(...assertMutualAllowed(before, settings.allow_mutual, 'Diese Zuweisung'));
     return Number(info.lastInsertRowid);
   });
@@ -852,7 +852,7 @@ export function deleteAssignment(req: FastifyRequest, id: number): void {
   const before = pairKeys(mutualPairs());
   inTransaction(() => {
     getDb().prepare('DELETE FROM leadership_assignments WHERE id = ?').run(id);
-    // Das Entfernen einer Ausnahme holt Personen zurück in den Bereich — und
+    // Das Entfernen einer Ausnahme holt Personen zurück in den Bereich. Das
     // kann damit ein verbotenes Paar wiederherstellen.
     assertMutualAllowed(before, settings.allow_mutual, 'Das Entfernen der Zuweisung');
   });
@@ -969,7 +969,7 @@ export function teamMemberDetail(leaderId: number, employeeId: number, period: R
 /**
  * Speichert die Bewertungsblöcke eines Zeitraums. Je Kategorie ein Upsert;
  * jede tatsächliche Änderung wird versioniert und protokolliert. Unveränderte
- * Blöcke erzeugen KEINE neue Version — sonst würde jedes Speichern des
+ * Blöcke erzeugen KEINE neue Version: sonst würde jedes Speichern des
  * Formulars das Protokoll mit Leerzeilen füllen.
  */
 export function saveRatings(
@@ -993,7 +993,7 @@ export function saveRatings(
 
   const db = getDb();
   // Alle Kategorien, auch inaktive: Eine bestehende Bewertung in einer
-  // inzwischen deaktivierten Kategorie bleibt änderbar — die Maske sendet
+  // inzwischen deaktivierten Kategorie bleibt änderbar. Die Maske sendet
   // immer alle Blöcke, sonst wäre mit der Deaktivierung auch die
   // Gesamtbewertung eingefroren. Nur NEUE Bewertungen brauchen eine aktive
   // Kategorie.
@@ -1167,7 +1167,7 @@ export function leaderStatus(user: { employee_id?: number | null }): LeaderStatu
 
 /**
  * Prozentanteile nach dem Verfahren des größten Rests: Die gerundeten Anteile
- * addieren sich immer auf genau 100 — ein Report mit „33 % + 33 % + 33 %“
+ * addieren sich immer auf genau 100: ein Report mit „33 % + 33 % + 33 %“
  * wirft sonst sofort die Frage nach dem fehlenden Prozent auf.
  */
 function percentages(counts: number[]): number[] {
@@ -1208,7 +1208,7 @@ export function buildReport(period: RatingPeriod, view: ViewOptions = {}): Leade
     }[];
     // Offen = heutiger Bereich ohne Gesamtbewertung im Zeitraum. rated_count
     // zählt dagegen alle Bewertungen der Führungskraft im Zeitraum, auch für
-    // Personen, die inzwischen nicht mehr zum Bereich gehören — beide Zahlen
+    // Personen, die inzwischen nicht mehr zum Bereich gehören. Beide Zahlen
     // sind deshalb getrennt und werden nicht voneinander abgezogen.
     const ratedIds = new Set(ratings.map((r) => r.employee_id));
     const openCount = [...scopeFor(leader.employee_id).keys()].filter((id) => !ratedIds.has(id)).length;
@@ -1253,7 +1253,7 @@ export function buildReport(period: RatingPeriod, view: ViewOptions = {}): Leade
 /**
  * Personen, Abteilungen, Teams und Fachrollen für Freischaltung und Zuweisung.
  * Eigener Endpunkt im Bereich `fuehrung`, weil /api/employees, /api/departments
- * und /api/admin/roles an `personal` bzw. `verwaltung` hängen — ohne diese
+ * und /api/admin/roles an `personal` bzw. `verwaltung` hängen. Ohne diese
  * Liste könnte ein reines Einrichtungs-Konto niemanden auswählen.
  */
 export function lookup(): LeadershipLookup {
@@ -1302,7 +1302,7 @@ interface BreakdownEmployeeRow {
  * Zeilen sind der heutige Zuständigkeitsbereich PLUS alle Personen, die in
  * einem der angezeigten Zeiträume bereits bewertet wurden (`former = 1`).
  * Ohne diese Ergänzung verschwänden abgegebene Bewertungen aus dem Report,
- * sobald sich die Organisation ändert oder eine Ausnahme greift — im
+ * sobald sich die Organisation ändert oder eine Ausnahme greift. Im
  * Verteilungsbalken oben sind sie aber weiterhin enthalten.
  *
  * Kommentare bleiben bewusst draußen: Die Tabelle zeigt viele Zeiträume auf
@@ -1322,7 +1322,7 @@ export function leaderBreakdown(
   const periodKeys = periods.map((p) => p.key);
 
   const scope = scopeFor(leaderId);
-  // Bewertungen der Führungskraft in den angezeigten Zeiträumen — die
+  // Bewertungen der Führungskraft in den angezeigten Zeiträumen: die
   // Gesamtbewertung für die Zellen, alle übrigen Kategorien nur gezählt.
   const ratings = db
     .prepare(
@@ -1340,7 +1340,7 @@ export function leaderBreakdown(
     is_overall: number;
   }[];
 
-  // Eine Zelle je (Person, Zeitraum) mit MINDESTENS EINER Bewertung — nicht
+  // Eine Zelle je (Person, Zeitraum) mit MINDESTENS EINER Bewertung, nicht
   // nur mit Gesamtbewertung. Wer in einem Zeitraum ausschließlich Leistung
   // bewertet hat, soll die Zelle trotzdem öffnen können; `score` bleibt dann
   // null und die Oberfläche zeigt statt einer Stufe die Kategorienzahl.
@@ -1355,7 +1355,7 @@ export function leaderBreakdown(
       updated_at: r.updated_at,
     };
     cell.category_count += 1;
-    // Zellen-Zeitstempel ist der jüngste Stand über alle Kategorien — der
+    // Zellen-Zeitstempel ist der jüngste Stand über alle Kategorien. Der
     // Tooltip nennt ihn neben der Kategorienzahl, also muss er zu beidem passen.
     if (r.updated_at > cell.updated_at) cell.updated_at = r.updated_at;
     if (r.is_overall === 1) {
@@ -1399,7 +1399,7 @@ export function leaderBreakdown(
     };
   });
 
-  // Aktuell Verantwortete zuerst, dann ehemalige — innerhalb alphabetisch.
+  // Aktuell Verantwortete zuerst, dann ehemalige, innerhalb alphabetisch.
   rows.sort(
     (a, b) =>
       a.former - b.former ||
@@ -1426,21 +1426,21 @@ function leaderSummary(leader: Leader): LeaderBreakdown['leader'] {
  * mit Kommentaren (Gesamtbewertung zuerst) plus das Protokoll dieses
  * Zeitraums. Grundlage des Detail-Pop-ups im Report.
  *
- * `leaderId` ist die Führungskraft, deren Einschätzung gezeigt wird — nicht
+ * `leaderId` ist die Führungskraft, deren Einschätzung gezeigt wird, nicht
  * die handelnde Person: Der Report ist die Sicht der Verwaltung auf fremde
  * Bewertungen, abgesichert über den Bereich `fuehrung`.
  */
 export function ratingDetail(leaderId: number, employeeId: number, period: RatingPeriod): RatingDetail {
   const db = getDb();
   // Erst die Führungskraft: Ohne diese Prüfung beantwortete die Route jede
-  // beliebige Personal-ID — und gäbe damit Stammdaten (Personalnummer, Titel,
+  // beliebige Personal-ID, und gäbe damit Stammdaten (Personalnummer, Titel,
   // Abteilung) an Konten heraus, die nur `fuehrung: lesen` haben. Sie sollen
   // sehen, was der Report zeigt, und nicht das Personalverzeichnis.
   loadLeader(leaderId);
 
   const ratings = ratingsFor(leaderId, employeeId, period.key);
   // Zweite Schranke: Die Person muss zum Bereich dieser Führungskraft gehören
-  // ODER von ihr in diesem Zeitraum bewertet worden sein — genau die beiden
+  // ODER von ihr in diesem Zeitraum bewertet worden sein: genau die beiden
   // Fälle, die in der Aufschlüsselung als Zeile stehen.
   if (ratings.length === 0 && !scopeFor(leaderId).has(employeeId)) {
     throw notFound('Für diese Person liegt bei dieser Führungskraft keine Bewertung vor');
@@ -1472,13 +1472,13 @@ export function ratingDetail(leaderId: number, employeeId: number, period: Ratin
 // Übersicht der Führungsfunktion („Mein Team“)
 // ---------------------------------------------------------------------------
 
-/** Spalten der Verlaufsleiste je Person — der aktuelle Zeitraum plus drei zurück. */
+/** Spalten der Verlaufsleiste je Person: der aktuelle Zeitraum plus drei zurück. */
 export const TEAM_HISTORY_COLUMNS = 4;
 
 /**
  * Woraus sich der Bereich zusammensetzt: Abteilungen und Teams der
  * zugeordneten Personen, absteigend nach Kopfzahl. Bewusst aus den
- * Personalprofilen abgeleitet und nicht aus der Leitungsfunktion — wer über
+ * Personalprofilen abgeleitet und nicht aus der Leitungsfunktion: wer über
  * eine manuelle Zuweisung jemanden aus einer fremden Abteilung betreut, soll
  * das in der Kopfzeile sehen.
  */
@@ -1509,7 +1509,7 @@ export function scopeSummary(employeeIds: number[]): TeamScopeSummary {
 }
 
 /**
- * Bisherige Bewertungen je Person über mehrere Zeiträume — dieselbe Zellenform
+ * Bisherige Bewertungen je Person über mehrere Zeiträume: dieselbe Zellenform
  * wie in der Report-Aufschlüsselung (`leaderBreakdown`), damit die
  * Verlaufsleiste in „Mein Team“ und die Report-Tabelle dasselbe zeigen.
  */
@@ -1570,7 +1570,7 @@ function historyCells(
  * Vollständige Antwort der Führungsfunktion: eigener Bereich mit Stammdaten,
  * Bewertungsstand im Zeitraum, Bereichszusammenfassung für die Kopfzeile und
  * Verlauf je Person. Alles in EINER Antwort, weil die Seite ohne jedes Stück
- * unvollständig ist — und weil die Führungskraft nicht zwingend das Recht
+ * unvollständig ist, und weil die Führungskraft nicht zwingend das Recht
  * `personal` hat, also keine zweite Quelle für Abteilungsnamen kennt.
  */
 export function myTeam(leaderId: number, period: RatingPeriod, settings = getSettings()): MyTeamResponse {

@@ -20,7 +20,7 @@ import { SetupNote, errorMessage } from './SetupShared';
 /**
  * Reiter „Skala & Zeitraum“: Kadenz, zentrale Skala, Einheitlichkeit der
  * Skala, gegenseitige Verantwortung und die drei Quellen der automatischen
- * Zuordnung. Lokaler Formularzustand wie in SettingsPage — geschrieben wird
+ * Zuordnung. Lokaler Formularzustand wie in SettingsPage: geschrieben wird
  * erst beim Speichern, und zwar nur, was sich geändert hat.
  */
 
@@ -46,7 +46,7 @@ function toForm(s: LeadershipSettings): FormState {
   };
 }
 
-/** Nur geänderte Felder — der Server lehnt einen leeren Patch mit 400 ab. */
+/** Nur geänderte Felder: der Server lehnt einen leeren Patch mit 400 ab. */
 function diff(saved: FormState, next: FormState): LeadershipSettingsPatch {
   const patch: LeadershipSettingsPatch = {};
   if (next.period !== saved.period) patch.period = next.period;
@@ -70,7 +70,7 @@ function sampleScore(scale: RatingScaleKey): number {
 export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
   const toast = useToast();
   const { data, isLoading, error } = useLeadershipSettings();
-  // Bestehende Paare — auch solche aus Organisationsänderungen, die das
+  // Bestehende Paare, auch solche aus Organisationsänderungen, die das
   // Modul beim Entstehen nicht sehen konnte.
   const mutualPairs = useMutualPairs().data ?? [];
   const save = useUpdateLeadershipSettings();
@@ -188,7 +188,7 @@ export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
         {mutualPairs.length > 0 && (
           <div style={{ marginBottom: 14 }}>
             <SetupNote tone={state.allow_mutual ? 'info' : 'warning'} icon={<Handshake size={15} />}>
-              {state.allow_mutual ? 'Bestehende gegenseitige Verantwortung: ' : 'Nicht zugelassen, aber vorhanden — entstanden durch Änderungen an Vorgesetzten, Abteilungs- oder Teamleitungen: '}
+              {state.allow_mutual ? 'Bestehende gegenseitige Verantwortung: ' : 'Nicht zugelassen, aber vorhanden. Entstanden durch Änderungen an Vorgesetzten, Abteilungs- oder Teamleitungen: '}
               <strong>{mutualPairs.map((p) => p.label).join(', ')}</strong>
               {state.allow_mutual
                 ? '.'
@@ -207,17 +207,17 @@ export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
         </label>
         <p className="lead-setup-hint">
           <Handshake size={13} style={{ verticalAlign: '-2px', marginRight: 4 }} aria-hidden="true" />
-          Gegenseitig heißt: A ist für B zuständig und B zugleich für A — etwa wenn eine Abteilungsleitung
+          Gegenseitig heißt: A ist für B zuständig und B zugleich für A, etwa wenn eine Abteilungsleitung
           von einer Person aus der eigenen Abteilung als Vorgesetzte:r geführt wird. Erlaubt, wird die
           Konstellation in „Mein Team“ und in der Einrichtung mit dem Badge „gegenseitig“ gekennzeichnet.
-          Nicht erlaubt, lehnt der Server Freischaltungen und Zuweisungen ab, die sie erzeugen würden —
-          bereits bestehende Paare bleiben sichtbar, bis Sie sie auflösen.
+          Nicht erlaubt, lehnt der Server Freischaltungen und Zuweisungen ab, die sie erzeugen würden.
+          Bereits bestehende Paare bleiben sichtbar, bis Sie sie auflösen.
         </p>
       </Card>
 
       <Card title="Automatische Zuordnung">
         <p className="lead-setup-hint" style={{ marginTop: 0, marginBottom: 12 }}>
-          Aus welchen Beziehungen der Organisation die Zuständigkeit abgeleitet wird — für alle
+          Aus welchen Beziehungen der Organisation die Zuständigkeit abgeleitet wird, für alle
           Führungskräfte, bei denen die automatische Ableitung eingeschaltet ist. Manuelle Zuweisungen und
           Ausnahmen gelten unabhängig davon.
         </p>
@@ -238,7 +238,7 @@ export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
               disabled={readOnly}
               onChange={(e) => set({ auto_department_head: e.target.checked })}
             />
-            <span>Abteilungsleitung — alle Mitarbeitenden der Abteilung inkl. Unterabteilungen</span>
+            <span>Abteilungsleitung: alle Mitarbeitenden der Abteilung inkl. Unterabteilungen</span>
           </label>
           <label className="hm-checkbox">
             <input
@@ -247,13 +247,13 @@ export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
               disabled={readOnly}
               onChange={(e) => set({ auto_team_lead: e.target.checked })}
             />
-            <span>Teamleitung — alle Teammitglieder</span>
+            <span>Teamleitung: alle Teammitglieder</span>
           </label>
         </div>
         {!state.auto_direct_reports && !state.auto_department_head && !state.auto_team_lead && (
           <div style={{ marginTop: 12 }}>
             <SetupNote tone="warning">
-              Alle Quellen sind ausgeschaltet — Zuständigkeiten ergeben sich dann ausschließlich aus manuellen
+              Alle Quellen sind ausgeschaltet: Zuständigkeiten ergeben sich dann ausschließlich aus manuellen
               Zuweisungen.
             </SetupNote>
           </div>

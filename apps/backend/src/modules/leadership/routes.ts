@@ -1,9 +1,9 @@
 /**
- * Modul Führung & Bewertung — HTTP-Schicht.
+ * Modul Führung & Bewertung: HTTP-Schicht.
  *
  * Zwei Zugänge, zwei Gates:
  *
- * 1. `/api/leadership/me/*` — die FÜHRUNGSFUNKTION. Der globale Hook
+ * 1. `/api/leadership/me/*`: die FÜHRUNGSFUNKTION. Der globale Hook
  *    (core/permissions.ts, SELF_GATED) überspringt hier die Bereichsprüfung;
  *    stattdessen prüft der preHandler des eingekapselten Plugins unten, dass
  *    das Personalprofil des Kontos als Führungskraft freigeschaltet und aktiv
@@ -12,7 +12,7 @@
  *    `/me/status`: Es antwortet jedem Admin-Konto, damit die Oberfläche weiß,
  *    ob sie „Mein Team“ anbieten soll.
  *
- * 2. Alles andere unter `/api/leadership/*` — die VERWALTUNG (Freischaltungen,
+ * 2. Alles andere unter `/api/leadership/*`: die VERWALTUNG (Freischaltungen,
  *    Zuständigkeiten, Skala, Kategorien, Report). Sie hängt am Rechtebereich
  *    `fuehrung`, den der globale Hook wie überall durchsetzt (GET = lesen,
  *    sonst bearbeiten).
@@ -35,7 +35,7 @@ const periodQuerySchema = z.object({ period: z.string().max(10).optional() });
 
 /**
  * Zusätzlich zur Zeitraumwahl: Spaltenzahl der Report-Aufschlüsselung.
- * Der Service deckelt den Wert nochmals (BREAKDOWN_COLUMNS_MAX) — hier steht
+ * Der Service deckelt den Wert nochmals (BREAKDOWN_COLUMNS_MAX); hier steht
  * die Grenze, damit unsinnige Eingaben schon als 400 auffallen.
  */
 const breakdownQuerySchema = periodQuerySchema.extend({
@@ -112,7 +112,7 @@ function employeeParam(req: FastifyRequest): number {
 
 /**
  * Fotos in Verwaltungsantworten nur, wenn das Konto sie auch selbst signieren
- * dürfte (Bereich `personal`, siehe core/files.ts assertMayReadFile) — sonst
+ * dürfte (Bereich `personal`, siehe core/files.ts assertMayReadFile), sonst
  * weitete `fuehrung: lesen` still auf Mitarbeiterfotos aus.
  */
 function photoView(req: FastifyRequest): service.ViewOptions {
@@ -132,7 +132,7 @@ function periodOf(req: FastifyRequest) {
 /**
  * Personal-ID der handelnden Führungskraft oder 403. Bewusst pro Request aus
  * der Datenbank: Ein Entzug der Freischaltung wirkt sofort, nicht erst nach
- * Ablauf des Tokens — dieselbe Regel wie für Rollenentzug im globalen Hook.
+ * Ablauf des Tokens, dieselbe Regel wie für Rollenentzug im globalen Hook.
  */
 function requireLeader(req: FastifyRequest): number {
   if ((req.user.employee_id ?? null) === null) {
@@ -148,7 +148,7 @@ function requireLeader(req: FastifyRequest): number {
 }
 
 async function leaderRoutes(app: FastifyInstance): Promise<void> {
-  // Gilt für JEDE Route dieses Plugins — neue Routen sind damit automatisch
+  // Gilt für JEDE Route dieses Plugins: neue Routen sind damit automatisch
   // gesperrt, bis das Konto als Führungskraft freigeschaltet ist.
   app.addHook('preHandler', async (req) => {
     requireLeader(req);
@@ -185,7 +185,7 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
   await app.register(leaderRoutes);
 
   // ------------------------------------------------------ Einstellungen --
-  // mutual_pairs: bestehende gegenseitige Verantwortung — auch die aus
+  // mutual_pairs: bestehende gegenseitige Verantwortung, auch die aus
   // Organisationsänderungen, die keine Schreibstelle des Moduls sehen konnte.
   app.get('/api/leadership/settings', async () => ({
     settings: service.getSettings(),
@@ -247,7 +247,7 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
   });
 
   // Aufschlüsselung des Report-Widgets: verantwortete Personen mit ihrer
-  // Gesamtbewertung je Zeitraum (ohne Kommentare — die holt die Detail-Route).
+  // Gesamtbewertung je Zeitraum (ohne Kommentare; die holt die Detail-Route).
   app.get('/api/leadership/leaders/:employeeId/breakdown', async (req) => {
     const settings = service.getSettings();
     const q = parse(breakdownQuerySchema, req.query ?? {});
@@ -256,7 +256,7 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
   });
 
   // Eine Bewertung vollständig: alle Kategorien des Zeitraums mit Kommentaren
-  // plus Protokoll — Grundlage des Detail-Pop-ups im Report.
+  // plus Protokoll: Grundlage des Detail-Pop-ups im Report.
   app.get('/api/leadership/leaders/:employeeId/employees/:memberId/ratings', async (req) => {
     const { period } = periodOf(req);
     const memberId = parse(memberParamSchema, req.params).memberId;
@@ -274,7 +274,7 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
     reply.status(204);
   });
 
-  // Auswahllisten der Einrichtung — im Bereich fuehrung, siehe service.lookup.
+  // Auswahllisten der Einrichtung: im Bereich fuehrung, siehe service.lookup.
   app.get('/api/leadership/lookup', async () => service.lookup());
 
   // ------------------------------------------------ Report und Einsicht --

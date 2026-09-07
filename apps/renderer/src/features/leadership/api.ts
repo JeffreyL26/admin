@@ -3,7 +3,7 @@
  *
  * Alle Query-Keys beginnen mit 'leadership'; die Mutations-Hooks invalidieren
  * nach Erfolg den gesamten Baum. Das ist bewusst grob: Freischaltungen,
- * Zuweisungen und Einstellungen wirken auf Team, Status und Report zugleich —
+ * Zuweisungen und Einstellungen wirken auf Team, Status und Report zugleich:
  * eine feinere Invalidierung hätte mehr Fehlerquellen als Nutzen.
  *
  * Antwortformen sind die DTOs aus @ohrganize/shared (leadership.ts); die
@@ -51,7 +51,7 @@ function periodQuery(period: string | null | undefined): string {
 /**
  * Ist das angemeldete Konto eine freigeschaltete Führungskraft? Steuert die
  * Sichtbarkeit von „Mein Team“ in Sidebar und Befehlspalette. Antwortet für
- * jedes Admin-Konto mit 200 — ein Fehler hier heißt „Server nicht erreichbar“,
+ * jedes Admin-Konto mit 200. Ein Fehler hier heißt „Server nicht erreichbar”,
  * und dafür gibt es bereits die Meldungen der Fachseiten (silentError).
  */
 export function useLeaderStatus() {
@@ -107,7 +107,7 @@ export function useLeadershipSettings() {
 
 /**
  * Bestehende gegenseitige Verantwortung (gleiche Abfrage wie die
- * Einstellungen) — die Einrichtung warnt damit auch vor Paaren, die durch
+ * Einstellungen). Die Einrichtung warnt damit auch vor Paaren, die durch
  * Organisationsänderungen entstanden sind.
  */
 export function useMutualPairs() {
@@ -162,7 +162,7 @@ export function useDeleteCategory() {
   });
 }
 
-/** Neue Reihenfolge — `ids` muss jede Kategorie genau einmal enthalten. */
+/** Neue Reihenfolge: `ids` muss jede Kategorie genau einmal enthalten. */
 export function useReorderCategories() {
   const qc = useQueryClient();
   return useMutation({
@@ -211,7 +211,7 @@ export function useRevokeLeader() {
 }
 
 /**
- * Auswahllisten der Einrichtung (Personen, Abteilungen, Teams, Fachrollen) —
+ * Auswahllisten der Einrichtung (Personen, Abteilungen, Teams, Fachrollen):
  * eigener Endpunkt im Bereich `fuehrung`, damit die Einrichtung ohne die
  * Bereiche `personal`/`verwaltung` auskommt.
  */
@@ -255,7 +255,7 @@ export function useDeleteAssignment() {
 
 /**
  * Aufschlüsselung eines Report-Widgets (verantwortete Personen mit
- * Gesamtbewertung je Zeitraum). Lädt erst, wenn das Widget aufgeklappt ist —
+ * Gesamtbewertung je Zeitraum). Lädt erst, wenn das Widget aufgeklappt ist:
  * `employeeId: null` hält die Abfrage still.
  */
 export function useLeaderBreakdown(employeeId: number | null, period: string | null, columns?: number) {
@@ -272,7 +272,7 @@ export function useLeaderBreakdown(employeeId: number | null, period: string | n
 }
 
 /**
- * Eine Bewertung vollständig — alle Kategorien des Zeitraums mit Kommentaren
+ * Eine Bewertung vollständig: alle Kategorien des Zeitraums mit Kommentaren
  * plus Protokoll. Grundlage des Detail-Pop-ups; lädt nur bei geöffnetem Dialog.
  */
 export function useRatingDetail(leaderId: number | null, memberId: number | null, period: string | null) {

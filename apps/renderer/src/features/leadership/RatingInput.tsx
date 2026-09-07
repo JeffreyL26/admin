@@ -10,7 +10,7 @@ import {
 import { Badge, type BadgeTone } from '../../components/ui';
 
 /**
- * Eingabe und Anzeige eines Bewertungswerts — je Skala eine passende Form:
+ * Eingabe und Anzeige eines Bewertungswerts, je Skala in passender Form:
  * Sterne zum Anklicken, Ampel-Pillen, Punkte- bzw. Notenknöpfe. Der Wert ist
  * immer der Rohwert 1…max der Skala (Schulnote: 1 = beste Stufe); die
  * Umrechnung in „gut/mittel/schlecht“ macht scoreTone aus @ohrganize/shared.
@@ -102,7 +102,7 @@ function AmpelInput({
   disabled?: boolean;
 }) {
   const def = RATING_SCALES[scale];
-  // Ampel von Rot nach Grün — so kennt man sie.
+  // Reihenfolge Rot bis Grün, wie von der Ampel gewohnt.
   return (
     <div className="lead-ampel" role="radiogroup" aria-label="Ampelbewertung">
       {Array.from({ length: def.max }, (_, i) => i + 1).map((n) => {
@@ -193,7 +193,7 @@ export function RatingValue({
   );
 }
 
-/** Kompaktes Badge in Ampelfarbe — für Tabellen und Listen. */
+/** Kompaktes Badge in Ampelfarbe für Tabellen und Listen. */
 export function ScoreBadge({ scale, score }: { scale: RatingScaleKey; score: number }) {
   return <Badge tone={TONE_BADGE[scoreTone(scale, score)]}>{scaleLevelLabel(scale, score)}</Badge>;
 }

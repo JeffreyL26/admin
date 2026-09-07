@@ -5,7 +5,7 @@ import { TeamMemberRatingPage } from './TeamMemberRatingPage';
 import { SetupPage } from './SetupPage';
 import { ReportPage } from './ReportPage';
 
-// Modul Führung & Bewertung — Pfad-Kontrakt aus layout/nav.ts.
+// Modul Führung & Bewertung: Pfad-Kontrakt aus layout/nav.ts.
 // „Mein Team“ und die Bewertungsmaske sind die Führungsfunktion (nur für
 // freigeschaltete Personalprofile), Report und Einrichtung die Verwaltung
 // (Rechtebereich `fuehrung`). Beides erzwingt das Backend.

@@ -19,7 +19,7 @@ import { ReportBreakdown } from './ReportBreakdown';
 import { DistributionBar, PeriodSwitcher } from './common';
 
 /**
- * Satisfaction-Report (Arbeitstitel des Kunden — genau so beschriftet):
+ * Satisfaction-Report (Arbeitstitel des Kunden, genau so beschriftet):
  * Für Geschäftsführung und HR. Je freigeschalteter Führungskraft ein breites
  * Widget mit Teamgröße, Bewertungsstand und der Verteilung der
  * GESAMTBEWERTUNG über die Skalenstufen im gewählten Zeitraum. Die Zahlen
@@ -30,7 +30,7 @@ import { DistributionBar, PeriodSwitcher } from './common';
  * verantworteten Personen mit ihrer Gesamtbewertung je Zeitraum
  * (`ReportBreakdown`), ein Klick auf einen bewerteten Zeitraum öffnet das
  * Detail-Pop-up. Nochmals auf das Widget geklickt, schließt sich alles wieder.
- * Es ist immer höchstens ein Widget offen — zwei Tabellen nebeneinander wären
+ * Es ist immer höchstens ein Widget offen: Zwei Tabellen nebeneinander wären
  * nicht mehr überblickbar, und der Report bleibt so kurz.
  */
 
@@ -52,7 +52,7 @@ function bestShare(row: ReportLeaderRow): number {
   return (row.distribution[0]?.count ?? 0) / row.rated_count;
 }
 
-/** Noch nicht bewertete Personen im heutigen Bereich — liefert das Backend getrennt von rated_count. */
+/** Noch nicht bewertete Personen im heutigen Bereich; das liefert das Backend getrennt von rated_count. */
 function openCount(row: ReportLeaderRow): number {
   return row.open_count;
 }
@@ -90,10 +90,10 @@ export function ReportPage() {
   // null = aktueller Zeitraum laut Einstellung (folgt beim Datumswechsel mit).
   const [periodKey, setPeriodKey] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>('name');
-  /** Aufgeklapptes Widget (employee_id) — höchstens eines zugleich. */
+  /** Aufgeklapptes Widget (employee_id), höchstens eines zugleich. */
   const [expanded, setExpanded] = useState<number | null>(null);
   // keepPreviousData im Hook: Beim Zeitraumwechsel bleibt die alte Liste
-  // stehen, bis die neue da ist — kein Spinner, kein Springen der Seite.
+  // stehen, bis die neue da ist: kein Spinner, kein Springen der Seite.
   const { data, isLoading, isPlaceholderData, error } = useLeadershipReport(periodKey);
 
   const rows = useMemo(() => (data ? sortRows(data.leaders, sort) : []), [data, sort]);
@@ -251,7 +251,7 @@ function LeaderAvatar({ row, size }: { row: ReportLeaderRow; size: number }) {
 }
 
 /**
- * Breites Widget einer Führungskraft — zugleich Schalter für die
+ * Breites Widget einer Führungskraft, zugleich Schalter für die
  * Aufschlüsselung. Der Kopf ist ein Button (`aria-expanded`), damit Tastatur
  * und Screenreader dasselbe können wie die Maus; die Tabelle liegt daneben im
  * selben Karten-Rahmen und nicht im Button, weil sie eigene Schaltflächen
@@ -279,14 +279,14 @@ function LeaderReportRow({
       {/* aria-controls nur im aufgeklappten Zustand: Das Panel ist sonst nicht
           im DOM, und ein Verweis auf eine fehlende ID ist eine Sackgasse.
           aria-label ersetzt den zusammengesetzten Kopfinhalt (Kennzahlen,
-          Balken, Legende) — sonst liest der Screenreader einen Absatz vor. */}
+          Balken, Legende), sonst liest der Screenreader einen Absatz vor. */}
       <button
         type="button"
         id={headId}
         className="lead-report-row lead-report-head"
         aria-expanded={expanded}
         aria-controls={expanded ? panelId : undefined}
-        aria-label={`${fullName(row)} — Aufschlüsselung ${expanded ? 'schließen' : 'öffnen'}`}
+        aria-label={`Aufschlüsselung von ${fullName(row)} ${expanded ? 'schließen' : 'öffnen'}`}
         onClick={onToggle}
       >
         <div className="lead-report-row__person">

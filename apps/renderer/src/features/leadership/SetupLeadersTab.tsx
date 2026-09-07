@@ -33,7 +33,7 @@ export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
         onSuccess: () =>
           toast.success(
             leader.auto_scope === 1
-              ? 'Automatische Ableitung ausgeschaltet — nur manuelle Zuweisungen gelten'
+              ? 'Automatische Ableitung ausgeschaltet: nur manuelle Zuweisungen gelten'
               : 'Zuständigkeit wird wieder automatisch aus der Organisation abgeleitet',
           ),
         onError: (e) => toast.error(errorMessage(e, 'Änderung fehlgeschlagen')),
@@ -46,7 +46,7 @@ export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
         Die Zuständigkeit einer Führungskraft ergibt sich <strong>automatisch aus der Organisation</strong>:
         als Vorgesetzte:r (Feld „Vorgesetzte:r“ im Personalprofil), als Abteilungsleitung (alle
         Mitarbeitenden der Abteilung inklusive Unterabteilungen) und als Teamleitung (alle Teammitglieder).
-        Ergänzungen und Ausnahmen — etwa für Projekte, Vertretungen oder Matrixstrukturen — pflegen Sie
+        Ergänzungen und Ausnahmen (etwa für Projekte, Vertretungen oder Matrixstrukturen) pflegen Sie
         manuell unter „Zuständigkeit“. Die Funktion erscheint der Person als <strong>„Mein Team“</strong> in
         der Seitenleiste, sobald ihr Desktop-Konto mit dem Personalprofil verknüpft ist.
       </SetupNote>
@@ -130,7 +130,7 @@ export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
           <>
             Die Person verliert den Zugang zu „Mein Team“ und kann keine Bewertungen mehr abgeben.{' '}
             {revoking && revoking.assignment_count > 0
-              ? `${revoking.assignment_count === 1 ? 'Ihre eine manuelle Zuweisung wird' : `Ihre ${revoking.assignment_count} manuellen Zuweisungen werden`} dabei entfernt — ein späteres erneutes Freischalten startet ohne sie.`
+              ? `${revoking.assignment_count === 1 ? 'Ihre eine manuelle Zuweisung wird' : `Ihre ${revoking.assignment_count} manuellen Zuweisungen werden`} dabei entfernt. Ein späteres erneutes Freischalten startet ohne sie.`
               : 'Manuelle Zuweisungen bestehen keine.'}{' '}
             <strong>Bereits abgegebene Bewertungen und das Protokoll bleiben vollständig erhalten</strong> und
             sind weiterhin in der Einsicht und im Report sichtbar.
@@ -243,10 +243,9 @@ function LeaderRow({
                   <>
                     <div className="hm-tooltip__title">Automatische Ableitung</div>
                     <div className="hm-tooltip__line">
-                      {leader.auto_scope === 1
-                        ? 'An · Organisation + manuelle Zuweisungen'
-                        : 'Aus · nur manuelle Zuweisungen'}
+                      An · Zuständigkeit aus Organisation (Vorgesetzte:r, Abteilungs- oder Teamleitung) + manuelle Zuweisungen
                     </div>
+                    <div className="hm-tooltip__line">Aus · nur manuelle Zuweisungen</div>
                   </>
                 }
               >
@@ -361,7 +360,7 @@ function GrantDialog({
             <span>Zuständigkeit automatisch aus der Organisation ableiten</span>
           </label>
           <p style={{ margin: '6px 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Empfohlen. Ohne Automatik gelten ausschließlich manuelle Zuweisungen — sinnvoll etwa für
+            Empfohlen. Ohne Automatik gelten ausschließlich manuelle Zuweisungen. Das eignet sich etwa für
             HR-Sachbearbeiter:innen, die gezielt einzelne Personen bewerten sollen.
           </p>
         </div>

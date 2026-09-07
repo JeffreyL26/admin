@@ -22,7 +22,7 @@ import { SetupEmployeeSelect, SetupNote, errorMessage, personCount } from './Set
  * Zuständigkeit einer Führungskraft: Vorschau der abgeleiteten Personen mit
  * Quelle, die manuellen Zuweisungen/Ausnahmen und das Formular für neue
  * Zuweisungen. Alles, was hier zu sehen ist, berechnet das Backend
- * (service.scopeFor) — die Oberfläche zeigt nur, was tatsächlich gilt.
+ * (service.scopeFor). Die Oberfläche zeigt nur, was tatsächlich gilt.
  */
 export function SetupScopeModal({
   leader,
@@ -165,7 +165,7 @@ function AssignmentTable({ assignments, canEdit }: { assignments: LeadershipAssi
   if (assignments.length === 0) {
     return (
       <p className="lead-setup-empty">
-        Keine manuellen Zuweisungen — die Zuständigkeit ergibt sich vollständig aus der Organisation.
+        Keine manuellen Zuweisungen. Die Zuständigkeit ergibt sich vollständig aus der Organisation.
       </p>
     );
   }
@@ -217,7 +217,7 @@ function AssignmentTable({ assignments, canEdit }: { assignments: LeadershipAssi
         title="Zuweisung löschen?"
         message={
           deleting
-            ? `„${ASSIGNMENT_KIND_LABELS[deleting.kind]} — ${ASSIGNMENT_TARGET_LABELS[deleting.target_type]}: ${deleting.target_name}“ wird entfernt. Die Zuständigkeit richtet sich danach wieder allein nach Organisation und übrigen Zuweisungen; Bewertungen bleiben erhalten.`
+            ? `„${ASSIGNMENT_KIND_LABELS[deleting.kind]} · ${ASSIGNMENT_TARGET_LABELS[deleting.target_type]}: ${deleting.target_name}“ wird entfernt. Die Zuständigkeit richtet sich danach wieder allein nach Organisation und übrigen Zuweisungen; Bewertungen bleiben erhalten.`
             : ''
         }
         onConfirm={() =>
@@ -282,7 +282,7 @@ function AssignmentForm({ leaderId }: { leaderId: number }) {
           setNote('');
         },
         // 409 (gegenseitige Verantwortung nicht zugelassen) kommt mit
-        // erklärender Meldung vom Server — direkt anzeigen.
+        // erklärender Meldung vom Server: direkt anzeigen.
         onError: (e) => toast.error(errorMessage(e, 'Zuweisung konnte nicht gespeichert werden')),
       },
     );
@@ -376,7 +376,7 @@ function TargetSelect({
 }) {
   // Alle Listen kommen aus dem Lookup des Bereichs fuehrung (eine Antwort):
   // /api/departments, /api/teams und /api/admin/roles hingen an `personal`
-  // bzw. `verwaltung` — ein reines Einrichtungs-Konto sähe dort nichts.
+  // bzw. `verwaltung`: ein reines Einrichtungs-Konto sähe dort nichts.
   const lookup = useLeadershipLookup().data;
 
   if (type === 'employee') {

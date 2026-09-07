@@ -83,7 +83,7 @@ const SOURCE_TONES: Record<ScopeSource, BadgeTone> = {
   zugewiesen: 'yellow',
 };
 
-/** Woher eine Zuständigkeit stammt — plus Hinweis auf gegenseitige Verantwortung. */
+/** Woher eine Zuständigkeit stammt, plus Hinweis auf gegenseitige Verantwortung. */
 export function SourceBadges({ sources, mutual }: { sources: ScopeSource[]; mutual: number }) {
   return (
     <span className="row row--wrap" style={{ gap: 6 }}>
@@ -132,8 +132,8 @@ function TeamAvatar({ member, size }: { member: TeamMember; size: number }) {
 /**
  * Widget einer Person im Zuständigkeitsbereich („Mein Team“): wichtigste
  * Stammdaten, Eintrittsdatum, Herkunft der Zuständigkeit, der Bewertungsstand
- * im gewählten Zeitraum und — sofern `historyPeriods` gesetzt ist — der
- * Verlauf der letzten Zeiträume.
+ * im gewählten Zeitraum und, sofern `historyPeriods` gesetzt ist, der Verlauf
+ * der letzten Zeiträume.
  *
  * Mit `onOpen` ist die ganze Karte der Knopf in die Bewertungsmaske; ohne
  * bleibt sie eine reine Anzeige.
@@ -223,8 +223,8 @@ export function TeamMemberCard({
 
 /**
  * Verlaufsleiste einer Person: die letzten Zeiträume nebeneinander, neuester
- * links. Gezeigt wird die Gesamtbewertung als farbiger Punkt mit Rohwert —
- * Sterne wären in dieser Breite unleserlich —, der volle Text steht im
+ * links. Gezeigt wird die Gesamtbewertung als farbiger Punkt mit Rohwert
+ * (Sterne wären in dieser Breite unleserlich); der volle Text steht im
  * Tooltip.
  *
  * Bewusst ohne eigene Bedienelemente: Die Karte selbst ist der Knopf in die
