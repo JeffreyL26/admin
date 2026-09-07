@@ -806,7 +806,12 @@ function DepartmentChart() {
                     filter="url(#org-shadow)"
                     style={{ transition: 'stroke .15s ease' }}
                   />
-                  <rect x={x} y={y} width={5} height={NODE_H} rx={2.5} fill={colors.accent} />
+                  {/* Balken an der Kartenrundung beschnitten statt mit eigener
+                      Rundung überlappend: sonst steht er in den Ecken vor. */}
+                  <clipPath id={`org-clip-${node.id}`}>
+                    <rect x={x} y={y} width={NODE_W} height={NODE_H} rx={14} />
+                  </clipPath>
+                  <rect x={x} y={y} width={5} height={NODE_H} fill={colors.accent} clipPath={`url(#org-clip-${node.id})`} />
                   <circle cx={x + 34} cy={y + NODE_H / 2} r={17} fill={colors.accentSoft} />
                   <text
                     x={x + 34}

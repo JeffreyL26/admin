@@ -296,14 +296,28 @@ function OrgChartView({ data, initialPersonId }: { data: OrgChartResponse; initi
     [model],
   );
 
-  const toggle = useCallback((id: number) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  // Zuklappen nimmt alle Ebenen darunter mit: Wer eine Person schließt, will
+  // den Bereich weg haben, nicht beim nächsten Öffnen den alten Zustand.
+  const toggle = useCallback(
+    (id: number) => {
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        if (!next.has(id)) {
+          next.add(id);
+          return next;
+        }
+        const node = model.byId.get(id);
+        const collapse = (n: OrgNode) => {
+          next.delete(n.person.id);
+          n.children.forEach(collapse);
+        };
+        if (node) collapse(node);
+        else next.delete(id);
+        return next;
+      });
+    },
+    [model],
+  );
 
   const expandAll = () => {
     setExpanded(new Set([...model.byId.values()].filter((n) => n.children.length > 0).map((n) => n.person.id)));
