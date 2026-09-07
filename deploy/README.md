@@ -579,6 +579,21 @@ Start verhindert; `limit_req_status` darf je Kontext nur einmal vorkommen und
 kollidierte mit `nginx.conf`; und `entfernen --daten-loeschen` riss Dienst,
 Konfiguration und Subdomain ab, BEVOR es nach der Bestätigung fragte.
 
+In einer zweiten Runde außerdem belegt: Die Login-Drosselung wirkt in zwei
+Schichten (Backend nach 10 Fehlversuchen, nginx nach dem Burst von rund 30)
+und trifft nur die angesprochene Subdomain — ein Kunde von derselben IP bleibt
+unbehelligt. Die fünf Sicherheitskopfzeilen stehen auf Portal, API, Assets und
+404; der Server nennt keine Version; das Zugriffsprotokoll enthält den
+Kundennamen, aber keinen Query-String. 12/55 MB Größenlimits, TLS 1.3, HTTP/2
+und IPv6 greifen. Eine Instanz kann unter den Unit-Direktiven weder das
+Verzeichnis eines anderen Kunden noch das Programmverzeichnis beschreiben
+(„Read-only file system“). Die Sicherung behält nach 16 Läufen genau 14
+Stände; der Ernstfall-Restore aus Abschnitt 5 funktioniert je Kunde und
+behält das Secret. Hinweis: Wer eine Sicherung von Hand in schneller Folge
+startet, läuft in systemds Startlimit (5 Starts je 10 s) — dann
+; der tägliche Timer ist
+davon nicht betroffen.
+
 **Nicht** erprobt und beim ersten echten Kunden zu prüfen:
 
 - **certbot mit DNS-01.** Auf dem Testserver stand ein selbst signiertes
