@@ -17,6 +17,7 @@ Dienst läuft.
 | `Caddyfile` | Reverse-Proxy (Variante B) | `/etc/caddy/Caddyfile` |
 | `ohrganize-backup.service` | Sicherungslauf | `/etc/systemd/system/` |
 | `ohrganize-backup.timer` | Zeitplan der Sicherung | `/etc/systemd/system/` |
+
 Für den Mehrkunden-Betrieb (Abschnitt 9) kommen dazu:
 
 | Datei | Zweck | Ablage auf dem Server |
@@ -50,11 +51,13 @@ konsistent:
 
 ## 1. Voraussetzungen
 
-- Linux mit systemd (getestete Ziele: Debian 12, Ubuntu 22.04/24.04).
+- Linux mit systemd (getestete Ziele: Debian 12/13, Ubuntu 22.04/24.04).
 - **Node.js ≥ 20** (`node -v`). Aus der Distribution oder von NodeSource.
 - `git` oder ein entpacktes Release-Archiv.
-- Build-Werkzeuge für den Fall, dass `better-sqlite3` kein passendes
-  Fertigpaket findet: `apt install -y build-essential python3`.
+- **Build-Werkzeuge: `apt install -y build-essential python3`.** Nicht nur
+  vorsorglich — auf Debian 13 mit Node 20 findet `better-sqlite3` **kein**
+  passendes Fertigpaket ("No prebuilt binaries found (target=20.19.2 …)") und
+  übersetzt sich aus dem Quelltext; ohne `make` bricht `npm ci` ab.
   `better-sqlite3` ist die einzige native Abhängigkeit des Projekts.
 - Eine Domain, die auf den Server zeigt, und die Ports 80 und 443 aus dem
   Internet erreichbar (Port 80 wird für die Zertifikatsausstellung gebraucht).
@@ -558,7 +561,34 @@ Eine Instanz, die dabei scheitert, hält die anderen nicht auf — deshalb die
 Kontrollschleife am Ende: Ohne sie fällt ein einzelner nicht gestarteter
 Kunde erst auf, wenn er anruft.
 
-### 9.7 Was dieser Aufbau nicht leistet
+### 9.7 Stand der Erprobung
+
+Der Ablauf aus 9.1–9.6 ist auf einem Debian-13-Testserver (systemd 257,
+nginx 1.26.3, Node 20.19.2) vollständig durchgespielt worden — 41 Prüfungen,
+keine offen: zwei Kunden anlegen, Portal und API über beide Subdomains,
+unbekannte Subdomain, HTTP-Weiterleitung, Rechte auf Datenverzeichnis und
+env-Datei, getrennte Secrets, Sicherungslauf samt Inhalt, Neustart aller
+Instanzen, Entfernen eines Kunden mit und ohne Datenlöschung, Koexistenz mit
+der Einzelkunden-Konfiguration aus Abschnitt 3 sowie die Fehlerfälle
+(doppelter Name, ungültiger Schlüssel, Rücknahme nach misslungenem Start,
+abgelehnte Löschbestätigung).
+
+Drei Dinge sind dabei aufgefallen und behoben worden: `http2 on;` gibt es
+erst ab nginx 1.25.1 und hätte auf allen dokumentierten Zielsystemen den
+Start verhindert; `limit_req_status` darf je Kontext nur einmal vorkommen und
+kollidierte mit `nginx.conf`; und `entfernen --daten-loeschen` riss Dienst,
+Konfiguration und Subdomain ab, BEVOR es nach der Bestätigung fragte.
+
+**Nicht** erprobt und beim ersten echten Kunden zu prüfen:
+
+- **certbot mit DNS-01.** Auf dem Testserver stand ein selbst signiertes
+  Wildcard-Zertifikat an derselben Stelle; die Ausstellung hängt am
+  DNS-Anbieter und ist von hier aus nicht nachstellbar.
+- **Echtes DNS.** Die Namen wurden mit `curl --resolve` auf 127.0.0.1
+  gezeigt, statt über einen Nameserver aufgelöst.
+- **Debian 12 und Ubuntu.** Geprüft wurde Debian 13.
+
+### 9.8 Was dieser Aufbau nicht leistet
 
 Ehrlich benannt, damit es niemand später herausfinden muss:
 

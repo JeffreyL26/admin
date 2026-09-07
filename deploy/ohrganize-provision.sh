@@ -291,6 +291,21 @@ entfernen() {
   pruefe_schluessel "$kunde"
   kunde_vorhanden "$kunde" || fehler "Kunde \"$kunde\" ist nicht angelegt."
 
+  # Die Rückfrage steht VOR dem ersten Eingriff. Stünde sie erst vor dem
+  # Löschen, wären Dienst, Konfiguration und Subdomain beim Abbrechen schon
+  # weg: Der Kunde wäre offline, obwohl gerade "nein" gesagt wurde, und müsste
+  # neu angelegt werden. (Im Testlauf genau so passiert.)
+  if [[ $loeschen -eq 1 ]]; then
+    [[ -t 0 ]] || fehler '--daten-loeschen verlangt eine Rückfrage und damit ein Terminal.'
+    printf 'Es werden UNWIDERRUFLICH gelöscht:\n'
+    printf '  %s/%s (Datenbank, hochgeladene Dateien, Secret)\n' "$DATEN_VERZ" "$kunde"
+    printf '  %s/%s (alle Sicherungen)\n' "$SICHERUNG_VERZ" "$kunde"
+    printf 'Zum Bestätigen den Kundenschlüssel eintippen: '
+    local antwort
+    read -r antwort
+    [[ "$antwort" == "$kunde" ]] || fehler 'Eingabe stimmt nicht überein — nichts geändert.'
+  fi
+
   printf 'Entferne Kunde "%s".\n' "$kunde"
   schritt 'Subdomain aus dem Reverse-Proxy nehmen'
   map_austragen "$kunde"
@@ -310,21 +325,13 @@ entfernen() {
     printf 'Aufbewahrungsfristen den Vertrag überdauern können. Erst löschen,\n'
     printf 'wenn die Übergabe an den Kunden bestätigt ist — dann mit\n'
     printf '  %s entfernen %s --daten-loeschen\n' "${BASH_SOURCE[0]}" "$kunde"
+    printf 'Ein späteres "anlegen %s" nimmt die liegen gebliebenen Daten wieder auf.\n' "$kunde"
     return 0
   fi
 
-  # Unwiderruflich, deshalb Rückfrage. Ohne Terminal (Skript, CI) wird
-  # abgebrochen statt blind gelöscht.
-  [[ -t 0 ]] || fehler '--daten-loeschen verlangt eine Rückfrage und damit ein Terminal.'
-  printf '\nEs werden UNWIDERRUFLICH gelöscht:\n'
-  printf '  %s/%s (Datenbank, hochgeladene Dateien, Secret)\n' "$DATEN_VERZ" "$kunde"
-  printf '  %s/%s (alle Sicherungen)\n' "$SICHERUNG_VERZ" "$kunde"
-  printf 'Zum Bestätigen den Kundenschlüssel eintippen: '
-  local antwort
-  read -r antwort
-  [[ "$antwort" == "$kunde" ]] || fehler 'Eingabe stimmt nicht überein — nichts gelöscht.'
+  schritt 'Daten und Sicherungen löschen'
   rm -rf "${DATEN_VERZ:?}/$kunde" "${SICHERUNG_VERZ:?}/$kunde"
-  printf 'Daten von "%s" gelöscht.\n' "$kunde"
+  printf 'Kunde "%s" samt Daten gelöscht.\n' "$kunde"
 }
 
 # ---------------------------------------------------------------------------
