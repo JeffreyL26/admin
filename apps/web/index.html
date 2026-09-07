@@ -4,10 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
-    <!-- Dieselbe Icon-Datei wie Desktop-App und Installer
-         (apps/desktop/build/icon.png = apps/renderer/src/assets/logo.png). -->
+    <!-- Dasselbe App-Icon wie Desktop-App und Installer: apps/desktop/build/icon.png
+         in voller Auflösung, hier und in apps/renderer/src/assets/logo.png auf
+         512 px verkleinert (abgerundete Kachel, außerhalb transparent).
+         Das Touch-Icon ist bewusst deckend und randlos: iOS legt seine eigene
+         Eckenmaske darüber und füllt transparente Flächen schwarz. -->
     <link rel="icon" type="image/png" href="/logo.png" />
-    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>oHRganize</title>
   </head>
   <body>
