@@ -1,8 +1,9 @@
 # Mitarbeitenden-Web-Portal (apps/web)
 
 Das Portal ist der zweite Client auf dem client-agnostischen Backend: Mitarbeitende
-melden sich im Browser an, beantragen Abwesenheiten, melden sich krank und sehen
-ihre Stammdaten und ihren Urlaubssaldo. Die HR-Administration arbeitet weiterhin
+melden sich im Browser an, beantragen Abwesenheiten, melden sich krank, sehen
+ihre Stammdaten und ihren Urlaubssaldo und beantragen Korrekturen an ihren
+Stammdaten. Die HR-Administration arbeitet weiterhin
 ausschließlich in der Desktop-App und entscheidet dort über die Anträge.
 
 ## Rollen- und Kontenmodell
@@ -56,8 +57,11 @@ Berechtigungsprüfung** sind damit in HR-Erfassung und Portal identisch):
 | `GET /api/me/org-tree` | `orgRoutes.ts` | Abteilungsbaum (`buildOrgTree()`), Abteilungsfilter des Kalenders |
 | `GET /api/me/calendar?year=&month=` | `calendarRoutes.ts` | Firmenweite Abwesenheiten |
 | `GET/POST /api/me/documents` · `POST /api/me/documents/:id/download` | `documentRoutes.ts` | Eigene Dokumente |
+| `GET /api/me/change-request-fields` | `changeRequestRoutes.ts` | Beantragbare Stammdatenfelder (Allowlist aus `@ohrganize/shared`) |
+| `GET/POST /api/me/change-requests` | `changeRequestRoutes.ts` | Eigene Änderungsanträge lesen/stellen |
+| `POST /api/me/change-requests/:id/withdraw` | `changeRequestRoutes.ts` | Eigenen, noch offenen Antrag zurückziehen |
 
-Drei Grenzen, die bewusst gesetzt sind und beim Erweitern gelten müssen:
+Vier Grenzen, die bewusst gesetzt sind und beim Erweitern gelten müssen:
 
 - **Gehalt:** `salary_components.note` enthält HR-interne Begründungen aus
   Gehaltsänderungsanträgen (`Änderungsantrag #<id>: <reason>`). Antworten deshalb
@@ -73,9 +77,69 @@ Drei Grenzen, die bewusst gesetzt sind und beim Erweitern gelten müssen:
   ein 403 verriete deren Existenz. Upload nur mit Kategorie
   `bescheinigung|zertifikat|sonstiges`, MIME-Whitelist, 10 MB, `supersedes_id`
   verboten; `employee_id` kommt immer aus `requireEmployee`, nie aus dem Body.
+- **Stammdaten:** Das Portal schreibt **nie** direkt in `employees` — ein
+  `PATCH /api/me/profile` gibt es deshalb nicht (der früher hier reservierte
+  Eintrag ist aus der OpenAPI entfernt). Die Personalakte ist Grundlage für
+  Abrechnung und Meldungen; jede Änderung braucht eine zweite Person und eine
+  Spur. Geändert wird ausschließlich über einen Antrag, den die
+  Personalabteilung entscheidet (siehe unten).
+
+### Änderungsanträge zu den eigenen Stammdaten
+
+Mitarbeitende beantragen im Portal die Korrektur ihrer eigenen Stammdaten; die
+Personalabteilung entscheidet in der Desktop-App unter *Personal →
+Änderungsanträge* (`GET /api/employees/change-requests`,
+`POST /api/employees/change-requests/:id/decide`, Rechtebereich `personal`).
+Prüfung, Normalisierung und Statusübergänge liegen für beide Seiten gemeinsam in
+`modules/employees/changeRequestService.ts` — dasselbe Muster wie
+`absences/service.ts#createRequest`, damit Portal und HR nicht auseinanderlaufen.
+
+- **Eine einzige Feldliste.** `EMPLOYEE_SELF_EDITABLE_FIELDS` in
+  `packages/shared/src/employees.ts` ist die alleinige Quelle: Backend-Prüfung,
+  SET-Klausel des `UPDATE`, Portal-Formular und HR-Ansicht lesen dieselbe Liste.
+  Ein Feld, das dort nicht steht, ist weder beantragbar noch schreibbar — der
+  Feldname aus der Datenbank landet nie ungeprüft im SQL. Beantragbar sind
+  Privatanschrift, private Erreichbarkeit, Krankenkasse und Bankverbindung.
+  Bewusst **nicht** beantragbar: Name, Geburtsdatum, dienstliche Kontaktdaten,
+  alles zur Beschäftigung (Eintritt, Vorgesetzte, Stunden, Urlaubsanspruch) und
+  die Steuermerkmale.
+- **Bankverbindung: beantragbar, aber vertraulich.** Das Portal bekommt IBAN und
+  BIC nur gekürzt (`maskConfidential` — Punkte plus die letzten vier Zeichen,
+  `masked: true` am Feld) und sieht den aktuellen Stand gar nicht:
+  `GET /api/me/profile` enthält Bank- und Steuerdaten weiterhin nicht. Für
+  Bankfelder gibt es im Formular deshalb **keine Vorbelegung**; die HR-Liste
+  zeigt die Werte ungekürzt. Auch das Audit-Protokoll des Portals hält nur die
+  Feld**namen** fest, nicht die Werte — sonst stünde die neue Bankverbindung ein
+  zweites Mal im `audit_log`, den auch die Systemverwaltung liest.
+- **Höchstens EIN offener Antrag je Person** (`409`). Zwei offene Anträge
+  könnten dasselbe Feld auf verschiedene Werte setzen, und welcher gewinnt,
+  hinge an der Reihenfolge der Genehmigungen. Das ist zugleich die Bremse gegen
+  das Fluten der HR-Warteschlange — im Backend gibt es kein Rate-Limiting. Das
+  Formular muss diesen Zustand **sichtbar machen**, statt den Nutzer in ein 409
+  laufen zu lassen.
+- **Vier-Augen-Prinzip.** Wer den Antrag gestellt hat **oder** wessen eigenes
+  Personalprofil betroffen ist, darf ihn nicht genehmigen (`400`) — ein
+  Admin-Konto mit verknüpftem Profil kann beides, siehe oben. Ablehnen bleibt
+  erlaubt: Das ist ein Rückzug, kein Entscheid zugunsten der eigenen Sache.
+- **Ablehnung verlangt eine Begründung** (`400` ohne `decision_note`); sie wird
+  der Person im Portal angezeigt. Genehmigung schreibt die Personalakte
+  transaktional und protokolliert den Stand **unmittelbar vor dem Schreiben**,
+  nicht den `old_value` bei Antragstellung.
+- **Keine Benachrichtigung.** Es gibt keinen Mailversand: Die HR sieht offene
+  Anträge über die Dashboard-Kachel und die Seite *Personal →
+  Änderungsanträge*, die Person sieht die Entscheidung beim nächsten
+  Portal-Besuch. Texte in beiden Clients dürfen nichts anderes versprechen.
+  `MIN_CLIENT_VERSION` wird bewusst **nicht** angehoben — die Änderung ist
+  additiv, und die Regel in `packages/shared` erlaubt eine Anhebung nur, wenn
+  ältere Clients tatsächlich brechen; eine ältere Desktop-App zeigt die
+  Warteschlange dann eben nicht an.
+- **Ausgeschiedene:** `requireEmployee` sperrt jede `/api/me/*`-Route, also auch
+  den Rückzug. Ein offener Antrag bleibt in der HR-Warteschlange und muss dort
+  entschieden werden.
 
 Smoke-Test: `npx tsx apps/backend/src/modules/me/smoke.ts` (deckt Rollen-Guard,
-Berechtigungen, Vier-Augen, Datenschutzgrenzen und Upload-Regeln ab). Neue Checks
+Berechtigungen, Vier-Augen, Datenschutzgrenzen, Upload-Regeln und den kompletten
+Weg der Änderungsanträge ab). Neue Checks
 gehören **vor** den Widerrufsblock am Ende — der entzieht Profil und Rolle und
 löscht das Konto, danach schlägt alles fehl. Demo-Konten legt `npm run seed` an —
 vier Admins (`ohrganize2026`) und vier Portal-Konten (`portal2026`). Das ist ein

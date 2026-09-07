@@ -70,6 +70,33 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   genehmigt technisch immer „selbst". **Achtung Einzelbetrieb:** Eine
   Frischinstallation hat nur `admin@ohrganize.de`; dessen eigener Antrag ist dann
   von niemandem entscheidbar. Ein zweites Admin-Konto ist Voraussetzung.
+- **Stammdaten ändern Mitarbeitende nie selbst** (Migration
+  `106_employee_change_requests`). Das Portal stellt einen **Änderungsantrag**
+  (`POST /api/me/change-requests`), die Personalabteilung entscheidet
+  (`POST /api/employees/change-requests/:id/decide`) — erst dann schreibt der
+  Server in `employees`. Die Personalakte ist Grundlage für Abrechnung und
+  Meldungen; eine zweite Person und eine Spur sind Teil des Vorgangs.
+  **Die Feld-Allowlist `EMPLOYEE_SELF_EDITABLE_FIELDS`
+  (`packages/shared/src/employees.ts`) ist die einzige Quelle:** Aus ihr
+  entstehen die Prüfung im Backend, die SET-Klausel des UPDATE, das Formular
+  im Portal und die Gegenüberstellung in der Personalabteilung. Die Feldnamen
+  landen im SQL — eine zweite Liste wäre eine Einladung zum Auseinanderlaufen,
+  und ein Feld, das dort nicht steht, ist weder beantragbar noch schreibbar.
+  Beantragbar sind Privatanschrift, private Erreichbarkeit, Krankenkasse und
+  Bankverbindung; bewusst NICHT Name, Geburtsdatum, dienstliche Kontaktdaten,
+  Steuermerkmale und alles zur Beschäftigung. Die **Bankverbindung ist
+  vertraulich** (`confidential`): Das Portal bekommt Werte nur gekürzt
+  (`maskConfidential`) und sieht den aktuellen Stand gar nicht — sie steht
+  weiterhin nicht in `GET /api/me/profile`. Es gibt **höchstens einen offenen
+  Antrag je Person** (409) — zugleich die einzige Bremse gegen das Fluten der
+  HR-Warteschlange, denn das Backend hat kein Rate-Limiting. Vier-Augen wie
+  bei Abwesenheiten und Gehalt: Wer den Antrag gestellt hat ODER wessen
+  eigenes Profil betroffen ist, genehmigt ihn nicht (400); Ablehnen bleibt
+  erlaubt und verlangt eine Begründung, die im Portal erscheint. Die
+  gemeinsame Logik beider Seiten steht in
+  `modules/employees/changeRequestService.ts` (Vorbild:
+  `absences/service.ts`). Benachrichtigt wird niemand: HR sieht offene
+  Anträge auf der Dashboard-Kachel und unter Personal → Änderungsanträge.
 - **Führung & Bewertung — zwei Gates (Migration `310_leadership_ratings` im
   3xx-Kreis).** Die **Verwaltung** (Freischaltung, Zuständigkeit, Skala und
   Kategorien, Satisfaction-Report; alles unter `/api/leadership/*` außer `/me`)

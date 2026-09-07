@@ -352,7 +352,28 @@ curl -sSI https://portal.firma.de | grep -iE 'strict-transport|content-security|
 
 # Rechte im Datenverzeichnis
 ls -ld /var/lib/ohrganize /var/lib/ohrganize/storage      # erwartet: drwx------
+
+# Absicherung der Dienste (erwartet: 0.9 SAFE bzw. 0.2 SAFE)
+systemd-analyze security ohrganize-backend | tail -1
+systemd-analyze security ohrganize-backup  | tail -1
+
+# Nach JEDER Änderung an einer Unit — meldet u. a. still verworfene
+# Syscall-Gruppen (siehe die Warnung zur Schreibweise in der Unit selbst)
+systemd-analyze verify /etc/systemd/system/ohrganize-backend.service
 ```
+
+Die Units sind über die Standardhärtung hinaus abgesichert: keine
+Capabilities, ein Systemaufruf-Filter, unsichtbares `/proc`, eigener
+Benutzer-Namensraum und eine Netz-Allowlist auf Loopback; die Sicherung läuft
+zusätzlich ganz ohne Netz. Gemessen auf einem Debian-13-Testserver, inklusive
+Erstinbetriebnahme, Login mit Audit-Schreibvorgang, Schreiben in `storage/`,
+WAL-Checkpoint beim Stoppen und einem Dauerlauf ohne Neustart. Begründung je
+Direktive steht in den Units, der Hintergrund in `../docs/entscheidungen.md`.
+
+**Ein Stolperstein:** `IPAddressAllow=localhost` passt zum Normalfall (Proxy
+und Backend auf derselben Maschine). Wer beide trennt und `OHRGANIZE_HOST`
+setzt, muss die Adresse des Proxys dort ergänzen — sonst weist der Dienst
+dessen Verbindungen ab.
 
 ## 8. Wenn etwas nicht startet
 

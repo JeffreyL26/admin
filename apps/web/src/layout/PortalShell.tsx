@@ -5,6 +5,7 @@ import {
   IconCalendar,
   IconClose,
   IconDocuments,
+  IconIdCard,
   IconLogout,
   IconMenu,
   IconOrg,
@@ -52,6 +53,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Meine Daten',
     items: [
+      { to: '/stammdaten', label: 'Stammdaten', icon: IconIdCard },
       { to: '/gehalt', label: 'Gehalt', icon: IconSalary },
       { to: '/dokumente', label: 'Dokumente', icon: IconDocuments },
     ],

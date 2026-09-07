@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { ApiRequestError } from '../api/client';
 import { useMyProfile } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
@@ -132,7 +133,10 @@ export function ProfilePage() {
       <header className="portal-page-header">
         <h1 className="portal-title">Ihr Profil</h1>
         <p className="portal-subtitle">
-          Diese Daten führt Ihre Personalabteilung. Stimmt etwas nicht, melden Sie es dort.
+          Diese Daten führt Ihre Personalabteilung. Anschrift, private Erreichbarkeit, Krankenkasse
+          und Bankverbindung können Sie unter{' '}
+          <Link to="/stammdaten">Stammdaten</Link> selbst zur Änderung beantragen; alles Übrige
+          melden Sie bitte direkt der Personalabteilung.
         </p>
       </header>
 
@@ -174,7 +178,14 @@ export function ProfilePage() {
               </div>
             )}
           </Card>
-          <Card title="Kontakt">
+          <Card
+            title="Kontakt"
+            actions={
+              <Link to="/stammdaten" className="pt-btn pt-btn--quiet pt-btn--sm">
+                Änderung beantragen
+              </Link>
+            }
+          >
             {error ? null : isLoading || !profile ? (
               <div className="stack" style={{ gap: 12 }}>
                 <Skeleton />

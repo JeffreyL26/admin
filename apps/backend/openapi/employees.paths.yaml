@@ -39,6 +39,29 @@ paths:
       responses:
         "200": { description: "{ updated: n }" }
         "400": { description: Unzulässiges Feld oder Typregel-Verletzung }
+  /api/employees/change-request-fields:
+    get:
+      summary: Selbst beantragbare Stammdatenfelder (dieselbe Allowlist wie im Portal, für die Anzeige)
+      responses:
+        "200": { description: "{ fields: [...] }" }
+  /api/employees/change-requests:
+    get:
+      summary: Änderungsanträge Mitarbeitender zu ihren Stammdaten (offene zuerst, Bankwerte ungekürzt)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [beantragt, genehmigt, abgelehnt, zurueckgezogen] } }
+        - { name: employee_id, in: query, schema: { type: integer } }
+      responses:
+        "200": { description: "{ requests: [...], open_count } inkl. Name, Personalnummer, Antragsteller:in und Entscheider:in" }
+  /api/employees/change-requests/{id}/decide:
+    post:
+      summary: "Antrag genehmigen/ablehnen — Body { decision, decision_note? }; Genehmigung schreibt die Personalakte transaktional (auditiert)"
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ request } mit Entscheidung, decided_at und decision_note" }
+        "400": { description: Selbstgenehmigung (Vier-Augen-Prinzip) oder Ablehnung ohne Begründung }
+        "404": { description: Antrag nicht gefunden }
+        "409": { description: Antrag ist bereits entschieden }
   /api/employees/{id}:
     get:
       summary: Mitarbeiter:in mit Organisationskontext und Reporting-Line

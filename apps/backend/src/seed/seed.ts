@@ -125,6 +125,11 @@ if (FORCE) {
     // per Migration angelegt; Zusatzkategorien und verstellte Einstellungen
     // werden direkt unter der Schleife zurückgesetzt.
     'leadership_rating_history', 'leadership_ratings', 'leadership_assignments', 'leadership_leaders',
+    // Stammdaten-Änderungsanträge (Kinder → Eltern). Die Kaskade über
+    // employees träfe sie zwar ohnehin, aber die Liste ist die
+    // Bestandsaufnahme dessen, was der Seed anfasst — sie soll vollständig
+    // sein, damit beim nächsten Modul niemand raten muss.
+    'employee_change_request_fields', 'employee_change_requests',
     'employees', 'teams', 'departments', 'locations',
     'audit_log', 'files',
   ];
@@ -392,6 +397,62 @@ inTransaction(() => {
   doc(MJ1, 'bescheinigung', 'Befreiung Rentenversicherungspflicht');
   doc(OPS1, 'zertifikat', 'Kubernetes CKA', '2026-06-30'); // bereits abgelaufen
   doc(null, 'sonstiges', 'Betriebsvereinbarung Mobiles Arbeiten');
+
+  // =============== Stammdaten-Änderungsanträge aus dem Portal ===============
+  // Zwei Anträge, damit beide Seiten der Demo etwas zeigen: ein offener (er
+  // steht in der HR-Warteschlange und auf der Dashboard-Kachel) und ein
+  // entschiedener (er zeigt im Portal, wie eine Ablehnung samt Begründung
+  // ankommt). Deniz Aydin und Marta Kowalczyk haben beide ein Portal-Konto.
+  const changeRequest = (
+    emp: number,
+    userEmail: string | null,
+    note: string,
+    felder: [string, string | null, string | null][],
+    entscheidung?: { status: 'genehmigt' | 'abgelehnt'; by: string; note: string },
+  ) => {
+    const userId = userEmail
+      ? ((db.prepare('SELECT id FROM users WHERE email = ?').get(userEmail) as { id: number } | undefined)?.id ??
+        null)
+      : null;
+    const deciderId = entscheidung
+      ? ((db.prepare('SELECT id FROM users WHERE email = ?').get(entscheidung.by) as { id: number } | undefined)
+          ?.id ?? null)
+      : null;
+    const id = insert('employee_change_requests', {
+      employee_id: emp,
+      note,
+      requested_by_user_id: userId,
+      status: entscheidung?.status ?? 'beantragt',
+      decided_by_user_id: deciderId,
+      decided_at: entscheidung ? '2026-08-20 09:15:00' : null,
+      decision_note: entscheidung?.note ?? null,
+    });
+    for (const [field, alt, neu] of felder) {
+      insert('employee_change_request_fields', {
+        request_id: id,
+        field,
+        old_value: alt,
+        new_value: neu,
+      });
+    }
+    return id;
+  };
+  changeRequest(DEV1, 'deniz.aydin@ohrganize.de', 'Umzug zum 1. des Monats, Meldebescheinigung reiche ich nach.', [
+    ['private_street', null, 'Lindenstraße 12'],
+    ['private_zip', null, '80331'],
+    ['private_city', null, 'München'],
+  ]);
+  changeRequest(
+    DEV2,
+    'marta.kowalczyk@ohrganize.de',
+    'Neue Bankverbindung nach Kontowechsel.',
+    [['iban', null, 'DE02120300000000202051']],
+    {
+      status: 'abgelehnt',
+      by: 'jurgen.wilms@ohrganize.de',
+      note: 'Bitte den Kontoauszug oder eine Bestätigung der Bank nachreichen, dann genehmigen wir sofort.',
+    },
+  );
 
   // ======================= Abwesenheiten =======================
   const typeId = (name: string) =>

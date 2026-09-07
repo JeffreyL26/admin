@@ -382,3 +382,120 @@ export const EMPLOYEE_SORT_LABELS: Record<EmployeeSortField, string> = {
   job_title: 'Titel',
   department: 'Abteilung',
 };
+
+// ===========================================================================
+// Änderungsanträge zu den eigenen Stammdaten (Portal → Personalabteilung)
+// ===========================================================================
+
+/**
+ * Ein Feld der Personalakte, das Mitarbeitende im Portal selbst zur Änderung
+ * BEANTRAGEN dürfen — geändert wird es erst durch die Personalabteilung.
+ *
+ * Die Liste ist der einzige Ort, an dem diese Auswahl steht: Das Backend baut
+ * daraus seine Zod-Prüfung UND die SET-Klausel des UPDATE, das Portal sein
+ * Formular, die Personalabteilung ihre Gegenüberstellung. Ein Feld, das hier
+ * nicht steht, ist damit weder beantragbar noch schreibbar — die Feldnamen
+ * landen im SQL, eine zweite Liste wäre eine Einladung zum Auseinanderlaufen.
+ */
+export interface EmployeeSelfEditableField {
+  /** Spaltenname in `employees`. Geht direkt ins SQL — nur aus dieser Liste. */
+  field: string;
+  label: string;
+  group: 'adresse' | 'kontakt' | 'versicherung' | 'bank';
+  input: 'text' | 'email' | 'tel' | 'zip' | 'iban' | 'bic';
+  maxLength: number;
+  /**
+   * Der Klartext geht NIE ins Portal zurück (nur an die Personalabteilung).
+   * Betrifft die Bankverbindung: Sie steht bewusst nicht in der
+   * Profil-Projektion von `GET /api/me/profile`, und ein Antrag darf diese
+   * Grenze nicht durch die Hintertür aufweichen.
+   */
+  confidential?: boolean;
+  hint?: string;
+}
+
+export const EMPLOYEE_SELF_EDITABLE_FIELDS: readonly EmployeeSelfEditableField[] = [
+  { field: 'private_street', label: 'Straße und Hausnummer', group: 'adresse', input: 'text', maxLength: 120 },
+  { field: 'private_zip', label: 'Postleitzahl', group: 'adresse', input: 'zip', maxLength: 10 },
+  { field: 'private_city', label: 'Ort', group: 'adresse', input: 'text', maxLength: 80 },
+  { field: 'private_phone', label: 'Telefon (privat)', group: 'kontakt', input: 'tel', maxLength: 40 },
+  { field: 'private_email', label: 'E-Mail (privat)', group: 'kontakt', input: 'email', maxLength: 120 },
+  { field: 'health_insurance', label: 'Krankenkasse', group: 'versicherung', input: 'text', maxLength: 120 },
+  {
+    field: 'iban',
+    label: 'IBAN',
+    group: 'bank',
+    input: 'iban',
+    maxLength: 34,
+    confidential: true,
+    hint: 'Die hinterlegte Bankverbindung wird im Portal nicht angezeigt. Eine Änderung wirkt erst nach der Freigabe durch die Personalabteilung.',
+  },
+  { field: 'bic', label: 'BIC', group: 'bank', input: 'bic', maxLength: 11, confidential: true },
+];
+
+export const EMPLOYEE_SELF_EDITABLE_FIELD_NAMES: readonly string[] =
+  EMPLOYEE_SELF_EDITABLE_FIELDS.map((f) => f.field);
+
+export const EMPLOYEE_SELF_EDITABLE_GROUP_LABELS: Record<EmployeeSelfEditableField['group'], string> = {
+  adresse: 'Privatanschrift',
+  kontakt: 'Private Erreichbarkeit',
+  versicherung: 'Versicherung',
+  bank: 'Bankverbindung',
+};
+
+export function selfEditableField(field: string): EmployeeSelfEditableField | undefined {
+  return EMPLOYEE_SELF_EDITABLE_FIELDS.find((f) => f.field === field);
+}
+
+/**
+ * Vertraulichen Wert für die Anzeige kürzen: nur die letzten vier Zeichen
+ * bleiben stehen. Für die IBAN reicht das, um einen Zahlendreher zu erkennen,
+ * ohne die vollständige Kontonummer erneut über den Bildschirm zu schicken.
+ */
+export function maskConfidential(value: string | null | undefined): string | null {
+  if (!value) return value ?? null;
+  const clean = value.replace(/\s+/g, '');
+  if (clean.length <= 4) return '•'.repeat(clean.length);
+  return `${'•'.repeat(Math.min(clean.length - 4, 12))}${clean.slice(-4)}`;
+}
+
+export type EmployeeChangeRequestStatus = 'beantragt' | 'genehmigt' | 'abgelehnt' | 'zurueckgezogen';
+
+export const EMPLOYEE_CHANGE_REQUEST_STATUS_LABELS: Record<EmployeeChangeRequestStatus, string> = {
+  beantragt: 'Beantragt',
+  genehmigt: 'Genehmigt',
+  abgelehnt: 'Abgelehnt',
+  zurueckgezogen: 'Zurückgezogen',
+};
+
+/** Eine beantragte Feldänderung. `old_value` ist der Stand bei Antragstellung. */
+export interface EmployeeChangeRequestField {
+  field: string;
+  label: string;
+  old_value: string | null;
+  new_value: string | null;
+  /** true, wenn old_value/new_value gekürzt sind (Bankverbindung im Portal). */
+  masked?: boolean;
+}
+
+export interface EmployeeChangeRequest {
+  id: number;
+  employee_id: number;
+  status: EmployeeChangeRequestStatus;
+  /** Begründung der antragstellenden Person. */
+  note: string | null;
+  decided_at: string | null;
+  /** Begründung der Entscheidung (bei Ablehnung Pflicht). */
+  decision_note: string | null;
+  created_at: string;
+  fields: EmployeeChangeRequestField[];
+}
+
+/** Zusätzliche Felder für die Liste in der Personalabteilung. */
+export interface EmployeeChangeRequestForHr extends EmployeeChangeRequest {
+  first_name: string;
+  last_name: string;
+  personnel_number: string | null;
+  requested_by_name: string | null;
+  decided_by_name: string | null;
+}

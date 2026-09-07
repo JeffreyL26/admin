@@ -754,6 +754,200 @@ check(
 );
 db.prepare("UPDATE users SET role = 'mitarbeiter' WHERE email = 'ben.berg@test.de'").run();
 
+// --------------------------------------------- Stammdaten-Änderungsanträge ---
+// Anna stellt die Anträge (Portal), das Konto admin@ohrganize.de entscheidet
+// (Personalabteilung ohne eigenes Personalprofil).
+//
+// Für die Vier-Augen-Prüfung wird Ben weiter unten vorübergehend zum
+// HR-Konto MIT eigenem Personalprofil gemacht — der Block darüber hat seine
+// Rolle wieder zurückgesetzt, deshalb hier erneut.
+
+const felderRes = await empGet('/api/me/change-request-fields');
+check(
+  'Beantragbare Felder abrufbar',
+  felderRes.statusCode === 200 && felderRes.json().fields.some((f: { field: string }) => f.field === 'private_street'),
+  felderRes.json(),
+);
+check(
+  'Bankverbindung ist als vertraulich gekennzeichnet',
+  felderRes.json().fields.find((f: { field: string }) => f.field === 'iban')?.confidential === true,
+);
+
+const crGesperrt = await empPost('/api/me/change-requests', { fields: { hire_date: '2019-01-01' } });
+check('Gesperrtes Feld (Eintrittsdatum) → 400', crGesperrt.statusCode === 400, crGesperrt.json());
+const crSalary = await empPost('/api/me/change-requests', { fields: { annual_leave_days: '99' } });
+check('Gesperrtes Feld (Urlaubsanspruch) → 400', crSalary.statusCode === 400, crSalary.json());
+const crMail = await empPost('/api/me/change-requests', { fields: { private_email: 'kein-mail' } });
+check('Ungültige E-Mail → 400', crMail.statusCode === 400, crMail.json());
+const crIban = await empPost('/api/me/change-requests', { fields: { iban: 'DE00' } });
+check('Ungültige IBAN → 400', crIban.statusCode === 400, crIban.json());
+const crPlz = await empPost('/api/me/change-requests', { fields: { private_zip: 'ABCDE' } });
+check('Ungültige Postleitzahl → 400', crPlz.statusCode === 400, crPlz.json());
+const crLeer = await empPost('/api/me/change-requests', { fields: {} });
+check('Antrag ohne Feld → 400', crLeer.statusCode === 400, crLeer.json());
+
+const crAnlegen = await empPost('/api/me/change-requests', {
+  fields: {
+    private_street: '  Musterweg 5 ',
+    private_zip: '80331',
+    private_city: 'München',
+    private_email: '  Anna.Privat@Example.DE ',
+    iban: 'de02 1203 0000 0000 2020 51',
+  },
+  note: 'Umzug zum 1. des Monats',
+});
+check('Änderungsantrag anlegen → 201', crAnlegen.statusCode === 201, crAnlegen.json());
+const crId = crAnlegen.json().request.id as number;
+const crFelder = crAnlegen.json().request.fields as { field: string; new_value: string | null; masked?: boolean }[];
+check(
+  'E-Mail wird normalisiert (klein, ohne Leerzeichen)',
+  crFelder.find((f) => f.field === 'private_email')?.new_value === 'anna.privat@example.de',
+  crFelder,
+);
+check(
+  'IBAN wird normalisiert und im Portal maskiert',
+  crFelder.find((f) => f.field === 'iban')?.masked === true &&
+    /^•+2051$/.test(crFelder.find((f) => f.field === 'iban')?.new_value ?? ''),
+  crFelder.find((f) => f.field === 'iban'),
+);
+
+const crZweiter = await empPost('/api/me/change-requests', { fields: { private_city: 'Berlin' } });
+check('Zweiter offener Antrag → 409', crZweiter.statusCode === 409, crZweiter.json());
+
+const vorEntscheidung = db.prepare('SELECT private_city, iban FROM employees WHERE id = 1').get() as {
+  private_city: string | null;
+  iban: string | null;
+};
+check(
+  'Personalakte bleibt bis zur Entscheidung unverändert',
+  vorEntscheidung.private_city === null && vorEntscheidung.iban === null,
+  vorEntscheidung,
+);
+
+const crFremdRueckzug = await app.inject({
+  method: 'POST',
+  url: `/api/me/change-requests/${crId}/withdraw`,
+  headers: benAuth,
+});
+check('Fremden Antrag zurückziehen → 404 (verrät nicht einmal die Existenz)', crFremdRueckzug.statusCode === 404);
+
+const crAlsMitarbeiter = await empGet('/api/employees/change-requests');
+check('HR-Liste mit Mitarbeiter-Token → 403', crAlsMitarbeiter.statusCode === 403);
+
+const crHrListe = await app.inject({
+  method: 'GET',
+  url: '/api/employees/change-requests?status=beantragt',
+  headers: adminAuth,
+});
+const crHr = crHrListe.json().requests.find((r: { id: number }) => r.id === crId);
+check(
+  'Personalabteilung sieht den Antrag mit Klartext-IBAN',
+  crHrListe.statusCode === 200 &&
+    crHr?.fields.find((f: { field: string }) => f.field === 'iban')?.new_value === 'DE02120300000000202051',
+  crHr?.fields,
+);
+check('Offene Anträge werden gezählt', crHrListe.json().open_count >= 1, crHrListe.json().open_count);
+
+const crAblehnenOhneGrund = await app.inject({
+  method: 'POST',
+  url: `/api/employees/change-requests/${crId}/decide`,
+  headers: adminAuth,
+  payload: { decision: 'abgelehnt' },
+});
+check('Ablehnen ohne Begründung → 400', crAblehnenOhneGrund.statusCode === 400, crAblehnenOhneGrund.json());
+
+// Vier-Augen: Ben stellt einen Antrag zum EIGENEN Profil und entscheidet ihn
+// selbst. Dafür wird er erneut zum HR-Konto — die Rolle wird pro Request
+// frisch aus users geladen, das bestehende Token genügt.
+db.prepare("UPDATE users SET role = 'admin' WHERE email = 'ben.berg@test.de'").run();
+const crBen = await app.inject({
+  method: 'POST',
+  url: '/api/me/change-requests',
+  headers: benAuth,
+  payload: { fields: { private_city: 'Hamburg' } },
+});
+check('Ben stellt einen eigenen Antrag → 201', crBen.statusCode === 201, crBen.json());
+const crBenId = crBen.json().request.id as number;
+const crBenSelbst = await app.inject({
+  method: 'POST',
+  url: `/api/employees/change-requests/${crBenId}/decide`,
+  headers: benAuth,
+  payload: { decision: 'genehmigt' },
+});
+check('Vier-Augen: eigenen Änderungsantrag genehmigen → 400', crBenSelbst.statusCode === 400, crBenSelbst.json());
+const crBenAblehnen = await app.inject({
+  method: 'POST',
+  url: `/api/employees/change-requests/${crBenId}/decide`,
+  headers: benAuth,
+  payload: { decision: 'abgelehnt', decision_note: 'Doch nicht nötig' },
+});
+check('Eigenen Antrag ablehnen bleibt erlaubt (Rückzug)', crBenAblehnen.statusCode === 200, crBenAblehnen.json());
+db.prepare("UPDATE users SET role = 'mitarbeiter' WHERE email = 'ben.berg@test.de'").run();
+
+const crGenehmigen = await app.inject({
+  method: 'POST',
+  url: `/api/employees/change-requests/${crId}/decide`,
+  headers: adminAuth,
+  payload: { decision: 'genehmigt', decision_note: 'Meldebescheinigung liegt vor' },
+});
+check('Genehmigen durch die Personalabteilung → 200', crGenehmigen.statusCode === 200, crGenehmigen.json());
+const nachEntscheidung = db
+  .prepare('SELECT private_street, private_zip, private_city, private_email, iban FROM employees WHERE id = 1')
+  .get() as Record<string, string | null>;
+check(
+  'Personalakte übernimmt die beantragten Werte',
+  nachEntscheidung.private_street === 'Musterweg 5' &&
+    nachEntscheidung.private_zip === '80331' &&
+    nachEntscheidung.private_city === 'München' &&
+    nachEntscheidung.private_email === 'anna.privat@example.de' &&
+    nachEntscheidung.iban === 'DE02120300000000202051',
+  nachEntscheidung,
+);
+const crNochmal = await app.inject({
+  method: 'POST',
+  url: `/api/employees/change-requests/${crId}/decide`,
+  headers: adminAuth,
+  payload: { decision: 'abgelehnt', decision_note: 'zu spät' },
+});
+check('Zweite Entscheidung → 409', crNochmal.statusCode === 409, crNochmal.json());
+
+const crAuditZeile = db
+  .prepare("SELECT details FROM audit_log WHERE action = 'employee_change_request.approve' ORDER BY id DESC LIMIT 1")
+  .get() as { details: string } | undefined;
+check(
+  'Genehmigung steht mit den überschriebenen Werten im Protokoll',
+  !!crAuditZeile && JSON.parse(crAuditZeile.details).applied.some((a: { field: string }) => a.field === 'iban'),
+  crAuditZeile?.details,
+);
+const crAuditAntrag = db
+  .prepare("SELECT details FROM audit_log WHERE action = 'me.change_request.create' ORDER BY id DESC LIMIT 1")
+  .get() as { details: string } | undefined;
+check(
+  'Der Antrag selbst protokolliert nur Feldnamen, keine Werte',
+  !!crAuditAntrag && !crAuditAntrag.details.includes('DE02120300000000202051'),
+  crAuditAntrag?.details,
+);
+
+// Nach der Entscheidung ist wieder ein Antrag möglich, und er lässt sich zurückziehen.
+const crNeu = await empPost('/api/me/change-requests', { fields: { private_phone: '089 1234567' } });
+check('Nach der Entscheidung ist ein neuer Antrag möglich → 201', crNeu.statusCode === 201, crNeu.json());
+const crRueckzug = await empPost(`/api/me/change-requests/${crNeu.json().request.id}/withdraw`);
+check('Eigenen Antrag zurückziehen → 200', crRueckzug.statusCode === 200, crRueckzug.json());
+check(
+  'Zurückgezogener Antrag hat den Status zurueckgezogen',
+  crRueckzug.json().request.status === 'zurueckgezogen',
+  crRueckzug.json().request.status,
+);
+const crRueckzugNochmal = await empPost(`/api/me/change-requests/${crNeu.json().request.id}/withdraw`);
+check('Zurückgezogenen Antrag erneut zurückziehen → 409', crRueckzugNochmal.statusCode === 409);
+const crEigeneListe = await empGet('/api/me/change-requests');
+check(
+  'Eigene Antragsliste enthält nur eigene Anträge',
+  crEigeneListe.json().requests.length >= 2 &&
+    !crEigeneListe.json().requests.some((r: { id: number }) => r.id === crBenId),
+  crEigeneListe.json().requests.map((r: { id: number; status: string }) => `${r.id}:${r.status}`),
+);
+
 // ------------------------------------------------------ Sofortiger Widerruf ---
 // Rolle/Verknüpfung werden pro Request frisch geladen — Änderungen wirken
 // sofort, nicht erst nach Ablauf der Token-Laufzeit.

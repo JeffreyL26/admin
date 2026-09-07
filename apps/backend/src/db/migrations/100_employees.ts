@@ -246,4 +246,56 @@ export const employeesMigrations: Migration[] = [
         ON documents(supersedes_id) WHERE supersedes_id IS NOT NULL;
     `,
   },
+  {
+    // Änderungsanträge zu den eigenen Stammdaten: Mitarbeitende stellen sie im
+    // Portal, die Personalabteilung entscheidet. Bewusst NICHT als direktes
+    // Schreibrecht auf `employees` gebaut — die Personalakte ist die Grundlage
+    // für Abrechnung und Meldungen, jede Änderung braucht eine zweite Person
+    // und eine Spur.
+    //
+    // Zwei Tabellen statt einer: Ein Antrag ist eine Einreichung (eine
+    // Begründung, eine Entscheidung), enthält aber mehrere Felder. Mit einer
+    // Zeile je Feld ließe sich weder die Einreichung als Ganzes ablehnen noch
+    // die Begründung EINMAL speichern.
+    //
+    // old_value hält den Stand BEI ANTRAGSTELLUNG fest. Es dient der
+    // Gegenüberstellung in der Personalabteilung und dem Protokoll — nicht
+    // dem Vergleich beim Genehmigen: Hat sich der Wert zwischenzeitlich
+    // geändert, wird der beantragte Wert trotzdem gesetzt (die Entscheidung
+    // gilt dem gewünschten Zustand), der Unterschied steht im audit_log.
+    name: '106_employee_change_requests',
+    sql: `
+      CREATE TABLE employee_change_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        status TEXT NOT NULL DEFAULT 'beantragt'
+          CHECK (status IN ('beantragt', 'genehmigt', 'abgelehnt', 'zurueckgezogen')),
+        note TEXT,
+        requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        decided_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        decided_at TEXT,
+        decision_note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX idx_employee_change_requests_employee
+        ON employee_change_requests(employee_id, status);
+      -- Die Personalabteilung filtert die Liste fast immer auf "beantragt";
+      -- partiell, damit der Index nicht mit dem Archiv mitwächst.
+      CREATE INDEX idx_employee_change_requests_offen
+        ON employee_change_requests(created_at) WHERE status = 'beantragt';
+
+      -- field ist ein Spaltenname aus EMPLOYEE_SELF_EDITABLE_FIELDS
+      -- (packages/shared/src/employees.ts). Er landet beim Genehmigen in der
+      -- SET-Klausel; geprüft wird er ausschließlich gegen diese Liste.
+      CREATE TABLE employee_change_request_fields (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id INTEGER NOT NULL
+          REFERENCES employee_change_requests(id) ON DELETE CASCADE,
+        field TEXT NOT NULL,
+        old_value TEXT,
+        new_value TEXT,
+        UNIQUE (request_id, field)
+      );
+    `,
+  },
 ];

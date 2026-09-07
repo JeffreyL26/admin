@@ -86,10 +86,51 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-    patch:
-      x-status: planned
-      summary: Eigene Stammdaten teilweise ändern (Kontaktdaten, Adresse, Bankverbindung)
-      responses: { "200": { description: Aktualisierte Stammdaten } }
+    # Ein direktes PATCH auf das eigene Profil gibt es bewusst NICHT: Die
+    # Personalakte ist Grundlage für Abrechnung und Meldungen, jede Änderung
+    # läuft als Antrag über /api/me/change-requests und wird in der
+    # Personalabteilung entschieden.
+  /api/me/change-request-fields:
+    get:
+      summary: Selbst beantragbare Stammdatenfelder (Allowlist EMPLOYEE_SELF_EDITABLE_FIELDS)
+      responses:
+        "200": { description: "{ fields } je Feld mit label, group, input, maxLength, confidential, hint" }
+  /api/me/change-requests:
+    get:
+      summary: Eigene Änderungsanträge zu den Stammdaten (Bankwerte gekürzt)
+      responses:
+        "200": { description: "{ requests } neueste zuerst, je Antrag fields mit old_value/new_value (bei Bankfeldern masked)" }
+    post:
+      summary: "Änderung der eigenen Stammdaten beantragen — Body { fields: {spalte: wert|null}, note? }"
+      responses:
+        "201": { description: "{ request } mit Status beantragt" }
+        "400":
+          description: Feld nicht beantragbar, Wert ungültig oder gegenüber dem hinterlegten Stand unverändert
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Es liegt bereits ein offener Antrag vor (höchstens einer je Person)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/me/change-requests/{id}/withdraw:
+    post:
+      summary: Eigenen, noch offenen Änderungsantrag zurückziehen
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ request } mit Status zurueckgezogen" }
+        "404":
+          description: Antrag unbekannt oder fremd (404 statt 403 — ein 403 verriete seine Existenz)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Antrag ist bereits entschieden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/me/documents:
     get:
       x-status: planned

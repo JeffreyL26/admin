@@ -49,6 +49,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     let headcount: number | undefined;
     let hiresYtd: number | undefined;
     let expiringDocuments: number | undefined;
+    let openProfileChanges: number | undefined;
     let byDepartment: unknown[] | undefined;
     let upcomingBirthdays: unknown[] | undefined;
     if (mayPersonal) {
@@ -61,6 +62,12 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         `SELECT COUNT(*) n FROM documents
          WHERE expiry_date IS NOT NULL AND expiry_date <= ? `,
         in30,
+      );
+      // Offene Änderungsanträge aus dem Mitarbeitenden-Portal. Sie ändern die
+      // Personalakte und hängen deshalb am Bereich 'personal' — wie die Route
+      // /api/employees/change-requests, über die entschieden wird.
+      openProfileChanges = count(
+        `SELECT COUNT(*) n FROM employee_change_requests WHERE status = 'beantragt'`,
       );
 
       byDepartment = db
@@ -205,7 +212,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       // Kacheln und Widgets aus, statt Lücken als Nullwerte zu deuten.
       allowed_areas: ADMIN_AREAS.filter(may),
       stats: {
-        ...(mayPersonal ? { headcount, hiresYtd, expiringDocuments } : {}),
+        ...(mayPersonal ? { headcount, hiresYtd, expiringDocuments, openProfileChanges } : {}),
         ...(mayAbwesenheit
           ? { pendingAbsences, missingSickNotes, absentTodayCount: absentToday?.length ?? 0 }
           : {}),

@@ -1,7 +1,15 @@
-import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from '@tanstack/react-query';
 import type {
   ContractDto,
   DocumentDto,
+  EmployeeChangeRequestForHr,
+  EmployeeChangeRequestStatus,
   EmployeeDto,
   EmployeeSortField,
   EmployeeStatus,
@@ -226,6 +234,63 @@ export function useExpiringDocuments() {
     queryKey: ['documents', 'expiring'],
     queryFn: () => api.get<{ documents: DocumentRow[] }>('/api/documents/expiring'),
     select: (d) => d.documents,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Änderungsanträge zu Stammdaten (Portal → Personalabteilung)
+// ---------------------------------------------------------------------------
+
+export interface ChangeRequestFilter {
+  status?: EmployeeChangeRequestStatus;
+  /** null = kein Filter (so liefert es der EmployeeSelect). */
+  employee_id?: number | null;
+}
+
+export function useEmployeeChangeRequests(filter: ChangeRequestFilter = {}) {
+  const p = new URLSearchParams();
+  if (filter.status) p.set('status', filter.status);
+  if (filter.employee_id) p.set('employee_id', String(filter.employee_id));
+  const qs = p.toString();
+  return useQuery({
+    // Unter dem Präfix 'employees': Eine Genehmigung schreibt die Personalakte,
+    // die Invalidierung nach der Entscheidung trifft damit Liste, Akte und
+    // diese Anträge in einem Zug.
+    queryKey: ['employees', 'change-requests', filter],
+    queryFn: () =>
+      api.get<{ requests: EmployeeChangeRequestForHr[]; open_count: number }>(
+        `/api/employees/change-requests${qs ? `?${qs}` : ''}`,
+      ),
+    // Jeder Filterwechsel ist ein neuer Key ohne Daten — ohne Platzhalter fiele
+    // die Tabelle bei jedem Filterklick auf den Spinner zurück.
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Entscheidung über einen Antrag. Bewusst OHNE eigenes Fehler-Handling: Die
+ * Aufrufstelle zeigt die Meldung des Backends (Vier-Augen-Prinzip, bereits
+ * entschieden, fehlende Begründung) und lässt ihren Dialog offen.
+ */
+export function useDecideChangeRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      id: number;
+      decision: 'genehmigt' | 'abgelehnt';
+      decision_note?: string;
+    }) =>
+      api.post<{ request: EmployeeChangeRequestForHr }>(
+        `/api/employees/change-requests/${vars.id}/decide`,
+        // Leere Begründung gar nicht erst mitschicken — das Backend prüft auf
+        // „gesetzt“, ein leerer String zählte als Begründung.
+        { decision: vars.decision, ...(vars.decision_note ? { decision_note: vars.decision_note } : {}) },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['employees'] });
+      // Die Kachel „Offene Stammdaten-Anträge“ zählt dieselben Anträge.
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
   });
 }
 

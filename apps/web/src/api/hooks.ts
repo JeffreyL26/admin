@@ -4,6 +4,8 @@ import type {
   AbsenceRequest,
   AbsenceType,
   CompanyClosure,
+  EmployeeChangeRequest,
+  EmployeeSelfEditableField,
   MeBonus,
   MeCalendarEmployee,
   MeDocument,
@@ -270,5 +272,64 @@ export function useUploadDocument() {
 export function useDocumentDownload() {
   return useMutation({
     mutationFn: (id: number) => downloadFile(`/api/me/documents/${id}/download`),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Änderungsanträge zu den eigenen Stammdaten (/api/me/change-requests)
+// ---------------------------------------------------------------------------
+
+/**
+ * Beantragbare Felder samt Bezeichnung, Eingabeart und Vertraulichkeit.
+ *
+ * Bewusst vom Server geholt statt direkt aus EMPLOYEE_SELF_EDITABLE_FIELDS
+ * gelesen: Das Portal wird getrennt ausgeliefert und kann vor dem Backend
+ * aktualisiert sein — dann böte eine einkompilierte Liste Felder an, die der
+ * POST mit 400 ablehnt. Die Auswahl ändert sich nur mit einer neuen
+ * Backend-Version, deshalb lange frisch halten.
+ */
+export function useChangeRequestFields() {
+  return useQuery({
+    queryKey: ['me', 'change-request-fields'],
+    queryFn: () =>
+      api.get<{ fields: EmployeeSelfEditableField[] }>('/api/me/change-request-fields'),
+    select: (d) => d.fields,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Eigene Anträge, neueste zuerst. Bankwerte kommen gekürzt. */
+export function useMyChangeRequests() {
+  return useQuery({
+    queryKey: ['me', 'change-requests'],
+    queryFn: () => api.get<{ requests: EmployeeChangeRequest[] }>('/api/me/change-requests'),
+    select: (d) => d.requests,
+    // Wie bei den Abwesenheitsanträgen: Über die Freigabe entscheidet jemand
+    // anderes in einer anderen Anwendung, und es gibt keine Benachrichtigung.
+    refetchInterval: 30_000,
+  });
+}
+
+export interface NewChangeRequest {
+  /** Nur die geänderten Felder; `null` bedeutet „Feld leeren". */
+  fields: Record<string, string | null>;
+  note?: string;
+}
+
+export function useCreateChangeRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: NewChangeRequest) =>
+      api.post<{ request: EmployeeChangeRequest }>('/api/me/change-requests', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
+  });
+}
+
+export function useWithdrawChangeRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.post<{ request: EmployeeChangeRequest }>(`/api/me/change-requests/${id}/withdraw`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
   });
 }

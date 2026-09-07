@@ -35,11 +35,48 @@ PrivateTmp=true
 PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
 RestrictSUIDSGID=true
+RestrictRealtime=true
 RestrictNamespaces=true
 LockPersonality=true
 SystemCallArchitectures=native
 MemoryDenyWriteExecute=false
+
+# --- Härtung ----------------------------------------------------------------
+# Gemessen auf einem Debian-13-Testserver: Der Lauf erzeugt weiterhin eine
+# vollständige Sicherung (Datenbank, secret.key, storage/, MANIFEST.txt);
+# `systemd-analyze security` fällt von 6.6 MEDIUM auf 0.2 SAFE.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# EIN ~ am Zeilenanfang gilt für die ganze Liste (siehe die ausführliche
+# Warnung in ohrganize-backend@.service).
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @debug @mount @module @reboot @swap @raw-io @cpu-emulation @clock
+SystemCallErrorNumber=EPERM
+
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=true
+PrivateMounts=true
+KeyringMode=private
+DevicePolicy=closed
+DeviceAllow=
+PrivateUsers=true
+
+# Anders als das Backend braucht die Sicherung ÜBERHAUPT kein Netz: Sie liest
+# die Datenbank über die Online-Backup-API von SQLite und kopiert Dateien.
+# Ein eigener, leerer Netz-Namensraum nimmt einem eingeschleusten Befehl damit
+# jede Möglichkeit, die kopierte Personalakte irgendwohin zu schicken.
+PrivateNetwork=true
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
 
 # Lesen der Datenbank verlangt SCHREIBrechte: SQLite legt im WAL-Modus für jede
 # Verbindung -shm/-wal an. Beide Pfade müssen deshalb beschreibbar sein.

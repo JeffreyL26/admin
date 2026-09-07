@@ -2,7 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Users, CalendarDays, Send, Stethoscope, FolderClock, Wallet, Briefcase,
   CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
-  UserPlus, UsersRound, Gauge,
+  UserPlus, UsersRound, Gauge, FilePenLine,
 } from 'lucide-react';
 import type { AdminArea } from '@ohrganize/shared';
 import type { DashboardStats } from './api';
@@ -27,9 +27,18 @@ export type StatKey =
   | 'pendingAbsences'
   | 'missingSickNotes'
   | 'expiringDocuments'
+  | 'openProfileChanges'
   | 'openSalaryRequests'
   | 'openPositions'
   | 'upcomingInterviews';
+
+/**
+ * `openProfileChanges` gehört zur Antwort von GET /api/dashboard, steht aber
+ * nicht im Typ `DashboardStats` (features/dashboard/api.ts). Lokale Erweiterung
+ * statt Fremdänderung — sie bleibt auch dann korrekt, wenn das Feld dort später
+ * ergänzt wird.
+ */
+type StatsWithProfileChanges = DashboardStats & { openProfileChanges?: number };
 
 export interface StatDef {
   label: string;
@@ -90,6 +99,14 @@ export const STAT_DEFS: Record<StatKey, StatDef> = {
     area: 'personal',
     value: (s) => s.expiringDocuments,
     sub: () => 'innerhalb 30 Tagen',
+  },
+  openProfileChanges: {
+    label: 'Stammdaten-Anträge',
+    icon: FilePenLine,
+    path: '/personal/aenderungsantraege',
+    area: 'personal',
+    value: (s) => (s as StatsWithProfileChanges).openProfileChanges,
+    sub: () => 'zur Entscheidung',
   },
   openSalaryRequests: {
     label: 'Gehaltsanträge',

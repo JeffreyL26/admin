@@ -4,6 +4,7 @@ import {
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
   FileText, Radio, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
   LineChart, FileStack, UserPlus, ShieldCheck, KeyRound, UsersRound, Gauge, SlidersHorizontal,
+  FilePenLine,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AdminArea } from '@ohrganize/shared';
@@ -52,6 +53,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { path: '/personal/mitarbeitende', label: 'Mitarbeiter', icon: Users },
       { path: '/personal/organisation', label: 'Organisation', icon: Network },
+      { path: '/personal/aenderungsantraege', label: 'Änderungsanträge', icon: FilePenLine },
       { path: '/personal/dokumente', label: 'Dokumente', icon: FolderOpen },
     ],
   },

@@ -26,6 +26,7 @@ import { meCalendarRoutes } from './calendarRoutes.js';
 import { meDocumentRoutes } from './documentRoutes.js';
 import { meOrgRoutes } from './orgRoutes.js';
 import { meSalaryRoutes } from './salaryRoutes.js';
+import { meChangeRequestRoutes } from './changeRequestRoutes.js';
 
 const isoDate = z
   .string()
@@ -73,6 +74,7 @@ export const meModule: FastifyPluginAsync = async (app) => {
   await app.register(meOrgRoutes);
   await app.register(meCalendarRoutes);
   await app.register(meDocumentRoutes);
+  await app.register(meChangeRequestRoutes);
 
   // ------------------------------------------------------------- Stammdaten ---
   app.get('/api/me/profile', async (req) => {

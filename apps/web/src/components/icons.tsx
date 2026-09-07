@@ -127,6 +127,19 @@ export function IconOrg(props: IconProps) {
   );
 }
 
+/** Stammdaten — Ausweiskarte mit Personenfeld (lucide: id-card). */
+export function IconIdCard(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <circle cx="9" cy="11" r="2" />
+      <path d="M6.2 15.5a3.2 3.2 0 0 1 5.6 0" />
+      <path d="M16 10h2" />
+      <path d="M16 14h2" />
+    </Svg>
+  );
+}
+
 /** Profil — Person (lucide: user-round). */
 export function IconProfile(props: IconProps) {
   return (

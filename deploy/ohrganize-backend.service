@@ -55,6 +55,7 @@ ProtectSystem=strict
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
+ProtectKernelLogs=true
 ProtectControlGroups=true
 ProtectClock=true
 ProtectHostname=true
@@ -64,6 +65,43 @@ RestrictNamespaces=true
 LockPersonality=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# --- Härtung: Rechte, Syscalls, /proc, Netz ---------------------------------
+# Auf einem Debian-13-Testserver gemessen (Start, Erstinbetriebnahme, API,
+# Login mit bcrypt und Audit-Schreibvorgang, Schreiben in storage/,
+# WAL-Checkpoint beim Stoppen, 60 Messungen Dauerlauf ohne Neustart):
+# `systemd-analyze security` fällt von 5.1 MEDIUM auf 0.9 SAFE.
+# Ausführliche Begründung je Direktive: ohrganize-backend@.service.
+
+# Der Dienst braucht keine einzige Capability (Benutzer ohrganize, Port ≥1024).
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# ACHTUNG, SCHREIBWEISE: EIN ~ am Zeilenanfang gilt für die ganze Liste.
+# "~@privileged ~@resources" liest systemd als eine Sperre plus unbekannte
+# Syscall-NAMEN, die es stillschweigend verwirft. Nach Änderungen prüfen mit
+#   systemd-analyze verify /etc/systemd/system/ohrganize-backend.service
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @debug @mount @module @reboot @swap @raw-io @cpu-emulation @clock
+SystemCallErrorNumber=EPERM
+
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=true
+PrivateMounts=true
+KeyringMode=private
+DevicePolicy=closed
+DeviceAllow=
+PrivateUsers=true
+
+# Netzverkehr nur über Loopback — der Reverse-Proxy sitzt auf derselben
+# Maschine, das Backend ruft von sich aus nirgendwo an.
+#
+# WENN Proxy und Backend auf VERSCHIEDENEN Maschinen laufen (OHRGANIZE_HOST
+# gesetzt, siehe ohrganize.env.example), gehört die Adresse des Proxys in
+# IPAddressAllow= — sonst weist der Dienst dessen Verbindungen ab.
+IPAddressAllow=localhost
+IPAddressDeny=any
 
 # MemoryDenyWriteExecute bleibt AUS: V8 kompiliert zur Laufzeit und braucht
 # beschreibbar-ausführbare Seiten. Mit true startet Node nicht.

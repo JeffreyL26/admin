@@ -328,3 +328,98 @@ führt Zeilen der alten Art `vorgesetzt` als 360°-Feedback weiter (Bewertung
 durch eine andere Person), rechnet `overall_score` in Prozent um und ersetzt
 `scale_max` in Bögen durch die passende Skala (5 → `stars5`,
 10 → `points10`, 3 → `ampel`).
+
+## Stammdaten aus dem Portal: Antrag statt Schreibrecht
+
+**Entscheidung:** Mitarbeitende ändern ihre Stammdaten nicht selbst. Das Portal
+legt einen Änderungsantrag an (`employee_change_requests` + eine Zeile je Feld
+in `employee_change_request_fields`), die Personalabteilung entscheidet, und
+erst die Genehmigung schreibt in `employees`. Die beantragbaren Felder stehen
+ausschließlich in `EMPLOYEE_SELF_EDITABLE_FIELDS`
+(`packages/shared/src/employees.ts`).
+
+**Verworfen — `PATCH /api/me/profile` mit direktem Schreibrecht:** Der
+naheliegende Weg, und in `openapi/base.yaml` war er sogar vorgemerkt. Er
+scheitert an dem, wofür die Personalakte da ist: Aus Adresse und Bankverbindung
+entstehen Entgeltabrechnung, Meldungen an Sozialversicherung und Finanzamt und
+Bescheinigungen. Eine stille Änderung durch die betroffene Person selbst hätte
+weder eine zweite Person noch einen Zeitpunkt, auf den man sich später berufen
+kann. Der Antragsweg kostet einen Klick mehr und liefert beides.
+
+**Verworfen — ein Antrag = ein Feld:** Eine Zeile je Feldänderung wäre
+einfacher zu modellieren, macht aber aus einem Umzug drei Vorgänge mit
+derselben Begründung, die einzeln entschieden werden können. Ein Antrag ist
+deshalb eine Einreichung (eine Begründung, eine Entscheidung) mit mehreren
+Feldern in einer Kindtabelle; genehmigt wird alles zusammen in einer
+Transaktion.
+
+**Höchstens ein offener Antrag je Person (409).** Zwei offene Anträge könnten
+dasselbe Feld auf verschiedene Werte setzen — welcher gewinnt, hinge dann an
+der Reihenfolge der Genehmigungen. Nebeneffekt und zweiter Grund: Das Backend
+hat kein Rate-Limiting; ohne diese Regel könnte ein Portal-Konto die
+HR-Warteschlange und die Dashboard-Kachel beliebig fluten.
+
+**`old_value` ist Beleg, nicht Bedingung.** Beim Anlegen wird der Stand
+festgehalten, damit die Personalabteilung eine Gegenüberstellung sieht. Beim
+Genehmigen wird er NICHT gegen den aktuellen Stand geprüft: Die Entscheidung
+gilt dem gewünschten Zustand, nicht der Differenz. Hat sich zwischenzeitlich
+etwas geändert, steht der tatsächlich überschriebene Wert im `audit_log`
+(`applied`), gelesen unmittelbar vor dem UPDATE.
+
+**Bankverbindung: beantragbar, aber vertraulich.** `GET /api/me/profile`
+enthält IBAN und BIC bewusst nicht (docs/web-portal.md nennt das eine gesetzte
+Grenze). Ein Antrag darf diese Grenze nicht durch die Hintertür öffnen: Felder
+mit `confidential` werden dem Portal nur gekürzt zurückgegeben
+(`maskConfidential`, letzte vier Zeichen), eine Vorbelegung des Formulars gibt
+es dort nicht. Die Personalabteilung sieht den Klartext. Auch das Protokoll des
+Antrags hält nur die Feldnamen fest — die neue IBAN stünde sonst ein zweites
+Mal im `audit_log`, das auch die Systemverwaltung liest.
+
+**Vier-Augen mit zwei Armen.** Abgewiesen wird die Genehmigung, wenn das
+entscheidende Konto den Antrag gestellt hat ODER wenn das betroffene
+Personalprofil das eigene ist. Der zweite Arm ist nötig, weil ein HR-Konto mit
+verknüpftem Profil beide Rollen hat (docs/web-portal.md) — sonst ließe sich der
+Antrag von einer dritten Person stellen und selbst genehmigen.
+
+**Keine Benachrichtigung, und das steht so im Text.** oHRganize verschickt
+keine E-Mails. HR sieht offene Anträge auf der Dashboard-Kachel und unter
+Personal → Änderungsanträge, die betroffene Person die Entscheidung beim
+nächsten Portal-Besuch. `MIN_CLIENT_VERSION` wird bewusst nicht angehoben: Die
+Änderung ist additiv, und die Regel in `packages/shared` erlaubt eine Anhebung
+nur, wenn ältere Apps tatsächlich brechen. Eine nicht aktualisierte
+Desktop-App zeigt die Warteschlange also nicht — das gehört in den
+Update-Hinweis, nicht in eine Sperre, die Arbeitsplätze aussperrt.
+
+## systemd-Härtung: gemessen statt geschätzt
+
+**Entscheidung:** Alle vier Units (`ohrganize-backend[@].service`,
+`ohrganize-backup[@].service`) bekommen leere Capability-Mengen, einen
+Systemaufruf-Filter, ein unsichtbares `/proc`, einen eigenen
+Benutzer-Namensraum und eine Netz-Allowlist. `systemd-analyze security` fällt
+damit von 5.1 auf **0.9** (Backend) und von 6.6 auf **0.2** (Sicherung).
+
+**Die Schreibweise des Filters ist die eigentliche Falle.** `SystemCallFilter=`
+nimmt EIN `~` am Zeilenanfang für die ganze Liste. Schreibt man
+`~@privileged ~@resources`, wertet systemd nur die erste Gruppe als Sperre und
+verwirft die übrigen still als unbekannte Syscall-**Namen** — der Filter ist
+dann viel schwächer, als er aussieht, und die Punktzahl verrät es nicht.
+Aufgefallen ist es nur, weil `systemd-analyze verify` es meldet; dieser Aufruf
+gehört nach jeder Änderung an einer Unit dazu.
+
+**`PrivateNetwork=true` nur für die Sicherung.** Das Backend muss lauschen, die
+Sicherung nicht: Sie liest über die Online-Backup-API von SQLite und kopiert
+Dateien. Ein leerer Netz-Namensraum nimmt einem eingeschleusten Befehl damit
+jede Möglichkeit, die kopierte Personalakte fortzuschicken — das ist der größte
+Einzelposten in der Bewertung (0.5) und beim Backend unerreichbar.
+
+**Was bewusst offen bleibt:** `MemoryDenyWriteExecute` (V8 kompiliert zur
+Laufzeit; mit `true` startet Node nicht), `RestrictAddressFamilies=AF_INET`
+und `PrivateNetwork` beim Backend (es ist ein Netzdienst) sowie
+`RootDirectory` (ein eigenes Wurzelverzeichnis wäre ein zweiter
+Auslieferungsweg). Die verbleibenden 0.9 sind damit im Wesentlichen der Preis
+dafür, überhaupt erreichbar zu sein.
+
+**`IPAddressAllow=localhost` hat einen Haken, der dokumentiert gehört:** Wer
+Proxy und Backend auf verschiedene Maschinen legt (`OHRGANIZE_HOST`), muss die
+Adresse des Proxys ergänzen, sonst weist der Dienst dessen Verbindungen ab. Der
+Hinweis steht in beiden Backend-Units direkt über den Zeilen.

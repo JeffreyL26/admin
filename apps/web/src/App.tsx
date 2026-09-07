@@ -11,6 +11,7 @@ import { RequestsPage } from './pages/RequestsPage';
 import { NewRequestPage } from './pages/NewRequestPage';
 import { SickNotePage } from './pages/SickNotePage';
 import { CalendarPage } from './pages/CalendarPage';
+import { StammdatenPage } from './pages/StammdatenPage';
 import { SalaryPage } from './pages/SalaryPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { OrgPage } from './pages/OrgPage';
@@ -93,6 +94,7 @@ const router = createBrowserRouter([
       { path: '/antraege/neu', element: <NewRequestPage /> },
       { path: '/krankmeldung', element: <SickNotePage /> },
       { path: '/kalender', element: <CalendarPage /> },
+      { path: '/stammdaten', element: <StammdatenPage /> },
       { path: '/gehalt', element: <SalaryPage /> },
       { path: '/dokumente', element: <DocumentsPage /> },
       { path: '/organigramm', element: <OrgPage /> },
