@@ -37,6 +37,7 @@ import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { AudienceSelect, audienceLabel, type AudienceValue } from './AudienceSelect';
 import { useInvalidate, useSurvey, useSurveys, type Survey, type SurveyResults } from './api';
+import { Select } from '../../components/Select';
 
 const STATUS_TONE: Record<SurveyStatus, BadgeTone> = {
   entwurf: 'neutral',
@@ -257,7 +258,7 @@ function SurveyBuilder({
             </div>
             <div className="hm-form-grid">
               <Field label="Fragetyp">
-                <select
+                <Select
                   className="hm-select"
                   value={q.kind}
                   onChange={(e) => setQuestion(i, { kind: e.target.value as SurveyQuestionKind })}
@@ -267,7 +268,7 @@ function SurveyBuilder({
                       {SURVEY_QUESTION_KIND_LABELS[k]}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
               <Field label="Fragetext" required>
                 <input
@@ -278,7 +279,7 @@ function SurveyBuilder({
               </Field>
               {q.kind === 'skala' && (
                 <Field label="Skala bis" hint="Bewertung von 1 bis N">
-                  <select
+                  <Select
                     className="hm-select"
                     value={q.scale_max}
                     onChange={(e) => setQuestion(i, { scale_max: Number(e.target.value) })}
@@ -288,7 +289,7 @@ function SurveyBuilder({
                         1–{n}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
               )}
               {(q.kind === 'einfachauswahl' || q.kind === 'mehrfachauswahl') && (
@@ -391,7 +392,7 @@ function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; on
           {survey.questions.map((q) => (
             <Field key={q.id} label={q.text} hint={SURVEY_QUESTION_KIND_LABELS[q.kind]}>
               {q.kind === 'skala' ? (
-                <select
+                <Select
                   className="hm-select"
                   value={(answers[q.id] as number | undefined) ?? ''}
                   onChange={(e) =>
@@ -404,9 +405,9 @@ function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; on
                       {n}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : q.kind === 'einfachauswahl' ? (
-                <select
+                <Select
                   className="hm-select"
                   value={(answers[q.id] as string | undefined) ?? ''}
                   onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
@@ -417,7 +418,7 @@ function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; on
                       {o}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : q.kind === 'mehrfachauswahl' ? (
                 <div className="row row--wrap" style={{ gap: 12 }}>
                   {(q.options ?? []).map((o) => {

@@ -8,6 +8,7 @@ import { FilePicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import type { DocumentRow } from './api';
+import { Select } from '../../components/Select';
 
 /**
  * Upload-Dialog: erst Datei über POST /api/files (Core), danach Metadaten.
@@ -97,7 +98,7 @@ export function DocumentUploadModal({
           <input className="hm-input" value={title} onChange={(e) => setTitle(e.target.value)} />
         </Field>
         <Field label="Kategorie">
-          <select
+          <Select
             className="hm-select"
             value={category}
             onChange={(e) => setCategory(e.target.value as DocumentCategory)}
@@ -107,7 +108,7 @@ export function DocumentUploadModal({
                 {l}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Mitarbeiter:in" hint="Leer = allgemeines Dokument">
           <EmployeeSelect

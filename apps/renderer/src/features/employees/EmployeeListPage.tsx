@@ -32,6 +32,7 @@ import {
 } from './api';
 import { EmployeeCreateModal } from './EmployeeCreateModal';
 import { BulkEditModal } from './BulkEditModal';
+import { Select } from '../../components/Select';
 
 export const TYPE_TONES: Record<EmployeeType, BadgeTone> = {
   vollzeit: 'blue',
@@ -364,7 +365,7 @@ export function EmployeeListPage() {
           }}
         >
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Sortieren nach</span>
-          <select
+          <Select
             className="hm-select"
             style={{ width: 160 }}
             value={filters.sort}
@@ -376,7 +377,7 @@ export function EmployeeListPage() {
                 {l}
               </option>
             ))}
-          </select>
+          </Select>
           <button
             className="hm-btn hm-btn--secondary hm-btn--sm"
             onClick={() => set({ dir: filters.dir === 'asc' ? 'desc' : 'asc' })}
@@ -470,7 +471,7 @@ export function EmployeeListPage() {
                       >
                         Betriebszugehörigkeit anzeigen
                       </div>
-                      <select
+                      <Select
                         className="hm-select"
                         style={{ width: '100%' }}
                         value={view.seniorityFormat}
@@ -483,7 +484,7 @@ export function EmployeeListPage() {
                             {l}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </div>
                   )}
                   <button

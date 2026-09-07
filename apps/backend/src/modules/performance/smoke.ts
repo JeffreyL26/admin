@@ -219,7 +219,13 @@ const selfComplete = await app.inject({
   url: `/api/performance/reviews/${selfId}/complete`,
   headers: auth,
 });
-check('Abschluss mit Gesamtergebnis 4.5', selfComplete.statusCode === 200 && selfComplete.json().review.overall_score === 4.5, selfComplete.json());
+check(
+  'Abschluss mit Gesamtergebnis 4.5 und 88 %',
+  selfComplete.statusCode === 200 &&
+    selfComplete.json().review.overall_score === 4.5 &&
+    selfComplete.json().review.overall_percent === 88,
+  selfComplete.json(),
+);
 
 // 360°: zwei Reviewer:innen für dieselbe Person im selben Zyklus
 for (const [reviewer, scores] of [
@@ -259,7 +265,11 @@ const aggRes = await app.inject({
 });
 const agg = aggRes.json().aggregate;
 const qual = agg?.criteria?.find((c: { key: string }) => c.key === 'qualitaet');
-check('Aggregat: 3 Reviews, Ø qualitaet = 4', agg?.reviews_count === 3 && qual?.avg_score === 4, agg);
+check(
+  'Aggregat: 3 Reviews, Ø qualitaet = 4 (75 %), Führungsblock vorhanden',
+  agg?.reviews_count === 3 && qual?.avg_score === 4 && qual?.avg_percent === 75 && Array.isArray(agg?.supervisor),
+  agg,
+);
 
 const overview = await app.inject({
   method: 'GET',

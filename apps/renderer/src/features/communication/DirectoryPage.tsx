@@ -12,6 +12,7 @@ import { useToast } from '../../components/Toast';
 import { useDebounced } from '../../components/useDebounced';
 import { usePhotoUrl } from '../employees/api';
 import { useDirectory, useDirectoryFields, useOrg, useSaveDirectoryFields } from './api';
+import { Select } from '../../components/Select';
 
 /**
  * Eigener Baustein, weil je Karte ein Hook nötig ist. Die vom Server je
@@ -144,7 +145,7 @@ export function DirectoryPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <select
+            <Select
               className="hm-select"
               style={{ maxWidth: 200 }}
               value={departmentId ?? ''}
@@ -156,8 +157,8 @@ export function DirectoryPage() {
                   {d.name}
                 </option>
               ))}
-            </select>
-            <select
+            </Select>
+            <Select
               className="hm-select"
               style={{ maxWidth: 200 }}
               value={locationId ?? ''}
@@ -169,7 +170,7 @@ export function DirectoryPage() {
                   {l.name}
                 </option>
               ))}
-            </select>
+            </Select>
             <input
               className="hm-input"
               style={{ maxWidth: 180 }}

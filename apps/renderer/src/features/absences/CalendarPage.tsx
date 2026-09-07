@@ -27,6 +27,7 @@ import { Modal } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useAbsenceTypes, useCalendar, useDepartments, useTeams, type CalendarData } from './api';
 import { useColorOverrides, type ColorOverrides } from './absenceColors';
+import { Select } from '../../components/Select';
 
 type LegendType = Pick<AbsenceType, 'id' | 'name' | 'color' | 'active'>;
 
@@ -203,7 +204,7 @@ export function CalendarPage() {
           onChange={(k) => setView(k as typeof view)}
         />
         <div className="row">
-          <select
+          <Select
             className="hm-select"
             style={{ width: 190 }}
             value={departmentId ?? ''}
@@ -218,8 +219,8 @@ export function CalendarPage() {
                 {d.name}
               </option>
             ))}
-          </select>
-          <select
+          </Select>
+          <Select
             className="hm-select"
             style={{ width: 170 }}
             value={teamId ?? ''}
@@ -233,7 +234,7 @@ export function CalendarPage() {
                   {t.name}
                 </option>
               ))}
-          </select>
+          </Select>
         </div>
       </div>
 

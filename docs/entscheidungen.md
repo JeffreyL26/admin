@@ -292,3 +292,35 @@ ist der Einstieg in die Bewertungsmaske, ein Knopf im Knopf wäre weder
 klick- noch tastaturbedienbar. Ihre Zellen sind dieselbe `BreakdownCell` wie
 in der Report-Aufschlüsselung, damit beide Seiten „bewertet“ gleich
 bedeuten.
+
+## Leistung & Führung: eine Vorgesetztenbewertung, getrennte Bewertungsarten
+
+**Entscheidung:** Beurteilungen (`/api/performance/reviews`) kennen als
+anlegbare Arten nur noch **Selbstbewertung** und **360°-Feedback**. Die
+Vorgesetztenbewertung gibt es genau einmal, im Bereich Führung („Mein Team“):
+mit Zuständigkeit aus `service.scopeFor`, Pflichtkommentar und unveränderlichem
+Protokoll. `POST …/reviews` mit `kind: 'vorgesetzt'` antwortet 400 mit
+Verweis; Altbestand bleibt lesbar (Label „Altbestand“). Beurteilungsbögen
+nutzen die **zentralen Skalen** (`RatingScaleKey`) je Kriterium und können
+Kriterien an zentrale Bewertungskategorien binden (`category_id`; Name,
+Beschreibung, Skala werden beim Speichern übernommen, damit Selbstbild und
+Führungsbewertung dieselbe Frage auf derselben Skala beantworten). Weil
+Skalen je Kriterium verschieden sein dürfen, ist das Ergebnis eines Bogens
+`overall_percent` (Anteil der Bestnote, Migration `320_reviews_unified_scales`);
+`overall_score` bleibt als Rohmittel für Altbestand. Das Aggregat liefert
+dazu die Führungsbewertungen, deren Zeitraum den Zyklus berührt
+(`supervisor`, ohne Kommentare, die bleiben im Bereich Führung).
+Navigation: ein Abschnitt „Leistung & Führung“; die Rechtebereiche `leistung`
+und `fuehrung` bleiben getrennt (Einträge tragen `area`, „Mein Team“ hängt
+an der Freischaltung). Gespräche (Feedback-Zyklen) bleiben eigenständig und
+verweisen per Deep-Link (`?employee=`) auf Beurteilungen und „Mein Team“.
+
+**Verworfen — Tabellen zusammenlegen:** `leadership_ratings` (Upsert je
+Zeitraum, Protokoll-Trigger, Zuständigkeitsgate) und `reviews` (Zyklus, Bogen,
+mehrere Reviewer:innen) haben verschiedene Lebenszyklen; ein gemeinsames
+Schema hätte beiden Sonderfälle aufgezwungen. Verschmolzen sind deshalb die
+Begriffe (Kategorien, Skalen, Ergebnisdarstellung), nicht die Speicherung.
+
+**Legacy-Skalen:** `scale_max` 5 → `stars5`, 10 → `points10`, 3 → `ampel`
+(`normalizeCriterion` beim Lesen). Alte Bögen bleiben so ohne Migration
+ausfüllbar.

@@ -15,6 +15,7 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect, employeeName } from '../../components/EmployeeSelect';
 import { useFollowUps, useInvalidate, useMeetings, type Meeting } from './api';
+import { Select } from '../../components/Select';
 
 interface DraftMeeting {
   employee_id: number | null;
@@ -120,7 +121,7 @@ function MeetingEditor({
           />
         </Field>
         <Field label="Anlass" required>
-          <select
+          <Select
             className="hm-select"
             value={form.occasion}
             onChange={(e) => setForm((f) => ({ ...f, occasion: e.target.value as MeetingOccasion }))}
@@ -130,7 +131,7 @@ function MeetingEditor({
                 {MEETING_OCCASION_LABELS[o]}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Teilnehmende" hint="Namen und Rollen, z. B. „Max Muster (Führungskraft), HR“">
           <input
@@ -167,7 +168,7 @@ function MeetingEditor({
           label="Sichtbarkeit"
           hint="Gilt für den späteren Mitarbeitenden-Web-Client; im Desktop informativ"
         >
-          <select
+          <Select
             className="hm-select"
             value={form.visibility}
             onChange={(e) => setForm((f) => ({ ...f, visibility: e.target.value as MeetingVisibility }))}
@@ -177,7 +178,7 @@ function MeetingEditor({
                 {MEETING_VISIBILITY_LABELS[v]}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
       </div>
     </Modal>

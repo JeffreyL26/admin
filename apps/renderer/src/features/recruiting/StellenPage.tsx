@@ -13,6 +13,7 @@ import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { usePostings, useRecruitingOrg, useInvalidate, type Posting } from './api';
 import { POSTING_STATUS_TONES, parseEuroInput, centsToInput } from './common';
+import { Select } from '../../components/Select';
 
 interface Draft {
   title: string;
@@ -115,32 +116,32 @@ function PostingEditor({
           <input className="hm-input" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="z. B. Senior Backend Entwickler:in" />
         </Field>
         <Field label="Beschäftigungsart" required>
-          <select className="hm-select" value={form.employment_type} onChange={(e) => setForm((f) => ({ ...f, employment_type: e.target.value as EmployeeType }))}>
+          <Select className="hm-select" value={form.employment_type} onChange={(e) => setForm((f) => ({ ...f, employment_type: e.target.value as EmployeeType }))}>
             {(Object.keys(EMPLOYEE_TYPE_LABELS) as EmployeeType[]).map((t) => (
               <option key={t} value={t}>{EMPLOYEE_TYPE_LABELS[t]}</option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Anzahl Stellen" required>
           <input className="hm-input" type="number" min={1} value={form.seats} onChange={(e) => setForm((f) => ({ ...f, seats: Math.max(1, Number(e.target.value)) }))} />
         </Field>
         <Field label="Abteilung">
-          <select className="hm-select" value={form.department_id ?? ''} onChange={(e) => setForm((f) => ({ ...f, department_id: e.target.value ? Number(e.target.value) : null, team_id: null }))}>
+          <Select className="hm-select" value={form.department_id ?? ''} onChange={(e) => setForm((f) => ({ ...f, department_id: e.target.value ? Number(e.target.value) : null, team_id: null }))}>
             <option value="">— keine —</option>
             {(org?.departments ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-          </select>
+          </Select>
         </Field>
         <Field label="Team">
-          <select className="hm-select" value={form.team_id ?? ''} onChange={(e) => setForm((f) => ({ ...f, team_id: e.target.value ? Number(e.target.value) : null }))}>
+          <Select className="hm-select" value={form.team_id ?? ''} onChange={(e) => setForm((f) => ({ ...f, team_id: e.target.value ? Number(e.target.value) : null }))}>
             <option value="">— keins —</option>
             {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
+          </Select>
         </Field>
         <Field label="Standort">
-          <select className="hm-select" value={form.location_id ?? ''} onChange={(e) => setForm((f) => ({ ...f, location_id: e.target.value ? Number(e.target.value) : null }))}>
+          <Select className="hm-select" value={form.location_id ?? ''} onChange={(e) => setForm((f) => ({ ...f, location_id: e.target.value ? Number(e.target.value) : null }))}>
             <option value="">— keiner —</option>
             {(org?.locations ?? []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
+          </Select>
         </Field>
         <Field label="Hiring Manager">
           <EmployeeSelect value={form.hiring_manager_id} onChange={(id) => setForm((f) => ({ ...f, hiring_manager_id: id }))} allowEmpty emptyLabel="— keiner —" />
@@ -236,12 +237,12 @@ export function StellenPage() {
       </div>
 
       <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-        <select className="hm-select" style={{ maxWidth: 220 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+        <Select className="hm-select" style={{ maxWidth: 220 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="">Alle Status</option>
           {(Object.keys(JOB_POSTING_STATUS_LABELS) as JobPostingStatus[]).map((s) => (
             <option key={s} value={s}>{JOB_POSTING_STATUS_LABELS[s]}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {isLoading ? (
@@ -278,7 +279,7 @@ export function StellenPage() {
                     </div>
                   </div>
                   <div className="row" style={{ gap: 4, flexShrink: 0 }}>
-                    <select
+                    <Select
                       className="hm-select"
                       style={{ maxWidth: 160 }}
                       value=""
@@ -288,7 +289,7 @@ export function StellenPage() {
                       {(JOB_POSTING_TRANSITIONS[p.status] ?? []).map((s) => (
                         <option key={s} value={s}>{JOB_POSTING_STATUS_LABELS[s]}</option>
                       ))}
-                    </select>
+                    </Select>
                     <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" title="Bearbeiten" onClick={() => openEdit(p)}>
                       <Pencil size={15} />
                     </button>

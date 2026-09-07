@@ -16,6 +16,7 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { useEmployees } from '../../components/EmployeeSelect';
 import { parseEuroInput, centsToInput, STATUS_TONES } from './lib';
+import { Select } from '../../components/Select';
 
 interface RateRow {
   id: number;
@@ -54,7 +55,7 @@ function FreelancerSelect({
   const { data: employees } = useEmployees();
   const freelancers = (employees ?? []).filter((e) => e.employee_type === 'freiberufler');
   return (
-    <select
+    <Select
       className="hm-select"
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
@@ -65,7 +66,7 @@ function FreelancerSelect({
           {e.last_name}, {e.first_name}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 
@@ -156,13 +157,13 @@ function RateDialog({
           <input className="hm-input" value={rate} onChange={(e) => setRate(e.target.value)} />
         </Field>
         <Field label="Einheit" required>
-          <select className="hm-select" value={unit} onChange={(e) => setUnit(e.target.value)}>
+          <Select className="hm-select" value={unit} onChange={(e) => setUnit(e.target.value)}>
             {(Object.keys(FREELANCER_RATE_UNIT_LABELS) as FreelancerRateUnit[]).map((u) => (
               <option key={u} value={u}>
                 {FREELANCER_RATE_UNIT_LABELS[u]}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Gültig ab" required>
           <input

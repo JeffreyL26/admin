@@ -13,6 +13,7 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { useOnboardingProcess, useOnboardingProcesses } from './api';
+import { Select } from '../../components/Select';
 
 function kindBadge(kind: OnboardingKind) {
   return kind === 'onboarding' ? (
@@ -93,7 +94,7 @@ export function OnboardingPage() {
           active={statusTab}
           onChange={(k) => setStatusTab(k as typeof statusTab)}
         />
-        <select
+        <Select
           className="hm-select"
           style={{ width: 170 }}
           value={kindFilter}
@@ -105,7 +106,7 @@ export function OnboardingPage() {
               {l}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <Card flush>
@@ -248,7 +249,7 @@ function CreateProcessDialog({ open, onClose }: { open: boolean; onClose: () => 
           <EmployeeSelect value={employeeId} onChange={setEmployeeId} />
         </Field>
         <Field label="Art" required>
-          <select
+          <Select
             className="hm-select"
             value={kind}
             onChange={(e) => setKind(e.target.value as OnboardingKind)}
@@ -258,7 +259,7 @@ function CreateProcessDialog({ open, onClose }: { open: boolean; onClose: () => 
                 {l}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field
           label="Stichtag"

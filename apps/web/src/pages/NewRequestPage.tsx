@@ -6,6 +6,7 @@ import { useCreateRequest, useLeavePreview, useLeaveTypes, useMyBalance } from '
 import { Card, Field, Skeleton } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { formatDays, todayIso } from '../lib/format';
+import { Select } from '../components/Select';
 
 export function NewRequestPage() {
   const navigate = useNavigate();
@@ -98,7 +99,7 @@ export function NewRequestPage() {
           ) : (
             <div className="pt-form-grid">
               <Field label="Art der Abwesenheit" required span2>
-                <select
+                <Select
                   className="pt-select"
                   value={typeId}
                   onChange={(e) => setTypeId(e.target.value ? Number(e.target.value) : '')}
@@ -115,7 +116,7 @@ export function NewRequestPage() {
                       ))}
                     </optgroup>
                   ))}
-                </select>
+                </Select>
               </Field>
               <Field label="Von" required>
                 <input

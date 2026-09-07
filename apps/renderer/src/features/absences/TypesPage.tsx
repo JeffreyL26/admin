@@ -18,6 +18,7 @@ import { Modal, ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect, employeeName, useEmployees } from '../../components/EmployeeSelect';
 import { useAbsenceTypes, useClosures } from './api';
+import { Select } from '../../components/Select';
 
 interface TypeForm {
   name: string;
@@ -450,7 +451,7 @@ function TypeDialog({
           <input className="hm-input" value={form.name} onChange={(e) => set({ name: e.target.value })} />
         </Field>
         <Field label="Kategorie" required>
-          <select
+          <Select
             className="hm-select"
             value={form.category}
             onChange={(e) => changeCategory(e.target.value as AbsenceCategory)}
@@ -460,7 +461,7 @@ function TypeDialog({
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Farbe">
           <input
@@ -510,7 +511,7 @@ function TypeDialog({
           span2
           hint="Gilt für den Firmenkalender im Portal. Für die eigene Abwesenheit sieht die Person die Art immer im Klartext."
         >
-          <select
+          <Select
             className="hm-select"
             value={form.portal_visibility}
             onChange={(e) => set({ portal_visibility: e.target.value as PortalVisibility })}
@@ -524,7 +525,7 @@ function TypeDialog({
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <div className="span-2">
           <Note>
@@ -666,14 +667,14 @@ function TypeDialog({
                 <EmployeeSelect value={pickEmployee} onChange={setPickEmployee} emptyLabel="— Person wählen —" />
               </Field>
               <Field label="Regel">
-                <select
+                <Select
                   className="hm-select"
                   value={pickEffect}
                   onChange={(e) => setPickEffect(e.target.value as 'allow' | 'deny')}
                 >
                   <option value="allow">darf</option>
                   <option value="deny">darf nicht</option>
-                </select>
+                </Select>
               </Field>
               <button className="hm-btn hm-btn--secondary" disabled={pickEmployee === null} onClick={addRule}>
                 <Plus size={15} /> Ausnahme hinzufügen

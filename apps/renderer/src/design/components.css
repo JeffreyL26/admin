@@ -2661,3 +2661,104 @@ button.lead-star:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ===================================================== Auswahlfeld (Select) === */
+/* components/Select.tsx: Auslöser trägt .hm-select (Maße/Rahmen wie Eingabefeld),
+   die Liste liegt im Portal am <body>. Farben nur über Tokens. */
+.hm-select--btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+.hm-select--btn:disabled {
+  cursor: not-allowed;
+}
+.hm-select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-select__chev {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+.hm-select--btn[aria-expanded='true'] .hm-select__chev {
+  transform: rotate(180deg);
+}
+.hm-select-menu {
+  position: fixed;
+  z-index: 450;
+  padding: 5px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+  animation: hm-pop 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.hm-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+.hm-select-option__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hm-select-option__check {
+  flex-shrink: 0;
+  color: var(--brand-primary);
+}
+.hm-select-option.is-active {
+  background: var(--gray-100);
+}
+.hm-select-option.is-selected {
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+.hm-select-option.is-disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* ---------- Vorschlags-Chip (Reviewer:innen aus dem Organigramm) ---------- */
+.hm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.hm-chip:hover {
+  border-color: var(--brand-primary);
+}
+.hm-chip.is-active {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: var(--text-on-brand, #fff);
+}

@@ -6,6 +6,7 @@ import { Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';
 import { FilePicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
+import { Select } from '../../components/Select';
 
 interface ContractForm {
   contract_type: ContractType;
@@ -133,7 +134,7 @@ export function ContractModal({
       )}
       <div className="hm-form-grid">
         <Field label="Vertragsart" required>
-          <select
+          <Select
             className="hm-select"
             value={form.contract_type}
             onChange={(e) => set({ contract_type: e.target.value as ContractType })}
@@ -143,7 +144,7 @@ export function ContractModal({
                 {l}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Gültig ab" required>
           <input className="hm-input" type="date" value={form.valid_from} onChange={(e) => set({ valid_from: e.target.value })} />

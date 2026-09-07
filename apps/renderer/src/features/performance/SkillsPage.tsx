@@ -8,6 +8,7 @@ import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import type { Skill, SkillGapEntry } from '@ohrganize/shared';
 import { SKILL_LEVEL_COLORS } from './common';
+import { Select } from '../../components/Select';
 
 interface MatrixData {
   employees: { id: number; first_name: string; last_name: string; job_title: string | null; department_id: number | null; team_id: number | null }[];
@@ -259,7 +260,7 @@ function MatrixTab() {
         <div className="row row--wrap">
           <div style={{ minWidth: 220 }}>
             <Field label="Abteilung">
-              <select
+              <Select
                 className="hm-select"
                 value={departmentId ?? ''}
                 onChange={(e) => {
@@ -273,12 +274,12 @@ function MatrixTab() {
                     {dep.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           </div>
           <div style={{ minWidth: 220 }}>
             <Field label="Team">
-              <select className="hm-select" value={teamId ?? ''} onChange={(e) => setTeamId(e.target.value === '' ? null : Number(e.target.value))}>
+              <Select className="hm-select" value={teamId ?? ''} onChange={(e) => setTeamId(e.target.value === '' ? null : Number(e.target.value))}>
                 <option value="">Alle Teams</option>
                 {d.teams
                   .filter((t) => departmentId === null || t.department_id === departmentId)
@@ -287,7 +288,7 @@ function MatrixTab() {
                       {t.name}
                     </option>
                   ))}
-              </select>
+              </Select>
             </Field>
           </div>
           <div className="row" style={{ marginLeft: 'auto', gap: 6, alignSelf: 'flex-end' }}>
@@ -448,14 +449,14 @@ function GapTab() {
           </div>
           <div style={{ minWidth: 240 }}>
             <Field label="Soll-Rolle" hint="Rollen mit hinterlegtem Soll-Profil">
-              <select className="hm-select" value={roleName} onChange={(e) => setRoleName(e.target.value)}>
+              <Select className="hm-select" value={roleName} onChange={(e) => setRoleName(e.target.value)}>
                 <option value="">— auswählen —</option>
                 {roles.map((r) => (
                   <option key={r} value={r}>
                     {r}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           </div>
         </div>
@@ -607,7 +608,7 @@ function ProfilesTab() {
                         <tr key={p.id}>
                           <td>{p.skill_name}</td>
                           <td>
-                            <select
+                            <Select
                               className="hm-select"
                               value={p.required_level}
                               onChange={(e) => levelMutation.mutate({ id: p.id, required_level: Number(e.target.value) })}
@@ -617,7 +618,7 @@ function ProfilesTab() {
                                   {l}
                                 </option>
                               ))}
-                            </select>
+                            </Select>
                           </td>
                           <td>
                             <button className="hm-btn hm-btn--ghost hm-btn--icon" onClick={() => deleteMutation.mutate(p.id)} aria-label="Löschen">
@@ -665,22 +666,22 @@ function ProfilesTab() {
             <input className="hm-input" value={form.role_name} onChange={(e) => setForm({ ...form, role_name: e.target.value })} />
           </Field>
           <Field label="Skill" required>
-            <select className="hm-select" value={form.skill_id} onChange={(e) => setForm({ ...form, skill_id: Number(e.target.value) })}>
+            <Select className="hm-select" value={form.skill_id} onChange={(e) => setForm({ ...form, skill_id: Number(e.target.value) })}>
               {(skillsData?.skills ?? []).map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Soll-Level" required>
-            <select className="hm-select" value={form.required_level} onChange={(e) => setForm({ ...form, required_level: Number(e.target.value) })}>
+            <Select className="hm-select" value={form.required_level} onChange={(e) => setForm({ ...form, required_level: Number(e.target.value) })}>
               {[1, 2, 3, 4, 5].map((l) => (
                 <option key={l} value={l}>
                   {l}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
         </div>
       </Modal>

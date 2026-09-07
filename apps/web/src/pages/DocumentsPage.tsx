@@ -16,6 +16,7 @@ import { Card, EmptyState, Field, LoadError, SkeletonRows } from '../components/
 import { IconClose, IconDocuments, type IconProps } from '../components/icons';
 import { useToast } from '../components/Toast';
 import { formatDate } from '../lib/format';
+import { Select } from '../components/Select';
 
 /*
  * Zwei Icons, die die Sidebar nicht braucht und die es deshalb (noch) nicht in
@@ -329,7 +330,7 @@ function UploadCard() {
             />
           </Field>
           <Field label="Kategorie" required hint="Verträge und Zeugnisse legt die Personalabteilung ab.">
-            <select
+            <Select
               className="pt-select"
               value={category}
               disabled={upload.isPending}
@@ -340,7 +341,7 @@ function UploadCard() {
                   {DOCUMENT_CATEGORY_LABELS[value]}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
         </div>
 

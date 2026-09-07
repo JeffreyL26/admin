@@ -5,7 +5,22 @@ import { parse, badRequest, notFound, conflict } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { todayIso, addDaysIso } from '../../core/dates.js';
 import { isoDateString } from '../../core/validation.js';
-import type { Goal, ReviewCriterion, ReviewScore, Review, TrainingDueEntry } from '@ohrganize/shared';
+import {
+  RATING_SCALES,
+  RATING_SCALE_KEYS,
+  normalizedScore,
+  periodFromKey,
+  type Goal,
+  type RatingScaleKey,
+  type ReviewCriterion,
+  type ReviewScore,
+  type Review,
+  type ReviewerSuggestion,
+  type SupervisorRatingSummary,
+  type TrainingDueEntry,
+} from '@ohrganize/shared';
+import { getCategory as getRatingCategory, listCategories as listRatingCategories } from '../leadership/service.js';
+import { buildOrgChart } from '../employees/orgRoutes.js';
 
 // Modul: Leistungsverwaltung & Entwicklung — Ziele/OKR, Beurteilungen,
 // Entwicklungspläne & Karrierepfade, Skills, Trainings, Feedback-Zyklen.
@@ -83,11 +98,15 @@ const cycleCreateSchema = z.object({
   status: cycleStatus.default('geplant'),
 });
 
+// Skala aus den zentralen Skalen (leadership.ts). `scale_max` nimmt der
+// Server nur noch aus Altbeständen entgegen und rechnet ihn um.
 const criterionSchema = z.object({
   key: z.string().trim().min(1),
   label: z.string().trim().min(1),
   description: z.string().optional(),
-  scale_max: z.number().int().min(2).max(10),
+  scale: z.enum(RATING_SCALE_KEYS).optional(),
+  scale_max: z.number().int().min(2).max(10).optional(),
+  category_id: z.number().int().positive().nullish(),
 });
 
 const templateSchema = z.object({
@@ -245,8 +264,48 @@ function recomputeObjectiveProgress(objectiveId: number): void {
   }
 }
 
+/**
+ * Altbestand vor der Zusammenführung kannte nur `scale_max` (5 oder 10);
+ * beim Lesen wird daraus die passende zentrale Skala. Sonst stünden alte
+ * Bögen ohne Skala da und ließen sich weder anzeigen noch ausfüllen.
+ */
+function normalizeCriterion(raw: Partial<ReviewCriterion> & { key: string; label: string }): ReviewCriterion {
+  const scale: RatingScaleKey = raw.scale ?? (raw.scale_max === 10 ? 'points10' : raw.scale_max === 3 ? 'ampel' : 'stars5');
+  return {
+    key: raw.key,
+    label: raw.label,
+    description: raw.description || undefined,
+    scale,
+    category_id: raw.category_id ?? null,
+  };
+}
+
 function parseTemplateCriteria(row: { criteria: string }): ReviewCriterion[] {
-  return JSON.parse(row.criteria) as ReviewCriterion[];
+  return (JSON.parse(row.criteria) as (Partial<ReviewCriterion> & { key: string; label: string })[]).map(normalizeCriterion);
+}
+
+/**
+ * Kriterien eines Bogens vor dem Speichern festziehen: Bei Bezug auf eine
+ * zentrale Kategorie kommen Name, Beschreibung und Skala von dort (die
+ * Führungskraft bewertet dieselbe Kategorie auf derselben Skala), freie
+ * Kriterien behalten ihre Angaben.
+ */
+function resolveCriteria(input: z.infer<typeof criterionSchema>[]): ReviewCriterion[] {
+  const keys = new Set(input.map((c) => c.key));
+  if (keys.size !== input.length) throw badRequest('Kriterien-Schlüssel müssen eindeutig sein');
+  return input.map((c) => {
+    if (c.category_id) {
+      const category = getRatingCategory(c.category_id);
+      return {
+        key: c.key,
+        label: category.name,
+        description: category.description ?? undefined,
+        scale: category.effective_scale,
+        category_id: category.id,
+      };
+    }
+    return normalizeCriterion(c);
+  });
 }
 
 function reviewToApi(row: Record<string, unknown>): Review {
@@ -259,14 +318,94 @@ function validateScores(scores: ReviewScore[], criteria: ReviewCriterion[]): voi
   for (const s of scores) {
     const criterion = byKey.get(s.key);
     if (!criterion) throw badRequest(`Unbekanntes Kriterium: ${s.key}`);
-    if (s.score < 1 || s.score > criterion.scale_max) {
-      throw badRequest(
-        `Bewertung für „${criterion.label}“ muss zwischen 1 und ${criterion.scale_max} liegen`,
-      );
+    const max = RATING_SCALES[criterion.scale].max;
+    if (s.score < 1 || s.score > max) {
+      throw badRequest(`Bewertung für „${criterion.label}“ muss zwischen 1 und ${max} liegen`);
     }
   }
   const seen = new Set(scores.map((s) => s.key));
   if (seen.size !== scores.length) throw badRequest('Kriterien dürfen nur einmal bewertet werden');
+}
+
+/** Anteil der Bestnote in Prozent über alle bewerteten Kriterien (skalenübergreifend). */
+function percentOf(scores: ReviewScore[], criteria: ReviewCriterion[]): number | null {
+  const byKey = new Map(criteria.map((c) => [c.key, c]));
+  const values = scores
+    .map((s) => byKey.get(s.key))
+    .map((c, i) => (c ? normalizedScore(c.scale, scores[i]!.score) : null))
+    .filter((v): v is number => v !== null);
+  if (values.length === 0) return null;
+  return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 100);
+}
+
+/**
+ * Vorgesetztenbewertungen aus dem Bereich Führung, deren Zeitraum den Zyklus
+ * berührt: Gesamtbewertung und Kategorien je Zeitraum, ohne Kommentare und
+ * Protokoll (die bleiben im Bereich Führung).
+ */
+function supervisorRatings(employeeId: number, periodFrom: string, periodTo: string): SupervisorRatingSummary[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT r.period_key, r.scale, r.score, c.name AS category_name, c.is_overall, c.sort_order,
+              le.first_name || ' ' || le.last_name AS leader_name
+       FROM leadership_ratings r
+       JOIN rating_categories c ON c.id = r.category_id
+       LEFT JOIN employees le ON le.id = r.leader_employee_id
+       WHERE r.employee_id = ?
+       ORDER BY r.period_key DESC, c.is_overall DESC, c.sort_order`,
+    )
+    .all(employeeId) as {
+    period_key: string;
+    scale: RatingScaleKey;
+    score: number;
+    category_name: string;
+    is_overall: number;
+    leader_name: string | null;
+  }[];
+  const byPeriod = new Map<string, SupervisorRatingSummary>();
+  for (const row of rows) {
+    let period;
+    try {
+      period = periodFromKey(row.period_key);
+    } catch {
+      continue;
+    }
+    if (period.to < periodFrom || period.from > periodTo) continue;
+    const entry = byPeriod.get(row.period_key) ?? {
+      period_key: row.period_key,
+      period_label: period.label,
+      leader_name: row.leader_name,
+      overall: null,
+      categories: [],
+    };
+    if (row.is_overall === 1) entry.overall = { scale: row.scale, score: row.score };
+    else entry.categories.push({ name: row.category_name, scale: row.scale, score: row.score });
+    byPeriod.set(row.period_key, entry);
+  }
+  return [...byPeriod.values()];
+}
+
+/**
+ * Vorschläge für 360°-Reviewer:innen aus der Berichtslinie des
+ * Personen-Organigramms: die Person, an die berichtet wird, alle im selben
+ * Team und die übrigen mit derselben Berichtslinie.
+ */
+function reviewerSuggestions(employeeId: number): ReviewerSuggestion[] {
+  const { people } = buildOrgChart();
+  const me = people.find((p) => p.id === employeeId);
+  if (!me) return [];
+  const suggestions: ReviewerSuggestion[] = [];
+  const seen = new Set<number>([employeeId]);
+  const push = (p: (typeof people)[number], relation: ReviewerSuggestion['relation']) => {
+    if (seen.has(p.id)) return;
+    seen.add(p.id);
+    suggestions.push({ id: p.id, name: `${p.first_name} ${p.last_name}`, job_title: p.job_title, relation });
+  };
+  const parent = me.parent_id !== null ? people.find((p) => p.id === me.parent_id) : undefined;
+  if (parent) push(parent, 'vorgesetzt');
+  if (me.team_id !== null) for (const p of people) if (p.team_id === me.team_id) push(p, 'team');
+  if (me.parent_id !== null) for (const p of people) if (p.parent_id === me.parent_id) push(p, 'kollegium');
+  return suggestions;
 }
 
 // ---------------------------------------------------------------------------
@@ -480,7 +619,8 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
         `SELECT r.employee_id, e.first_name, e.last_name,
                 COUNT(*) AS reviews_total,
                 SUM(CASE WHEN r.status = 'abgeschlossen' THEN 1 ELSE 0 END) AS reviews_completed,
-                AVG(CASE WHEN r.status = 'abgeschlossen' THEN r.overall_score END) AS avg_overall_score
+                AVG(CASE WHEN r.status = 'abgeschlossen' THEN r.overall_score END) AS avg_overall_score,
+                ROUND(AVG(CASE WHEN r.status = 'abgeschlossen' THEN r.overall_percent END)) AS avg_overall_percent
          FROM reviews r
          JOIN employees e ON e.id = r.employee_id
          WHERE r.cycle_id = ?
@@ -493,6 +633,19 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
 
   // ======================= Beurteilungen: Bögen =======================
 
+  // Zentrale Kategorien (Führung & Bewertung) als Baukasten für Bögen. Eigener
+  // Endpunkt im Bereich `leistung`, damit die Beurteilungen ohne den Bereich
+  // `fuehrung` auskommen; geliefert wird nur, was ein Bogen braucht.
+  app.get('/api/performance/rating-categories', async () => ({
+    categories: listRatingCategories(true).map((c) => ({
+      id: c.id,
+      name: c.name,
+      description: c.description,
+      scale: c.effective_scale,
+      is_overall: c.is_overall,
+    })),
+  }));
+
   app.get('/api/performance/review-templates', async () => {
     const rows = getDb().prepare('SELECT * FROM review_templates ORDER BY name').all() as {
       criteria: string;
@@ -502,32 +655,26 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
 
   app.post('/api/performance/review-templates', async (req, reply) => {
     const body = parse(templateSchema, req.body);
-    const keys = new Set(body.criteria.map((c) => c.key));
-    if (keys.size !== body.criteria.length) {
-      throw badRequest('Kriterien-Schlüssel müssen eindeutig sein');
-    }
+    const criteria = resolveCriteria(body.criteria);
     const info = getDb()
       .prepare('INSERT INTO review_templates (name, criteria) VALUES (?, ?)')
-      .run(body.name, JSON.stringify(body.criteria));
+      .run(body.name, JSON.stringify(criteria));
     const id = Number(info.lastInsertRowid);
     audit(req, 'review_template.created', 'review_template', id, { name: body.name });
     reply.code(201);
-    return { template: { id, name: body.name, criteria: body.criteria } };
+    return { template: { id, name: body.name, criteria } };
   });
 
   app.put('/api/performance/review-templates/:id', async (req) => {
     const id = idParam(req);
     getRowOrThrow('review_templates', id, 'Bogen nicht gefunden');
     const body = parse(templateSchema, req.body);
-    const keys = new Set(body.criteria.map((c) => c.key));
-    if (keys.size !== body.criteria.length) {
-      throw badRequest('Kriterien-Schlüssel müssen eindeutig sein');
-    }
+    const criteria = resolveCriteria(body.criteria);
     getDb()
       .prepare('UPDATE review_templates SET name = ?, criteria = ? WHERE id = ?')
-      .run(body.name, JSON.stringify(body.criteria), id);
+      .run(body.name, JSON.stringify(criteria), id);
     audit(req, 'review_template.updated', 'review_template', id, { name: body.name });
-    return { template: { id, name: body.name, criteria: body.criteria } };
+    return { template: { id, name: body.name, criteria } };
   });
 
   app.delete('/api/performance/review-templates/:id', async (req, reply) => {
@@ -576,8 +723,24 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     return { reviews: rows.map(reviewToApi) };
   });
 
+  // Vorschläge für 360°-Reviewer:innen; vor '/reviews/:id', damit
+  // „suggestions" nicht als ID gelesen wird.
+  app.get('/api/performance/reviews/suggestions/:employeeId', async (req) => {
+    const { employeeId } = parse(z.object({ employeeId: z.coerce.number().int().positive() }), req.params);
+    ensureEmployeeExists(employeeId);
+    return { suggestions: reviewerSuggestions(employeeId) };
+  });
+
   app.post('/api/performance/reviews', async (req, reply) => {
     const body = parse(reviewCreateSchema, req.body);
+    // Die Vorgesetztenbewertung ist seit der Zusammenführung die Bewertung im
+    // Bereich Führung: mit Zuständigkeit, Pflichtkommentar und Protokoll.
+    // Zwei Wege für dieselbe Aussage liefen sonst auseinander.
+    if (body.kind === 'vorgesetzt') {
+      throw badRequest(
+        'Vorgesetztenbewertungen werden im Bereich Führung unter „Mein Team" abgegeben. Hier legen Sie Selbstbewertungen und 360°-Feedback an.',
+      );
+    }
     getRowOrThrow('review_cycles', body.cycle_id, 'Zyklus nicht gefunden');
     getRowOrThrow('review_templates', body.template_id, 'Bogen nicht gefunden');
     ensureEmployeeExists(body.employee_id);
@@ -653,13 +816,14 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       throw badRequest(`Es fehlen Bewertungen für: ${missing.map((c) => c.label).join(', ')}`);
     }
     const overall = Math.round((scores.reduce((sum, s) => sum + s.score, 0) / scores.length) * 100) / 100;
+    const percent = percentOf(scores, criteria);
     getDb()
       .prepare(
-        `UPDATE reviews SET status = 'abgeschlossen', overall_score = ?, completed_at = datetime('now')
+        `UPDATE reviews SET status = 'abgeschlossen', overall_score = ?, overall_percent = ?, completed_at = datetime('now')
          WHERE id = ?`,
       )
-      .run(overall, id);
-    audit(req, 'review.completed', 'review', id, { overall_score: overall });
+      .run(overall, percent, id);
+    audit(req, 'review.completed', 'review', id, { overall_score: overall, overall_percent: percent });
     return { review: reviewToApi(getRowOrThrow('reviews', id, 'Beurteilung nicht gefunden')) };
   });
 
@@ -680,46 +844,64 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       }),
       req.params,
     );
+    const cycle = getRowOrThrow('review_cycles', p.cycleId, 'Zyklus nicht gefunden') as {
+      period_from: string;
+      period_to: string;
+    };
     const rows = getDb()
       .prepare(
-        `SELECT r.scores, r.overall_score, r.template_id FROM reviews r
+        `SELECT r.scores, r.overall_score, r.overall_percent, r.template_id FROM reviews r
          WHERE r.cycle_id = ? AND r.employee_id = ? AND r.status = 'abgeschlossen'`,
       )
-      .all(p.cycleId, p.employeeId) as { scores: string; overall_score: number | null; template_id: number }[];
-    const labels = new Map<string, string>();
+      .all(p.cycleId, p.employeeId) as {
+      scores: string;
+      overall_score: number | null;
+      overall_percent: number | null;
+      template_id: number;
+    }[];
+    // Kriterien je Bogen: derselbe Key kann in zwei Bögen verschiedene Skalen
+    // tragen, deshalb wird je Zeile über den eigenen Bogen normalisiert.
+    const criteriaByTemplate = new Map<number, Map<string, ReviewCriterion>>();
     for (const templateId of new Set(rows.map((r) => r.template_id))) {
       const t = getDb().prepare('SELECT criteria FROM review_templates WHERE id = ?').get(templateId) as
         | { criteria: string }
         | undefined;
-      if (t) for (const c of parseTemplateCriteria(t)) labels.set(c.key, c.label);
+      if (t) criteriaByTemplate.set(templateId, new Map(parseTemplateCriteria(t).map((c) => [c.key, c])));
     }
-    const sums = new Map<string, { sum: number; count: number }>();
+    const sums = new Map<string, { label: string; scale: RatingScaleKey; sum: number; pct: number; count: number }>();
     for (const row of rows) {
+      const criteria = criteriaByTemplate.get(row.template_id);
       for (const s of JSON.parse(row.scores) as ReviewScore[]) {
-        const entry = sums.get(s.key) ?? { sum: 0, count: 0 };
+        const c = criteria?.get(s.key);
+        const scale: RatingScaleKey = c?.scale ?? 'stars5';
+        const entry = sums.get(s.key) ?? { label: c?.label ?? s.key, scale, sum: 0, pct: 0, count: 0 };
         entry.sum += s.score;
+        entry.pct += normalizedScore(scale, s.score) * 100;
         entry.count += 1;
         sums.set(s.key, entry);
       }
     }
-    const criteria = [...sums.entries()].map(([key, { sum, count }]) => ({
+    const criteria = [...sums.entries()].map(([key, e]) => ({
       key,
-      label: labels.get(key) ?? key,
-      avg_score: Math.round((sum / count) * 100) / 100,
-      count,
+      label: e.label,
+      scale: e.scale,
+      avg_score: Math.round((e.sum / e.count) * 100) / 100,
+      avg_percent: Math.round(e.pct / e.count),
+      count: e.count,
     }));
-    const overallValues = rows.map((r) => r.overall_score).filter((v): v is number => v !== null);
-    const overall =
-      overallValues.length > 0
-        ? Math.round((overallValues.reduce((a, b) => a + b, 0) / overallValues.length) * 100) / 100
-        : null;
+    const mean = (values: number[]) =>
+      values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : null;
+    const overallScore = mean(rows.map((r) => r.overall_score).filter((v): v is number => v !== null));
+    const overallPercent = mean(rows.map((r) => r.overall_percent).filter((v): v is number => v !== null));
     return {
       aggregate: {
         cycle_id: p.cycleId,
         employee_id: p.employeeId,
         reviews_count: rows.length,
         criteria,
-        overall_score: overall,
+        overall_score: overallScore === null ? null : Math.round(overallScore * 100) / 100,
+        overall_percent: overallPercent === null ? null : Math.round(overallPercent),
+        supervisor: supervisorRatings(p.employeeId, cycle.period_from, cycle.period_to),
       },
     };
   });

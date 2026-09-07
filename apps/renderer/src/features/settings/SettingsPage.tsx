@@ -7,6 +7,7 @@ import { Card, Field, PageHeader, Spinner } from '../../components/ui';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
 import { applyTheme, getTheme, THEMES, type ThemeName } from '../../design/theme';
+import { Select } from '../../components/Select';
 
 /** Passwortregel des Backends (MIN_PASSWORD_CHARS in core/auth.ts). Als
  *  Konstante statt als Zahl im Hinweistext UND in der Absende-Bedingung: Beide
@@ -64,7 +65,7 @@ export function SettingsPage() {
               />
             </Field>
             <Field label="Standard-Bundesland" hint="Für Feiertage, wenn kein Standort zugeordnet ist">
-              <select
+              <Select
                 className="hm-select"
                 value={settings.defaultBundesland}
                 onChange={(e) => set({ defaultBundesland: e.target.value })}
@@ -74,7 +75,7 @@ export function SettingsPage() {
                     {label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Field label="Verfall Resturlaub (MM-TT)" hint="Standard: 31. März des Folgejahres">
               <input

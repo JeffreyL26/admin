@@ -4,6 +4,7 @@ import { RATING_SCALES, formatDateTime, type Rating, type RatingCategory, type R
 import { Badge, Field } from '../../components/ui';
 import { RatingInput, RatingValue } from './RatingInput';
 import { TeamNotice } from './TeamShared';
+import { Select } from '../../components/Select';
 
 /**
  * Ein Bewertungsblock der Maske: Kategorie, Skalenwert, Pflichtkommentar.
@@ -66,7 +67,7 @@ export function TeamRatingBlock({
       <div className="lead-block__head">
         <div className="row row--wrap" style={{ gap: 10, minWidth: 0 }}>
           <span className="lead-block__label">Kategorie</span>
-          <select
+          <Select
             className="hm-select lead-block__select"
             aria-label="Kategorie"
             value={block.category_id}
@@ -80,7 +81,7 @@ export function TeamRatingBlock({
                 {o.name}
               </option>
             ))}
-          </select>
+          </Select>
           {saved !== null && <Badge tone="neutral">Version {saved.version}</Badge>}
         </div>
         {canRemove && !readOnly && (

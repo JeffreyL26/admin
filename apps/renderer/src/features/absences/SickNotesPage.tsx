@@ -9,6 +9,7 @@ import { FilePicker } from '../../components/FilePicker';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { useMissingSickNotes, useSickNotes } from './api';
+import { Select } from '../../components/Select';
 
 /** AU-Status: fehlt / fristgerecht / verspätet / überfällig. */
 function certificateBadge(note: SickNote) {
@@ -147,7 +148,7 @@ export function SickNotesPage() {
         <Card
           title="Alle Krankmeldungen"
           actions={
-            <select
+            <Select
               className="hm-select"
               style={{ width: 170 }}
               value={childFilter}
@@ -156,7 +157,7 @@ export function SickNotesPage() {
               <option value="">Alle</option>
               <option value="0">Nur eigene Erkrankung</option>
               <option value="1">Nur Kind krank</option>
-            </select>
+            </Select>
           }
           flush
         >
@@ -312,7 +313,7 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
           span2
           hint="Nur bei nahtloser Fortsetzung einer bestehenden Krankmeldung."
         >
-          <select
+          <Select
             className="hm-select"
             value={followUpOf ?? ''}
             onChange={(e) => setFollowUpOf(e.target.value ? Number(e.target.value) : null)}
@@ -324,7 +325,7 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
                 {formatDate(n.date_from)} – {formatDate(n.date_to)}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="AU-Bescheinigung (optional)" span2 hint="Ausstellungspflicht ab dem 3. Kalendertag.">
           <FilePicker file={file} onFile={setFile} accept=".pdf,.jpg,.jpeg,.png" hint="PDF oder Bild" />

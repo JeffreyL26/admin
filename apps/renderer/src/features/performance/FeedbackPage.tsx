@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, CheckCircle2, MessagesSquare, Plus } from 'lucide-react';
 import {
@@ -16,6 +17,8 @@ import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { MEETING_STATUS_TONES, todayIso } from './common';
+import { Select } from '../../components/Select';
+import { useLeaderStatus } from '../leadership/api';
 
 interface MeetingRow extends FeedbackMeeting {
   first_name: string;
@@ -72,8 +75,8 @@ export function FeedbackPage() {
   return (
     <>
       <PageHeader
-        title="Feedback-Zyklen"
-        subtitle="Wiederkehrende Gespräche, Notizen und vereinbarte Maßnahmen."
+        title="Gespräche"
+        subtitle="Feedback-Zyklen: wiederkehrende Gespräche, Notizen und vereinbarte Maßnahmen. Hier kommen Selbstbild, Umfeld und Führungsbewertung zusammen."
         actions={
           <button className="hm-btn hm-btn--primary" onClick={() => setCreateOpen(true)}>
             <Plus size={16} /> Gespräch planen
@@ -122,7 +125,7 @@ export function FeedbackPage() {
                   emptyLabel="Alle Mitarbeitenden"
                 />
               </div>
-              <select
+              <Select
                 className="hm-select"
                 style={{ width: 170 }}
                 value={statusFilter}
@@ -134,7 +137,7 @@ export function FeedbackPage() {
                     {label}
                   </option>
                 ))}
-              </select>
+              </Select>
             </>
           }
           flush
@@ -312,7 +315,7 @@ function CreateMeetingModal({ onClose, onCreated }: { onClose: () => void; onCre
           <EmployeeSelect value={employeeId} onChange={setEmployeeId} />
         </Field>
         <Field label="Art" required>
-          <select
+          <Select
             className="hm-select"
             value={kind}
             onChange={(e) => setKind(e.target.value as FeedbackMeetingKind)}
@@ -322,7 +325,7 @@ function CreateMeetingModal({ onClose, onCreated }: { onClose: () => void; onCre
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Termin" required>
           <input className="hm-input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />

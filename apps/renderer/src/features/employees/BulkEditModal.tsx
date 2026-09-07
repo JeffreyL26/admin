@@ -7,6 +7,7 @@ import { Field } from '../../components/ui';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useDepartments, useLocations, useTeams } from './api';
+import { Select } from '../../components/Select';
 
 interface BulkState {
   department: { active: boolean; value: number | null };
@@ -126,7 +127,7 @@ export function BulkEditModal({
           'department',
           'Abteilung',
           <Field label="">
-            <select
+            <Select
               className="hm-select"
               disabled={!state.department.active}
               value={state.department.value ?? ''}
@@ -138,14 +139,14 @@ export function BulkEditModal({
                   {d.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>,
         )}
         {row(
           'team',
           'Team',
           <Field label="">
-            <select
+            <Select
               className="hm-select"
               disabled={!state.team.active}
               value={state.team.value ?? ''}
@@ -157,14 +158,14 @@ export function BulkEditModal({
                   {t.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>,
         )}
         {row(
           'location',
           'Standort',
           <Field label="">
-            <select
+            <Select
               className="hm-select"
               disabled={!state.location.active}
               value={state.location.value ?? ''}
@@ -176,7 +177,7 @@ export function BulkEditModal({
                   {l.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>,
         )}
         {row(
@@ -195,7 +196,7 @@ export function BulkEditModal({
           'status',
           'Status',
           <Field label="">
-            <select
+            <Select
               className="hm-select"
               disabled={!state.status.active}
               value={state.status.value}
@@ -206,7 +207,7 @@ export function BulkEditModal({
                   {label}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>,
         )}
         {row(

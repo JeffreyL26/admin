@@ -6,6 +6,7 @@ import { Field } from '../../components/ui';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { balanceExceededQuestion, useAbsenceTypes, useDaysPreview, type BalanceExceededDetails } from './api';
+import { Select } from '../../components/Select';
 
 /** Dialog "Neuer Abwesenheitsantrag" (HR erfasst stellvertretend). */
 export function RequestDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -102,7 +103,7 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
           <EmployeeSelect value={employeeId} onChange={setEmployeeId} />
         </Field>
         <Field label="Abwesenheitsart" required span2>
-          <select
+          <Select
             className="hm-select"
             value={typeId ?? ''}
             onChange={(e) => setTypeId(e.target.value ? Number(e.target.value) : null)}
@@ -114,7 +115,7 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
                 {t.max_days_per_year !== null ? ` (max. ${t.max_days_per_year} Tage/Jahr)` : ''}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Von" required>
           <input className="hm-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />

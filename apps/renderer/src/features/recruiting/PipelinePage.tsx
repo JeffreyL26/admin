@@ -6,6 +6,7 @@ import { useToast } from '../../components/Toast';
 import { PageHeader, Spinner, Avatar, EmptyState, Card } from '../../components/ui';
 import { usePostings, useApplications, useStages, useInvalidate, type Application } from './api';
 import { ApplicationDrawer, NewApplicationModal, RatingStars } from './common';
+import { Select } from '../../components/Select';
 
 function ApplicationCard({
   app,
@@ -106,12 +107,12 @@ export function PipelinePage() {
       />
 
       <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-        <select className="hm-select" style={{ maxWidth: 280 }} value={postingFilter} onChange={(e) => setPostingFilter(e.target.value ? Number(e.target.value) : '')}>
+        <Select className="hm-select" style={{ maxWidth: 280 }} value={postingFilter} onChange={(e) => setPostingFilter(e.target.value ? Number(e.target.value) : '')}>
           <option value="">Alle Stellen</option>
           {(postings ?? []).map((p) => (
             <option key={p.id} value={p.id}>{p.title}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {isLoading ? (

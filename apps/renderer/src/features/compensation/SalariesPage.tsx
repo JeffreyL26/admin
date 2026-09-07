@@ -16,6 +16,7 @@ import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { parseEuroInput } from './lib';
+import { Select } from '../../components/Select';
 
 interface SalaryOverviewRow {
   employee_id: number;
@@ -148,13 +149,13 @@ function ChangeRequestDialog({
           <EmployeeSelect value={employeeId} onChange={setEmployeeId} />
         </Field>
         <Field label="Art" required>
-          <select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value)}>
+          <Select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value)}>
             {SALARY_COMPONENT_KINDS.map((k) => (
               <option key={k} value={k}>
                 {kindLabel(k)}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field
           label="Neuer Betrag (€)"
@@ -247,13 +248,13 @@ function ComponentDialog({
     >
       <div className="hm-form-grid">
         <Field label="Art" required>
-          <select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value)}>
+          <Select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value)}>
             {SALARY_COMPONENT_KINDS.map((k) => (
               <option key={k} value={k}>
                 {kindLabel(k)}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field
           label="Betrag (€)"

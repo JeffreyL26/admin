@@ -17,6 +17,7 @@ import type { MeCalendarEmployee, MeCalendarEntry, OrgTreeNode } from '@ohrganiz
 import { useMyCalendar, useMyOrgTree, useMyProfile } from '../api/hooks';
 import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
 import { formatDate, todayIso } from '../lib/format';
+import { Select } from '../components/Select';
 
 const MONTH_NAMES = [
   'Januar',
@@ -366,7 +367,7 @@ export function CalendarPage() {
           aria-label="Mitarbeitende nach Namen suchen"
         />
         {departmentOptions.length > 1 && (
-          <select
+          <Select
             className="pt-select pt-cal__filter"
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
@@ -378,7 +379,7 @@ export function CalendarPage() {
                 {d.name}
               </option>
             ))}
-          </select>
+          </Select>
         )}
         {filtersActive && (
           <button

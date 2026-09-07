@@ -1901,3 +1901,79 @@ button {
     flex: 1 1 160px;
   }
 }
+
+/* ===================================================== Auswahlfeld (Select) === */
+/* components/Select.tsx: Spiegel der Desktop-Fassung mit pt-Klassen. */
+.pt-select--btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+.pt-select--btn:disabled {
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+.pt-select__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pt-select__chev {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+.pt-select--btn[aria-expanded='true'] .pt-select__chev {
+  transform: rotate(180deg);
+}
+.pt-select-menu {
+  position: fixed;
+  z-index: 450;
+  padding: 5px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+}
+.pt-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+}
+.pt-select-option__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pt-select-option svg {
+  flex-shrink: 0;
+  color: var(--brand-primary);
+}
+.pt-select-option.is-active {
+  background: var(--gray-100);
+}
+.pt-select-option.is-selected {
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+.pt-select-option.is-disabled {
+  color: var(--text-muted);
+  cursor: default;
+}

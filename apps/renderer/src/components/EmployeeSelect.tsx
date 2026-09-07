@@ -1,6 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { Select } from './Select';
 
 export interface EmployeeLite {
   id: number;
@@ -46,7 +47,7 @@ export function EmployeeSelect({
 }) {
   const { data: employees } = useEmployees();
   return (
-    <select
+    <Select
       className="hm-select"
       value={value ?? ''}
       disabled={disabled}
@@ -59,6 +60,6 @@ export function EmployeeSelect({
         </option>
       ))}
       {!allowEmpty && null}
-    </select>
+    </Select>
   );
 }

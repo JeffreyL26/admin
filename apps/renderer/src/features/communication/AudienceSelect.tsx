@@ -2,6 +2,7 @@ import React from 'react';
 import { AUDIENCE_TYPE_LABELS, type AudienceType } from '@ohrganize/shared';
 import { Field } from '../../components/ui';
 import { useOrg } from './api';
+import { Select } from '../../components/Select';
 
 export interface AudienceValue {
   audience_type: AudienceType;
@@ -33,7 +34,7 @@ export function AudienceSelect({
   return (
     <>
       <Field label="Zielgruppe" required>
-        <select
+        <Select
           className="hm-select"
           value={value.audience_type}
           onChange={(e) =>
@@ -45,11 +46,11 @@ export function AudienceSelect({
               {AUDIENCE_TYPE_LABELS[t]}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       {value.audience_type !== 'alle' && (
         <Field label={AUDIENCE_TYPE_LABELS[value.audience_type]} required>
-          <select
+          <Select
             className="hm-select"
             value={value.audience_id ?? ''}
             onChange={(e) =>
@@ -65,7 +66,7 @@ export function AudienceSelect({
                 {ent.name}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
       )}
     </>

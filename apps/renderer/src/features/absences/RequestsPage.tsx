@@ -17,6 +17,7 @@ import {
   type BalanceExceededDetails,
 } from './api';
 import { RequestDialog } from './RequestDialog';
+import { Select } from '../../components/Select';
 
 const STATUS_TONES: Record<AbsenceRequestStatus, BadgeTone> = {
   beantragt: 'yellow',
@@ -381,17 +382,17 @@ function AllRequestsTab() {
       <Card>
         <div className="hm-form-grid">
           <Field label="Status">
-            <select className="hm-select" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <Select className="hm-select" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="">Alle</option>
               {Object.entries(ABSENCE_STATUS_LABELS).map(([k, label]) => (
                 <option key={k} value={k}>
                   {label}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Art">
-            <select
+            <Select
               className="hm-select"
               value={typeId ?? ''}
               onChange={(e) => setTypeId(e.target.value ? Number(e.target.value) : null)}
@@ -402,7 +403,7 @@ function AllRequestsTab() {
                   {t.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Mitarbeiter:in">
             <EmployeeSelect value={employeeId} onChange={setEmployeeId} emptyLabel="Alle" />
@@ -458,13 +459,13 @@ function BalancesTab() {
     <Card
       title={`Urlaubssalden ${year}`}
       actions={
-        <select className="hm-select" style={{ width: 110 }} value={year} onChange={(e) => setYear(Number(e.target.value))}>
+        <Select className="hm-select" style={{ width: 110 }} value={year} onChange={(e) => setYear(Number(e.target.value))}>
           {[currentYear - 1, currentYear, currentYear + 1].map((y) => (
             <option key={y} value={y}>
               {y}
             </option>
           ))}
-        </select>
+        </Select>
       }
       flush
     >

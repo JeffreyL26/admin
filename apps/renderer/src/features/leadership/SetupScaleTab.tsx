@@ -16,6 +16,7 @@ import { useToast } from '../../components/Toast';
 import { useLeadershipSettings, useMutualPairs, useUpdateLeadershipSettings } from './api';
 import { RatingInput } from './RatingInput';
 import { SetupNote, errorMessage } from './SetupShared';
+import { Select } from '../../components/Select';
 
 /**
  * Reiter „Skala & Zeitraum“: Kadenz, zentrale Skala, Einheitlichkeit der
@@ -105,7 +106,7 @@ export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
             label="Kadenz"
             hint="Standard: quartalsweise. Jede Bewertung gehört zu genau einem Zeitraum dieser Kadenz."
           >
-            <select
+            <Select
               className="hm-select"
               value={state.period}
               disabled={readOnly}
@@ -116,7 +117,7 @@ export function SetupScaleTab({ canEdit }: { canEdit: boolean }) {
                   {RATING_PERIOD_LABELS[k]}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <div className="span-2">
             <SetupNote icon={<History size={15} />}>

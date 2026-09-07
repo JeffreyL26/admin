@@ -9,6 +9,7 @@ import { useToast } from '../../components/Toast';
 import { useDocuments, useExpiringDocuments, type DocumentRow } from './api';
 import { DocumentUploadModal } from './DocumentUploadModal';
 import { expiryBadge } from './EmployeeDetailPage';
+import { Select } from '../../components/Select';
 
 export function DocumentsPage() {
   const toast = useToast();
@@ -92,7 +93,7 @@ export function DocumentsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <select
+          <Select
             className="hm-select"
             style={{ width: 180 }}
             value={category}
@@ -104,7 +105,7 @@ export function DocumentsPage() {
                 {l}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </Card>
 

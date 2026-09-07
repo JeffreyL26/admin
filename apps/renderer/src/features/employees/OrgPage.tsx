@@ -13,6 +13,7 @@ import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useLocations, useOrgTree, type Location } from './api';
 import { PeopleOrgChart } from './OrgChart';
+import { Select } from '../../components/Select';
 
 type DragPayload = { kind: 'department' | 'team'; id: number };
 
@@ -1048,7 +1049,7 @@ function LocationModal({
           <input className="hm-input" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
         </Field>
         <Field label="Bundesland" required hint="Steuert die Feiertagsberechnung">
-          <select
+          <Select
             className="hm-select"
             value={form.bundesland}
             onChange={(e) => setForm({ ...form, bundesland: e.target.value })}
@@ -1058,7 +1059,7 @@ function LocationModal({
                 {label}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
       </div>
     </Modal>

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Info, X } from 'lucide-react';
 import { useLeadershipLookup } from './api';
+import { Select } from '../../components/Select';
 
 /**
  * Kleine Bausteine, die sich die Reiter der Einrichtung teilen. Bewusst
@@ -86,7 +87,7 @@ export function SetupEmployeeSelect({
     );
   }, [employees, exclude]);
   return (
-    <select
+    <Select
       className="hm-select"
       value={value ?? ''}
       disabled={disabled}
@@ -100,7 +101,7 @@ export function SetupEmployeeSelect({
           {e.job_title ? ` · ${e.job_title}` : ''}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 

@@ -65,13 +65,18 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: Teilnehmerliste mit Fortschritt }
+  /api/performance/rating-categories:
+    get:
+      summary: Zentrale Bewertungskategorien (Führung & Bewertung) als Baukasten für Bögen
+      responses:
+        "200": { description: Aktive Kategorien mit wirksamer Skala }
   /api/performance/review-templates:
     get:
       summary: Beurteilungsbögen auflisten
       responses:
         "200": { description: Bögen mit Kriterien }
     post:
-      summary: Bogen anlegen (Kriterien mit konfigurierbarer Skala)
+      summary: Bogen anlegen (Kriterien mit zentraler Skala, optional an eine Kategorie gebunden)
       responses:
         "201": { description: Angelegter Bogen }
   /api/performance/review-templates/{id}:
@@ -98,9 +103,10 @@ paths:
       responses:
         "200": { description: Beurteilungen }
     post:
-      summary: Beurteilung anlegen (selbst / vorgesetzt / feedback360)
+      summary: Beurteilung anlegen (selbst / feedback360; vorgesetzt gehört zu Führung → Mein Team)
       responses:
         "201": { description: Angelegte Beurteilung }
+        "400": { description: Art vorgesetzt wird abgelehnt }
         "409": { description: Kombination existiert bereits }
   /api/performance/reviews/{id}:
     put:
@@ -124,9 +130,16 @@ paths:
       responses:
         "200": { description: Abgeschlossene Beurteilung }
         "400": { description: Unvollständige Bewertung }
+  /api/performance/reviews/suggestions/{employeeId}:
+    get:
+      summary: Vorschläge für 360°-Reviewer:innen aus der Berichtslinie
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Vorschläge mit Beziehung (vorgesetzt / team / kollegium) }
   /api/performance/reviews/aggregate/{cycleId}/{employeeId}:
     get:
-      summary: 360°-/Gesamt-Aggregat je Zyklus und Mitarbeiter:in (Ø je Kriterium)
+      summary: 360°-/Gesamt-Aggregat je Zyklus und Mitarbeiter:in (Ø je Kriterium, Prozent, Vorgesetztenbewertung aus Führung)
       parameters:
         - { name: cycleId, in: path, required: true, schema: { type: integer } }
         - { name: employeeId, in: path, required: true, schema: { type: integer } }

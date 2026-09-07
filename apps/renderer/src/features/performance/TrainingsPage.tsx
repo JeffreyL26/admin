@@ -17,6 +17,7 @@ import { Modal, ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { REGISTRATION_STATUS_TONES } from './common';
+import { Select } from '../../components/Select';
 
 interface TrainingRow extends Training {
   registrations_count: number;
@@ -265,14 +266,14 @@ export function TrainingsPage() {
             />
           </Field>
           <Field label="Art">
-            <select
+            <Select
               className="hm-select"
               value={form.kind}
               onChange={(e) => setForm({ ...form, kind: e.target.value as 'intern' | 'extern' })}
             >
               <option value="intern">Intern</option>
               <option value="extern">Extern</option>
-            </select>
+            </Select>
           </Field>
           <Field label="Kosten (€)">
             <input

@@ -14,6 +14,7 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { currentMonth, formatMonth, parseEuroInput, STATUS_TONES } from './lib';
+import { Select } from '../../components/Select';
 
 interface GoalOption {
   id: number;
@@ -128,7 +129,7 @@ function CreateBonusDialog({ open, onClose }: { open: boolean; onClose: () => vo
           />
         </Field>
         <Field label="Art" required>
-          <select
+          <Select
             className="hm-select"
             value={kind}
             onChange={(e) => {
@@ -141,7 +142,7 @@ function CreateBonusDialog({ open, onClose }: { open: boolean; onClose: () => vo
                 {BONUS_KIND_LABELS[k]}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Titel" required>
           <input
@@ -163,7 +164,7 @@ function CreateBonusDialog({ open, onClose }: { open: boolean; onClose: () => vo
                   : 'Auszahlung = Zielbetrag × Zielerreichung'
             }
           >
-            <select
+            <Select
               className="hm-select"
               value={goalId ?? ''}
               disabled={employeeId === null}
@@ -175,7 +176,7 @@ function CreateBonusDialog({ open, onClose }: { open: boolean; onClose: () => vo
                   {g.title} ({g.progress} %)
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
         )}
         {goalCoupled && goalId ? (

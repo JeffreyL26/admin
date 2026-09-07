@@ -15,6 +15,7 @@ import {
   type GoalStatus,
 } from '@ohrganize/shared';
 import { ProgressBar, GOAL_STATUS_TONES } from './common';
+import { Select } from '../../components/Select';
 
 const emptyForm = {
   title: '',
@@ -212,7 +213,7 @@ export function GoalsPage() {
       >
         <div className="hm-form-grid">
           <Field label="Art" required>
-            <select
+            <Select
               className="hm-select"
               value={form.kind}
               onChange={(e) => setForm({ ...form, kind: e.target.value as GoalKind })}
@@ -222,11 +223,11 @@ export function GoalsPage() {
                   {GOAL_KIND_LABELS[k]}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           {form.kind === 'key_result' && (
             <Field label="Objective" required>
-              <select
+              <Select
                 className="hm-select"
                 value={form.parent_goal_id ?? ''}
                 onChange={(e) =>
@@ -239,7 +240,7 @@ export function GoalsPage() {
                     {o.title}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           )}
           <Field label="Titel" required span2>
@@ -393,7 +394,7 @@ function GoalRow({
             </button>
           </>
         )}
-        <select
+        <Select
           className="hm-select"
           value={goal.status}
           onChange={(e) => updateStatus.mutate(e.target.value as GoalStatus)}
@@ -405,7 +406,7 @@ function GoalRow({
               {GOAL_STATUS_LABELS[s]}
             </option>
           ))}
-        </select>
+        </Select>
         <button className="hm-btn hm-btn--ghost hm-btn--icon" onClick={onDelete} aria-label="Löschen">
           <Trash2 size={16} />
         </button>

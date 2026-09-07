@@ -23,6 +23,7 @@ import {
   useApplication, useStages, useRecruitingOrg, useInvalidate, usePostings, useCandidates,
   type ApplicationDetail,
 } from './api';
+import { Select } from '../../components/Select';
 
 export const APPLICATION_STATUS_TONES: Record<ApplicationStatus, BadgeTone> = {
   aktiv: 'blue',
@@ -97,7 +98,7 @@ function InterviewerPicker({
   const available = (employees ?? []).filter((e) => !value.includes(e.id));
   return (
     <div className="stack" style={{ gap: 8 }}>
-      <select
+      <Select
         className="hm-select"
         value=""
         onChange={(e) => e.target.value && onChange([...value, Number(e.target.value)])}
@@ -108,7 +109,7 @@ function InterviewerPicker({
             {e.last_name}, {e.first_name}
           </option>
         ))}
-      </select>
+      </Select>
       {value.length > 0 && (
         <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
           {value.map((id) => {
@@ -249,11 +250,11 @@ export function InterviewEditor({
     >
       <div className="hm-form-grid">
         <Field label="Art" required>
-          <select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value as InterviewKind)}>
+          <Select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value as InterviewKind)}>
             {(Object.keys(INTERVIEW_KIND_LABELS) as InterviewKind[]).map((k) => (
               <option key={k} value={k}>{INTERVIEW_KIND_LABELS[k]}</option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Dauer (Min.)">
           <input className="hm-input" type="number" min={1} value={duration} onChange={(e) => setDuration(e.target.value)} />
@@ -274,11 +275,11 @@ export function InterviewEditor({
         {isEdit && (
           <>
             <Field label="Status" span2>
-              <select className="hm-select" value={status} onChange={(e) => setStatus(e.target.value as InterviewStatus)}>
+              <Select className="hm-select" value={status} onChange={(e) => setStatus(e.target.value as InterviewStatus)}>
                 {(Object.keys(INTERVIEW_STATUS_LABELS) as InterviewStatus[]).map((s) => (
                   <option key={s} value={s}>{INTERVIEW_STATUS_LABELS[s]}</option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <div className="span-2" style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>Scorecard</div>
@@ -302,7 +303,7 @@ export function InterviewEditor({
               </div>
             </div>
             <Field label="Empfehlung" span2>
-              <select
+              <Select
                 className="hm-select"
                 value={recommendation}
                 onChange={(e) => setRecommendation(e.target.value as InterviewRecommendation | '')}
@@ -311,7 +312,7 @@ export function InterviewEditor({
                 {(Object.keys(INTERVIEW_RECOMMENDATION_LABELS) as InterviewRecommendation[]).map((r) => (
                   <option key={r} value={r}>{INTERVIEW_RECOMMENDATION_LABELS[r]}</option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Field label="Notizen zum Gespräch" span2>
               <textarea className="hm-textarea" rows={3} value={feedback} onChange={(e) => setFeedback(e.target.value)} />
@@ -442,11 +443,11 @@ function HireDialog({
           <input className="hm-input" type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} />
         </Field>
         <Field label="Beschäftigungsart" required>
-          <select className="hm-select" value={type} onChange={(e) => setType(e.target.value as EmployeeType)}>
+          <Select className="hm-select" value={type} onChange={(e) => setType(e.target.value as EmployeeType)}>
             {(Object.keys(EMPLOYEE_TYPE_LABELS) as EmployeeType[]).map((t) => (
               <option key={t} value={t}>{EMPLOYEE_TYPE_LABELS[t]}</option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Wochenstunden">
           <input className="hm-input" type="number" min={0} value={weeklyHours} onChange={(e) => setWeeklyHours(e.target.value)} />
@@ -574,7 +575,7 @@ export function ApplicationDrawer({
             {/* Aktionen */}
             {app.status === 'aktiv' && (
               <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-                <select
+                <Select
                   className="hm-select"
                   style={{ maxWidth: 220 }}
                   value={app.stage_id}
@@ -583,7 +584,7 @@ export function ApplicationDrawer({
                   {activeStages.map((s) => (
                     <option key={s.id} value={s.id}>Stufe: {s.name}</option>
                   ))}
-                </select>
+                </Select>
                 <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => { setInterviewEdit(null); setInterviewOpen(true); }}>
                   <CalendarClock size={15} /> Interview planen
                 </button>
@@ -805,12 +806,12 @@ export function NewApplicationModal({
     >
       <div className="hm-form-grid">
         <Field label="Stelle" required span2>
-          <select className="hm-select" value={postingId} onChange={(e) => setPostingId(e.target.value ? Number(e.target.value) : '')}>
+          <Select className="hm-select" value={postingId} onChange={(e) => setPostingId(e.target.value ? Number(e.target.value) : '')}>
             <option value="">— Stelle wählen —</option>
             {openPostings.map((p) => (
               <option key={p.id} value={p.id}>{p.title}</option>
             ))}
-          </select>
+          </Select>
         </Field>
 
         <div className="span-2">
@@ -822,12 +823,12 @@ export function NewApplicationModal({
 
         {mode === 'existing' ? (
           <Field label="Bewerber:in" required span2>
-            <select className="hm-select" value={candidateId} onChange={(e) => setCandidateId(e.target.value ? Number(e.target.value) : '')}>
+            <Select className="hm-select" value={candidateId} onChange={(e) => setCandidateId(e.target.value ? Number(e.target.value) : '')}>
               <option value="">— auswählen —</option>
               {(candidates ?? []).map((c) => (
                 <option key={c.id} value={c.id}>{c.last_name}, {c.first_name}{c.email ? ` · ${c.email}` : ''}</option>
               ))}
-            </select>
+            </Select>
           </Field>
         ) : (
           <>
@@ -853,9 +854,9 @@ export function NewApplicationModal({
           <input className="hm-input" type="date" value={appliedAt} onChange={(e) => setAppliedAt(e.target.value)} />
         </Field>
         <Field label="Herkunftskanal">
-          <select className="hm-select" value={source} onChange={(e) => setSource(e.target.value as CandidateSource)}>
+          <Select className="hm-select" value={source} onChange={(e) => setSource(e.target.value as CandidateSource)}>
             {SOURCES.map((s) => <option key={s} value={s}>{CANDIDATE_SOURCE_LABELS[s]}</option>)}
-          </select>
+          </Select>
         </Field>
         <Field label="Erste Bewertung" span2>
           <RatingStars value={rating} onChange={setRating} size={20} />

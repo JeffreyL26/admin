@@ -14,6 +14,7 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { STATUS_TONES } from './lib';
+import { Select } from '../../components/Select';
 
 interface CertificateRow {
   id: number;
@@ -79,13 +80,13 @@ function CreateDialog({ open, onClose }: { open: boolean; onClose: () => void })
           <EmployeeSelect value={employeeId} onChange={setEmployeeId} />
         </Field>
         <Field label="Art" required>
-          <select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value)}>
+          <Select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value)}>
             {(Object.keys(CERTIFICATE_KIND_LABELS) as CertificateKind[]).map((k) => (
               <option key={k} value={k}>
                 {CERTIFICATE_KIND_LABELS[k]}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Jahr / Zeitraum" required hint="z. B. 2026 oder 01/2026–06/2026">
           <input className="hm-input" value={period} onChange={(e) => setPeriod(e.target.value)} />

@@ -203,4 +203,12 @@ export const performanceMigrations: Migration[] = [
       );
     `,
   },
+  {
+    // Zusammenführung mit Führung & Bewertung: Bögen nutzen die zentralen
+    // Skalen (verschiedene Skalen je Kriterium sind möglich), deshalb ist das
+    // Gesamtergebnis ein Anteil der Bestnote in Prozent statt eines Mittels
+    // roher Zahlen. `overall_score` bleibt für Altbestand stehen.
+    name: '320_reviews_unified_scales',
+    sql: `ALTER TABLE reviews ADD COLUMN overall_percent INTEGER;`,
+  },
 ];

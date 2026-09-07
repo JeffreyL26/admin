@@ -19,6 +19,7 @@ import {
   useUpdateCategory,
 } from './api';
 import { SetupNote, errorMessage } from './SetupShared';
+import { Select } from '../../components/Select';
 
 /**
  * Reiter „Kategorien“: zentrale Bewertungskategorien für alle Führungskräfte.
@@ -305,7 +306,7 @@ function ScaleCell({
   }
   // uniform_scale = 0: jede Kategorie darf eine eigene Skala tragen.
   return (
-    <select
+    <Select
       className="hm-select"
       aria-label={`Skala für ${category.name}`}
       value={category.scale ?? ''}
@@ -318,7 +319,7 @@ function ScaleCell({
           {RATING_SCALES[k].label}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }
 

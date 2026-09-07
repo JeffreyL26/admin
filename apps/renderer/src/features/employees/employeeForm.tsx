@@ -14,6 +14,7 @@ import { Field } from '../../components/ui';
 import { PhotoPicker } from '../../components/FilePicker';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useDepartments, useLocations, useTeams, type EmployeeRow } from './api';
+import { Select } from '../../components/Select';
 
 /** Formularzustand: Zahlen als String (Eingabe), Konvertierung erst beim Submit. */
 export interface EmployeeFormState {
@@ -249,7 +250,7 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
   return (
     <div className="hm-form-grid">
       <Field label="Mitarbeitertyp" required hint={rule.hint}>
-        <select
+        <Select
           className="hm-select"
           value={form.employee_type}
           onChange={(e) => set({ employee_type: e.target.value as EmployeeType })}
@@ -259,10 +260,10 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
               {label}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Status">
-        <select
+        <Select
           className="hm-select"
           value={form.status}
           onChange={(e) => set({ status: e.target.value as EmployeeStatus })}
@@ -272,7 +273,7 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
               {label}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Jobtitel" span2>
         <input className="hm-input" value={form.job_title} onChange={(e) => set({ job_title: e.target.value })} />
@@ -289,7 +290,7 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
         />
       </Field>
       <Field label="Abteilung">
-        <select
+        <Select
           className="hm-select"
           value={form.department_id ?? ''}
           onChange={(e) =>
@@ -302,10 +303,10 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
               {d.name}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Team">
-        <select
+        <Select
           className="hm-select"
           value={form.team_id ?? ''}
           onChange={(e) => set({ team_id: e.target.value === '' ? null : Number(e.target.value) })}
@@ -316,10 +317,10 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
               {t.name}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Standort">
-        <select
+        <Select
           className="hm-select"
           value={form.location_id ?? ''}
           onChange={(e) => set({ location_id: e.target.value === '' ? null : Number(e.target.value) })}
@@ -330,7 +331,7 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
               {l.name}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Vorgesetzte:r">
         <EmployeeSelect value={form.manager_id} onChange={(id) => set({ manager_id: id })} allowEmpty />
@@ -390,7 +391,7 @@ export function FinanceFields({ form, set }: { form: EmployeeFormState; set: Set
         required={required.has('tax_class')}
         hint={isFreelancer ? 'Entfällt bei freier Mitarbeit' : undefined}
       >
-        <select
+        <Select
           className="hm-select"
           value={form.tax_class}
           disabled={isFreelancer}
@@ -402,10 +403,10 @@ export function FinanceFields({ form, set }: { form: EmployeeFormState; set: Set
               {c}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Kirchensteuer">
-        <select
+        <Select
           className="hm-select"
           value={form.church_tax}
           disabled={isFreelancer}
@@ -417,7 +418,7 @@ export function FinanceFields({ form, set }: { form: EmployeeFormState; set: Set
               {label}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Kinderfreibeträge" hint="In 0,5-Schritten">
         <input

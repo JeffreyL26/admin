@@ -73,25 +73,21 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Leistung',
+    // Ein Abschnitt für Leistung UND Führung: Die Rechtebereiche bleiben
+    // getrennt (Einträge mit `area: 'fuehrung'` prüfen ihren eigenen Bereich,
+    // „Mein Team“ hängt an der Freischaltung der Person), aber fachlich gehört
+    // die Bewertung durch die Führungskraft neben Gespräche und Beurteilungen.
+    title: 'Leistung & Führung',
     area: 'leistung',
     items: [
+      { path: '/fuehrung/mein-team', label: 'Mein Team', icon: UsersRound, leaderOnly: true },
+      { path: '/leistung/feedback', label: 'Gespräche', icon: MessagesSquare },
       { path: '/leistung/ziele', label: 'Ziele & OKR', icon: Target },
       { path: '/leistung/beurteilungen', label: 'Beurteilungen', icon: ClipboardCheck },
+      { path: '/fuehrung/report', label: 'Satisfaction-Report', icon: Gauge, area: 'fuehrung' },
       { path: '/leistung/skills', label: 'Skills & Kompetenzen', icon: Grid3x3 },
       { path: '/leistung/trainings', label: 'Trainings', icon: GraduationCap },
-      { path: '/leistung/feedback', label: 'Feedback-Zyklen', icon: MessagesSquare },
-    ],
-  },
-  {
-    title: 'Führung',
-    area: 'fuehrung',
-    items: [
-      // „Mein Team“ hängt an der Freischaltung der Person, nicht am Bereich:
-      // Eine Führungskraft ohne HR-Rechte sieht genau diesen einen Eintrag.
-      { path: '/fuehrung/mein-team', label: 'Mein Team', icon: UsersRound, leaderOnly: true },
-      { path: '/fuehrung/report', label: 'Satisfaction-Report', icon: Gauge },
-      { path: '/fuehrung/einrichtung', label: 'Einrichtung', icon: SlidersHorizontal },
+      { path: '/fuehrung/einrichtung', label: 'Einrichtung Bewertung', icon: SlidersHorizontal, area: 'fuehrung' },
     ],
   },
   {

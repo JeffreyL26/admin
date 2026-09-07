@@ -21,6 +21,7 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { EmployeeSelect, employeeName, useEmployees } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { Tooltip } from '../../components/Tooltip';
+import { Select } from '../../components/Select';
 
 const KEY = ['admin', 'admin-roles'];
 const USERS_KEY = ['admin', 'users'];
@@ -230,7 +231,7 @@ function AccountsTab() {
                         // ausschließlich den Self-Service (Hook in server.ts).
                         <span style={{ color: 'var(--text-muted)' }}>Self-Service</span>
                       ) : (
-                        <select
+                        <Select
                           className="hm-select"
                           style={{ width: 210 }}
                           value={a.admin_role_id ?? ''}
@@ -253,7 +254,7 @@ function AccountsTab() {
                               {r.name}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                       )}
                     </td>
                     <td>
@@ -529,14 +530,14 @@ function AccountDialog({
           />
         </Field>
         <Field label="Zugang" required>
-          <select
+          <Select
             className="hm-select"
             value={role}
             onChange={(e) => setRole(e.target.value as 'admin' | 'mitarbeiter')}
           >
             <option value="admin">HR-Administration (Desktop-App)</option>
             <option value="mitarbeiter">Mitarbeitenden-Portal (Self-Service)</option>
-          </select>
+          </Select>
         </Field>
         <Field
           label="Personalprofil"
@@ -560,7 +561,7 @@ function AccountDialog({
             span2
             hint="Ohne Rolle hat das Konto Vollzugriff. Nur vergeben, was Sie selbst besitzen."
           >
-            <select
+            <Select
               className="hm-select"
               value={adminRoleId ?? ''}
               onChange={(e) => setAdminRoleId(e.target.value === '' ? null : Number(e.target.value))}
@@ -571,7 +572,7 @@ function AccountDialog({
                   {r.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
         )}
       </div>

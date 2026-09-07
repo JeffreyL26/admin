@@ -6,6 +6,7 @@ import { useCancelRequest, useMyRequests } from '../api/hooks';
 import { Card, EmptyState, LoadError, Skeleton, StatusChip } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { formatDate, formatDays, formatRange, todayIso } from '../lib/format';
+import { Select } from '../components/Select';
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: '', label: 'Alle Status' },
@@ -77,7 +78,7 @@ export function RequestsPage() {
       </header>
 
       <div className="row" style={{ marginBottom: 16 }}>
-        <select
+        <Select
           className="pt-select"
           style={{ width: 'auto' }}
           value={year}
@@ -89,8 +90,8 @@ export function RequestsPage() {
               {y}
             </option>
           ))}
-        </select>
-        <select
+        </Select>
+        <Select
           className="pt-select"
           style={{ width: 'auto' }}
           value={status}
@@ -102,7 +103,7 @@ export function RequestsPage() {
               {s.label}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
 
       <Card flush>

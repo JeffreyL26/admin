@@ -17,6 +17,7 @@ import { usePhotoUrl } from '../employees/api';
 import { useCreateAssignment, useDeleteAssignment, useLeaderTeam, useLeadershipLookup } from './api';
 import { SourceBadges } from './common';
 import { SetupEmployeeSelect, SetupNote, errorMessage, personCount } from './SetupShared';
+import { Select } from '../../components/Select';
 
 /**
  * Zuständigkeit einer Führungskraft: Vorschau der abgeleiteten Personen mit
@@ -297,16 +298,16 @@ function AssignmentForm({ leaderId }: { leaderId: number }) {
       )}
       <div className="hm-form-grid">
         <Field label="Art" required>
-          <select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value as AssignmentKind)}>
+          <Select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value as AssignmentKind)}>
             {KINDS.map((k) => (
               <option key={k} value={k}>
                 {ASSIGNMENT_KIND_LABELS[k]}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Zieltyp" required>
-          <select
+          <Select
             className="hm-select"
             value={targetType}
             onChange={(e) => setTargetType(e.target.value as AssignmentTargetType)}
@@ -316,7 +317,7 @@ function AssignmentForm({ leaderId }: { leaderId: number }) {
                 {ASSIGNMENT_TARGET_LABELS[t]}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field
           label={ASSIGNMENT_TARGET_LABELS[targetType]}
@@ -390,7 +391,7 @@ function TargetSelect({
         : (lookup?.roles ?? []).map((r) => ({ id: r.id, label: r.name }));
   const sorted = [...options].sort((a, b) => a.label.localeCompare(b.label, 'de'));
   return (
-    <select
+    <Select
       className="hm-select"
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
@@ -401,6 +402,6 @@ function TargetSelect({
           {o.label}
         </option>
       ))}
-    </select>
+    </Select>
   );
 }

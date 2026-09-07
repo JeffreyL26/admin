@@ -13,6 +13,7 @@ import {
 } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Spinner, StatCard } from '../../components/ui';
+import { Select } from '../../components/Select';
 
 /**
  * Modulübergreifende Tabs der Personalakte: Abwesenheit und Vergütung werden
@@ -46,7 +47,7 @@ export function EmployeeAbsenceTab({ employeeId }: { employeeId: number }) {
   return (
     <div className="stack">
       <div className="row row--between">
-        <select
+        <Select
           className="hm-select"
           style={{ width: 110 }}
           value={year}
@@ -57,7 +58,7 @@ export function EmployeeAbsenceTab({ employeeId }: { employeeId: number }) {
               {y}
             </option>
           ))}
-        </select>
+        </Select>
         <button
           className="hm-btn hm-btn--secondary hm-btn--sm"
           onClick={() => navigate('/abwesenheit/antraege')}

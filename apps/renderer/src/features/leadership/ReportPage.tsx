@@ -17,6 +17,7 @@ import { usePhotoUrl } from '../employees/api';
 import { useLeadershipReport } from './api';
 import { ReportBreakdown } from './ReportBreakdown';
 import { DistributionBar, PeriodSwitcher } from './common';
+import { Select } from '../../components/Select';
 
 /**
  * Satisfaction-Report (Arbeitstitel des Kunden, genau so beschriftet):
@@ -198,13 +199,13 @@ export function ReportPage() {
             <ScaleLegend scale={scale} />
             <label className="lead-report-sort">
               <span>Sortieren nach</span>
-              <select className="hm-select" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+              <Select className="hm-select" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
                 {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
                   <option key={key} value={key}>
                     {SORT_LABELS[key]}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
           </div>
 

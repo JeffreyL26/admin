@@ -125,6 +125,18 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   Zelle (Detail-Pop-up). Der zweite Pfadparameter heißt `memberId`, weil
   find-my-way an derselben Baumposition denselben Parameternamen verlangt wie
   `/leaders/:employeeId/team`.
+- **Leistung & Führung sind verzahnt, nicht verschmolzen.** Beurteilungen
+  (`modules/performance`) legen nur Selbstbewertung und 360°-Feedback an;
+  `kind: 'vorgesetzt'` wird mit 400 abgewiesen, weil die Vorgesetztenbewertung
+  ausschließlich unter „Mein Team“ entsteht (Altbestand bleibt lesbar). Bögen
+  tragen je Kriterium eine zentrale Skala (`scale`, Altbestand `scale_max`
+  wird beim Lesen umgerechnet) und binden Kriterien optional an zentrale
+  Kategorien (`category_id`, Snapshot beim Speichern). Ergebnis eines Bogens
+  ist `overall_percent` (Anteil der Bestnote); das Aggregat liefert die
+  Führungsbewertungen des Zyklus-Zeitraums als `supervisor`. Ein
+  Navigationsabschnitt „Leistung & Führung“, Rechtebereiche bleiben getrennt.
+  Deep-Links: `/leistung/beurteilungen?tab=conduct&employee=<id>`,
+  `/leistung/feedback?employee=<id>`. Hintergrund: docs/entscheidungen.md.
 - **Desktop-Embedding:** `desktop/src/main.ts` ruft `startServer(0)` aus dem
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.ohrganize.apiBaseUrl`.

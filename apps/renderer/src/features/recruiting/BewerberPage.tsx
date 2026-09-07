@@ -14,6 +14,7 @@ import {
   ApplicationDrawer, NewApplicationModal, CandidateMeta, StageChip,
   APPLICATION_STATUS_TONES,
 } from './common';
+import { Select } from '../../components/Select';
 
 interface Draft {
   first_name: string;
@@ -109,11 +110,11 @@ function CandidateEditor({
           <input className="hm-input" value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} />
         </Field>
         <Field label="Herkunftskanal">
-          <select className="hm-select" value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value as CandidateSource }))}>
+          <Select className="hm-select" value={form.source} onChange={(e) => setForm((f) => ({ ...f, source: e.target.value as CandidateSource }))}>
             {(Object.keys(CANDIDATE_SOURCE_LABELS) as CandidateSource[]).map((s) => (
               <option key={s} value={s}>{CANDIDATE_SOURCE_LABELS[s]}</option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Kurzprofil / aktuelle Position" span2>
           <input className="hm-input" value={form.headline} onChange={(e) => setForm((f) => ({ ...f, headline: e.target.value }))} />

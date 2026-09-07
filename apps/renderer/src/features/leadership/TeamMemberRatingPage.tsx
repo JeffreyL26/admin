@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   CalendarDays,
@@ -459,6 +459,18 @@ export function TeamMemberRatingPage() {
               </table>
             </div>
           )}
+        </Card>
+
+        <Card title="Rund um die Bewertung">
+          <TeamNotice>
+            Diese Bewertung ist die <strong>Vorgesetztenbewertung</strong>. Selbstbewertung und 360°-Feedback der Person
+            entstehen unter Leistung → Beurteilungen auf denselben Kategorien; das Gespräch dazu wird unter Gespräche geplant.
+            Beide Verweise setzen die Rechte des jeweiligen Bereichs voraus.
+          </TeamNotice>
+          <div className="row row--wrap" style={{ gap: 12, marginTop: 10, fontSize: 'var(--text-sm)' }}>
+            <Link to={`/leistung/beurteilungen?tab=conduct&employee=${employeeId}`}>Beurteilungen der Person</Link>
+            <Link to={`/leistung/feedback?employee=${employeeId}`}>Gespräche der Person</Link>
+          </div>
         </Card>
 
         <Card title="Protokoll (unveränderlich)">

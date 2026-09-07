@@ -1,19 +1,26 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, ClipboardCheck, Users } from 'lucide-react';
+import { Plus, Trash2, ClipboardCheck, Users, UserCheck, UserRound, Orbit, Link2 } from 'lucide-react';
 import { api, ApiRequestError } from '../../api/client';
 import { PageHeader, Card, EmptyState, Spinner, Badge, Field, Tabs } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect, useEmployees, employeeName } from '../../components/EmployeeSelect';
 import {
+  RATING_SCALES,
+  RATING_SCALE_KEYS,
+  REVIEW_CREATABLE_KINDS,
   REVIEW_CYCLE_KIND_LABELS,
   REVIEW_CYCLE_STATUS_LABELS,
+  REVIEW_KIND_DESCRIPTIONS,
   REVIEW_KIND_LABELS,
   REVIEW_STATUS_LABELS,
   formatDate,
+  type RatingScaleKey,
   type Review,
   type ReviewAggregate,
+  type ReviewCategoryOption,
   type ReviewCriterion,
   type ReviewCycle,
   type ReviewCycleKind,
@@ -21,14 +28,38 @@ import {
   type ReviewKind,
   type ReviewScore,
   type ReviewTemplate,
+  type ReviewerSuggestion,
 } from '@ohrganize/shared';
 import { CYCLE_STATUS_TONES, REVIEW_STATUS_TONES } from './common';
+import { Select } from '../../components/Select';
+import { SetupNote } from '../leadership/SetupShared';
+import { RatingInput, RatingValue } from '../leadership/RatingInput';
 
+/**
+ * Beurteilungen (Bereich `leistung`). Seit der Zusammenführung mit Führung &
+ * Bewertung gilt: Die Vorgesetztenbewertung wird NICHT mehr hier, sondern
+ * unter Führung → „Mein Team“ abgegeben (Zuständigkeit, Pflichtkommentar,
+ * Protokoll). Hier bleiben Selbstbewertung und 360°-Feedback, beide auf den
+ * zentralen Kategorien und Skalen, und das Aggregat zeigt die
+ * Vorgesetztenbewertung als Ergebnis daneben. Deep-Link aus den Gesprächen:
+ * `/leistung/beurteilungen?tab=conduct&employee=<id>`.
+ */
 export function ReviewsPage() {
-  const [tab, setTab] = useState('cycles');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') ?? 'cycles';
+  const setTab = (next: string) => {
+    const params = new URLSearchParams(searchParams);
+    if (next === 'cycles') params.delete('tab');
+    else params.set('tab', next);
+    setSearchParams(params, { replace: true });
+  };
   return (
     <>
-      <PageHeader title="Beurteilungen" subtitle="Zyklen, Bögen und Durchführung von Selbst-, Vorgesetzten- und 360°-Bewertungen" />
+      <PageHeader
+        title="Beurteilungen"
+        subtitle="Selbstbewertung und 360°-Feedback in Zyklen, auf denselben Kategorien und Skalen wie die Bewertung durch die Führungskraft"
+      />
+      <KindLegend />
       <Tabs
         tabs={[
           { key: 'cycles', label: 'Zyklen' },
@@ -45,6 +76,95 @@ export function ReviewsPage() {
       </div>
     </>
   );
+}
+
+const KIND_ICONS: Record<ReviewKind, React.ReactNode> = {
+  selbst: <UserRound size={15} />,
+  vorgesetzt: <UserCheck size={15} />,
+  feedback360: <Orbit size={15} />,
+};
+
+/**
+ * Drei Arten, drei Kästen: Wer hier landet, soll ohne Nachfrage wissen, was
+ * eine Selbstbewertung von einem 360°-Feedback unterscheidet und warum die
+ * Vorgesetztenbewertung woanders liegt.
+ */
+function KindLegend() {
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem('ohrganize.reviews.legend') !== 'closed';
+    } catch {
+      return true;
+    }
+  });
+  if (!open) {
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <button
+          type="button"
+          className="hm-btn hm-btn--ghost hm-btn--sm"
+          onClick={() => {
+            setOpen(true);
+            try {
+              localStorage.removeItem('ohrganize.reviews.legend');
+            } catch {
+              /* Anzeige ohne Speicher */
+            }
+          }}
+        >
+          Bewertungsarten erklären
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="stack" style={{ gap: 8, marginBottom: 16 }}>
+      <SetupNote icon={KIND_ICONS.vorgesetzt}>
+        <strong>Vorgesetztenbewertung</strong> · {REVIEW_KIND_DESCRIPTIONS.vorgesetzt}{' '}
+        <Link to="/fuehrung/mein-team">Zu „Mein Team“</Link>
+      </SetupNote>
+      <SetupNote icon={KIND_ICONS.selbst}>
+        <strong>Selbstbewertung</strong> · {REVIEW_KIND_DESCRIPTIONS.selbst}
+      </SetupNote>
+      <SetupNote
+        icon={KIND_ICONS.feedback360}
+        onDismiss={() => {
+          setOpen(false);
+          try {
+            localStorage.setItem('ohrganize.reviews.legend', 'closed');
+          } catch {
+            /* Anzeige ohne Speicher */
+          }
+        }}
+      >
+        <strong>360°-Feedback</strong> · {REVIEW_KIND_DESCRIPTIONS.feedback360}
+      </SetupNote>
+    </div>
+  );
+}
+
+function KindBadge({ kind }: { kind: ReviewKind }) {
+  return (
+    <Badge tone={kind === 'selbst' ? 'blue' : kind === 'feedback360' ? 'navy' : 'neutral'}>
+      <span className="row" style={{ gap: 5 }}>
+        {KIND_ICONS[kind]}
+        {REVIEW_KIND_LABELS[kind]}
+      </span>
+    </Badge>
+  );
+}
+
+function percentText(value: number | null | undefined): string {
+  return value === null || value === undefined ? '—' : `${value} %`;
+}
+
+function useRatingCategories() {
+  return useQuery({
+    queryKey: ['performance', 'rating-categories'],
+    queryFn: () => api.get<{ categories: ReviewCategoryOption[] }>('/api/performance/rating-categories'),
+    select: (d) => d.categories,
+    staleTime: 60_000,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -67,9 +187,17 @@ function CyclesTab() {
   const { data: overview } = useQuery({
     queryKey: ['performance', 'cycle-overview', selectedId],
     queryFn: () =>
-      api.get<{ participants: { employee_id: number; first_name: string; last_name: string; reviews_total: number; reviews_completed: number; avg_overall_score: number | null }[] }>(
-        `/api/performance/review-cycles/${selectedId}/overview`,
-      ),
+      api.get<{
+        participants: {
+          employee_id: number;
+          first_name: string;
+          last_name: string;
+          reviews_total: number;
+          reviews_completed: number;
+          avg_overall_score: number | null;
+          avg_overall_percent: number | null;
+        }[];
+      }>(`/api/performance/review-cycles/${selectedId}/overview`),
     enabled: selectedId !== null,
   });
 
@@ -134,7 +262,7 @@ function CyclesTab() {
                       {formatDate(c.period_from)} – {formatDate(c.period_to)}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
-                      <select
+                      <Select
                         className="hm-select"
                         value={c.status}
                         onChange={(e) => statusMutation.mutate({ id: c.id, status: e.target.value as ReviewCycleStatus })}
@@ -145,7 +273,7 @@ function CyclesTab() {
                             {REVIEW_CYCLE_STATUS_LABELS[s]}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     </td>
                     <td>
                       <Badge tone={CYCLE_STATUS_TONES[c.status]}>{REVIEW_CYCLE_STATUS_LABELS[c.status]}</Badge>
@@ -173,7 +301,7 @@ function CyclesTab() {
                   <tr>
                     <th>Mitarbeiter:in</th>
                     <th>Fortschritt</th>
-                    <th>Ø Gesamtergebnis</th>
+                    <th>Ø Ergebnis</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -185,7 +313,7 @@ function CyclesTab() {
                       <td>
                         {p.reviews_completed}/{p.reviews_total} abgeschlossen
                       </td>
-                      <td>{p.avg_overall_score !== null ? p.avg_overall_score.toFixed(2) : '—'}</td>
+                      <td style={{ fontVariantNumeric: 'tabular-nums' }}>{percentText(p.avg_overall_percent)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -230,13 +358,13 @@ function CyclesTab() {
             />
           </Field>
           <Field label="Art" required>
-            <select className="hm-select" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as ReviewCycleKind })}>
+            <Select className="hm-select" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as ReviewCycleKind })}>
               {(Object.keys(REVIEW_CYCLE_KIND_LABELS) as ReviewCycleKind[]).map((k) => (
                 <option key={k} value={k}>
                   {REVIEW_CYCLE_KIND_LABELS[k]}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <div />
           <Field label="Zeitraum von" required>
@@ -281,8 +409,14 @@ function TemplatesTab() {
 
   return (
     <>
+      <SetupNote>
+        Ein Bogen stellt Kriterien zusammen. Kriterien aus den <strong>zentralen Kategorien</strong> (Führung → Einrichtung)
+        übernehmen Name und Skala von dort, damit Selbst- und Vorgesetztenbewertung vergleichbar bleiben; freie Kriterien
+        eignen sich für 360°-Fragen, die nur das Umfeld beantworten kann.
+      </SetupNote>
       <Card
         title="Beurteilungsbögen"
+        style={{ marginTop: 12 }}
         actions={
           <button
             className="hm-btn hm-btn--primary hm-btn--sm"
@@ -297,7 +431,7 @@ function TemplatesTab() {
         flush
       >
         {templates.length === 0 ? (
-          <EmptyState title="Noch keine Bögen" hint="Ein Bogen definiert die Kriterien und die Bewertungsskala." />
+          <EmptyState title="Noch keine Bögen" hint="Ein Bogen definiert die Kriterien und je Kriterium die Skala." />
         ) : (
           <div className="hm-table-wrap">
             <table className="hm-table">
@@ -313,7 +447,16 @@ function TemplatesTab() {
                   <tr key={t.id}>
                     <td style={{ fontWeight: 600 }}>{t.name}</td>
                     <td>
-                      {t.criteria.map((c) => `${c.label} (1–${c.scale_max})`).join(', ')}
+                      <div className="row row--wrap" style={{ gap: 6 }}>
+                        {t.criteria.map((c) => (
+                          <Badge key={c.key} tone={c.category_id ? 'blue' : 'neutral'}>
+                            <span className="row" style={{ gap: 4 }}>
+                              {c.category_id ? <Link2 size={12} /> : null}
+                              {c.label} · {RATING_SCALES[c.scale].label}
+                            </span>
+                          </Badge>
+                        ))}
+                      </div>
                     </td>
                     <td>
                       <div className="row" style={{ justifyContent: 'flex-end' }}>
@@ -339,12 +482,7 @@ function TemplatesTab() {
         )}
       </Card>
 
-      {editorOpen && (
-        <TemplateEditor
-          template={editing}
-          onClose={() => setEditorOpen(false)}
-        />
-      )}
+      {editorOpen && <TemplateEditor template={editing} onClose={() => setEditorOpen(false)} />}
 
       <ConfirmDialog
         open={deleting !== null}
@@ -368,16 +506,23 @@ function slugify(label: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
+type EditableCriterion = ReviewCriterion & { description: string };
+
+const emptyCriterion = (): EditableCriterion => ({ key: '', label: '', description: '', scale: 'stars5', category_id: null });
+
 function TemplateEditor({ template, onClose }: { template: ReviewTemplate | null; onClose: () => void }) {
   const [name, setName] = useState(template?.name ?? '');
-  const [criteria, setCriteria] = useState<ReviewCriterion[]>(
-    template?.criteria ?? [{ key: '', label: '', description: '', scale_max: 5 }],
+  const [criteria, setCriteria] = useState<EditableCriterion[]>(
+    template?.criteria.map((c) => ({ ...c, description: c.description ?? '', category_id: c.category_id ?? null })) ?? [
+      emptyCriterion(),
+    ],
   );
+  const { data: categories } = useRatingCategories();
   const toast = useToast();
   const qc = useQueryClient();
 
   const saveMutation = useMutation({
-    mutationFn: (payload: { name: string; criteria: ReviewCriterion[] }) =>
+    mutationFn: (payload: { name: string; criteria: Omit<ReviewCriterion, 'scale_max'>[] }) =>
       template
         ? api.put(`/api/performance/review-templates/${template.id}`, payload)
         : api.post('/api/performance/review-templates', payload),
@@ -389,8 +534,25 @@ function TemplateEditor({ template, onClose }: { template: ReviewTemplate | null
     onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Speichern'),
   });
 
-  const setCriterion = (i: number, patch: Partial<ReviewCriterion>) =>
+  const setCriterion = (i: number, patch: Partial<EditableCriterion>) =>
     setCriteria(criteria.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+
+  /** Kategorie wählen: Name, Beschreibung und Skala kommen von dort und sind gesperrt. */
+  const bindCategory = (i: number, id: number | null) => {
+    if (id === null) {
+      setCriterion(i, { category_id: null });
+      return;
+    }
+    const cat = categories?.find((c) => c.id === id);
+    if (!cat) return;
+    setCriterion(i, {
+      category_id: cat.id,
+      label: cat.name,
+      description: cat.description ?? '',
+      scale: cat.scale,
+      key: `kat_${cat.id}`,
+    });
+  };
 
   const submit = () => {
     if (!name.trim()) {
@@ -403,7 +565,8 @@ function TemplateEditor({ template, onClose }: { template: ReviewTemplate | null
         key: c.key.trim() || slugify(c.label),
         label: c.label.trim(),
         description: c.description || undefined,
-        scale_max: c.scale_max,
+        scale: c.scale,
+        category_id: c.category_id ?? null,
       }));
     if (cleaned.length === 0) {
       toast.error('Mindestens ein Kriterium ist erforderlich');
@@ -434,51 +597,77 @@ function TemplateEditor({ template, onClose }: { template: ReviewTemplate | null
       </Field>
       <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
         <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Kriterien</div>
-        {criteria.map((c, i) => (
-          <div key={i} className="row row--wrap" style={{ alignItems: 'flex-end', gap: 8 }}>
-            <div style={{ flex: '2 1 180px' }}>
-              <Field label="Kriterium" required>
-                <input
-                  className="hm-input"
-                  value={c.label}
-                  onChange={(e) => setCriterion(i, { label: e.target.value })}
-                  placeholder="z. B. Arbeitsqualität"
-                />
-              </Field>
+        {criteria.map((c, i) => {
+          const bound = !!c.category_id;
+          return (
+            <div key={i} className="row row--wrap" style={{ alignItems: 'flex-end', gap: 8 }}>
+              <div style={{ flex: '2 1 200px' }}>
+                <Field label="Quelle">
+                  <Select
+                    className="hm-select"
+                    value={c.category_id ?? ''}
+                    onChange={(e) => bindCategory(i, e.target.value === '' ? null : Number(e.target.value))}
+                  >
+                    <option value="">Freies Kriterium</option>
+                    {(categories ?? []).map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        Kategorie: {cat.name}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <div style={{ flex: '2 1 180px' }}>
+                <Field label="Kriterium" required>
+                  <input
+                    className="hm-input"
+                    value={c.label}
+                    disabled={bound}
+                    onChange={(e) => setCriterion(i, { label: e.target.value })}
+                    placeholder="z. B. Arbeitsqualität"
+                  />
+                </Field>
+              </div>
+              <div style={{ flex: '3 1 220px' }}>
+                <Field label="Beschreibung">
+                  <input
+                    className="hm-input"
+                    value={c.description}
+                    disabled={bound}
+                    onChange={(e) => setCriterion(i, { description: e.target.value })}
+                  />
+                </Field>
+              </div>
+              <div style={{ width: 200 }}>
+                <Field label="Skala">
+                  <Select
+                    className="hm-select"
+                    value={c.scale}
+                    disabled={bound}
+                    onChange={(e) => setCriterion(i, { scale: e.target.value as RatingScaleKey })}
+                  >
+                    {RATING_SCALE_KEYS.map((k) => (
+                      <option key={k} value={k}>
+                        {RATING_SCALES[k].label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <button
+                className="hm-btn hm-btn--ghost hm-btn--icon"
+                onClick={() => setCriteria(criteria.filter((_, idx) => idx !== i))}
+                disabled={criteria.length === 1}
+                aria-label="Kriterium entfernen"
+                style={{ marginBottom: 6 }}
+              >
+                <Trash2 size={16} />
+              </button>
             </div>
-            <div style={{ flex: '3 1 220px' }}>
-              <Field label="Beschreibung">
-                <input
-                  className="hm-input"
-                  value={c.description ?? ''}
-                  onChange={(e) => setCriterion(i, { description: e.target.value })}
-                />
-              </Field>
-            </div>
-            <div style={{ width: 130 }}>
-              <Field label="Skala">
-                <select className="hm-select" value={c.scale_max} onChange={(e) => setCriterion(i, { scale_max: Number(e.target.value) })}>
-                  <option value={5}>1–5</option>
-                  <option value={10}>1–10</option>
-                </select>
-              </Field>
-            </div>
-            <button
-              className="hm-btn hm-btn--ghost hm-btn--icon"
-              onClick={() => setCriteria(criteria.filter((_, idx) => idx !== i))}
-              disabled={criteria.length === 1}
-              aria-label="Kriterium entfernen"
-              style={{ marginBottom: 6 }}
-            >
-              <Trash2 size={16} />
-            </button>
-          </div>
-        ))}
+          );
+        })}
         <div>
-          <button
-            className="hm-btn hm-btn--secondary hm-btn--sm"
-            onClick={() => setCriteria([...criteria, { key: '', label: '', description: '', scale_max: 5 }])}
-          >
+          <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => setCriteria([...criteria, emptyCriterion()])}>
             <Plus size={15} /> Kriterium hinzufügen
           </button>
         </div>
@@ -492,11 +681,23 @@ function TemplateEditor({ template, onClose }: { template: ReviewTemplate | null
 // ---------------------------------------------------------------------------
 
 function ConductTab() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const employeeParam = searchParams.get('employee');
   const [cycleId, setCycleId] = useState<number | null>(null);
-  const [employeeId, setEmployeeId] = useState<number | null>(null);
+  const [employeeId, setEmployeeId] = useState<number | null>(employeeParam ? Number(employeeParam) : null);
   const [createOpen, setCreateOpen] = useState(false);
   const [openReview, setOpenReview] = useState<Review | null>(null);
   const { data: employees } = useEmployees(true);
+
+  // Der Deep-Link aus den Gesprächen setzt die Person; die Auswahl selbst
+  // hält die URL nach, damit Zurück-Navigation den Filter behält.
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+    if (employeeId) params.set('employee', String(employeeId));
+    else params.delete('employee');
+    if (params.toString() !== searchParams.toString()) setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeId]);
 
   const { data: cyclesData } = useQuery({
     queryKey: ['performance', 'review-cycles'],
@@ -531,6 +732,8 @@ function ConductTab() {
   const reviews = reviewsData?.reviews ?? [];
   const cycles = cyclesData?.cycles ?? [];
   const templates = templatesData?.templates ?? [];
+  const aggregate = aggregateData?.aggregate;
+  const showAggregate = cycleId !== null && employeeId !== null && aggregate && (aggregate.reviews_count > 0 || aggregate.supervisor.length > 0);
 
   return (
     <>
@@ -538,14 +741,14 @@ function ConductTab() {
         <div className="row row--wrap" style={{ alignItems: 'flex-end' }}>
           <div style={{ minWidth: 220 }}>
             <Field label="Zyklus">
-              <select className="hm-select" value={cycleId ?? ''} onChange={(e) => setCycleId(e.target.value === '' ? null : Number(e.target.value))}>
+              <Select className="hm-select" value={cycleId ?? ''} onChange={(e) => setCycleId(e.target.value === '' ? null : Number(e.target.value))}>
                 <option value="">Alle Zyklen</option>
                 {cycles.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           </div>
           <div style={{ minWidth: 240 }}>
@@ -559,25 +762,80 @@ function ConductTab() {
             </button>
           </div>
         </div>
+        {cycleId === null && employeeId !== null && (
+          <div style={{ marginTop: 10, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+            Wählen Sie einen Zyklus, um das Gesamtbild dieser Person (Selbstbild, Umfeld, Führungskraft) zu sehen.
+          </div>
+        )}
       </Card>
 
-      {cycleId !== null && employeeId !== null && aggregateData?.aggregate && aggregateData.aggregate.reviews_count > 0 && (
-        <Card title={`Gesamtergebnis (${aggregateData.aggregate.reviews_count} abgeschlossene Beurteilungen, inkl. 360°)`} style={{ marginTop: 16 }}>
-          <div className="row row--wrap" style={{ gap: 24 }}>
-            <div>
-              <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 700 }}>
-                {aggregateData.aggregate.overall_score?.toFixed(2) ?? '—'}
+      {showAggregate && aggregate && (
+        <Card title="Gesamtbild im Zyklus" style={{ marginTop: 16 }}>
+          <div className="row row--wrap" style={{ gap: 24, alignItems: 'flex-start' }}>
+            <div style={{ flex: '1 1 300px' }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }} className="row">
+                {KIND_ICONS.selbst} Selbstbild &amp; Umfeld
+                <span style={{ fontWeight: 400, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                  {aggregate.reviews_count} abgeschlossene Bögen
+                </span>
               </div>
-              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Ø Gesamtergebnis</div>
+              {aggregate.reviews_count === 0 ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>Noch keine abgeschlossene Beurteilung.</div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 700 }}>{percentText(aggregate.overall_percent)}</div>
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 10 }}>
+                    Ø Anteil der Bestnote über alle Kriterien
+                  </div>
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {aggregate.criteria.map((c) => (
+                      <div key={c.key} className="row" style={{ gap: 10 }}>
+                        <span style={{ flex: '0 0 200px' }}>{c.label}</span>
+                        <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{c.avg_percent} %</strong>
+                        <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                          Ø {c.avg_score.toFixed(2)} auf {RATING_SCALES[c.scale].label} · {c.count} Bewertungen
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
-            <div style={{ flex: 1, minWidth: 260, display: 'grid', gap: 6 }}>
-              {aggregateData.aggregate.criteria.map((c) => (
-                <div key={c.key} className="row" style={{ gap: 10 }}>
-                  <span style={{ flex: '0 0 200px' }}>{c.label}</span>
-                  <strong style={{ fontVariantNumeric: 'tabular-nums' }}>{c.avg_score.toFixed(2)}</strong>
-                  <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>({c.count} Bewertungen)</span>
+            <div style={{ flex: '1 1 300px' }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }} className="row">
+                {KIND_ICONS.vorgesetzt} Bewertung durch die Führungskraft
+              </div>
+              {aggregate.supervisor.length === 0 ? (
+                <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                  Im Zeitraum des Zyklus liegt keine Bewertung aus dem Bereich Führung vor. Sie entsteht unter{' '}
+                  <Link to={`/fuehrung/mein-team/${employeeId}`}>Mein Team</Link> durch die zuständige Führungskraft.
                 </div>
-              ))}
+              ) : (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {aggregate.supervisor.map((s) => (
+                    <div key={s.period_key} style={{ borderLeft: '3px solid var(--border)', paddingLeft: 10 }}>
+                      <div className="row" style={{ gap: 8 }}>
+                        <strong>{s.period_label}</strong>
+                        {s.leader_name && (
+                          <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>von {s.leader_name}</span>
+                        )}
+                        {s.overall && <RatingValue scale={s.overall.scale} score={s.overall.score} />}
+                      </div>
+                      <div style={{ display: 'grid', gap: 4, marginTop: 4 }}>
+                        {s.categories.map((c) => (
+                          <div key={c.name} className="row" style={{ gap: 10 }}>
+                            <span style={{ flex: '0 0 200px' }}>{c.name}</span>
+                            <RatingValue scale={c.scale} score={c.score} size={14} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+                    Kommentare und Protokoll: <Link to={`/fuehrung/mein-team/${employeeId}`}>Mein Team</Link>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </Card>
@@ -587,7 +845,7 @@ function ConductTab() {
         {isLoading ? (
           <Spinner center />
         ) : reviews.length === 0 ? (
-          <EmptyState title="Keine Beurteilungen gefunden" hint="Legen Sie eine Beurteilung für einen Zyklus an." />
+          <EmptyState title="Keine Beurteilungen gefunden" hint="Legen Sie eine Selbstbewertung oder ein 360°-Feedback für einen Zyklus an." />
         ) : (
           <div className="hm-table-wrap">
             <table className="hm-table">
@@ -597,7 +855,7 @@ function ConductTab() {
                   <th>Art</th>
                   <th>Reviewer:in</th>
                   <th>Status</th>
-                  <th>Gesamtergebnis</th>
+                  <th>Ergebnis</th>
                   <th></th>
                 </tr>
               </thead>
@@ -606,13 +864,19 @@ function ConductTab() {
                   <tr key={r.id}>
                     <td style={{ fontWeight: 600 }}>{nameOf(r.employee_id)}</td>
                     <td>
-                      <Badge tone="navy">{REVIEW_KIND_LABELS[r.kind]}</Badge>
+                      <KindBadge kind={r.kind} />
                     </td>
-                    <td>{r.kind === 'selbst' ? 'Selbstbewertung' : nameOf(r.reviewer_employee_id)}</td>
+                    <td>{r.kind === 'selbst' ? 'die Person selbst' : nameOf(r.reviewer_employee_id)}</td>
                     <td>
                       <Badge tone={REVIEW_STATUS_TONES[r.status]}>{REVIEW_STATUS_LABELS[r.status]}</Badge>
                     </td>
-                    <td>{r.overall_score !== null ? r.overall_score.toFixed(2) : '—'}</td>
+                    <td style={{ fontVariantNumeric: 'tabular-nums' }}>
+                      {r.overall_percent !== null
+                        ? `${r.overall_percent} %`
+                        : r.overall_score !== null
+                          ? `Ø ${r.overall_score.toFixed(2)}`
+                          : '—'}
+                    </td>
                     <td style={{ textAlign: 'right' }}>
                       <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => setOpenReview(r)}>
                         {r.status === 'abgeschlossen' ? 'Ansehen' : 'Durchführen'}
@@ -627,7 +891,12 @@ function ConductTab() {
       </Card>
 
       {createOpen && (
-        <CreateReviewModal cycles={cycles} templates={templates} onClose={() => setCreateOpen(false)} />
+        <CreateReviewModal
+          cycles={cycles}
+          templates={templates}
+          initialEmployeeId={employeeId}
+          onClose={() => setCreateOpen(false)}
+        />
       )}
       {openReview && (
         <ReviewFormModal
@@ -640,24 +909,40 @@ function ConductTab() {
   );
 }
 
+const RELATION_LABELS: Record<ReviewerSuggestion['relation'], string> = {
+  vorgesetzt: 'Berichtslinie',
+  team: 'Team',
+  kollegium: 'Kollegium',
+};
+
 function CreateReviewModal({
   cycles,
   templates,
+  initialEmployeeId,
   onClose,
 }: {
   cycles: ReviewCycle[];
   templates: ReviewTemplate[];
+  initialEmployeeId: number | null;
   onClose: () => void;
 }) {
   const [form, setForm] = useState({
     cycle_id: cycles[0]?.id ?? 0,
-    employee_id: null as number | null,
+    employee_id: initialEmployeeId,
     template_id: templates[0]?.id ?? 0,
     reviewer_employee_id: null as number | null,
-    kind: 'vorgesetzt' as ReviewKind,
+    kind: 'selbst' as ReviewKind,
   });
   const toast = useToast();
   const qc = useQueryClient();
+
+  const { data: suggestions } = useQuery({
+    queryKey: ['performance', 'reviewer-suggestions', form.employee_id],
+    queryFn: () =>
+      api.get<{ suggestions: ReviewerSuggestion[] }>(`/api/performance/reviews/suggestions/${form.employee_id}`),
+    select: (d) => d.suggestions,
+    enabled: form.kind === 'feedback360' && form.employee_id !== null,
+  });
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -708,43 +993,68 @@ function CreateReviewModal({
       }
     >
       <div className="hm-form-grid">
+        <Field label="Art" required span2>
+          <div className="row row--wrap" style={{ gap: 8 }}>
+            {REVIEW_CREATABLE_KINDS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                className={`hm-btn hm-btn--sm ${form.kind === k ? 'hm-btn--primary' : 'hm-btn--secondary'}`}
+                onClick={() => setForm({ ...form, kind: k, reviewer_employee_id: null })}
+              >
+                {KIND_ICONS[k]} {REVIEW_KIND_LABELS[k]}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 6 }}>
+            {REVIEW_KIND_DESCRIPTIONS[form.kind]}
+          </div>
+        </Field>
         <Field label="Zyklus" required>
-          <select className="hm-select" value={form.cycle_id} onChange={(e) => setForm({ ...form, cycle_id: Number(e.target.value) })}>
+          <Select className="hm-select" value={form.cycle_id} onChange={(e) => setForm({ ...form, cycle_id: Number(e.target.value) })}>
             {cycles.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Bogen" required>
-          <select className="hm-select" value={form.template_id} onChange={(e) => setForm({ ...form, template_id: Number(e.target.value) })}>
+          <Select className="hm-select" value={form.template_id} onChange={(e) => setForm({ ...form, template_id: Number(e.target.value) })}>
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
-        <Field label="Mitarbeiter:in (bewertet)" required>
-          <EmployeeSelect value={form.employee_id} onChange={(id) => setForm({ ...form, employee_id: id })} />
+        <Field label="Mitarbeiter:in (bewertet)" required span2>
+          <EmployeeSelect value={form.employee_id} onChange={(id) => setForm({ ...form, employee_id: id, reviewer_employee_id: null })} />
         </Field>
-        <Field label="Art" required>
-          <select className="hm-select" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as ReviewKind })}>
-            {(Object.keys(REVIEW_KIND_LABELS) as ReviewKind[]).map((k) => (
-              <option key={k} value={k}>
-                {REVIEW_KIND_LABELS[k]}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {form.kind !== 'selbst' && (
+        {form.kind === 'feedback360' && (
           <Field
             label="Reviewer:in"
             required
-            hint={form.kind === 'feedback360' ? 'Für 360°-Feedback mehrere Beurteilungen mit unterschiedlichen Reviewer:innen anlegen.' : undefined}
+            span2
+            hint="Je Reviewer:in ein eigener Bogen; die Bögen werden im Gesamtbild gemittelt."
           >
             <EmployeeSelect value={form.reviewer_employee_id} onChange={(id) => setForm({ ...form, reviewer_employee_id: id })} />
+            {suggestions && suggestions.length > 0 && (
+              <div className="row row--wrap" style={{ gap: 6, marginTop: 8 }}>
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Aus dem Organigramm:</span>
+                {suggestions.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className={`hm-chip${form.reviewer_employee_id === s.id ? ' is-active' : ''}`}
+                    onClick={() => setForm({ ...form, reviewer_employee_id: s.id })}
+                  >
+                    {s.name}
+                    <span style={{ opacity: 0.7 }}> · {RELATION_LABELS[s.relation]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </Field>
         )}
       </div>
@@ -761,9 +1071,7 @@ function ReviewFormModal({
   template: ReviewTemplate | null;
   onClose: () => void;
 }) {
-  const [scores, setScores] = useState<Map<string, ReviewScore>>(
-    new Map(review.scores.map((s) => [s.key, s])),
-  );
+  const [scores, setScores] = useState<Map<string, ReviewScore>>(new Map(review.scores.map((s) => [s.key, s])));
   const [summary, setSummary] = useState(review.summary ?? '');
   const readOnly = review.status === 'abgeschlossen';
   const toast = useToast();
@@ -775,12 +1083,13 @@ function ReviewFormModal({
     qc.invalidateQueries({ queryKey: ['performance', 'cycle-overview'] });
   };
 
+  const payload = () => ({
+    scores: [...scores.values()].filter((s) => s.score >= 1),
+    summary: summary || null,
+  });
+
   const saveMutation = useMutation({
-    mutationFn: () =>
-      api.put(`/api/performance/reviews/${review.id}`, {
-        scores: [...scores.values()].filter((s) => s.score >= 1),
-        summary: summary || null,
-      }),
+    mutationFn: () => api.put(`/api/performance/reviews/${review.id}`, payload()),
     onSuccess: () => {
       toast.success('Zwischenstand gespeichert');
       invalidate();
@@ -790,14 +1099,11 @@ function ReviewFormModal({
 
   const completeMutation = useMutation({
     mutationFn: async () => {
-      await api.put(`/api/performance/reviews/${review.id}`, {
-        scores: [...scores.values()].filter((s) => s.score >= 1),
-        summary: summary || null,
-      });
+      await api.put(`/api/performance/reviews/${review.id}`, payload());
       return api.post<{ review: Review }>(`/api/performance/reviews/${review.id}/complete`);
     },
     onSuccess: (res) => {
-      toast.success(`Beurteilung abgeschlossen — Gesamtergebnis ${res.review.overall_score?.toFixed(2)}`);
+      toast.success(`Beurteilung abgeschlossen — Ergebnis ${percentText(res.review.overall_percent)}`);
       invalidate();
       onClose();
     },
@@ -811,6 +1117,11 @@ function ReviewFormModal({
     setScores(next);
   };
 
+  const answered = useMemo(
+    () => (template ? template.criteria.filter((c) => (scores.get(c.key)?.score ?? 0) >= 1).length : 0),
+    [scores, template],
+  );
+
   if (!template) {
     return (
       <Modal title="Beurteilung" open onClose={onClose}>
@@ -823,7 +1134,7 @@ function ReviewFormModal({
     <Modal
       title={
         <span className="row" style={{ gap: 8 }}>
-          Beurteilung durchführen <Badge tone="navy">{REVIEW_KIND_LABELS[review.kind]}</Badge>
+          {readOnly ? 'Beurteilung' : 'Beurteilung durchführen'} <KindBadge kind={review.kind} />
         </span>
       }
       open
@@ -836,13 +1147,16 @@ function ReviewFormModal({
           </button>
         ) : (
           <>
+            <span style={{ marginRight: 'auto', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+              {answered}/{template.criteria.length} Kriterien bewertet
+            </span>
             <button className="hm-btn hm-btn--secondary" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
               Zwischenstand speichern
             </button>
             <button
               className="hm-btn hm-btn--primary"
               onClick={() => completeMutation.mutate()}
-              disabled={completeMutation.isPending}
+              disabled={completeMutation.isPending || answered < template.criteria.length}
             >
               Abschließen
             </button>
@@ -850,33 +1164,35 @@ function ReviewFormModal({
         )
       }
     >
+      <SetupNote icon={KIND_ICONS[review.kind]}>{REVIEW_KIND_DESCRIPTIONS[review.kind]}</SetupNote>
       {readOnly && (
-        <p style={{ color: 'var(--text-secondary)', marginBottom: 12 }}>
-          Abgeschlossen am {formatDate(review.completed_at?.slice(0, 10))} — Gesamtergebnis{' '}
-          <strong>{review.overall_score?.toFixed(2)}</strong>
+        <p style={{ color: 'var(--text-secondary)', margin: '12px 0' }}>
+          Abgeschlossen am {formatDate(review.completed_at?.slice(0, 10))} — Ergebnis{' '}
+          <strong>
+            {review.overall_percent !== null ? `${review.overall_percent} %` : `Ø ${review.overall_score?.toFixed(2) ?? '—'}`}
+          </strong>
         </p>
       )}
-      <div style={{ display: 'grid', gap: 16 }}>
+      <div style={{ display: 'grid', gap: 16, marginTop: 12 }}>
         {template.criteria.map((c) => {
           const current = scores.get(c.key);
           return (
             <div key={c.key} style={{ borderBottom: '1px solid var(--border)', paddingBottom: 14 }}>
-              <div style={{ fontWeight: 600 }}>{c.label}</div>
+              <div className="row" style={{ gap: 8 }}>
+                <span style={{ fontWeight: 600 }}>{c.label}</span>
+                {c.category_id ? <Badge tone="blue">zentrale Kategorie</Badge> : null}
+                <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>{RATING_SCALES[c.scale].label}</span>
+              </div>
               {c.description && (
                 <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 6 }}>{c.description}</div>
               )}
-              <div className="row row--wrap" style={{ gap: 6, marginTop: 8 }}>
-                {Array.from({ length: c.scale_max }, (_, i) => i + 1).map((n) => (
-                  <button
-                    key={n}
-                    className={`hm-btn hm-btn--sm ${current?.score === n ? 'hm-btn--primary' : 'hm-btn--secondary'}`}
-                    disabled={readOnly}
-                    onClick={() => setScore(c.key, { score: n })}
-                    style={{ minWidth: 38 }}
-                  >
-                    {n}
-                  </button>
-                ))}
+              <div style={{ marginTop: 8 }}>
+                <RatingInput
+                  scale={c.scale}
+                  value={current && current.score >= 1 ? current.score : null}
+                  disabled={readOnly}
+                  onChange={(n) => setScore(c.key, { score: n })}
+                />
               </div>
               <input
                 className="hm-input"

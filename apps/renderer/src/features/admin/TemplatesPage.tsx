@@ -13,6 +13,7 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { FilePicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
 import { useHrTemplates } from './api';
+import { Select } from '../../components/Select';
 
 /**
  * HR-Dokumentverzeichnis der Abteilung: zentrale Vorlagen (Schreiben, Verträge,
@@ -69,7 +70,7 @@ export function TemplatesPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <select
+          <Select
             className="hm-select"
             style={{ width: 190 }}
             value={category}
@@ -81,7 +82,7 @@ export function TemplatesPage() {
                 {l}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </Card>
 
@@ -266,7 +267,7 @@ function TemplateDialog({
           <input className="hm-input" value={title} onChange={(e) => setTitle(e.target.value)} />
         </Field>
         <Field label="Kategorie">
-          <select
+          <Select
             className="hm-select"
             value={category}
             onChange={(e) => setCategory(e.target.value as HrTemplateCategory)}
@@ -276,7 +277,7 @@ function TemplateDialog({
                 {l}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Beschreibung" span2 hint="Wofür ist die Vorlage gedacht?">
           <textarea
