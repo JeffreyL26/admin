@@ -1,0 +1,101 @@
+# oHRganize Backend — systemd-VORLAGE für den Mehrkunden-Betrieb
+#
+# Ablage:      /etc/systemd/system/ohrganize-backend@.service
+# Einrichtung: deploy/README.md, Abschnitt „Mehrere Kunden auf einem Server"
+# Anlegen:     deploy/ohrganize-provision.sh anlegen <kunde>
+#
+# %i ist der Kundenschlüssel (Subdomain-Label, z. B. "musterfirma"):
+#   systemctl start ohrganize-backend@musterfirma
+#
+# Warum eine Vorlage statt einer Unit je Kunde: oHRganize ist bewusst NICHT
+# mandantenfähig — ein Prozess, eine SQLite-Datei, ein Datenverzeichnis. Jeder
+# Kunde bekommt deshalb eine eigene Instanz mit eigenem Port und eigenen Daten.
+# Eine Vorlage hält die Härtung an EINER Stelle; bei kopierten Units driften
+# die Sicherheitsoptionen nach der dritten Kopie auseinander.
+#
+# Diese Datei ersetzt ohrganize-backend.service NICHT, sie steht daneben:
+# Einzelkunden-Server nutzen weiter die einfache Unit. Beide gleichzeitig zu
+# betreiben ist möglich, aber unnötig verwirrend.
+#
+# Annahmen (identisch zur Einzel-Unit, dort stehen die ausführlichen Gründe):
+#   Programm:       /opt/ohrganize
+#   Daten:          /var/lib/ohrganize/<kunde>
+#   Konfiguration:  /etc/ohrganize/kunden/<kunde>.env
+#   Dienstbenutzer: ohrganize:ohrganize
+
+[Unit]
+Description=oHRganize Backend — Kunde %i
+Documentation=file:/opt/ohrganize/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ohrganize
+Group=ohrganize
+WorkingDirectory=/opt/ohrganize/apps/backend
+
+# dist/cli.cjs ist der CLI-Einstieg mit Selbststart und Signal-Handling —
+# NICHT dist/server.cjs (Embedding-Bundle der Desktop-App, startet nichts).
+ExecStart=/usr/bin/node /opt/ohrganize/apps/backend/dist/cli.cjs
+
+# Port und Datenverzeichnis stehen je Kunde in dieser Datei. Sie wird von
+# ohrganize-provision.sh aus deploy/ohrganize-kunde.env.example erzeugt.
+# Fehlt sie, startet die Instanz nicht (kein stiller Rückfall auf gemeinsame
+# Vorgaben — sonst schrieben zwei Kunden in dieselbe Datenbank).
+EnvironmentFile=/etc/ohrganize/kunden/%i.env
+
+# Legt /var/lib/ohrganize/%i an, setzt den Eigentümer auf den Dienstbenutzer
+# und macht es trotz ProtectSystem=strict beschreibbar. OHRGANIZE_DATA_DIR in
+# der env-Datei muss auf denselben Pfad zeigen.
+StateDirectory=ohrganize/%i
+StateDirectoryMode=0700
+
+# 0077 => Dateien 0600, Verzeichnisse 0700. In storage/ liegen AU-Bescheinigungen
+# und Verträge, in ohrganize.db die komplette Personalakte. Im Mehrkunden-Betrieb
+# kommt ein zweiter Grund dazu: Alle Instanzen laufen unter DEMSELBEN
+# Dienstbenutzer. Der Schutz zwischen den Kunden ist damit die
+# Verzeichnisstruktur plus ReadWritePaths unten, nicht die Benutzertrennung.
+# Wer echte Isolation je Kunde braucht (getrennte Unix-Konten, Container),
+# findet den Weg in deploy/README.md beschrieben.
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# Bleibt AUS: V8 kompiliert zur Laufzeit, mit true startet Node nicht.
+MemoryDenyWriteExecute=false
+
+# Beschreibbar ist ausschließlich das EIGENE Datenverzeichnis. Das ist die
+# Grenze zwischen den Kunden: Ein Fehler in Instanz A kann die Datenbank von
+# Instanz B nicht überschreiben, obwohl beide unter demselben Konto laufen.
+ReadWritePaths=/var/lib/ohrganize/%i
+
+Restart=on-failure
+RestartSec=5
+
+# SIGTERM => index.ts schließt den Server und führt einen WAL-Checkpoint aus.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+StandardOutput=journal
+StandardError=journal
+# Damit `journalctl -t ohrganize-musterfirma` genau einen Kunden zeigt.
+SyslogIdentifier=ohrganize-%i
+
+[Install]
+WantedBy=multi-user.target

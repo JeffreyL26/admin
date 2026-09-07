@@ -136,6 +136,13 @@ Browser ── https://portal.firma.de ──> nginx/Caddy
                     └── /*      → apps/web/dist            (SPA-Fallback auf index.html)
 ```
 
+**Mehrere Kunden unter einer Basisdomain** (`<kunde>.ohrganize.com`) laufen
+nach demselben Muster, nur je Kunde einmal: oHRganize ist nicht mandantenfähig,
+also bekommt jeder Kunde eine eigene Backend-Instanz mit eigener Datenbank,
+während sich alle EIN Portal-Build teilen (es ist same-origin und damit
+kundenneutral). Wildcard-Zertifikat, Subdomain-Zuordnung und das Anlegen einer
+Kundeninstanz stehen in `../deploy/README.md`, Abschnitt 9.
+
 1. Build: `npm run build:web` → `apps/web/dist` (statisch, beliebig hostbar).
 2. Backend als Dienst: `npm run build -w apps/backend`, dann
    `node apps/backend/dist/cli.cjs` (z. B. via systemd) mit:

@@ -17,6 +17,15 @@ Dienst läuft.
 | `Caddyfile` | Reverse-Proxy (Variante B) | `/etc/caddy/Caddyfile` |
 | `ohrganize-backup.service` | Sicherungslauf | `/etc/systemd/system/` |
 | `ohrganize-backup.timer` | Zeitplan der Sicherung | `/etc/systemd/system/` |
+Für den Mehrkunden-Betrieb (Abschnitt 9) kommen dazu:
+
+| Datei | Zweck | Ablage auf dem Server |
+|---|---|---|
+| `ohrganize-backend@.service` | Dienstvorlage je Kunde | `/etc/systemd/system/` |
+| `ohrganize-kunde.env.example` | Vorlage der kundenspezifischen Variablen | bleibt im Programmverzeichnis |
+| `ohrganize-backup@.service` · `ohrganize-backup@.timer` | Sicherung je Kunde | `/etc/systemd/system/` |
+| `nginx-wildcard.conf` | Reverse-Proxy für `*.ohrganize.com` | `/etc/nginx/conf.d/ohrganize-wildcard.conf` |
+| `ohrganize-provision.sh` | Kunden anlegen, auflisten, entfernen | bleibt im Programmverzeichnis |
 
 **Vor dem Ausrollen ersetzen** (in `nginx.conf` bzw. `Caddyfile`):
 
@@ -355,3 +364,218 @@ ls -ld /var/lib/ohrganize /var/lib/ohrganize/storage      # erwartet: drwx------
 | Portal zeigt bei `/kalender` einen 404 | SPA-Fallback fehlt im Proxy | `try_files … /index.html` prüfen |
 | Portal meldet CORS-Fehler | API läuft nicht same-origin | `OHRGANIZE_CORS_ORIGIN` auf die Portal-Domain setzen (der Wert `null` ist nicht zulässig und wird ignoriert) |
 | Desktop-App kommt nicht über den Login hinaus, Portal geht | `ohrganize://app` fehlt in `OHRGANIZE_CORS_ORIGIN` | Eintrag ergänzen: `OHRGANIZE_CORS_ORIGIN=https://portal.firma.de,ohrganize://app`. Die App lädt ihre Oberfläche über ein eigenes Schema und sendet diese Herkunft; ohne den Eintrag bricht der Browserkern jede Anfrage ab. Im Serverlog ist nichts Auffälliges zu sehen — es sieht nach einem Netzwerkproblem aus. |
+
+## 9. Mehrere Kunden auf einem Server (`<kunde>.ohrganize.com`)
+
+Die Abschnitte 1–8 beschreiben **einen** Kunden auf **einem** Server. Für einen
+Betrieb mit mehreren Kunden unter einer gemeinsamen Basisdomain gilt derselbe
+Aufbau je Kunde — nur eben mehrfach.
+
+**Der Grund, warum es nicht anders geht:** oHRganize ist bewusst nicht
+mandantenfähig. Ein Node-Prozess, eine SQLite-Datei, ein Datenverzeichnis; es
+gibt keine Spalte `mandant_id` und keinen Filter, der Kunden innerhalb einer
+Datenbank trennt. Jeder Kunde bekommt deshalb eine **eigene Instanz**. Das ist
+kein Provisorium: Die Trennung ist dadurch eine Dateisystem- und
+Prozessgrenze und nicht eine Bedingung in jeder einzelnen SQL-Abfrage, die man
+genau einmal vergessen muss.
+
+Was sich alle Kunden teilen: den Server, das Programmverzeichnis
+`/opt/ohrganize`, den Reverse-Proxy und **ein** Portal-Build. Der Build
+enthält nichts Kundenspezifisches — er spricht die API same-origin über den
+gerade aufgerufenen Namen an.
+
+| Je Kunde eigen | Pfad |
+|---|---|
+| Dienst | `ohrganize-backend@<kunde>` |
+| Konfiguration | `/etc/ohrganize/kunden/<kunde>.env` |
+| Daten (DB, storage/, secret) | `/var/lib/ohrganize/<kunde>` |
+| Sicherungen | `/var/backups/ohrganize/<kunde>` |
+| Port | 3100 aufwärts, vergeben von `ohrganize-provision.sh` |
+| Subdomain | `<kunde>.ohrganize.com` |
+
+### 9.1 Einmalige Einrichtung
+
+Abschnitt 1 und 2 gelten unverändert (Dienstkonto, `/opt/ohrganize`, `npm ci`,
+`npm run build -w apps/backend`, `npm run build:web`, Portal-Build nach
+`/srv/ohrganize-web`). **Nicht** eingerichtet werden für den Mehrkunden-Betrieb:
+`ohrganize-backend.service`, `ohrganize-backup.*` und `nginx.conf` — deren
+Aufgabe übernehmen die Vorlagen unten.
+
+```bash
+# Vorlagen für Dienst und Sicherung
+cp deploy/ohrganize-backend@.service /etc/systemd/system/
+cp deploy/ohrganize-backup@.service  /etc/systemd/system/
+cp deploy/ohrganize-backup@.timer    /etc/systemd/system/
+systemctl daemon-reload
+
+# Verzeichnisse
+install -d -m 0750 -o root -g ohrganize /etc/ohrganize/kunden
+install -d -m 0700 -o ohrganize -g ohrganize /var/backups/ohrganize
+
+# Basisdomain hinterlegen (sonst gilt die Vorgabe ohrganize.com)
+printf 'BASIS_DOMAIN="ohrganize.com"\n' > /etc/ohrganize/provision.conf
+chmod 0644 /etc/ohrganize/provision.conf
+
+chmod +x deploy/ohrganize-provision.sh
+```
+
+### 9.2 DNS
+
+Ein Wildcard-Eintrag zeigt alle Kundennamen auf den Server:
+
+```
+*.ohrganize.com.   A     198.51.100.10
+*.ohrganize.com.   AAAA  2001:db8::10        # nur wenn IPv6 vorhanden
+```
+
+Zwei Fallen:
+
+- **Ein Wildcard deckt genau eine Ebene ab.** `musterfirma.ohrganize.com` ja,
+  `hr.musterfirma.ohrganize.com` nein. Kundenschlüssel dürfen deshalb keinen
+  Punkt enthalten — das Skript weist solche Namen ab.
+- **Die Basisdomain selbst ist nicht mitgemeint.** Wer `ohrganize.com` (ohne
+  Subdomain) betreiben will, braucht dafür einen eigenen Eintrag.
+
+### 9.3 Wildcard-Zertifikat (DNS-01)
+
+Ein Wildcard-Zertifikat lässt sich **nur** über die DNS-Prüfung ausstellen;
+HTTP-01 kann `*.ohrganize.com` nicht belegen. Dafür braucht certbot ein Plugin
+für den DNS-Anbieter und ein API-Token mit Schreibrecht auf die Zone —
+Beispiel Cloudflare, andere Anbieter analog:
+
+```bash
+apt install -y certbot python3-certbot-dns-cloudflare
+
+install -m 0600 /dev/null /etc/letsencrypt/dns.ini
+editor /etc/letsencrypt/dns.ini        # dns_cloudflare_api_token = …
+
+certbot certonly \
+  --dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/dns.ini \
+  --dns-cloudflare-propagation-seconds 30 \
+  -d '*.ohrganize.com' -d ohrganize.com \
+  --deploy-hook 'systemctl reload nginx'
+
+certbot renew --dry-run                # Erneuerung einmal durchspielen
+```
+
+- Die Anmeldedaten stehen im Klartext auf dem Server. `0600` und
+  Dateieigentümer `root` sind Pflicht; ein Token, das nur diese eine Zone
+  bearbeiten darf, begrenzt den Schaden bei einem Servereinbruch.
+- Der `--deploy-hook` ist wichtig: Ohne ihn erneuert certbot das Zertifikat
+  im Hintergrund, und nginx liefert bis zum nächsten Reload das alte aus —
+  bis es abläuft und **alle** Kunden gleichzeitig nicht mehr hereinkommen.
+- Der Zertifikatspfad heißt `/etc/letsencrypt/live/ohrganize.com/`, nicht
+  `*.ohrganize.com`. Existiert dort schon ein Zertifikat aus einem früheren
+  Einzelbetrieb, legt certbot `ohrganize.com-0001` an — dann zeigen die Pfade
+  in der nginx-Konfiguration nach der nächsten Erneuerung auf das falsche
+  Zertifikat. In dem Fall das alte vorher mit `certbot delete` entfernen.
+
+### 9.4 Reverse-Proxy
+
+```bash
+cp deploy/nginx-security-headers.conf /etc/nginx/snippets/ohrganize-security-headers.conf
+cp deploy/nginx-wildcard.conf /etc/nginx/conf.d/ohrganize-wildcard.conf
+editor /etc/nginx/conf.d/ohrganize-wildcard.conf     # Basisdomain ersetzen
+
+touch /etc/nginx/ohrganize-kunden.map                # MUSS existieren
+nginx -t && systemctl reload nginx
+```
+
+Ein `server`-Block bedient alle Kunden; welche Instanz antwortet, entscheidet
+die Subdomain über `/etc/nginx/ohrganize-kunden.map`. Unbekannte Namen
+beantwortet nginx mit 404, statt in einen Fehler zu laufen — ein
+Wildcard-Zertifikat beantwortet schließlich auch getippte und längst
+gekündigte Namen.
+
+Die Datei kann neben `nginx.conf` aus Abschnitt 3 liegen (alle Zonen- und
+Formatnamen tragen den Zusatz `_wc`), falls parallel ein Kunde auf einer
+eigenen Domain betrieben wird. **Für Caddy ist der Mehrkunden-Betrieb nicht
+vorbereitet** — `deploy/Caddyfile` bleibt die Einzelkunden-Variante.
+
+### 9.5 Kunden anlegen
+
+```bash
+/opt/ohrganize/deploy/ohrganize-provision.sh anlegen musterfirma
+```
+
+Das Skript vergibt einen freien Port, erzeugt die env-Datei aus
+`ohrganize-kunde.env.example`, startet `ohrganize-backend@musterfirma`, wartet
+auf dessen `/api/health`, aktiviert die tägliche Sicherung und trägt die
+Subdomain in die Map ein. Scheitert ein Schritt, nimmt es die vorherigen
+zurück — eine halb angelegte Instanz sähe in der Liste sonst aus wie ein
+funktionierender Kunde.
+
+Am Ende gibt es aus, was zur Übergabe gebraucht wird: das erzeugte
+Initialpasswort für `admin@ohrganize.de` (Wechsel beim ersten Login erzwungen,
+siehe `../docs/inbetriebnahme.md`) und den Inhalt der `config.json` für die
+Desktop-Arbeitsplätze des Kunden:
+
+```json
+{ "apiBaseUrl": "https://musterfirma.ohrganize.com" }
+```
+
+Sie gehört auf jedem HR-Arbeitsplatz nach `%APPDATA%\oHRganize\config.json`.
+Damit startet die App **kein** eigenes Backend mehr, sondern arbeitet auf
+demselben Server wie das Portal — beide Clients sehen dieselben Daten.
+Alternativ per Rollout-Skript die Umgebungsvariable `OHRGANIZE_API_BASE`
+setzen; sie schlägt die Datei.
+
+Weitere Befehle:
+
+```bash
+ohrganize-provision.sh liste                              # Port, Zustand, DB-Größe, letzte Sicherung
+ohrganize-provision.sh entfernen musterfirma              # abschalten, Daten bleiben liegen
+ohrganize-provision.sh entfernen musterfirma --daten-loeschen   # mit Rückfrage, unwiderruflich
+```
+
+`entfernen` löscht **absichtlich** keine Daten: In der Datenbank stehen
+Personalakten, deren Aufbewahrungsfristen den Vertrag überdauern können.
+
+### 9.6 Betrieb mit mehreren Kunden
+
+```bash
+journalctl -t ohrganize-musterfirma -f                 # Logs genau eines Kunden
+systemctl status 'ohrganize-backend@*'                 # Zustand aller Instanzen
+systemctl list-timers 'ohrganize-backup@*'             # Sicherungspläne
+grep ' musterfirma.ohrganize.com ' /var/log/nginx/ohrganize-wildcard.access.log
+```
+
+**Update** (Abschnitt 6 sinngemäß, nur über alle Instanzen):
+
+```bash
+kunden() { for f in /etc/ohrganize/kunden/*.env; do basename "$f" .env; done; }
+
+for k in $(kunden); do systemctl start "ohrganize-backup@$k.service"; done   # Sicherung VOR dem Update
+for k in $(kunden); do systemctl stop  "ohrganize-backend@$k"; done
+cd /opt/ohrganize && git pull && npm ci && npm run build -w apps/backend && npm run build:web
+cp -a apps/web/dist/. /srv/ohrganize-web/
+for k in $(kunden); do systemctl start "ohrganize-backend@$k"; done
+for k in $(kunden); do systemctl is-active "ohrganize-backend@$k" || journalctl -t "ohrganize-$k" -n 30 --no-pager; done
+```
+
+Die Migrationen laufen je Instanz beim Start, jeweils in einer Transaktion.
+Eine Instanz, die dabei scheitert, hält die anderen nicht auf — deshalb die
+Kontrollschleife am Ende: Ohne sie fällt ein einzelner nicht gestarteter
+Kunde erst auf, wenn er anruft.
+
+### 9.7 Was dieser Aufbau nicht leistet
+
+Ehrlich benannt, damit es niemand später herausfinden muss:
+
+- **Alle Instanzen laufen unter demselben Dienstbenutzer** (`ohrganize`). Die
+  Trennung zwischen den Kunden ist die Verzeichnisstruktur plus
+  `ReadWritePaths` in der Unit — kein Unix-Benutzer je Kunde. Wer eine
+  Kompromittierung eines Kunden strikt vom nächsten trennen muss, betreibt je
+  Kunde einen Container oder eine VM; die Vorlagen bleiben dieselben.
+- **Ein Server ist ein gemeinsamer Ausfallpunkt.** Ein voller Datenträger,
+  ein misslungenes Update am Reverse-Proxy oder ein Neustart trifft alle
+  Kunden gleichzeitig.
+- **Keine gemeinsame Lastgrenze.** Jede Instanz ist ein eigener Node-Prozess;
+  ein Kunde mit sehr vielen Anfragen belegt CPU, die den anderen fehlt. Bei
+  der geplanten Größenordnung (zwei Kerne, 2 GB je Server) ist das
+  unkritisch, bei dreißig aktiven Kunden nicht mehr — dann Instanzen auf
+  mehrere Server verteilen, der DNS-Eintrag entscheidet.
+- **Kein Self-Service.** Ein Kunde entsteht durch einen Aufruf auf dem Server,
+  nicht durch eine Anmeldeseite. Das ist Absicht: Jede automatische
+  Bereitstellung müsste Vertragsdaten, Zahlungsstatus und
+  Auftragsverarbeitung mit abbilden.

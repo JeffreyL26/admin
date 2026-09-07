@@ -1,0 +1,18 @@
+# Zeilenenden für Dateien, die auf einem Linux-Server ausgeführt oder von
+# systemd/nginx eingelesen werden.
+#
+# WARUM: Auf Windows steht core.autocrlf=true; eine frische Arbeitskopie
+# bekäme diese Dateien sonst mit CRLF. Wird eine davon auf den Server kopiert,
+# scheitert schon die erste Zeile — bei Shell-Skripten mit der irreführenden
+# Meldung `$'\r': command not found`, bei systemd-Units mit Werten, an denen
+# ein unsichtbarer Wagenrücklauf klebt (ExecStart findet die Datei "nicht").
+*.sh              text eol=lf
+deploy/*.service  text eol=lf
+deploy/*.timer    text eol=lf
+deploy/*.conf     text eol=lf
+deploy/*.example  text eol=lf
+deploy/Caddyfile  text eol=lf
+
+# Die PowerShell-Skripte der Windows-Einrichtung bleiben bei CRLF — sie laufen
+# ausschließlich dort.
+deploy/windows/*.ps1 text eol=crlf

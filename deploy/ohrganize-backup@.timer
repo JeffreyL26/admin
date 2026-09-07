@@ -1,0 +1,27 @@
+# Zeitplan der Datensicherung EINER Kundeninstanz
+#
+# Ablage:     /etc/systemd/system/ohrganize-backup@.timer
+# Aktivieren: systemctl enable --now ohrganize-backup@musterfirma.timer
+# Prüfen:     systemctl list-timers 'ohrganize-backup@*'
+
+[Unit]
+Description=Tägliche oHRganize-Datensicherung — Kunde %i
+Documentation=file:/opt/ohrganize/deploy/README.md
+
+[Timer]
+# Täglich um 02:30 Ortszeit, außerhalb der Arbeitszeit: Das Kopieren von
+# storage/ belastet die Platte.
+OnCalendar=*-*-* 02:30:00
+
+# 30 Minuten Streuung statt der 5 aus dem Einzelbetrieb. Grund: Auf einem
+# Mehrkunden-Server liefen sonst zwanzig Sicherungen gleichzeitig los und
+# würden sich um dieselbe Platte streiten — die Nacht wird lang genug, um sie
+# zu verteilen, und jeder einzelne Lauf bleibt dadurch kurz.
+RandomizedDelaySec=1800
+
+# War der Server zur geplanten Zeit aus, wird die Sicherung nachgeholt.
+Persistent=true
+Unit=ohrganize-backup@%i.service
+
+[Install]
+WantedBy=timers.target
