@@ -423,3 +423,82 @@ dafür, überhaupt erreichbar zu sein.
 Proxy und Backend auf verschiedene Maschinen legt (`OHRGANIZE_HOST`), muss die
 Adresse des Proxys ergänzen, sonst weist der Dienst dessen Verbindungen ab. Der
 Hinweis steht in beiden Backend-Units direkt über den Zeilen.
+
+## Windows-Serverinstallation: vier Fehler, die erst der Probelauf zeigte
+
+**Ausgangslage:** `deploy/windows/README.md` führte drei Punkte als „noch NICHT
+verifiziert" — Dienstregistrierung über NSSM, geplante Aufgabe, Caddy. Der
+Probelauf auf einer Windows-11-Maschine (Server und Arbeitsplatz dieselbe
+Maschine, Hostname `localhost`) hat sie durchgespielt. Ergebnis: Der
+dokumentierte Weg führte an **vier** Stellen nicht zum Ziel. Keine davon war
+sichtbar, ohne ihn zu gehen.
+
+**1. `npm ci` liefert ein unbrauchbares better-sqlite3.** npm sperrt seit
+Version 12 die Installationsskripte von Abhängigkeiten. Die `allowScripts`-Liste
+in der `package.json` nennt die sechs betroffenen Pakete namentlich, greift aber
+nicht: npm kann die Einträge nur auf eine Version festnageln, wenn der
+`package-lock.json` eine `resolved`-URL mitbringt — und der ausgelieferte
+Lockfile hat für 533 von 538 Einträgen keine. `npm ci` meldet trotzdem Erfolg,
+der Build läuft durch, und erst der Dienststart bricht mit „Could not locate the
+bindings file" ab. Beide Deploy-Anleitungen holen `prebuild-install` deshalb
+ausdrücklich nach und prüfen das Ergebnis sofort mit einem `new Database`.
+
+**Der Lockfile selbst bleibt eine offene Baustelle:** Er trägt für **alle** 538
+Einträge keine `integrity` — `npm ci` prüft auf einem Kundenserver also keine
+einzige Paket-Prüfsumme. Eine Auflösung im Reinraum gegen die echte Registry
+liefert 638 Einträge, sämtlich mit `resolved`. Das Ersetzen ist kein
+Einzeiler (rund hundert zusätzliche Einträge wollen gegengeprüft werden) und
+gehört in einen eigenen Arbeitsgang mit vollständigem Nachtest.
+
+**2. Der Dienst startete nie — wegen eines Leerzeichens.** NSSM legt
+`AppParameters` wörtlich in der Registry ab und hängt den Wert beim Start an die
+Programmzeile. Windows PowerShell entfernt beim Aufruf nativer Programme
+Anführungszeichen aus einem Argument; der abgelegte Wert war deshalb
+`C:\Program Files\...\cli.cjs` **ohne** Anführungszeichen, und node suchte ein
+Modul namens `C:\Program`. Der Prozess endete sofort, NSSM stellte den Dienst
+nach mehreren Versuchen auf *Angehalten* — ohne dass irgendwo „Pfad" oder
+„Leerzeichen" stand. Da der vorgesehene Ablageort `C:\Program Files\oHRganize`
+ist, konnte die dokumentierte Installation **nie** funktionieren.
+`install-service.ps1` liest den Wert jetzt zurück und setzt ihn nötigenfalls
+direkt; stimmt er danach immer noch nicht, bricht es ab, statt einen halb
+gestarteten Dienst zu hinterlassen.
+
+**3. `icacls` nimmt eine Dienst-SID nicht an, die es noch nicht gibt.** Die
+Härtung läuft absichtlich VOR der Dienstregistrierung, damit das
+Log-Verzeichnis steht, bevor der erste Start das Initialpasswort hineinschreibt.
+Zu diesem Zeitpunkt existiert das virtuelle Konto aber noch nicht, und `icacls`
+löst den Kontonamen auf, bevor es die ACE schreibt — auch in der Schreibweise
+`*S-1-5-80-…`. Der Aufruf scheitert mit `ERROR_NONE_MAPPED` (1332), die Warnung
+ging in der übrigen Ausgabe unter, und das Datenverzeichnis blieb ohne Recht für
+das Dienstkonto. `harden-data-dir.ps1` fängt das jetzt mit `Set-Acl` ab, das die
+ACE direkt aus dem SID-Objekt schreibt und keine Auflösung braucht;
+`install-service.ps1` härtet nach der Registrierung ein zweites Mal — dann ist
+der Name auflösbar — und prüft vor dem Start, ob die SID wirklich in der ACL
+steht.
+
+**Warum das schwer zu sehen war:** Auf einer Maschine, auf der der Dienst schon
+einmal installiert war, bleibt seine SID der LSA bis zum Neustart bekannt — der
+Fehler verschwindet dann. Ein Zwischenversuch hat ihn genau deshalb scheinbar
+widerlegt. Belegen ließ er sich erst mit dem Namen eines Dienstes, den es auf
+der Maschine nie gab.
+
+**4. Die Sicherungsaufgabe lief im Akkubetrieb gar nicht.** Die Aufgabenplanung
+setzt `DisallowStartIfOnBatteries` und `StopIfGoingOnBatteries` von sich aus auf
+„ein". Die Aufgabe blieb still auf *In Warteschlange* stehen — kein Fehler, kein
+Ereignis, `LastTaskResult` unverändert `0`, während derselbe Befehl von Hand
+fehlerfrei durchlief. Der zweite Schalter ist der unangenehmere: Er bräche eine
+**laufende** Sicherung ab, sobald der Strom ausfällt — ausgerechnet dann.
+`install-backup-task.ps1` setzt beide jetzt ausdrücklich zurück; die
+systemd-Fassung kennt keine solche Bedingung, und die beiden Plattformen sollen
+sich gleich verhalten.
+
+**Was der Probelauf bestätigt hat:** Die zentrale Warnung der Doku stimmt
+gemessen — ein frisch angelegter Ordner unter `C:\ProgramData` trägt
+`VORDEFINIERT\Benutzer:(OI)(CI)(RX)`, jedes lokale Konto könnte die
+Personalakte öffnen. Ebenso bestätigt: Caddy mit `tls internal` (Portal,
+SPA-Fallback, Weiterleitung 308, alle vier Sicherheitskopfzeilen, keine
+Server-Kennung, Signaturen nicht im Zugriffsprotokoll), der WAL-Checkpoint beim
+geordneten Stopp (danach kein `-wal`/`-shm`) und die Restore-Probe. Widerlegt
+wurde dagegen die Sorge um `git safe.directory`: Ein `git clone` nach
+`C:\Program Files`, aus einer Administrator-Sitzung angelegt, gehört der Gruppe
+Administratoren, und Git meldet dort keine „dubious ownership".

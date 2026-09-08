@@ -99,9 +99,29 @@ $principal = New-ScheduledTaskPrincipal `
 
 # StartWhenAvailable entspricht Persistent=true: War der Server zur geplanten
 # Zeit aus, wird der Lauf nachgeholt.
+#
+# DIE BEIDEN AKKU-SCHALTER SIND PFLICHT, nicht Feinschliff. Die
+# Aufgabenplanung setzt beide Bedingungen von sich aus auf "ein":
+#   DisallowStartIfOnBatteries  Die Aufgabe startet im Akkubetrieb gar nicht.
+#                               Sie bleibt still auf "In Warteschlange" stehen -
+#                               kein Fehler, kein Eintrag, LastTaskResult
+#                               unveraendert. Im Probelauf ist genau das
+#                               passiert: Auf einem Geraet im Akkubetrieb kam
+#                               nie ein Sicherungsordner zustande, waehrend
+#                               derselbe Befehl von Hand fehlerfrei durchlief.
+#   StopIfGoingOnBatteries      Ein LAUFENDER Sicherungslauf wird abgebrochen,
+#                               sobald die Stromversorgung ausfaellt - also
+#                               ausgerechnet in der Lage, in der die Sicherung
+#                               am meisten wert waere.
+# Ein Server am Netz merkt davon nichts. Eine VM, deren Wirt einen Akku
+# meldet, ein Kleingeraet oder ein Buero-PC mit USV dagegen sehr wohl. Die
+# systemd-Fassung (ohrganize-backup.timer) kennt keine solche Bedingung -
+# ohne diese beiden Schalter verhielte sich Windows anders als Linux.
 $settings = New-ScheduledTaskSettingsSet `
   -StartWhenAvailable `
   -DontStopOnIdleEnd `
+  -AllowStartIfOnBatteries `
+  -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
   -MultipleInstances IgnoreNew
 

@@ -88,6 +88,36 @@ function Set-OhrganizeAcl {
   $grantCode = $LASTEXITCODE
   $ErrorActionPreference = $prevEap
 
+  # RUECKFALL UEBER .NET, wenn icacls die SID nicht annimmt.
+  #
+  # Gemessen im Probelauf (Windows 11, 26200): icacls loest den Kontonamen auf,
+  # BEVOR es die ACE schreibt - auch bei der Schreibweise "*S-1-5-80-...". Solange
+  # der Dienst nicht registriert ist, gibt es zu seiner SID keinen Namen, und der
+  # Aufruf scheitert. Genau dieser Fall ist hier aber der Normalfall: Die
+  # Haertung laeuft absichtlich VOR der Dienstinstallation (siehe Kopfkommentar).
+  #
+  # Ohne diesen Rueckfall blieb das Datenverzeichnis ohne Recht fuer das
+  # Dienstkonto zurueck - der Dienst startete anschliessend nicht, und die
+  # Warnung darueber ging in der uebrigen Ausgabe unter.
+  #
+  # Set-Acl schreibt die ACE direkt aus dem SID-Objekt und braucht keine
+  # Aufloesung. Es ersetzt icacls hier nicht, sondern faengt nur dessen
+  # Sonderfall ab: /inheritance:r und die beiden well-known SIDs oben laufen
+  # weiterhin ueber icacls.
+  if ($grantCode -ne 0 -and $ServiceAccount.StartsWith('*')) {
+    try {
+      $sid = New-Object Security.Principal.SecurityIdentifier($ServiceAccount.Substring(1))
+      $acl = Get-Acl -LiteralPath $Path
+      $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule(
+          $sid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
+      Set-Acl -LiteralPath $Path -AclObject $acl
+      $grantCode = 0
+      Write-Host "  $Label - Dienstkonto ueber die rohe SID eingetragen (icacls konnte sie nicht aufloesen)."
+    } catch {
+      Write-Warning "  $Label - ACE ueber die SID gescheitert: $($_.Exception.Message)"
+    }
+  }
+
   if ($grantCode -eq 0) {
     Write-Host "  $Label - SYSTEM, Administratoren, $ServiceAccount"
   } else {

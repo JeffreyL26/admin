@@ -226,6 +226,39 @@ if ($LASTEXITCODE -ne 0) {
 & $NssmPath set $ServiceName Application    $node.Source            | Out-Null
 & $NssmPath set $ServiceName AppParameters  "`"$entry`""            | Out-Null
 & $NssmPath set $ServiceName AppDirectory   (Join-Path $InstallDir 'apps\backend') | Out-Null
+
+<#
+  ANFUEHRUNGSZEICHEN IN AppParameters NACHPRUEFEN - nicht kosmetisch.
+
+  NSSM legt AppParameters woertlich in der Registry ab und haengt den Wert beim
+  Start an die Programmzeile. Der vorgesehene Ablageort ist
+  C:\Program Files\oHRganize, enthaelt also ein Leerzeichen. Fehlen die
+  Anfuehrungszeichen im GESPEICHERTEN Wert, startet der Dienst als
+      node.exe C:\Program Files\...\cli.cjs
+  und node sucht ein Modul namens "C:\Program". Der Prozess endet sofort mit
+  MODULE_NOT_FOUND, NSSM versucht es mehrfach und laesst den Dienst dann auf
+  "Angehalten" stehen - ohne dass irgendwo "Pfad" oder "Leerzeichen" steht.
+  Genau so ist es im Probelauf passiert.
+
+  Warum nicht einfach richtig quoten: Windows PowerShell baut die Befehlszeile
+  fuer native Programme selbst zusammen und entfernt dabei Anfuehrungszeichen
+  aus einem Argument - je nach Fassung unterschiedlich. Auf dieses Verhalten
+  laesst sich nichts bauen. Deshalb wird der abgelegte Wert hier gelesen und
+  noetigenfalls direkt gesetzt; die Registry ist die Stelle, aus der NSSM ihn
+  ohnehin liest.
+#>
+$paramKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
+$sollParams = '"' + $entry + '"'
+$istParams = (Get-ItemProperty -LiteralPath $paramKey -Name AppParameters -ErrorAction SilentlyContinue).AppParameters
+if ($istParams -ne $sollParams) {
+  Set-ItemProperty -LiteralPath $paramKey -Name AppParameters -Value $sollParams
+  $istParams = (Get-ItemProperty -LiteralPath $paramKey -Name AppParameters -ErrorAction SilentlyContinue).AppParameters
+  Write-Host "  AppParameters nachgezogen: $istParams"
+}
+if ($istParams -ne $sollParams) {
+  throw ("AppParameters steht auf '$istParams' statt '$sollParams'. Abbruch: Der Dienst " +
+    'wuerde mit einem am Leerzeichen abgeschnittenen Pfad starten und sofort abbrechen.')
+}
 & $NssmPath set $ServiceName DisplayName    'oHRganize Backend'       | Out-Null
 & $NssmPath set $ServiceName Description    'oHRganize Backend (HR-Verwaltung, REST-API)' | Out-Null
 & $NssmPath set $ServiceName Start          SERVICE_AUTO_START      | Out-Null
@@ -257,6 +290,45 @@ if ($LASTEXITCODE -ne 0) {
 # WAL-Checkpoint aus, und erst wenn das nicht klappt, wird hart beendet.
 & $NssmPath set $ServiceName AppStopMethodSkip 6       | Out-Null
 & $NssmPath set $ServiceName AppStopMethodConsole 20000 | Out-Null
+
+# --- Zweiter Haertungslauf, jetzt mit aufloesbarem Kontonamen ---------------
+# Der erste Lauf oben geschah absichtlich VOR der Dienstregistrierung, damit das
+# Log-Verzeichnis steht, bevor der erste Start das Initialpasswort hineinschreibt.
+# Zu diesem Zeitpunkt existiert das virtuelle Konto aber noch nicht. Jetzt ist der
+# Dienst registriert und "NT SERVICE\<Name>" aufloesbar - also noch einmal, und
+# zwar VOR dem Start. Der Aufruf ist idempotent.
+& (Join-Path $PSScriptRoot 'harden-data-dir.ps1') `
+  -DataDir $dataDir -LogDir $LogDir -EnvFile $EnvFile -ServiceAccount "NT SERVICE\$ServiceName"
+
+# Letzte Kontrolle vor dem Start. Ohne Recht am Datenverzeichnis kommt das
+# Backend nicht an seine Datenbank; NSSM versucht es mehrfach und laesst den
+# Dienst dann auf "Angehalten" stehen. Im Dienste-Fenster sieht das nach einem
+# Anwendungsfehler aus, ist aber eine fehlende ACL - deshalb hier ein klarer
+# Abbruch mit der richtigen Ursache statt eines halb gestarteten Dienstes.
+#
+# Verglichen wird die SID, nicht der angezeigte Name: icacls gibt Konten
+# lokalisiert aus (deutsches Windows schreibt "NT-AUTORITAET\SYSTEM"), ein
+# Textvergleich auf den Klarnamen ginge auf einer anderen Sprachversion schief.
+$sidOnly = $serviceSid.TrimStart('*')
+$hatKonto = $false
+foreach ($ace in (Get-Acl -LiteralPath $dataDir).Access) {
+  try {
+    $s = if ($ace.IdentityReference -is [Security.Principal.SecurityIdentifier]) {
+      $ace.IdentityReference.Value
+    } else {
+      $ace.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+    }
+    if ($s -eq $sidOnly) { $hatKonto = $true; break }
+  } catch {
+    # Ein Eintrag, der sich nicht in eine SID uebersetzen laesst, ist hier
+    # uninteressant - gesucht wird genau eine bestimmte.
+  }
+}
+if (-not $hatKonto) {
+  throw ("Das Dienstkonto 'NT SERVICE\$ServiceName' hat kein Recht auf $dataDir. " +
+    'Abbruch vor dem Start: Der Dienst koennte seine Datenbank nicht oeffnen und ' +
+    'bliebe auf "Angehalten" stehen. harden-data-dir.ps1 pruefen.')
+}
 
 & $NssmPath start $ServiceName
 Start-Sleep -Seconds 2

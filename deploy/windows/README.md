@@ -111,6 +111,19 @@ Set-Location 'C:\Program Files\oHRganize'
 #     WICHTIG: kein --omit=dev. Der Build braucht esbuild und typescript aus
 #     den devDependencies.
 npm ci
+
+#     PFLICHT ab npm 12 — sonst startet der Dienst später nicht.
+#     npm sperrt seit Version 12 die Installationsskripte von Abhängigkeiten.
+#     better-sqlite3 holt seine native Bibliothek aber genau darüber. `npm ci`
+#     meldet trotzdem Erfolg, der Build läuft durch, und erst der Dienststart
+#     bricht mit "Could not locate the bindings file" ab.
+#     Der Aufruf ist auf älteren npm-Fassungen unschädlich (er lädt dann noch
+#     einmal, was bereits da ist).
+Push-Location node_modules\better-sqlite3
+node ..\prebuild-install\bin.js
+Pop-Location
+node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
+
 npm run build -w apps/backend
 npm run build:web
 
@@ -514,27 +527,54 @@ sind diese:
 | `nssm` meldet `OpenSCManager` | PowerShell ohne Administratorrechte | Als Administrator starten |
 | Umlaute in `.ps1` erscheinen als Kraut | PowerShell 5.1 liest `.ps1` ohne BOM als ANSI | Die Skripte hier sind deshalb umlautfrei — beim Erweitern so lassen |
 | `MODULE_NOT_FOUND: better-sqlite3` | `npm ci` fehlt oder lief mit `--omit=dev` | Schritt 2.2 wiederholen |
+| `Could not locate the bindings file` (better-sqlite3) | npm ≥ 12 hat das Installationsskript gesperrt — `npm ci` meldete trotzdem Erfolg | `prebuild-install` aus Schritt 2.2 nachholen |
+| Dienst steht auf *Angehalten*, `backend.log` zeigt `Cannot find module 'C:\Program'` | `AppParameters` steht ohne Anführungszeichen in der Registry, der Pfad bricht am Leerzeichen von `C:\Program Files` ab | `install-service.ps1` erneut ausführen (es prüft den Wert seit dem Probelauf selbst) |
+| `harden-data-dir.ps1` meldet „Dienstkonto noch unbekannt" | `icacls` weist eine Dienst-SID mit `ERROR_NONE_MAPPED` (1332) ab, solange der Dienst nie existiert hat | Nichts tun — das Skript trägt die SID danach über .NET ein. Bleibt die Meldung *und* fehlt das Konto in `icacls`, ist der Rückfall gescheitert |
 | Portal zeigt bei `/kalender` einen 404 | SPA-Fallback fehlt | `try_files` im Caddyfile prüfen |
 
-## Was hier noch NICHT verifiziert ist
+## Was der Probelauf gezeigt hat
 
-Der Ehrlichkeit halber: Verifiziert sind das Backend im Standalone-Betrieb unter
-Windows, das Sicherungsskript samt Restore-Probe und die NTFS-Härtung — alles
-auf einer Windows-11-Maschine, auf der sich Node und NTFS wie auf Windows Server
-verhalten.
+Am 08.09.2026 wurde diese Anleitung auf einer Windows-11-Maschine (26200)
+vollständig durchgespielt — Server und Arbeitsplatz dieselbe Maschine, Hostname
+`localhost`, Node 24.16 / npm 12.0.1, NSSM 2.24, Caddy 2.11.4. Sie führte an
+**vier** Stellen nicht zum Ziel; alle vier sind repariert und danach erneut
+durchlaufen. Die Begründungen stehen in `../../docs/entscheidungen.md`.
 
-**Nicht** durchgespielt sind die Dienstregistrierung über NSSM, die geplante
-Aufgabe und Caddy mit einem echten Zertifikat. Dafür braucht es eine
-Windows-Server-VM mit öffentlicher Domain. Diese drei Schritte gehören dort
-einmal komplett durchlaufen, bevor jemand auf eine Kundenmaschine geht.
+**Abgehakt — tatsächlich durchlaufen:**
 
-Ebenfalls noch offen — alles Punkte, die erst auf einer echten Server-VM
-belastbar sind:
+- [x] `git clone` nach `C:\Program Files\oHRganize`, `npm ci`, beide Builds
+- [x] Dienstregistrierung über NSSM inklusive virtuellem Konto
+      `NT SERVICE\oHRganize` (`sc.exe qc` bestätigt es)
+- [x] NTFS-Härtung: `data`, `logs` und `backups` tragen danach **nur** SYSTEM,
+      Administratoren und das Dienstkonto — kein `Benutzer`
+- [x] Erststart mit generiertem Initialpasswort; die Datei ist für die Gruppe
+      `Benutzer` nicht lesbar
+- [x] Caddy als Dienst mit `tls internal`: Portal 200, SPA-Fallback
+      (`/kalender`) 200 statt 404, `http` → 308, alle vier
+      Sicherheitskopfzeilen gesetzt, keine `Server`-Kennung, Signatur im
+      Query-String **nicht** im Zugriffsprotokoll
+- [x] API über den Proxy: `/api/health` 200, ohne Anmeldung 401, zu alte
+      Desktop-App 426, falsches Passwort 401 **und** Warnzeile in `backend.log`
+- [x] Backend lauscht nur auf `127.0.0.1`, über den Rechnernamen nicht erreichbar
+- [x] Geplante Sicherungsaufgabe: `LastTaskResult 0`, gefüllter Ordner mit
+      `ohrganize.db`, `storage\`, `secret.key`, `MANIFEST.txt`, keine
+      `-wal`-Datei, `integrity_check` der gesicherten Datenbank `ok`
+- [x] Restore-Probe in ein eigenes Verzeichnis auf Port 3999: Anmeldung liefert
+      ein Token und belegt damit Datenbank **und** `secret.key`
+- [x] WAL-Checkpoint beim geordneten Stopp — danach weder `-wal` noch `-shm`
+- [x] `git` in `C:\Program Files`: **keine** „dubious ownership". Das
+      Verzeichnis gehört, aus einer Administrator-Sitzung angelegt, der Gruppe
+      Administratoren, und Git nimmt das an. Der `safe.directory`-Aufruf in
+      Abschnitt 1 ist damit nur noch Notnagel, keine Voraussetzung.
+- [x] Ein `git clone` erzeugt keine Zone-Kennung; `Unblock-File` bleibt nur für
+      den Weg über Download oder Netzlaufwerk nötig.
+
+**Weiterhin offen:**
 
 | Offen | Was genau ungewiss ist | Wie man es prüft |
 |---|---|---|
-| Dienst-SID vor der Dienstinstallation | `install-service.ps1` härtet, **bevor** der Dienst existiert — sonst stünde das Initialpasswort ungeschützt im Protokoll. Das virtuelle Konto `NT SERVICE\oHRganize` ist zu diesem Zeitpunkt noch nicht über seinen Namen auflösbar; das Skript ermittelt deshalb die SID mit `sc.exe showsid`. Ob Windows Server dieselbe (lokalisierte) Ausgabe liefert wie Windows 11, ist ungeprüft. | Nach `install-service.ps1` muss `icacls 'C:\ProgramData\oHRganize\data'` `NT SERVICE\oHRganize` zeigen. Fehlt der Eintrag, `harden-data-dir.ps1` erneut ausführen. |
-| Geplante Aufgabe mit eigenem Datenverzeichnis | Die Sicherungsaufgabe erbt keine Umgebung und bekommt `OHRGANIZE_DATA_DIR` deshalb über `cmd.exe /s /c set …` unmittelbar vor dem Aufruf mit (`install-backup-task.ps1`) — bewusst **keine** Maschinenvariable, damit nicht jeder Node-Prozess auf dem Server auf die Produktivdatenbank zeigt. Ungeprüft ist, ob die Aufgabenplanung das Quoting unverändert durchreicht. | `Start-ScheduledTask -TaskName 'oHRganize-Sicherung'`, danach muss unter `C:\ProgramData\oHRganize\backups` ein neuer, **gefüllter** Ordner stehen. Ein leerer Ordner heißt: falsches Datenverzeichnis. |
-| Rückbau bei fehlgeschlagener Kontozuweisung | Scheitert `sc.exe config obj=`, entfernt `install-service.ps1` den soeben angelegten Dienst wieder bzw. nimmt einem vorhandenen den Autostart, damit kein Dienst als LocalSystem zurückbleibt. Dieser Fehlerpfad ist nicht durchgespielt. | `sc.exe qc oHRganize` nach einem Abbruch: Der Dienst darf entweder nicht existieren oder nicht auf `AUTO_START` stehen. |
-| `git safe.directory` in `C:\Program Files` | Ob `git pull` dort wegen „dubious ownership" abbricht, hängt vom Besitzer des Verzeichnisses und vom aufrufenden Konto ab. Auf Windows Server nicht nachgestellt. | Abschnitt 1. Tritt der Fehler auf, den dort genannten `git config`-Aufruf setzen. |
+| Windows **Server** statt Windows 11 | Node, NTFS, NSSM und die Aufgabenplanung verhalten sich gleich; unterschiedlich sein können die lokalisierten Ausgaben von `sc.exe` und `icacls`, die beide Skripte auswerten. Beide vergleichen deshalb SIDs statt Klarnamen. | Nach `install-service.ps1` muss `icacls 'C:\ProgramData\oHRganize\data'` das Dienstkonto zeigen. |
+| Caddy mit einem **echten** Zertifikat | Geprüft wurde `tls internal`. Der ACME-Weg über Let's Encrypt braucht eine öffentliche Domain und Port 80/443 aus dem Internet. | `caddy validate`, dann im Protokoll den erfolgreichen Zertifikatsbezug abwarten und `https://<domain>` von außen aufrufen. |
+| `package-lock.json` ohne `integrity` | Der ausgelieferte Lockfile trägt für **keinen** der 538 Einträge eine Prüfsumme — `npm ci` verifiziert damit kein einziges Paket. Der Bezug funktioniert, die Absicherung fehlt. | `node -e "const l=require('./package-lock.json');console.log(Object.entries(l.packages).filter(([k,v])=>k.startsWith('node_modules/')&&!v.integrity).length)"` — erwartet: `0`. |
+| Rückbau bei fehlgeschlagener Kontozuweisung | Scheitert `sc.exe config obj=`, entfernt `install-service.ps1` den soeben angelegten Dienst wieder bzw. nimmt einem vorhandenen den Autostart. Dieser Fehlerpfad ist nicht ausgelöst worden. | `sc.exe qc oHRganize` nach einem Abbruch: Der Dienst darf entweder nicht existieren oder nicht auf `AUTO_START` stehen. |
 | Umzug einer Einzelplatz-Installation (Abschnitt 8) | Der Weg ist aus dem Verhalten der App abgeleitet (kein WAL-Checkpoint beim Beenden), aber nicht mit einem echten gewachsenen Datenbestand durchgespielt. | Vor dem Umzug eine Kopie des Arbeitsplatz-Verzeichnisses beiseitelegen und den Serverstand gegen den bekannten Datenbestand prüfen (Anzahl Mitarbeitende, jüngster Antrag). |

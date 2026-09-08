@@ -80,6 +80,16 @@ cd /opt/ohrganize
 #     WICHTIG: kein --omit=dev. Der Build braucht esbuild und typescript aus
 #     den devDependencies. Ein "npm ci --omit=dev" bricht in Schritt 2.4 ab.
 npm ci
+
+#     PFLICHT ab npm 12 — sonst startet der Dienst später nicht.
+#     npm sperrt seit Version 12 die Installationsskripte von Abhängigkeiten.
+#     better-sqlite3 holt seine native Bibliothek aber genau darüber. "npm ci"
+#     meldet trotzdem Erfolg, der Build läuft durch, und erst der Dienststart
+#     bricht mit "Could not locate the bindings file" ab. Auf älteren
+#     npm-Fassungen ist der Aufruf unschädlich.
+(cd node_modules/better-sqlite3 && node ../prebuild-install/bin.js)
+node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
+
 npm run build -w apps/backend      # → apps/backend/dist/{cli.cjs,server.cjs,backup.cjs}
 npm run build:web                  # → apps/web/dist (statisches Portal)
 
@@ -385,6 +395,7 @@ dessen Verbindungen ab.
 | `EADDRINUSE` | Port 3001 belegt (zweite Instanz?) | `ss -tlnp` und nach 3001 sehen |
 | `SQLITE_CANTOPEN` / `EACCES` | `OHRGANIZE_DATA_DIR` gehört nicht dem Dienstbenutzer | `chown -R ohrganize:ohrganize /var/lib/ohrganize` |
 | `Cannot find module 'better-sqlite3'` | `npm ci` fehlt, oder es wurde mit `--omit=dev` gebaut | Abschnitt 2.3 wiederholen |
+| `Could not locate the bindings file` (better-sqlite3) | npm ≥ 12 hat das Installationsskript gesperrt — `npm ci` meldete trotzdem Erfolg | `prebuild-install` aus Abschnitt 2.3 nachholen |
 | Portal zeigt bei `/kalender` einen 404 | SPA-Fallback fehlt im Proxy | `try_files … /index.html` prüfen |
 | Portal meldet CORS-Fehler | API läuft nicht same-origin | `OHRGANIZE_CORS_ORIGIN` auf die Portal-Domain setzen (der Wert `null` ist nicht zulässig und wird ignoriert) |
 | Desktop-App kommt nicht über den Login hinaus, Portal geht | `ohrganize://app` fehlt in `OHRGANIZE_CORS_ORIGIN` | Eintrag ergänzen: `OHRGANIZE_CORS_ORIGIN=https://portal.firma.de,ohrganize://app`. Die App lädt ihre Oberfläche über ein eigenes Schema und sendet diese Herkunft; ohne den Eintrag bricht der Browserkern jede Anfrage ab. Im Serverlog ist nichts Auffälliges zu sehen — es sieht nach einem Netzwerkproblem aus. |
