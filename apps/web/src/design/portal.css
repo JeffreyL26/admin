@@ -812,18 +812,19 @@ button {
 }
 /* Eigene Datei (logo-full.png) statt des Icons aus Desktop-App/Installer — auf
    der Login-Seite ganz gezeigt, da hier die Wortmarke mit ins Bild gehört.
-   Die Datei ist deckend hell ohne Alpha; die weiße Fläche mit Radius macht
-   daraus in allen vier Themes eine bewusste Logo-Kachel statt eines harten
-   Rechtecks auf Dunkel. */
+   Transparentes PNG, das frei auf dem Seitenhintergrund steht. */
 .login__logo {
-  width: 150px;
+  width: 170px;
   height: auto;
   align-self: flex-start;
   margin-bottom: -4px;
-  background: #fff;
-  border-radius: 16px;
-  padding: 6px;
-  box-shadow: 0 6px 22px rgb(10 34 70 / 0.1);
+}
+/* Die Wortmarke ist navy und stünde im Dunkel-Theme unsichtbar auf --bg-app
+   (#0c1830). invert dreht sie ins Helle, hue-rotate holt den dabei verdrehten
+   Farbton zurück — so bleibt „HR" blau, ohne zweite Logodatei. Die drei
+   übrigen Themes haben helle Flächen und brauchen den Filter nicht. */
+:root[data-theme='dark'] .login__logo {
+  filter: invert(1) hue-rotate(180deg);
 }
 .login__claim {
   font-size: var(--text-lg);
