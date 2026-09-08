@@ -278,17 +278,23 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
 - **better-sqlite3 ist die einzige native Abhängigkeit.** Sie steht bewusst auch in
   den Dependencies von `apps/desktop`, damit electron-builder sie für die
   Electron-ABI neu baut/prebuildet. Im esbuild-Bundle als `--external` markiert.
-- **Ab npm 12 liefert `npm ci` ein unbrauchbares better-sqlite3.** npm sperrt
-  seit dieser Fassung die Installationsskripte von Abhängigkeiten; die
-  `allowScripts`-Liste in der `package.json` greift nicht, weil npm ohne
-  `resolved`-URL im `package-lock.json` nicht auf eine Version festnageln kann —
-  und der Lockfile hat für 533 von 538 Einträgen keine (und für **keinen** eine
-  `integrity`; das ist eine offene Baustelle, siehe docs/entscheidungen.md).
-  `npm ci` meldet trotzdem Erfolg und der Build läuft durch: Der Fehler zeigt
-  sich erst beim ersten `new Database` als „Could not locate the bindings file".
-  Abhilfe nach jedem `npm ci`:
-  `(cd node_modules/better-sqlite3 && node ../prebuild-install/bin.js)`.
-  Beide Deploy-Anleitungen führen den Schritt inzwischen ausdrücklich.
+- **`allowScripts` in der Root-`package.json` ist ein echtes npm-Feld (ab 12)
+  und hängt am Lockfile.** npm sperrt seit dieser Fassung die
+  Installationsskripte von Abhängigkeiten; freigegeben ist, was dort als
+  `paket@version` steht. Festnageln kann npm einen Eintrag aber nur, wenn der
+  `package-lock.json` eine `resolved`-URL dazu mitbringt. Genau das fehlte
+  lange (Lockfile ohne Registry-Zugriff erzeugt), und damit passte **kein**
+  Eintrag: better-sqlite3 bekam seine native Bibliothek nicht, `npm ci` meldete
+  trotzdem Erfolg, der Build lief durch, und erst der erste `new Database`
+  brach mit „Could not locate the bindings file" ab. Zwei Folgerungen für
+  jeden, der hier etwas ändert: **Ein Paket mit Installationsskript neu
+  aufnehmen heißt, es in `allowScripts` einzutragen** (sonst läuft es nicht),
+  und **eine Versionsanhebung macht den Eintrag ungültig** — das ist Absicht,
+  will aber nachgezogen werden. Prüfen lässt sich der Zustand mit
+  `npm install-scripts ls`. Als Kontrolle nach `npm ci` taugt nur
+  `node -e "new (require('better-sqlite3'))(':memory:')"` — ein blosses
+  `require()` lädt die Bindung noch nicht. Hintergrund:
+  docs/entscheidungen.md.
 - **CORS `origin: true` ist Absicht:** Prod-Renderer lädt über file:// (Origin
   `null`). Das Backend bindet dafür ausschließlich an 127.0.0.1.
 - **OneDrive-Arbeitsverzeichnis:** `node_modules`/Builds können durch die

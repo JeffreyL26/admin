@@ -93,9 +93,13 @@ git config --global --add safe.directory 'C:/Program Files/oHRganize'
 ```
 
 (Schrägstriche wie hier, nicht Backslashes — Git erwartet den Pfad in dieser
-Schreibweise.) **Noch nicht auf Windows Server verifiziert**, siehe den Abschnitt
-„Was hier noch NICHT verifiziert ist" am Ende: Ob der Fall auftritt, hängt davon
-ab, wie das Verzeichnis angelegt wurde und unter welchem Konto geklont wird.
+Schreibweise.) **Im Probelauf war der Aufruf nicht nötig** (siehe „Was der
+Probelauf gezeigt hat" am Ende): Ein aus einer Administrator-PowerShell
+angelegtes `C:\Program Files\oHRganize` gehört der Gruppe Administratoren, und
+Git nimmt das an. Ob der Fall auftritt, hängt davon ab, wie das Verzeichnis
+angelegt wurde und unter welchem Konto geklont wird — wird das Repository etwa
+von einem Dienstkonto oder über eine Freigabe eingespielt, kann er wiederkommen.
+Deshalb bleibt der Befehl hier stehen: als Abhilfe, nicht als Pflichtschritt.
 
 ## 2. Installation
 
@@ -112,17 +116,24 @@ Set-Location 'C:\Program Files\oHRganize'
 #     den devDependencies.
 npm ci
 
-#     PFLICHT ab npm 12 — sonst startet der Dienst später nicht.
-#     npm sperrt seit Version 12 die Installationsskripte von Abhängigkeiten.
-#     better-sqlite3 holt seine native Bibliothek aber genau darüber. `npm ci`
-#     meldet trotzdem Erfolg, der Build läuft durch, und erst der Dienststart
+#     KONTROLLE — nicht überspringen. Der Dienst startet sonst später mit einem
+#     Fehler, der nicht nach der Ursache aussieht.
+#     better-sqlite3 holt seine native Bibliothek über ein Installationsskript.
+#     npm sperrt solche Skripte ab Version 12, sofern das Paket nicht in
+#     "allowScripts" der Root-package.json steht UND der Lockfile eine
+#     "resolved"-URL dazu mitbringt (ohne die kann npm nicht auf eine Version
+#     festnageln). Fehlt eine der beiden Bedingungen, meldet npm ci trotzdem
+#     Erfolg, der Build läuft durch — und erst der erste Datenbankzugriff
 #     bricht mit "Could not locate the bindings file" ab.
-#     Der Aufruf ist auf älteren npm-Fassungen unschädlich (er lädt dann noch
-#     einmal, was bereits da ist).
-Push-Location node_modules\better-sqlite3
-node ..\prebuild-install\bin.js
-Pop-Location
+#     ACHTUNG: Ein blosses require() genügt als Prüfung NICHT. Die native
+#     Bindung wird erst beim "new Database" geladen.
 node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
+
+#     Schlägt die Zeile fehl, das Installationsskript von Hand nachholen:
+#       Push-Location node_modules\better-sqlite3
+#       node ..\prebuild-install\bin.js
+#       Pop-Location
+#     und danach die Kontrollzeile wiederholen.
 
 npm run build -w apps/backend
 npm run build:web

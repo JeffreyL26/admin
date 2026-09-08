@@ -443,12 +443,26 @@ der Build läuft durch, und erst der Dienststart bricht mit „Could not locate 
 bindings file" ab. Beide Deploy-Anleitungen holen `prebuild-install` deshalb
 ausdrücklich nach und prüfen das Ergebnis sofort mit einem `new Database`.
 
-**Der Lockfile selbst bleibt eine offene Baustelle:** Er trägt für **alle** 538
-Einträge keine `integrity` — `npm ci` prüft auf einem Kundenserver also keine
-einzige Paket-Prüfsumme. Eine Auflösung im Reinraum gegen die echte Registry
-liefert 638 Einträge, sämtlich mit `resolved`. Das Ersetzen ist kein
-Einzeiler (rund hundert zusätzliche Einträge wollen gegengeprüft werden) und
-gehört in einen eigenen Arbeitsgang mit vollständigem Nachtest.
+**Der Lockfile war die eigentliche Ursache — inzwischen behoben.** Er trug für
+**alle** 538 Einträge keine `integrity`, `npm ci` prüfte auf einem
+Kundenserver also keine einzige Paket-Prüfsumme. Neu erzeugt gegen die echte
+Registry sind es 644 Einträge; ohne `resolved`/`integrity` bleiben nur der
+Wurzeleintrag, die fünf Workspace-Verzeichnisse und ihre Verweise unter
+`node_modules` — alles lokal, dort gibt es nichts zu prüfen. Die 100
+hinzugekommenen Einträge sind die plattformspezifischen `optionalDependencies`
+von esbuild und rollup, die eine Rekonstruktion aus dem lokalen Baum gar nicht
+kennen kann. Versionsdrift: 35 Bewegungen, sämtlich Patch- und Minor-Stufen,
+kein Major-Sprung.
+
+**Damit erledigte sich auch die Skriptsperre von selbst:** Von den sechs
+gelisteten Paketen war anschließend nur noch `esbuild@0.28.2` gesperrt — weil
+`allowScripts` auf `0.28.1` festgenagelt ist und `tsx` inzwischen `0.28.2`
+zieht. Genau so soll eine Festnagelung wirken. `prebuild-install` von Hand ist
+seitdem kein Pflichtschritt mehr, sondern Rückfallebene; beide Deploy-Anleitungen
+führen stattdessen eine Kontrollzeile. Wichtig dabei: Ein blosses `require()`
+belegt nichts — die native Bindung wird erst beim `new Database` geladen.
+Genau dieser zu schwache Prüfausdruck hat den Fehler im Probelauf einmal als
+behoben ausgewiesen, obwohl er es nicht war.
 
 **2. Der Dienst startete nie — wegen eines Leerzeichens.** NSSM legt
 `AppParameters` wörtlich in der Registry ab und hängt den Wert beim Start an die

@@ -81,14 +81,22 @@ cd /opt/ohrganize
 #     den devDependencies. Ein "npm ci --omit=dev" bricht in Schritt 2.4 ab.
 npm ci
 
-#     PFLICHT ab npm 12 — sonst startet der Dienst später nicht.
-#     npm sperrt seit Version 12 die Installationsskripte von Abhängigkeiten.
-#     better-sqlite3 holt seine native Bibliothek aber genau darüber. "npm ci"
-#     meldet trotzdem Erfolg, der Build läuft durch, und erst der Dienststart
-#     bricht mit "Could not locate the bindings file" ab. Auf älteren
-#     npm-Fassungen ist der Aufruf unschädlich.
-(cd node_modules/better-sqlite3 && node ../prebuild-install/bin.js)
+#     KONTROLLE — nicht überspringen. Der Dienst startet sonst später mit einem
+#     Fehler, der nicht nach der Ursache aussieht.
+#     better-sqlite3 holt seine native Bibliothek über ein Installationsskript.
+#     npm sperrt solche Skripte ab Version 12, sofern das Paket nicht in
+#     "allowScripts" der Root-package.json steht UND der Lockfile eine
+#     "resolved"-URL dazu mitbringt (ohne die kann npm nicht auf eine Version
+#     festnageln). Fehlt eine der beiden Bedingungen, meldet "npm ci" trotzdem
+#     Erfolg, der Build läuft durch — und erst der erste Datenbankzugriff
+#     bricht mit "Could not locate the bindings file" ab.
+#     ACHTUNG: Ein blosses require() genügt als Prüfung NICHT. Die native
+#     Bindung wird erst beim "new Database" geladen.
 node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
+
+#     Schlägt die Zeile fehl, das Installationsskript von Hand nachholen und
+#     die Kontrollzeile wiederholen:
+#     (cd node_modules/better-sqlite3 && node ../prebuild-install/bin.js)
 
 npm run build -w apps/backend      # → apps/backend/dist/{cli.cjs,server.cjs,backup.cjs}
 npm run build:web                  # → apps/web/dist (statisches Portal)
