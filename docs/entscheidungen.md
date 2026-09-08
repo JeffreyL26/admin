@@ -61,6 +61,12 @@ um keine YAML-Bibliothek ins Backend zu ziehen.
 
 ## Sackgasse: Electron-Postinstall unter npm-allowScripts + OneDrive
 
+> **Historisch — gilt seit Electron 42 nicht mehr.** Electron bringt keinen
+> `postinstall` mehr mit; die Binärdatei wird beim ersten `require('electron')`
+> nachgeladen, ausdrücklich per `npx install-electron`. Der Eintrag in
+> `allowScripts` ist entfallen. Steckt `node_modules/electron/dist` trotzdem
+> unvollständig fest, gilt das Vorgehen unten weiterhin.
+
 Symptom: `npm install` blockiert zunächst alle Install-Skripte (npm-12-Feature
 `allowScripts` — Freigabe nötig via `npm install-scripts approve <pkg>`). Nach der
 Freigabe lud `electron/install.js` das Zip zwar in den Cache
@@ -88,9 +94,13 @@ Merksatz: Embedding-Bundles immer aus einem Modul ohne Seiteneffekte bauen.
 ## Zwei electron-builder-Stolpersteine im npm-Workspace
 
 1. **`electronVersion` muss gepinnt werden:** Durch das Workspace-Hoisting liegt
-   `electron` im Root-`node_modules`; electron-builder kann die `^38.0.0`-Range
-   aus `apps/desktop/package.json` nicht selbst auflösen und bricht ab. Fester
-   Wert in `electron-builder.yml` (muss zur installierten Version passen).
+   `electron` im Root-`node_modules`; electron-builder kann die Range aus
+   `apps/desktop/package.json` nicht selbst auflösen und bricht ab. Fester Wert
+   in `electron-builder.yml` (muss zur installierten Version passen).
+   **Damit steht die Version an zwei Stellen** — wer nur eine anhebt, baut still
+   weiter mit der alten. Beim Sprung von 38 auf 42 wäre genau das passiert;
+   `scripts/build.mjs` vergleicht beide Angaben seitdem und bricht bei
+   Abweichung ab (siehe „Schwachstellen: Electron 42 statt 44" am Ende).
 2. **`productName` gehört zusätzlich in die `package.json` der Desktop-App:**
    `app.getPath('userData')` leitet sich aus dem Paketnamen ab — mit dem
    Scoped-Namen `@ohrganize/desktop` landeten Nutzerdaten in
@@ -522,3 +532,67 @@ geordneten Stopp (danach kein `-wal`/`-shm`) und die Restore-Probe. Widerlegt
 wurde dagegen die Sorge um `git safe.directory`: Ein `git clone` nach
 `C:\Program Files`, aus einer Administrator-Sitzung angelegt, gehört der Gruppe
 Administratoren, und Git meldet dort keine „dubious ownership".
+
+## Schwachstellen: Electron 42 statt 44, und die Version steht an zwei Stellen
+
+**Ausgangslage:** `npm audit` meldete fünf Advisories — Electron (hoch),
+`extract-zip` (hoch), `esbuild` (mittel) und zweimal `react-router` (mittel).
+Für alle drei betroffenen Pakete war der von npm vorgeschlagene Weg ein
+Major-Sprung, `npm audit fix --force` hätte Electron auf 44 gehoben. Genau das
+wäre falsch gewesen.
+
+**Warum Electron 42.11.2 und nicht 44.** `better-sqlite3` 12.11.1 veröffentlicht
+Fertigpakete bis **Electron-ABI 146** — das ist Electron 42. Für 43 (ABI 148)
+und 44 (ABI 149) gibt es keines; electron-builder müsste die native Bibliothek
+aus dem Quelltext übersetzen und bräuchte dafür die Visual Studio Build Tools
+auf jeder Maschine, die einen Installer baut. 42.11.2 liegt oberhalb der
+Advisory-Grenze (`<= 40.10.2`, danach die Vorabversionen von 41 bis 43), steht
+in Electrons Wartungsfenster der letzten drei Hauptversionen — und bringt
+denselben Nebeneffekt wie 44: Es hängt nicht mehr an `extract-zip`, sondern an
+`@electron-internal/extract-zip`. Ein Sprung, zwei erledigte Advisories, kein
+Kompilierzwang. Die ABI-Grenze ist der eigentliche Taktgeber: **Vor dem
+nächsten Electron-Sprung erst prüfen, bis wohin better-sqlite3 Fertigpakete
+liefert.**
+
+**Die Version steht an ZWEI Stellen, und das wäre beinahe schiefgegangen.**
+Neben der Range in `apps/desktop/package.json` gibt es die feste Zahl
+`electronVersion:` in `apps/desktop/electron-builder.yml` — nötig, weil
+electron-builder die Range wegen des Workspace-Hoistings nicht selbst auflösen
+kann. Nach dem Anheben von package.json baute `dist:win` klaglos weiter mit
+`electron=38.8.6`; aufgefallen ist es nur, weil das Bauprotokoll mitgelesen
+wurde. Der Auslieferungsstand hätte die Lücke behalten, während `npm audit`
+Entwarnung gibt — die unangenehmste Sorte Fehler. `scripts/build.mjs`
+vergleicht die beiden Angaben seitdem und bricht bei Abweichung ab; die Sperre
+ist in beide Richtungen nachgestellt worden.
+
+**Electron bringt seit dieser Fassung keinen `postinstall` mehr mit.** Die
+Binärdatei wird beim ersten `require('electron')` nachgeladen (`index.js`), und
+es gibt `npx install-electron` für den ausdrücklichen Aufruf. Drei Folgen: Der
+Eintrag `electron@…` in `allowScripts` ist gegenstandslos geworden und
+entfernt; ein `npm ci` auf dem Kundenserver lädt keine 250 MB Desktop-Laufzeit
+mehr herunter, die dort nie jemand startet; und eine Baumaschine ohne
+Internetzugang braucht den Aufruf vorab, weil `dist:win` sonst an dieser Stelle
+zum ersten Mal ins Netz greift.
+
+**React Router 6 → 7 war alternativlos.** Beide Advisories (Open Redirect über
+Rückstriche in `<Link>`/`useNavigate`, Konstruktor-Injektion in
+`deserializeErrors()`) betreffen `6.0.0 – 7.17.0`; einen Patch auf der
+6er-Reihe gibt es nicht. Der Sprung ist hier billig: Beide Oberflächen benutzen
+ausschließlich die Data-Router-API (`createHashRouter` bzw.
+`createBrowserRouter` + `RouterProvider`) und nur Namen, die v7 unverändert
+führt. Es gibt keine Loader, Actions, Fetcher oder `defer` — von den
+v7-Umschaltungen greift damit allein `v7_startTransition`. Die beiden
+Splat-Routen sind reine Weiterleitungen ohne Kinder, `v7_relativeSplatPath`
+läuft also ins Leere.
+
+**Nachgemessen statt angenommen:** Beide Oberflächen liefen in einem Prüfstand
+(Token gesetzt, `fetch` gemockt, keine Anmeldung) — Hülle rendert, `<Link>`
+navigiert, Auffangroute leitet um, Browser-Zurück greift, keine
+Konsolenfehler. `useBlocker` wurde eigens nachgestellt, weil es die einzige
+verhaltensnahe Router-API im Code ist: Query-Wechsel läuft durch, Pfadwechsel
+wird abgefangen, `reset()` hält, `proceed()` lässt durch. Dazu der komplette
+Desktop-Weg: Installer mit Electron 42 gebaut (`buildFromSource=false`, das
+Fertigpaket für ABI 146 wurde gefunden), still installiert, gestartet — Fenster
+offen, eingebettetes Backend antwortet auf `/api/health`, `/api/employees` ohne
+Anmeldung 401. Damit ist belegt, dass `better-sqlite3` unter der neuen
+Electron-ABI lädt.

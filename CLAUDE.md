@@ -305,6 +305,16 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   (Details in docs/entscheidungen.md).
 - **better-sqlite3-Typings:** bei mehreren Bind-Parametern Array-Binding
   verwenden (`.all([a, b])`), die variadische Form scheitert am Typecheck.
+- **Die Electron-Version steht an ZWEI Stellen.** Neben der Range in
+  `apps/desktop/package.json` gibt es die feste Zahl `electronVersion:` in
+  `apps/desktop/electron-builder.yml` (electron-builder kann die Range wegen
+  des Workspace-Hoistings nicht auflösen). Wer nur eine anhebt, baut still
+  weiter mit der alten Fassung — beim Sicherheitsupdate hieße das: `npm audit`
+  gibt Entwarnung, der Installer trägt die Lücke aus. `scripts/build.mjs`
+  bricht deshalb bei Abweichung ab. **Und vor jedem Electron-Sprung zuerst
+  prüfen, bis zu welcher Electron-ABI `better-sqlite3` Fertigpakete
+  veröffentlicht** (GitHub-Release der jeweiligen Fassung) — darüber hinaus
+  müsste jede Baumaschine die native Bibliothek übersetzen.
 - **Nach `npm run dist:win`: `npm rebuild better-sqlite3` ausführen** —
   electron-builder baut das Modul in-place auf die Electron-ABI um, danach
   scheitern tsx/Smoke-Tests mit ABI-Fehlern, bis die Node-Variante
