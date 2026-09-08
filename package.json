@@ -31,7 +31,7 @@
   "allowScripts": {
     "better-sqlite3@12.11.1": true,
     "esbuild@0.24.2": true,
-    "esbuild@0.28.1": true,
+    "esbuild@0.28.2": true,
     "esbuild@0.25.12": true,
     "electron@38.8.6": true,
     "electron-winstaller@5.4.0": true

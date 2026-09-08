@@ -456,8 +456,14 @@ kein Major-Sprung.
 
 **Damit erledigte sich auch die Skriptsperre von selbst:** Von den sechs
 gelisteten Paketen war anschließend nur noch `esbuild@0.28.2` gesperrt — weil
-`allowScripts` auf `0.28.1` festgenagelt ist und `tsx` inzwischen `0.28.2`
-zieht. Genau so soll eine Festnagelung wirken. `prebuild-install` von Hand ist
+`allowScripts` auf `0.28.1` festgenagelt war und `tsx` durch den Versionsdrift
+inzwischen `0.28.2` zieht. Genau so soll eine Festnagelung wirken: Eine
+Versionsanhebung macht den Eintrag ungültig und verlangt eine bewusste
+Freigabe. Der Eintrag wurde daraufhin nachgezogen; `npm install-scripts ls`
+meldet seitdem nichts mehr. Der naheliegende Kurzschluss — das Feld sei ein
+Fremdkörper und gehöre gelöscht — wäre der falsche Weg gewesen: Danach liefen
+die Installationsskripte **sämtlicher** Abhängigkeiten ungeprüft.
+`prebuild-install` von Hand ist
 seitdem kein Pflichtschritt mehr, sondern Rückfallebene; beide Deploy-Anleitungen
 führen stattdessen eine Kontrollzeile. Wichtig dabei: Ein blosses `require()`
 belegt nichts — die native Bindung wird erst beim `new Database` geladen.
