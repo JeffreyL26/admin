@@ -7,7 +7,6 @@ import {
   type EmployeeSelfEditableField,
   type MeProfile,
 } from '@ohrganize/shared';
-import { ApiRequestError } from '../api/client';
 import {
   useChangeRequestFields,
   useCreateChangeRequest,
@@ -15,9 +14,11 @@ import {
   useMyProfile,
   useWithdrawChangeRequest,
 } from '../api/hooks';
+import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, Field, LoadError, Skeleton } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { formatDate } from '../lib/format';
+import { apiErrorMessage, PORTAL_READ_ONLY_NOTICE, READ_ONLY_NOTICE_ID } from '../lib/license';
 
 const STATUS_TONES: Record<EmployeeChangeRequestStatus, string> = {
   beantragt: 'warning',
@@ -84,14 +85,19 @@ function WithdrawButton({ request }: { request: EmployeeChangeRequest }) {
   const [confirming, setConfirming] = useState(false);
   const withdraw = useWithdrawChangeRequest();
   const toast = useToast();
+  const { readOnly } = useAuth();
 
   if (request.status !== 'beantragt') return null;
 
+  // Nur-Lese-Betrieb: sichtbar, aber gesperrt; den Grund nennt der globale
+  // Hinweis der Shell (aria-describedby) — neben dem Knopf ist kein Platz.
   if (!confirming) {
     return (
       <button
         type="button"
         className="pt-btn pt-btn--danger-quiet pt-btn--sm"
+        disabled={readOnly}
+        aria-describedby={readOnly ? READ_ONLY_NOTICE_ID : undefined}
         onClick={() => setConfirming(true)}
       >
         Zurückziehen
@@ -103,12 +109,12 @@ function WithdrawButton({ request }: { request: EmployeeChangeRequest }) {
       <button
         type="button"
         className="pt-btn pt-btn--danger-quiet pt-btn--sm"
-        disabled={withdraw.isPending}
+        disabled={readOnly || withdraw.isPending}
+        aria-describedby={readOnly ? READ_ONLY_NOTICE_ID : undefined}
         onClick={() =>
           withdraw.mutate(request.id, {
             onSuccess: () => toast.success('Antrag zurückgezogen'),
-            onError: (err) =>
-              toast.error(err instanceof ApiRequestError ? err.message : 'Aktion fehlgeschlagen'),
+            onError: (err) => toast.error(apiErrorMessage(err, 'Aktion fehlgeschlagen')),
             onSettled: () => setConfirming(false),
           })
         }
@@ -128,6 +134,7 @@ function WithdrawButton({ request }: { request: EmployeeChangeRequest }) {
 
 export function StammdatenPage() {
   const toast = useToast();
+  const { readOnly } = useAuth();
   const { data: profile, isLoading: profileLoading, error: profileError } = useMyProfile();
   const { data: fields, isLoading: fieldsLoading, error: fieldsError } = useChangeRequestFields();
   const { data: requests, isLoading: requestsLoading, error: requestsError } = useMyChangeRequests();
@@ -178,7 +185,7 @@ export function StammdatenPage() {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (locked || changed.length === 0) return;
+    if (readOnly || locked || changed.length === 0) return;
     setApiError(null);
     // Nur geänderte Felder: Ein unverändert mitgeschicktes Feld würde das
     // Backend zwar aussortieren, stünde bei der Personalabteilung aber als
@@ -197,11 +204,7 @@ export function StammdatenPage() {
           setNote('');
         },
         onError: (err) =>
-          setApiError(
-            err instanceof ApiRequestError
-              ? err.message
-              : 'Der Antrag konnte nicht eingereicht werden',
-          ),
+          setApiError(apiErrorMessage(err, 'Der Antrag konnte nicht eingereicht werden')),
       },
     );
   }
@@ -229,8 +232,11 @@ export function StammdatenPage() {
               <div className="row row--between" style={{ gap: 12, alignItems: 'flex-start' }}>
                 <span>
                   Ihr Antrag vom {formatDate(openRequest.created_at.slice(0, 10))} wird noch geprüft.
-                  Solange er offen ist, ist dieses Formular gesperrt. Ziehen Sie den Antrag zurück,
-                  wenn Sie stattdessen etwas anderes ändern möchten.
+                  Solange er offen ist, ist dieses Formular gesperrt.
+                  {/* Im Nur-Lese-Betrieb wäre die Aufforderung zum Zurückziehen leer —
+                      der Knopf daneben ist gesperrt, der Grund steht in der Shell. */}
+                  {!readOnly &&
+                    ' Ziehen Sie den Antrag zurück, wenn Sie stattdessen etwas anderes ändern möchten.'}
                 </span>
                 <WithdrawButton request={openRequest} />
               </div>
@@ -304,16 +310,18 @@ export function StammdatenPage() {
             <button
               type="submit"
               className="pt-btn pt-btn--primary"
-              disabled={locked || loading || create.isPending || changed.length === 0}
+              disabled={readOnly || locked || loading || create.isPending || changed.length === 0}
             >
               {create.isPending ? 'Wird eingereicht …' : 'Änderung beantragen'}
             </button>
             <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-              {locked
-                ? 'Erst nach der Entscheidung über den offenen Antrag wieder möglich.'
-                : changed.length === 0
-                  ? 'Ändern Sie mindestens ein Feld — übermittelt wird nur, was Sie angepasst haben.'
-                  : `${changed.length} ${changed.length === 1 ? 'geändertes Feld wird' : 'geänderte Felder werden'} übermittelt.`}
+              {readOnly
+                ? PORTAL_READ_ONLY_NOTICE
+                : locked
+                  ? 'Erst nach der Entscheidung über den offenen Antrag wieder möglich.'
+                  : changed.length === 0
+                    ? 'Ändern Sie mindestens ein Feld — übermittelt wird nur, was Sie angepasst haben.'
+                    : `${changed.length} ${changed.length === 1 ? 'geändertes Feld wird' : 'geänderte Felder werden'} übermittelt.`}
             </span>
           </div>
         </Card>

@@ -1,8 +1,24 @@
-import { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, session, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
 import { pathToFileURL } from 'node:url';
 import { MIN_SERVER_VERSION, isAtLeast } from '@ohrganize/shared';
+import { StartupError } from './startupError';
+import {
+  PIN_STORE_FILE,
+  createCertificateVerifyProc,
+  createPinningAgent,
+  findPinMismatch,
+  pinMismatchMessage,
+  readConfiguredPins,
+  rememberPin,
+  resolvePinPolicy,
+  type ConfiguredPins,
+  type PinPolicy,
+  type ServerPinInfo,
+} from './serverPinning';
 
 // Dev-Modus: Renderer kommt vom Vite-Dev-Server, Backend läuft separat (tsx watch).
 // Prod-Modus: Backend wird im Main-Prozess eingebettet gestartet (zufälliger Port),
@@ -12,13 +28,16 @@ const isDev = Boolean(devServerUrl);
 
 let mainWindow: BrowserWindow | null = null;
 
-/**
- * Startabbruch mit einer für Nutzer gedachten Meldung. Der Fehlerdialog zeigt
- * für diese Klasse nur den Text: Ein nicht erreichbarer oder zu alter Server
- * ist kein Absturz, sondern ein Zustand, den der Satz erklären muss — ein
- * Stacktrace davor macht ihn für die Person am Arbeitsplatz unlesbar.
- */
-class StartupError extends Error {}
+// Schlüssel-Pinning (nur Server-Betrieb über https, siehe serverPinning.ts):
+// Richtlinie steht nach der Start-Prüfung fest, der beobachtete Schlüssel
+// stammt aus genau dieser Verbindung. `pinLearnedNow` löst den einmaligen
+// Hinweis nach dem Fensteraufbau aus; `pinPersistError` hält fest, wenn der
+// gelernte Schlüssel nicht auf die Platte kam (dann wird der Hinweis zur
+// Warnung — der Start geht weiter, geprüft ist die Identität ja).
+let pinPolicy: PinPolicy | null = null;
+let observedServerPin: string | null = null;
+let pinLearnedNow = false;
+let pinPersistError: string | null = null;
 
 // ---------------------------------------------------------------------------
 // Eigenes App-Schema statt file://
@@ -161,28 +180,99 @@ function registerAppProtocol(): void {
 //   %APPDATA%\oHRganize\config.json → { "apiBaseUrl": "…" }  (IT-Konfiguration)
 // Ohne Konfiguration bleibt es beim eingebetteten Backend mit lokaler
 // Datenbank — der Einzelplatz-Betrieb ändert sich dadurch nicht.
+//
+// Optional dazu der öffentliche Schlüssel des Servers (serverPinning.ts):
+//   OHRGANIZE_SERVER_KEY_PINS=sha256/…,sha256/…       (kommagetrennt)
+//   config.json → { "serverKeyPins": ["sha256/…"] }
+// Ohne Eintrag merkt sich die App den Schlüssel beim ersten Kontakt.
 function configFilePath(): string {
   return path.join(app.getPath('userData'), 'config.json');
 }
 
-function readConfiguredApiBase(): string | null {
-  const fromEnv = process.env.OHRGANIZE_API_BASE?.trim();
-  if (fromEnv) return fromEnv;
+function pinStorePath(): string {
+  return path.join(app.getPath('userData'), PIN_STORE_FILE);
+}
 
-  const cfgPath = configFilePath();
-  if (!fs.existsSync(cfgPath)) return null;
-  let parsed: { apiBaseUrl?: unknown };
+interface DesktopConfig {
+  apiBaseUrl: string | null;
+  /** null = nichts konfiguriert (Trust on first use); sonst Pins samt wirksamer Quelle. */
+  serverKeyPins: ConfiguredPins | null;
+}
+
+type RawDesktopConfig = { apiBaseUrl?: unknown; serverKeyPins?: unknown };
+
+/**
+ * config.json einlesen. Alle Fehler sind StartupError: Eine unlesbare oder
+ * fehlerhafte Datei ist ein Konfigurationszustand, den der Satz mit Dateipfad
+ * erklären muss — kein Absturz, vor dem ein Stacktrace stünde.
+ */
+function parseConfigFile(cfgPath: string): RawDesktopConfig {
+  let text: string;
   try {
-    parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { apiBaseUrl?: unknown };
+    text = fs.readFileSync(cfgPath, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? (err instanceof Error ? err.message : String(err));
+    throw new StartupError(`Die Konfigurationsdatei ${cfgPath} konnte nicht gelesen werden (${code}).`);
+  }
+  let raw: unknown;
+  try {
+    // Windows-Editoren und Windows PowerShell 5.1 (`Set-Content -Encoding utf8`)
+    // stellen eine UTF-8-BOM voran; JSON.parse lehnt sie als ungültiges
+    // Zeichen ab. Sie ist kein Inhalt, also weg damit.
+    raw = JSON.parse(text.replace(/^\uFEFF/, ''));
   } catch {
-    throw new Error(`Die Konfigurationsdatei ${cfgPath} enthält kein gültiges JSON.`);
+    throw new StartupError(`Die Konfigurationsdatei ${cfgPath} enthält kein gültiges JSON.`);
   }
-  const value = parsed.apiBaseUrl;
-  if (value == null || value === '') return null;
-  if (typeof value !== 'string') {
-    throw new Error(`"apiBaseUrl" in ${cfgPath} muss eine Zeichenkette sein.`);
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new StartupError(`Die Konfigurationsdatei ${cfgPath} muss ein JSON-Objekt enthalten.`);
   }
-  return value.trim();
+  return raw as RawDesktopConfig;
+}
+
+/**
+ * config.json wird genau EINMAL gelesen — auch wenn OHRGANIZE_API_BASE die
+ * Adresse vorgibt, können die Pins in der Datei stehen.
+ *
+ * Eine defekte Datei ist nur dann tödlich, wenn sie gebraucht wird: Ohne
+ * Umgebungsvariable ist sie die einzige Quelle der Adresse, und sie still zu
+ * übergehen hieße, den Arbeitsplatz unbemerkt mit eingebettetem Backend und
+ * leerer lokaler Datenbank zu starten. Gibt OHRGANIZE_API_BASE die Adresse
+ * vor, wäre die Datei nur noch für Pins zuständig — dann Warnung statt
+ * Abbruch (so lief die Konstellation auch vor dieser Fassung: die Datei wurde
+ * gar nicht gelesen); Pins aus OHRGANIZE_SERVER_KEY_PINS gelten weiterhin,
+ * sonst greift Trust on first use.
+ */
+function readDesktopConfig(): DesktopConfig {
+  const cfgPath = configFilePath();
+  const fromEnv = process.env.OHRGANIZE_API_BASE?.trim() || null;
+  let parsed: RawDesktopConfig = {};
+  if (fs.existsSync(cfgPath)) {
+    try {
+      parsed = parseConfigFile(cfgPath);
+    } catch (err) {
+      if (!fromEnv || !(err instanceof StartupError)) throw err;
+      console.warn(
+        `[oHRganize] ${err.message} Die Datei wird übersprungen, weil OHRGANIZE_API_BASE die Adresse vorgibt — ` +
+          `dort hinterlegte serverKeyPins bleiben unberücksichtigt.`,
+      );
+    }
+  }
+
+  let apiBaseUrl: string | null;
+  if (fromEnv) {
+    apiBaseUrl = fromEnv;
+  } else {
+    const value = parsed.apiBaseUrl;
+    if (value == null || value === '') {
+      apiBaseUrl = null;
+    } else if (typeof value !== 'string') {
+      throw new StartupError(`"apiBaseUrl" in ${cfgPath} muss eine Zeichenkette sein.`);
+    } else {
+      apiBaseUrl = value.trim();
+    }
+  }
+
+  return { apiBaseUrl, serverKeyPins: readConfiguredPins(parsed.serverKeyPins, cfgPath) };
 }
 
 /**
@@ -208,18 +298,19 @@ function normalizeApiBase(raw: string): string {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`"${raw}" ist keine gültige Backend-Adresse (erwartet z. B. https://portal.firma.de).`);
+    throw new StartupError(`"${raw}" ist keine gültige Backend-Adresse (erwartet z. B. https://portal.firma.de).`);
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error(`"${raw}" muss mit http:// oder https:// beginnen.`);
+    throw new StartupError(`"${raw}" muss mit http:// oder https:// beginnen.`);
   }
   // Klartext gegen einen fremden Host wird abgelehnt, nicht nur bemängelt:
   // Über diese Verbindung laufen Anmeldedaten, das Sitzungstoken und sämtliche
   // Personaldaten. Ein einmal falsch ausgerollter http://-Eintrag würde das
   // dauerhaft und unbemerkt offen durch das Firmennetz schicken — mitlesbar für
-  // jeden im selben Netzsegment. StartupError statt Error: Ein falsch
-  // eingetragenes Schema ist ein Konfigurationszustand, den der Satz erklären
-  // muss, kein Absturz — ein Stacktrace davor würde die Meldung nur verdecken.
+  // jeden im selben Netzsegment. StartupError statt Error (wie bei den beiden
+  // Prüfungen davor): Eine falsch eingetragene Adresse ist ein
+  // Konfigurationszustand, den der Satz erklären muss, kein Absturz — ein
+  // Stacktrace davor würde die Meldung nur verdecken.
   if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
     throw new StartupError(
       `Die Backend-Adresse "${raw}" verwendet unverschlüsseltes http://.\n\n` +
@@ -268,13 +359,12 @@ const CONNECTION_HINTS: Record<string, string> = {
 };
 
 /**
- * Zerlegt einen fehlgeschlagenen fetch-Aufruf in lesbare Ursache + Hinweis.
+ * Zerlegt einen fehlgeschlagenen Verbindungsaufbau in lesbare Ursache + Hinweis.
  *
- * Node reicht bei fetch nur eine Hülle mit der Meldung "fetch failed" heraus;
- * der echte Fehler samt `.code` steckt in `err.cause`. Werden mehrere IP-
- * Adressen probiert (A- und AAAA-Record), ist die Ursache zusätzlich ein
- * AggregateError, dessen erster Eintrag den aussagekräftigen Code trägt.
- * Deshalb die Kette entlanglaufen statt nur eine Ebene tief zu schauen; die
+ * http/https.request liefern den Fehler samt `.code` direkt; werden mehrere
+ * IP-Adressen probiert (A- und AAAA-Record), ist es ein AggregateError,
+ * dessen erster Eintrag den aussagekräftigen Code trägt. Deshalb die Kette
+ * (cause/errors) entlanglaufen statt nur eine Ebene tief zu schauen; die
  * Tiefe ist begrenzt, damit eine zyklische Verkettung die Meldung nicht
  * aufbläht.
  */
@@ -299,17 +389,65 @@ function describeConnectionFailure(err: unknown): { reason: string; hint: string
   };
 }
 
+/**
+ * GET mit JSON-Antwort über node:http/https statt über das globale fetch.
+ *
+ * WARUM: Das globale fetch im Main-Prozess ist Nodes undici, nicht Chromium —
+ * es kennt weder session.setCertificateVerifyProc noch eine Möglichkeit, den
+ * Serverschlüssel zu prüfen, ohne undici selbst zu bündeln. https.request
+ * nimmt dagegen einen Agent mit checkServerIdentity an; für http (nur
+ * Loopback) läuft dieselbe Funktion ohne Agent. Weiterleitungen werden bewusst
+ * nicht verfolgt: Eine Umleitung auf einen anderen Host liefe am Pin vorbei.
+ */
+function fetchJson(target: URL, agent: http.Agent | undefined, timeoutMs: number): Promise<unknown> {
+  const client = target.protocol === 'https:' ? https : http;
+  return new Promise((resolve, reject) => {
+    const req = client.request(
+      target,
+      { method: 'GET', agent, timeout: timeoutMs, headers: { accept: 'application/json' } },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('error', reject);
+        res.on('end', () => {
+          const status = res.statusCode ?? 0;
+          if (status < 200 || status >= 300) {
+            reject(new Error(`HTTP ${status}`));
+            return;
+          }
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+          } catch {
+            reject(new Error('Die Antwort ist kein JSON.'));
+          }
+        });
+      },
+    );
+    req.on('timeout', () => {
+      req.destroy(Object.assign(new Error(`keine Antwort innerhalb von ${timeoutMs / 1000} s`), { code: 'ETIMEDOUT' }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
 // Früh und mit klarer Meldung scheitern statt mit leerem Fenster: ein nicht
 // erreichbares Backend ist im Server-Betrieb der wahrscheinlichste Fehler.
-async function assertReachable(base: string): Promise<void> {
+// Im https-Betrieb prüft dieselbe Verbindung den Serverschlüssel (policy) —
+// ein fremder Schlüssel ist ein eigener, immer tödlicher Startabbruch.
+async function assertReachable(base: string, policy: PinPolicy | null): Promise<void> {
   let health: { version?: unknown };
   try {
-    const res = await fetch(`${base}/api/health`, {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    health = (await res.json()) as { version?: unknown };
+    const agent = policy
+      ? createPinningAgent(policy, (pin) => {
+          observedServerPin = pin;
+        })
+      : undefined;
+    health = (await fetchJson(new URL(`${base}/api/health`), agent, 10_000)) as { version?: unknown };
   } catch (err) {
+    const mismatch = findPinMismatch(err);
+    if (mismatch) throw new StartupError(pinMismatchMessage(mismatch.policy, mismatch.observed));
+
     const { reason, hint } = describeConnectionFailure(err);
     throw new StartupError(
       `Das oHRganize-Backend unter ${base} ist nicht erreichbar (${reason}).\n\n` +
@@ -345,11 +483,62 @@ async function assertReachable(base: string): Promise<void> {
 async function startBackend(): Promise<string> {
   if (isDev) return 'http://127.0.0.1:3001';
 
-  const configured = readConfiguredApiBase();
-  if (configured) {
-    const base = normalizeApiBase(configured);
-    await assertReachable(base);
+  const config = readDesktopConfig();
+  if (config.apiBaseUrl) {
+    const base = normalizeApiBase(config.apiBaseUrl);
+    // Pinning nur über https: Lokale http-Testadressen tragen kein TLS.
+    if (new URL(base).protocol === 'https:') {
+      pinPolicy = resolvePinPolicy(base, config.serverKeyPins, pinStorePath(), configFilePath());
+      // Der Pinning-Agent setzt rejectUnauthorized ausdrücklich (serverPinning.ts)
+      // und übergeht damit diese Variable. Trotzdem sichtbar machen: Die IT
+      // soll wissen, warum ihre maschinenweite Vorgabe hier nicht greift.
+      if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') {
+        console.warn(
+          '[oHRganize] NODE_TLS_REJECT_UNAUTHORIZED=0 ist gesetzt und wird für die Verbindung zum ' +
+            'oHRganize-Server ignoriert — Zertifikatskette und Serverschlüssel werden immer geprüft.',
+        );
+      }
+    } else if (config.serverKeyPins) {
+      console.warn(`[oHRganize] serverKeyPins werden für ${base} ignoriert — Schlüssel-Pinning gilt nur für https://.`);
+    }
+
+    await assertReachable(base, pinPolicy);
+
+    // Trust on first use: erster Kontakt ohne Konfiguration — Schlüssel merken.
+    if (pinPolicy && pinPolicy.source === null) {
+      if (!observedServerPin) {
+        // Kann nach erfolgreicher Prüfung nicht vorkommen (jede Verbindung
+        // läuft durch checkServerIdentity) — trotzdem fail closed: Ohne
+        // bekannten Schlüssel würde Chromium den API-Host anschließend ablehnen.
+        throw new StartupError(
+          `Der Schlüssel des Servers ${pinPolicy.origin} konnte nicht ermittelt werden. ` +
+            `Bitte den Start wiederholen und bei erneutem Auftreten die IT verständigen.`,
+        );
+      }
+      try {
+        rememberPin(pinPolicy.storePath, pinPolicy.origin, observedServerPin);
+        pinLearnedNow = true;
+      } catch (err) {
+        // Eine beschädigte Schlüsseldatei bleibt tödlich (siehe readPinStore);
+        // hier geht es allein um das Schreiben.
+        if (err instanceof StartupError) throw err;
+        // Die Identität ist für diese Sitzung geprüft — nur das Gedächtnis
+        // fehlt (Schreibschutz, gesperrte Datei, Virenscanner, Synchronisierung).
+        // Kein Abbruch mit Stacktrace: Weiter mit dem gelernten Schlüssel im
+        // Speicher (Chromium bekommt ihn über pinPolicy), aber sichtbar —
+        // beim nächsten Start lernt die App erneut, der Schutz ab dem zweiten
+        // Start greift bis dahin nicht.
+        pinPersistError =
+          (err as NodeJS.ErrnoException).code ?? (err instanceof Error ? err.message : String(err));
+        console.warn(
+          `[oHRganize] Serverschlüssel konnte nicht gespeichert werden (${pinPersistError}): ${pinPolicy.storePath}`,
+        );
+      }
+      pinPolicy = { ...pinPolicy, pins: [observedServerPin], source: 'learned' };
+    }
     return base;
+  } else if (config.serverKeyPins) {
+    console.warn('[oHRganize] serverKeyPins ohne apiBaseUrl werden ignoriert — das eingebettete Backend wird nie gepinnt.');
   }
 
   const dataDir = path.join(app.getPath('userData'), 'data');
@@ -370,6 +559,12 @@ async function startBackend(): Promise<string> {
   // Renderer aussperren (leeres Fenster, keine erkennbare Ursache). Auf
   // 127.0.0.1 ist die offene Voreinstellung unbedenklich (siehe config.ts).
   delete process.env.OHRGANIZE_CORS_ORIGIN;
+  // OHRGANIZE_LICENSE_PUBLIC_KEY: Test-Override der Lizenzprüfung. Das
+  // Produktionsbundle ignoriert die Variable bereits (esbuild --define in
+  // apps/backend/package.json); hier zusätzlich löschen, damit auch ein
+  // Dev-Bundle einen per Benutzerumgebung eingeschleusten Prüfschlüssel nie
+  // sieht — ein Nutzer ohne Adminrechte kann Benutzervariablen setzen.
+  delete process.env.OHRGANIZE_LICENSE_PUBLIC_KEY;
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { startServer } = require(path.join(__dirname, 'server.cjs')) as {
@@ -490,6 +685,56 @@ function registerIpc(): void {
   ipcMain.on('app:open-external', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) void shell.openExternal(url);
   });
+
+  // Serverschlüssel für eine spätere Einstellungsseite: nur Auskunft, keine
+  // Änderung — die Pins verwaltet die IT über config.json bzw. die Datei der
+  // gemerkten Schlüssel, nicht der Renderer.
+  ipcMain.handle('app:server-pin', (): ServerPinInfo => ({
+    origin: pinPolicy?.origin ?? null,
+    pin: observedServerPin,
+    source: pinPolicy?.source ?? null,
+    configuredPins: pinPolicy?.source === 'configured' ? [...pinPolicy.pins] : [],
+    storePath: pinPolicy?.storePath ?? null,
+  }));
+}
+
+/**
+ * Einmaliger, nicht blockierender Hinweis nach dem ersten Kontakt: Die App
+ * hat sich den Serverschlüssel gemerkt — oder konnte ihn nicht ablegen, dann
+ * wird daraus eine Warnung. Am Fenster verankert, damit er nicht hinter dem
+ * Hauptfenster verschwindet; nicht awaited, damit der Start nicht am Klick
+ * hängt.
+ */
+function showPinLearnedNotice(): void {
+  if (!pinPolicy || !observedServerPin) return;
+  let options: Electron.MessageBoxOptions;
+  if (pinPersistError) {
+    options = {
+      type: 'warning',
+      title: 'Serverschlüssel nicht gespeichert',
+      message:
+        `Der Serverschlüssel ${observedServerPin} wurde geprüft, konnte aber nicht gespeichert werden ` +
+        `(${pinPersistError}). Die App merkt ihn sich nur für diese Sitzung; beim nächsten Start wird er erneut gelernt.`,
+      detail:
+        `Server: ${pinPolicy.origin}\nDatei: ${pinPolicy.storePath}\n\n` +
+        `Bitte prüfen, ob die Datei bzw. der Ordner beschreibbar ist (Schreibschutz, Virenscanner, ` +
+        `Synchronisierung), und bei Wiederholung die IT verständigen.`,
+      buttons: ['OK'],
+    };
+    pinPersistError = null;
+  } else if (pinLearnedNow) {
+    pinLearnedNow = false;
+    options = {
+      type: 'info',
+      title: 'Serverschlüssel gemerkt',
+      message: `Serverschlüssel gemerkt: ${observedServerPin}. Bei einem späteren Wechsel warnt die App.`,
+      detail: `Server: ${pinPolicy.origin}\nAblage: ${pinPolicy.storePath}`,
+      buttons: ['OK'],
+    };
+  } else {
+    return;
+  }
+  void (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options));
 }
 
 // Nur eine Instanz der App zulassen (zweiter Start fokussiert das Fenster).
@@ -510,15 +755,22 @@ if (!gotLock) {
       // Im Dev-Betrieb liefert der Vite-Server den Renderer aus; das
       // Verzeichnis dist/renderer existiert dort gar nicht.
       if (!isDev) registerAppProtocol();
+      // Zertifikatsprüfung mit Schlüssel-Pinning VOR der ersten TLS-Anfrage
+      // aus Chromium installieren (das Ergebnis wird je Zertifikat gecacht).
+      // Die Richtlinie liest der Proc über den Getter: Sie steht erst nach
+      // startBackend fest, die erste Renderer-Anfrage kommt aber erst nach
+      // createWindow. Ohne Richtlinie (Einzelplatz, Dev, http) gilt
+      // Chromiums Standardprüfung unverändert.
+      session.defaultSession.setCertificateVerifyProc(createCertificateVerifyProc(() => pinPolicy));
       const apiBaseUrl = await startBackend();
       ipcMain.handle('ohrganize:apiBaseUrl', () => apiBaseUrl);
       await createWindow(apiBaseUrl);
+      showPinLearnedNotice();
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) void createWindow(apiBaseUrl);
       });
     } catch (err) {
-      const { dialog } = await import('electron');
       dialog.showErrorBox(
         'oHRganize konnte nicht gestartet werden',
         err instanceof StartupError

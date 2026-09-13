@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
-import { MIN_CLIENT_VERSION, SERVER_VERSION_HEADER } from '@ohrganize/shared';
+import { LICENSE_STATE_HEADER, MIN_CLIENT_VERSION, SERVER_VERSION_HEADER } from '@ohrganize/shared';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import { config, hardenDataPermissions } from './config.js';
@@ -13,6 +13,13 @@ import { settingsRoutes } from './core/settingsRoutes.js';
 import { dashboardRoutes } from './core/dashboardRoutes.js';
 import { assertRouteAllowed, permissionsFor } from './core/permissions.js';
 import { APP_VERSION, assertClientSupported } from './core/version.js';
+import {
+  assertLicenseAllows,
+  licenseHeaderValueFor,
+  licenseStatusPublic,
+  logLicenseAtStartup,
+} from './core/license.js';
+import { licenseRoutes } from './core/licenseRoutes.js';
 import { registerModules } from './modules/index.js';
 
 /**
@@ -72,11 +79,21 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   for (const warning of config.startupWarnings) app.log.warn(warning);
+  // Lizenzzustand nach den Migrationen (braucht die Tabelle installation) —
+  // eine Testphase, Kulanz oder der Nur-Lese-Betrieb soll im Journal stehen,
+  // bevor der erste Nutzer davon in der Oberfläche liest.
+  logLicenseAtStartup(app.log);
 
   // CORS-Herkünfte kommen aus config.ts: Im Serverbetrieb eine feste Liste
   // (OHRGANIZE_CORS_ORIGIN, Pflicht sobald OHRGANIZE_HOST nicht loopback ist),
   // lokal offen für den Desktop-Renderer.
-  await app.register(cors, { origin: config.corsOrigin });
+  // exposedHeaders: Im Serverbetrieb laufen Desktop-App (ohrganize://app) und
+  // ein getrennt gehostetes Portal cross-origin; ohne diese Liste dürfte der
+  // Browserkern den Versions- und Lizenz-Header nicht an den Client geben.
+  await app.register(cors, {
+    origin: config.corsOrigin,
+    exposedHeaders: [SERVER_VERSION_HEADER, LICENSE_STATE_HEADER],
+  });
   await app.register(jwt, { secret: config.secret, sign: { expiresIn: config.tokenTtl } });
   await app.register(multipart, {
     limits: {
@@ -118,7 +135,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   // nicht erst nach Ablauf der Token-Laufzeit. (Ein indizierter
   // Primärschlüssel-Lookup pro Request; bei better-sqlite3 im
   // Mikrosekundenbereich.)
-  app.addHook('onRequest', async (req) => {
+  app.addHook('onRequest', async (req, reply) => {
     if ((req.routeOptions.config as { public?: boolean } | undefined)?.public) return;
     await req.jwtVerify();
     // iat vor dem Überschreiben von req.user sichern (Unix-Sekunden).
@@ -144,6 +161,11 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
 
     req.user = { ...account, iat: issuedAt ?? undefined };
+    // Lizenzzustand auf jeder angemeldeten Antwort — nur der Zustand, keine
+    // Vertragsdaten, und für Portal-Konten nur „valid“/„expired“. Beide Clients
+    // zeigen daraus Banner ohne eigene Abfrage. Öffentliche Antworten tragen
+    // den Header bewusst nicht (core/license.ts, licenseHeaderValueFor).
+    reply.header(LICENSE_STATE_HEADER, licenseHeaderValueFor(account.role));
     const route = req.routeOptions.url ?? req.url;
 
     // Erzwungener Passwortwechsel (Standard-Admin nach der Erstinbetriebnahme
@@ -157,6 +179,13 @@ export async function buildServer(): Promise<FastifyInstance> {
         'Bitte vergeben Sie zuerst ein eigenes Passwort.',
       );
     }
+
+    // Nur-Lese-Betrieb nach Ablauf von Lizenz oder Testphase (core/license.ts).
+    // Nach der Anmeldung, damit ein abgelaufenes System 401 und 403 sauber
+    // unterscheidet; vor der Rollenprüfung, weil die Antwort für Portal und
+    // Administration dieselbe ist. GET/HEAD und die offenen Routen (Passwort,
+    // Lizenz-Upload, Signieren von Downloads) kommen durch.
+    assertLicenseAllows(req.method, route, account.role);
 
     const selfService = route.startsWith('/api/me/') || route.startsWith('/api/auth/');
     if (!selfService && req.user.role !== 'admin') {
@@ -177,10 +206,15 @@ export async function buildServer(): Promise<FastifyInstance> {
     name: 'oHRganize Backend',
     version: APP_VERSION,
     min_client_version: MIN_CLIENT_VERSION,
+    // Nur die Frage „sind Änderungen möglich?“ — Monitoring kann darauf
+    // alarmieren, ohne dass hier etwas über den Vertrag preisgegeben wird
+    // (die Route ist ohne Anmeldung erreichbar).
+    license: licenseStatusPublic(),
   }));
 
   await app.register(authRoutes);
   await app.register(fileRoutes);
+  await app.register(licenseRoutes);
   await app.register(settingsRoutes);
   await app.register(dashboardRoutes);
   await registerModules(app);

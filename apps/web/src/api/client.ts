@@ -1,3 +1,5 @@
+import { LICENSE_ERROR_CODES, LICENSE_STATE_HEADER, type LicenseState } from '@ohrganize/shared';
+
 /**
  * API-Client des Mitarbeitenden-Portals.
  *
@@ -41,6 +43,18 @@ export function setUnauthorizedHandler(fn: () => void): void {
   onUnauthorized = fn;
 }
 
+/**
+ * Nur-Lese-Betrieb (Lizenz abgelaufen): Der Kontext hält das Bit aus Login
+ * und /api/auth/me; dieser Handler hält es zwischen zwei Anmeldungen aktuell —
+ * aus dem Zustands-Header, den das Backend auf jede Antwort setzt, und aus
+ * einem 403 LICENSE_EXPIRED, falls ein Client noch für schreibbar hält, was
+ * der Server inzwischen sperrt.
+ */
+let onLicenseState: ((readOnly: boolean) => void) | null = null;
+export function setLicenseHandler(fn: (readOnly: boolean) => void): void {
+  onLicenseState = fn;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   // Bei FormData setzt der Browser Content-Type samt multipart-Boundary
   // selbst — ein eigener Header würde die Boundary abschneiden und das
@@ -54,11 +68,18 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     },
     body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
   });
+  // Same-origin (Prod hinter dem Reverse-Proxy) ist der Header lesbar; über
+  // Origins hinweg (Dev 5174 → 3001) verbirgt CORS ihn ohne exposedHeaders —
+  // dann bleibt null, und das JSON-Feld `license` aus Login und /api/auth/me
+  // sowie die 403-Auswertung unten sind maßgeblich. Das Portal kennt nur ein Bit.
+  const licenseState = res.headers.get(LICENSE_STATE_HEADER) as LicenseState | null;
+  if (licenseState !== null) onLicenseState?.(licenseState === 'expired');
   if (res.status === 204) return undefined as T;
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     const err = json?.error ?? { code: 'UNKNOWN', message: `HTTP ${res.status}` };
     if (res.status === 401 && err.code !== 'UNAUTHORIZED_LOGIN') onUnauthorized?.();
+    if (res.status === 403 && err.code === LICENSE_ERROR_CODES.EXPIRED) onLicenseState?.(true);
     throw new ApiRequestError(res.status, err.code, err.message, err.details);
   }
   return json as T;

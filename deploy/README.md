@@ -42,7 +42,7 @@ konsistent:
 | Was | Pfad |
 |---|---|
 | Programm | `/opt/ohrganize` |
-| Daten (DB, Dateien, Secret) | `/var/lib/ohrganize` |
+| Daten (DB, Dateien, Secret, Lizenz) | `/var/lib/ohrganize` |
 | Konfiguration | `/etc/ohrganize/ohrganize.env` |
 | Sicherungen | `/var/backups/ohrganize` |
 | Dienstbenutzer | `ohrganize:ohrganize` |
@@ -53,14 +53,21 @@ konsistent:
 
 - Linux mit systemd (getestete Ziele: Debian 12/13, Ubuntu 22.04/24.04).
 - **Node.js ≥ 20** (`node -v`). Aus der Distribution oder von NodeSource.
-- `git` oder ein entpacktes Release-Archiv.
-- **Build-Werkzeuge: `apt install -y build-essential python3`.** Nicht nur
-  vorsorglich — auf Debian 13 mit Node 20 findet `better-sqlite3` **kein**
-  passendes Fertigpaket ("No prebuilt binaries found (target=20.19.2 …)") und
-  übersetzt sich aus dem Quelltext; ohne `make` bricht `npm ci` ab.
-  `better-sqlite3` ist die einzige native Abhängigkeit des Projekts.
+- Das **Release-Archiv** `ohrganize-server-<version>.zip` des Anbieters
+  (samt `.sha256`) und `unzip`. Es enthält die fertig gebauten Bundles, den
+  Portal-Build, dieses Verzeichnis und die Betriebsdokumente — kein
+  Quelltext, keine Build-Werkzeuge, kein `git` nötig.
+- **Build-Werkzeuge: `apt install -y build-essential python3`.** Nicht für
+  oHRganize selbst (das kommt fertig gebaut), sondern für `better-sqlite3`,
+  die einzige native Abhängigkeit: Auf Debian 13 mit Node 20 findet sie
+  **kein** passendes Fertigpaket ("No prebuilt binaries found
+  (target=20.19.2 …)") und übersetzt sich beim `npm ci` aus dem Quelltext;
+  ohne `make` bricht die Installation ab.
 - Eine Domain, die auf den Server zeigt, und die Ports 80 und 443 aus dem
   Internet erreichbar (Port 80 wird für die Zertifikatsausstellung gebraucht).
+- Bei Variante B (Abschnitt 3): **Caddy ≥ 2.8.0** — nicht das
+  Distributionspaket, das ist auf allen genannten Zielen 2.6.2 und kennt die
+  Pflichtzeile `reuse_private_keys` des mitgelieferten Caddyfile nicht.
 - Ressourcen: 2 CPU-Kerne und 2 GB RAM reichen für die geplante Größenordnung
   bequem. oHRganize läuft bewusst als **ein** Node-Prozess mit einer
   SQLite-Datei — mehrere Prozesse auf dieselbe Datenbank sind nicht vorgesehen.
@@ -71,25 +78,33 @@ konsistent:
 # 2.1 Dienstkonto ohne Login-Shell
 adduser --system --group --home /var/lib/ohrganize --shell /usr/sbin/nologin ohrganize
 
-# 2.2 Programm ablegen
+# 2.2 Programm ablegen — Release-Archiv des Anbieters, OHNE Zwischenverzeichnis
 install -d -o root -g root -m 0755 /opt/ohrganize
-git clone <repository-url> /opt/ohrganize     # oder: Release-Archiv nach /opt/ohrganize entpacken
+sha256sum -c ohrganize-server-<version>.zip.sha256
+unzip -o ohrganize-server-<version>.zip -d /opt/ohrganize
 cd /opt/ohrganize
+cat LIESMICH.txt                              # Inhalt des Archivs
 
-# 2.3 Abhängigkeiten und Build
-#     WICHTIG: kein --omit=dev. Der Build braucht esbuild und typescript aus
-#     den devDependencies. Ein "npm ci --omit=dev" bricht in Schritt 2.4 ab.
-npm ci
+# 2.3 Laufzeitabhängigkeit installieren
+#     Gebaut wird auf dem Server nichts: apps/backend/dist/cli.cjs (Dienst),
+#     backup.cjs (Sicherung) und apps/web/dist (Portal) liegen fertig im
+#     Archiv. Das Bundle enthält alle npm-Pakete bis auf eines: better-sqlite3
+#     bringt eine native Bibliothek mit und muss auf dem Zielsystem installiert
+#     werden. package.json und package-lock.json im Archiv sind genau darauf
+#     gekürzt (rund 40 Pakete, dieselben Versionen und Prüfsummen wie im
+#     Quell-Repository) — deshalb --omit=dev, und es gibt kein npm run build.
+npm ci --omit=dev
 
 #     KONTROLLE — nicht überspringen. Der Dienst startet sonst später mit einem
 #     Fehler, der nicht nach der Ursache aussieht.
 #     better-sqlite3 holt seine native Bibliothek über ein Installationsskript.
 #     npm sperrt solche Skripte ab Version 12, sofern das Paket nicht in
-#     "allowScripts" der Root-package.json steht UND der Lockfile eine
+#     "allowScripts" der package.json steht UND der Lockfile eine
 #     "resolved"-URL dazu mitbringt (ohne die kann npm nicht auf eine Version
-#     festnageln). Fehlt eine der beiden Bedingungen, meldet "npm ci" trotzdem
-#     Erfolg, der Build läuft durch — und erst der erste Datenbankzugriff
-#     bricht mit "Could not locate the bindings file" ab.
+#     festnageln). Das Archiv bringt beides mit; fehlt trotzdem eine der beiden
+#     Bedingungen (Lockfile von Hand geändert?), meldet "npm ci" Erfolg — und
+#     erst der erste Datenbankzugriff bricht mit "Could not locate the
+#     bindings file" ab.
 #     ACHTUNG: Ein blosses require() genügt als Prüfung NICHT. Die native
 #     Bindung wird erst beim "new Database" geladen.
 node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
@@ -97,9 +112,6 @@ node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite
 #     Schlägt die Zeile fehl, das Installationsskript von Hand nachholen und
 #     die Kontrollzeile wiederholen:
 #     (cd node_modules/better-sqlite3 && node ../prebuild-install/bin.js)
-
-npm run build -w apps/backend      # → apps/backend/dist/{cli.cjs,server.cjs,backup.cjs}
-npm run build:web                  # → apps/web/dist (statisches Portal)
 
 # 2.4 Portal-Build ausliefern
 install -d -o root -g root -m 0755 /srv/ohrganize-web
@@ -130,6 +142,14 @@ curl -sS http://127.0.0.1:3001/api/health     # {"ok":true,"name":"oHRganize Bac
 soll sein eigenes Programm nicht überschreiben können. Beschreibbar ist für ihn
 nur `/var/lib/ohrganize` (und `/var/backups/ohrganize`).
 
+> **Eigenbau aus dem Quelltext** (Entwicklung, eigener Fork, Prüfung des
+> Archivs): `git clone`, `npm ci` — ausdrücklich **ohne** `--omit=dev`, der
+> Build braucht esbuild und typescript —, dann `npm run build -w apps/backend`
+> und `npm run build:web`; die Dienstpfade sind dieselben. Wer das Archiv
+> selbst erzeugen will: `npm run release:server` baut beides und schreibt
+> `release/ohrganize-server-<version>.zip` mit genau dem Inhalt, den dieser
+> Abschnitt voraussetzt (`scripts/release-server.mjs`).
+
 ## 3. Reverse-Proxy
 
 Genau **eine** der beiden Varianten wählen.
@@ -143,8 +163,14 @@ cp deploy/nginx-security-headers.conf /etc/nginx/snippets/ohrganize-security-hea
 cp deploy/nginx.conf /etc/nginx/conf.d/ohrganize.conf
 editor /etc/nginx/conf.d/ohrganize.conf        # Domain ersetzen
 
-# Zertifikat holen (der HTTP-Server-Block muss dafür schon stehen)
-certbot certonly --webroot -w /var/www/certbot -d portal.firma.de
+# Zertifikat holen (der HTTP-Server-Block muss dafür schon stehen).
+# --reuse-key ist PFLICHT, siehe „Serverschlüssel festnageln“ unten: Ohne die
+# Option erzeugt certbot bei jeder Erneuerung (alle ~60 Tage) ein neues
+# Schlüsselpaar, und jeder HR-Arbeitsplatz verweigert danach den Start.
+# --deploy-hook: nginx lädt das erneuerte Zertifikat sonst erst beim nächsten
+# Reload (Abschnitt 9.3 erklärt es ausführlicher).
+certbot certonly --reuse-key --webroot -w /var/www/certbot -d portal.firma.de \
+  --deploy-hook 'systemctl reload nginx'
 
 nginx -t && systemctl reload nginx
 ```
@@ -152,12 +178,58 @@ nginx -t && systemctl reload nginx
 ### Variante B — Caddy
 
 ```bash
-apt install -y caddy
+# Caddy >= 2.8.0 ist Pflicht (reuse_private_keys im Caddyfile). Die
+# Distributionspakete von Debian 12/13 und Ubuntu 22.04/24.04 sind 2.6.2 und
+# melden „unknown subdirective: reuse_private_keys“ — deshalb das offizielle
+# Repository (caddyserver.com/docs/install):
+apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
+apt update && apt install -y caddy
+caddy version                                # erwartet: v2.8.0 oder neuer
+
 cp deploy/Caddyfile /etc/caddy/Caddyfile
 editor /etc/caddy/Caddyfile                  # Domain und E-Mail ersetzen
 caddy validate --config /etc/caddy/Caddyfile
 systemctl reload caddy                       # Zertifikat holt Caddy selbst
 ```
+
+### Serverschlüssel festnageln — gilt für beide Varianten
+
+Die Desktop-App der HR-Administration prüft im `https://`-Betrieb zusätzlich
+zur Zertifikatskette den **öffentlichen Schlüssel** des Servers (SPKI-Hash,
+`sha256/<Base64>`): ohne Konfiguration merkt sie ihn sich beim ersten
+Kontakt, mit `serverKeyPins` in der `config.json` ist er vorgegeben. Ein
+Server, der sich mit einem anderen Schlüssel ausweist — auch mit einem
+formal gültigen Zertifikat —, wird abgewiesen, und die App startet nicht.
+Einrichtung, Pin-Berechnung und Rollout stehen in `windows/README.md`,
+Abschnitt 7; sie gelten unverändert für Arbeitsplätze, die auf diesen
+Linux-Server zeigen. Für den Server folgt daraus:
+
+- **Der Schlüssel muss Zertifikatserneuerungen überleben.** Caddy erledigt
+  das über `tls { reuse_private_keys }` im mitgelieferten Caddyfile (deshalb
+  Caddy ≥ 2.8.0 — die Zeile nicht entfernen). certbot erzeugt ohne Zutun bei
+  jeder Erneuerung ein neues Schlüsselpaar; `--reuse-key` beim
+  `certbot certonly` oben schaltet das ab und wird je Zertifikat in
+  `/etc/letsencrypt/renewal/<name>.conf` (`reuse_key = True`) gemerkt, sodass
+  der Timer (`certbot renew`) den Schlüssel behält. Existiert das Zertifikat
+  schon, denselben Aufruf mit `--reuse-key … --cert-name <name>` **vor der
+  ersten Erneuerung** wiederholen (oder `reuse_key = True` in die
+  Renewal-Datei eintragen) — der aktuelle Schlüssel bleibt dann, kein Pin
+  ändert sich.
+- **Ein bewusster Schlüsselwechsel ist bei ACME ein geplanter Ausfall.** Der
+  neue Schlüssel existiert erst nach der Neuausstellung, sein Pin ist also
+  vorher niemandem bekannt: Ankündigen, dann
+  `certbot renew --cert-name <name> --new-key --reuse-key --force-renewal`
+  (Caddy: Zertifikat samt Schlüssel aus dem Caddy-Speicher entfernen, siehe
+  Caddyfile-Kommentar), Pin des neuen Schlüssels ablesen (Befehl im Kommentar
+  des Caddyfile bzw. der `nginx.conf`) und auf **jedem** Arbeitsplatz
+  eintragen (`config.json` → `serverKeyPins`; Trust-on-first-use-Arbeitsplätze
+  löschen stattdessen ihre `server-pins.json`). Bis dahin startet dort keine
+  Desktop-App — also Freitagabend, nicht Montagmorgen. Vorab verteilen lässt
+  sich der Pin nur bei einem selbst erzeugten Schlüssel (Firmen-CA,
+  statische Dateien — Variante (a) im Caddyfile).
 
 **Beide Varianten setzen `X-Forwarded-For` bewusst mit dem echten
 Absender und hängen ihn nicht an einen vom Client mitgeschickten Wert an.**
@@ -224,6 +296,7 @@ Jeder Lauf legt `/var/backups/ohrganize/ohrganize-JJJJMMTT-HHMMSS/` an mit:
 | `ohrganize.db` | Alle Stamm-, Abwesenheits-, Vergütungs- und Bewerbungsdaten |
 | `storage/` | Die Dateien selbst (Verträge, AU-Bescheinigungen, Fotos) |
 | `secret.key` | Ohne diese Datei erzeugt oHRganize nach dem Restore still ein neues Secret: Alle Sitzungen und alle bereits verschickten Download-Links sind dann tot |
+| `lizenz.ohrganize` (falls vorhanden) | Die signierte Lizenzdatei. Ohne sie läuft der Server nach dem Restore im Nur-Lese-Betrieb — nicht in einer neuen Testphase, denn die Datenbank weiß, dass sie schon lizenziert war (`../docs/lizenzierung.md`) |
 | `MANIFEST.txt` | Zeitpunkt, Prüfergebnis, Datensatzzahlen, Restore-Schritte |
 
 Wichtig zu verstehen:
@@ -256,6 +329,7 @@ BACKUP=/var/backups/ohrganize/ohrganize-20260315-023000
 PROBE=/tmp/ohrganize-probe
 install -d -m 0700 $PROBE
 cp -a $BACKUP/ohrganize.db $BACKUP/secret.key $BACKUP/storage $PROBE/
+[ -f $BACKUP/lizenz.ohrganize ] && cp -a $BACKUP/lizenz.ohrganize $PROBE/   # falls gesichert
 
 cd /opt/ohrganize/apps/backend
 OHRGANIZE_DATA_DIR=$PROBE OHRGANIZE_PORT=3999 node dist/cli.cjs
@@ -272,8 +346,11 @@ curl -sS -X POST http://127.0.0.1:3999/api/auth/login \
 ```
 
 Eine Anmeldung mit 200 belegt, dass Datenbank **und** `secret.key` stimmen.
-Danach im Portal/Desktop eine Datei öffnen — das belegt `storage/`.
-Zum Schluss `rm -rf $PROBE`.
+Danach im Portal/Desktop eine Datei öffnen — das belegt `storage/`. Die
+Anmeldeantwort enthält `license.state`; steht dort `valid`, ist auch die
+Lizenzdatei mitgekommen (`/api/health` ohne Anmeldung nennt nur
+`license.read_only`, das unterscheidet Testphase und Lizenz nicht). Zum
+Schluss `rm -rf $PROBE`.
 
 ### Ernstfall-Restore
 
@@ -282,6 +359,7 @@ systemctl stop ohrganize-backend
 mv /var/lib/ohrganize /var/lib/ohrganize.defekt-$(date +%F)
 install -d -o ohrganize -g ohrganize -m 0700 /var/lib/ohrganize
 cp -a $BACKUP/ohrganize.db $BACKUP/secret.key $BACKUP/storage /var/lib/ohrganize/
+[ -f $BACKUP/lizenz.ohrganize ] && cp -a $BACKUP/lizenz.ohrganize /var/lib/ohrganize/
 chown -R ohrganize:ohrganize /var/lib/ohrganize
 chmod -R go-rwx /var/lib/ohrganize
 systemctl start ohrganize-backend
@@ -296,19 +374,33 @@ den zurückgespielten Stand.
 ```bash
 systemctl stop ohrganize-backend
 systemctl start ohrganize-backup.service          # Sicherung VOR dem Update
-cd /opt/ohrganize
-git pull                                        # oder neues Archiv entpacken
-npm ci                                          # weiterhin ohne --omit=dev
-npm run build -w apps/backend
-npm run build:web
+# Prüfsumme IM Verzeichnis des Archivs prüfen: Die .sha256-Datei nennt nur den
+# Dateinamen, und sha256sum -c sucht ihn im aktuellen Verzeichnis — aus
+# /opt/ohrganize heraus meldet es „No such file“ und FAILED, obwohl das Archiv
+# in Ordnung ist. Die folgenden Schritte hängen mit && daran, damit nach einem
+# echten FAILED nichts entpackt wird.
+(cd /pfad && sha256sum -c ohrganize-server-<version>.zip.sha256) \
+  && cd /opt/ohrganize \
+  && rm -rf apps \
+  && unzip -o /pfad/ohrganize-server-<version>.zip -d /opt/ohrganize \
+  && npm ci --omit=dev
+# rm -rf apps: Altstand weg (node_modules bleibt), sonst sammeln sich alte
+# Portal-Assets an. npm ci: nur nötig, wenn better-sqlite3 gewechselt hat —
+# schadet nie.
+node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
 cp -a apps/web/dist/. /srv/ohrganize-web/
 systemctl start ohrganize-backend
 journalctl -u ohrganize-backend -n 50 --no-pager  # Migrationen und Startwarnungen prüfen
 ```
 
+(Eigenbau aus dem Quelltext: `git pull`, `npm ci` ohne `--omit=dev`,
+`npm run build -w apps/backend`, `npm run build:web` — siehe den Kasten in
+Abschnitt 2.)
+
 Die Datenbankmigrationen laufen automatisch beim Start, in **einer**
 Transaktion: Bricht eine ab, bleibt die Datenbank auf dem Stand davor und der
-Dienst startet nicht.
+Dienst startet nicht. Die Lizenzdatei liegt im Datenverzeichnis und ist vom
+Update nicht betroffen; die Startzeilen im Journal nennen den Lizenzzustand.
 
 **Ein Downgrade ist nicht vorgesehen.** Migrationen sind nicht
 rückwärtskompatibel. Startet eine ältere Version gegen eine bereits migrierte
@@ -393,6 +485,36 @@ und Backend auf derselben Maschine). Wer beide trennt und `OHRGANIZE_HOST`
 setzt, muss die Adresse des Proxys dort ergänzen — sonst weist der Dienst
 dessen Verbindungen ab.
 
+### Lizenz
+
+Die Nutzungsberechtigung ist eine vom Anbieter signierte Datei
+**`/var/lib/ohrganize/lizenz.ohrganize`** — im Datenverzeichnis, neben
+`ohrganize.db` und `secret.key`, mit denselben Rechten (`0600`, Eigentümer
+`ohrganize`). Eine frische Installation läuft **30 Tage als Testphase**,
+danach im **Nur-Lese-Betrieb** (Einsicht und Export gehen weiter, Änderungen
+nicht), bis eine Lizenz eingespielt ist.
+
+- **Einspielen** erledigt die HR-Administration in der Desktop-App unter
+  Einstellungen → Lizenz; dafür ist **kein Dienstneustart** nötig. Wird die
+  Datei stattdessen von Hand ins Datenverzeichnis kopiert (`install -o
+  ohrganize -g ohrganize -m 0600 lizenz-<kunde>.ohrganize
+  /var/lib/ohrganize/lizenz.ohrganize`), bemerkt das Backend sie innerhalb
+  weniger Sekunden — ebenfalls ohne Neustart.
+- **Zustand prüfen:** Ohne Anmeldung liefert `curl -sS
+  http://127.0.0.1:3001/api/health` nur `license.read_only` (`false` =
+  Änderungen möglich; für Monitoring gedacht, verrät nichts über den
+  Vertrag). Den Zustand (`trial`, `valid`, `grace`, `expired`) tragen
+  angemeldete Antworten im Header `x-ohrganize-license` und vollständig
+  `GET /api/license` bzw. die Anmeldeantwort (`license.state`) — öffentliche
+  Antworten haben den Header bewusst nicht, Portal-Konten sehen darin nur
+  `valid`/`expired`. Der Startlauf schreibt eine Warnzeile ins Journal, sobald
+  etwas Aufmerksamkeit verdient (Testphase, nahender Ablauf,
+  Nur-Lese-Betrieb, verstellte Uhr) — der schnellste Blick ohne Token.
+- **Sicherung:** `backup.cjs` sichert die Datei automatisch mit (Abschnitt 5);
+  beim Restore und beim Umzug gehört sie ins Datenverzeichnis zurück.
+- Zustände, Fristen, Bericht für den Anbieter und der Ablauf einer
+  Verlängerung: **`../docs/lizenzierung.md`**.
+
 ## 8. Wenn etwas nicht startet
 
 | Meldung im Journal | Ursache | Abhilfe |
@@ -402,8 +524,11 @@ dessen Verbindungen ab.
 | `Die Datenbank wurde bereits von einer neueren oHRganize-Version migriert` | Downgrade | Abschnitt 6 |
 | `EADDRINUSE` | Port 3001 belegt (zweite Instanz?) | `ss -tlnp` und nach 3001 sehen |
 | `SQLITE_CANTOPEN` / `EACCES` | `OHRGANIZE_DATA_DIR` gehört nicht dem Dienstbenutzer | `chown -R ohrganize:ohrganize /var/lib/ohrganize` |
-| `Cannot find module 'better-sqlite3'` | `npm ci` fehlt, oder es wurde mit `--omit=dev` gebaut | Abschnitt 2.3 wiederholen |
+| `Cannot find module 'better-sqlite3'` | `npm ci --omit=dev` im Programmverzeichnis fehlt (oder lief in einem anderen Verzeichnis) | Abschnitt 2.3 wiederholen |
 | `Could not locate the bindings file` (better-sqlite3) | npm ≥ 12 hat das Installationsskript gesperrt — `npm ci` meldete trotzdem Erfolg | `prebuild-install` aus Abschnitt 2.3 nachholen |
+| `caddy validate`/`systemctl reload caddy`: `unknown subdirective: reuse_private_keys` | Caddy < 2.8.0 (Distributionspaket 2.6.2) | Caddy aus dem offiziellen Repository installieren (Abschnitt 3, Variante B). Die Zeile **nicht** entfernen — sonst wechselt der Schlüssel bei jeder Erneuerung und alle Desktop-Arbeitsplätze sperren sich aus |
+| `NUR-LESE-BETRIEB: …` bzw. `Keine Lizenz eingespielt — Testphase bis …` | Der Dienst startet; er meldet nur den Lizenzzustand | Lizenz einspielen (Abschnitt 7, „Lizenz“; `../docs/lizenzierung.md`). Nach einem Restore: `lizenz.ohrganize` aus der Sicherung ins Datenverzeichnis |
+| `Die Systemuhr steht vor einem Datum, das diese Installation bereits gesehen hat` | Uhr zurückgestellt (NTP, VM-Snapshot) | Zeitquelle prüfen; der Dienst läuft weiter, es ist nur eine Warnung |
 | Portal zeigt bei `/kalender` einen 404 | SPA-Fallback fehlt im Proxy | `try_files … /index.html` prüfen |
 | Portal meldet CORS-Fehler | API läuft nicht same-origin | `OHRGANIZE_CORS_ORIGIN` auf die Portal-Domain setzen (der Wert `null` ist nicht zulässig und wird ignoriert) |
 | Desktop-App kommt nicht über den Login hinaus, Portal geht | `ohrganize://app` fehlt in `OHRGANIZE_CORS_ORIGIN` | Eintrag ergänzen: `OHRGANIZE_CORS_ORIGIN=https://portal.firma.de,ohrganize://app`. Die App lädt ihre Oberfläche über ein eigenes Schema und sendet diese Herkunft; ohne den Eintrag bricht der Browserkern jede Anfrage ab. Im Serverlog ist nichts Auffälliges zu sehen — es sieht nach einem Netzwerkproblem aus. |
@@ -413,6 +538,12 @@ dessen Verbindungen ab.
 Die Abschnitte 1–8 beschreiben **einen** Kunden auf **einem** Server. Für einen
 Betrieb mit mehreren Kunden unter einer gemeinsamen Basisdomain gilt derselbe
 Aufbau je Kunde — nur eben mehrfach.
+
+> Der **umgekehrte** Fall — der Server steht beim Kunden, nur der Name
+> `<kunde>.ohrganize.com` liegt in der Zone des Anbieters — ist ein anderer:
+> DNS-only statt Proxy, HTTP-01 statt Wildcard, CAA auf das ACME-Konto des
+> Kunden, CT-Überwachung, Pinning der Desktop-App. Das steht in
+> **`../docs/kunden-subdomain.md`**.
 
 **Der Grund, warum es nicht anders geht:** oHRganize ist bewusst nicht
 mandantenfähig. Ein Node-Prozess, eine SQLite-Datei, ein Datenverzeichnis; es
@@ -431,15 +562,15 @@ gerade aufgerufenen Namen an.
 |---|---|
 | Dienst | `ohrganize-backend@<kunde>` |
 | Konfiguration | `/etc/ohrganize/kunden/<kunde>.env` |
-| Daten (DB, storage/, secret) | `/var/lib/ohrganize/<kunde>` |
+| Daten (DB, storage/, secret, Lizenz) | `/var/lib/ohrganize/<kunde>` |
 | Sicherungen | `/var/backups/ohrganize/<kunde>` |
 | Port | 3100 aufwärts, vergeben von `ohrganize-provision.sh` |
 | Subdomain | `<kunde>.ohrganize.com` |
 
 ### 9.1 Einmalige Einrichtung
 
-Abschnitt 1 und 2 gelten unverändert (Dienstkonto, `/opt/ohrganize`, `npm ci`,
-`npm run build -w apps/backend`, `npm run build:web`, Portal-Build nach
+Abschnitt 1 und 2 gelten unverändert (Dienstkonto, Archiv nach
+`/opt/ohrganize`, `npm ci --omit=dev` samt Kontrollzeile, Portal-Build nach
 `/srv/ohrganize-web`). **Nicht** eingerichtet werden für den Mehrkunden-Betrieb:
 `ohrganize-backend.service`, `ohrganize-backup.*` und `nginx.conf` — deren
 Aufgabe übernehmen die Vorlagen unten.
@@ -492,7 +623,7 @@ apt install -y certbot python3-certbot-dns-cloudflare
 install -m 0600 /dev/null /etc/letsencrypt/dns.ini
 editor /etc/letsencrypt/dns.ini        # dns_cloudflare_api_token = …
 
-certbot certonly \
+certbot certonly --reuse-key \
   --dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/dns.ini \
   --dns-cloudflare-propagation-seconds 30 \
   -d '*.ohrganize.com' -d ohrganize.com \
@@ -507,6 +638,14 @@ certbot renew --dry-run                # Erneuerung einmal durchspielen
 - Der `--deploy-hook` ist wichtig: Ohne ihn erneuert certbot das Zertifikat
   im Hintergrund, und nginx liefert bis zum nächsten Reload das alte aus —
   bis es abläuft und **alle** Kunden gleichzeitig nicht mehr hereinkommen.
+- `--reuse-key` ist ebenso wichtig, und hier wiegt es schwerer als im
+  Einzelbetrieb (Abschnitt 3, „Serverschlüssel festnageln“): Die
+  Desktop-Arbeitsplätze **aller** Kunden pinnen denselben Schlüssel, weil sie
+  sich das Wildcard-Zertifikat teilen. Ohne die Option erneuert certbot nach
+  ~60 Tagen mit neuem Schlüssel, der `--deploy-hook` liefert ihn sofort aus,
+  und am selben Morgen startet bei keinem Kunden mehr eine HR-Desktop-App.
+  Ein bewusster Schlüsselwechsel trifft entsprechend alle Kunden auf einmal
+  und ist als gemeinsames Wartungsfenster anzukündigen.
 - Der Zertifikatspfad heißt `/etc/letsencrypt/live/ohrganize.com/`, nicht
   `*.ohrganize.com`. Existiert dort schon ein Zertifikat aus einem früheren
   Einzelbetrieb, legt certbot `ohrganize.com-0001` an — dann zeigen die Pfade
@@ -561,7 +700,18 @@ Sie gehört auf jedem HR-Arbeitsplatz nach `%APPDATA%\oHRganize\config.json`.
 Damit startet die App **kein** eigenes Backend mehr, sondern arbeitet auf
 demselben Server wie das Portal — beide Clients sehen dieselben Daten.
 Alternativ per Rollout-Skript die Umgebungsvariable `OHRGANIZE_API_BASE`
-setzen; sie schlägt die Datei.
+setzen; sie schlägt die Datei. Weil der Verkehr der Kunden hier das
+Firmennetz verlässt, gehört in dieselbe Datei `serverKeyPins` — der Pin des
+Wildcard-Schlüssels, für alle Kunden derselbe (`windows/README.md`,
+Abschnitt 7; Voraussetzung `--reuse-key`, Abschnitt 9.3).
+
+Jede Instanz hat ihre eigene Installations-ID und damit ihre eigene
+Lizenzdatei (`/var/lib/ohrganize/<kunde>/lizenz.ohrganize`); die Testphase
+von 30 Tagen beginnt mit dem Anlegen. Die ID steht nach dem ersten Login
+unter Einstellungen → Lizenz, oder direkt über die API (`GET /api/license`
+mit dem Token des Kundenadmins) — ein Punkt für die Übergabe, weil der
+Anbieter hier zugleich Betreiber ist und die Lizenz gleich mit ausstellen
+kann (`../docs/lizenzierung.md`, Abschnitt 3).
 
 Weitere Befehle:
 
@@ -590,7 +740,9 @@ kunden() { for f in /etc/ohrganize/kunden/*.env; do basename "$f" .env; done; }
 
 for k in $(kunden); do systemctl start "ohrganize-backup@$k.service"; done   # Sicherung VOR dem Update
 for k in $(kunden); do systemctl stop  "ohrganize-backend@$k"; done
-cd /opt/ohrganize && git pull && npm ci && npm run build -w apps/backend && npm run build:web
+# Prüfsumme im Archivverzeichnis prüfen (die .sha256 nennt nur den Dateinamen, Abschnitt 6)
+(cd /pfad && sha256sum -c ohrganize-server-<version>.zip.sha256) && cd /opt/ohrganize && rm -rf apps && unzip -o /pfad/ohrganize-server-<version>.zip -d /opt/ohrganize && npm ci --omit=dev
+node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
 cp -a apps/web/dist/. /srv/ohrganize-web/
 for k in $(kunden); do systemctl start "ohrganize-backend@$k"; done
 for k in $(kunden); do systemctl is-active "ohrganize-backend@$k" || journalctl -t "ohrganize-$k" -n 30 --no-pager; done
@@ -638,10 +790,24 @@ davon nicht betroffen.
 
 - **certbot mit DNS-01.** Auf dem Testserver stand ein selbst signiertes
   Wildcard-Zertifikat an derselben Stelle; die Ausstellung hängt am
-  DNS-Anbieter und ist von hier aus nicht nachstellbar.
+  DNS-Anbieter und ist von hier aus nicht nachstellbar. Damit ungeprüft ist
+  auch, dass `--reuse-key` eine **echte** Erneuerung überlebt: nach der
+  ersten Erneuerung (~Tag 60) den Pin mit dem Befehl aus der `nginx.conf`
+  ablesen und mit dem Wert vom ersten Tag vergleichen — er muss gleich sein.
 - **Echtes DNS.** Die Namen wurden mit `curl --resolve` auf 127.0.0.1
   gezeigt, statt über einen Nameserver aufgelöst.
 - **Debian 12 und Ubuntu.** Geprüft wurde Debian 13.
+- **Das Release-Archiv auf Debian.** Auf dem Testserver lief noch der
+  Quelltextweg (`git clone`, `npm ci`, Build). Entpacken, `npm ci --omit=dev`
+  mit dem gekürzten Lockfile, die Kontrollzeile für `better-sqlite3`, Start
+  von `cli.cjs`, `/api/health` mit `license.read_only: false`, Anmeldung
+  (Zustand `trial`) und ein Sicherungslauf mit `backup.cjs` sind am
+  13.09.2026 auf der Entwicklungsmaschine (Windows, Node 24.16, npm 12.0.1)
+  durchgespielt worden. (Der Header `x-ohrganize-license` stand damals noch
+  auf `/api/health`; seit dem Lizenz-Audit tragen ihn nur angemeldete
+  Antworten, Abschnitt 7.)
+  Offen ist damit nur, ob `better-sqlite3` auf dem Zielsystem ein
+  Fertigpaket findet — dieselbe Frage wie beim Quelltextweg (Abschnitt 1).
 
 ### 9.8 Was dieser Aufbau nicht leistet
 

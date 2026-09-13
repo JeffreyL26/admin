@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { AbsenceRequest } from '@ohrganize/shared';
-import { ApiRequestError } from '../api/client';
 import { useCancelRequest, useMyRequests } from '../api/hooks';
+import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, LoadError, Skeleton, StatusChip } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { formatDate, formatDays, formatRange, todayIso } from '../lib/format';
+import { apiErrorMessage, READ_ONLY_NOTICE_ID } from '../lib/license';
 import { Select } from '../components/Select';
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
@@ -21,12 +22,22 @@ function CancelButton({ request }: { request: AbsenceRequest }) {
   const [confirming, setConfirming] = useState(false);
   const cancel = useCancelRequest();
   const toast = useToast();
+  const { readOnly } = useAuth();
 
   if (request.status !== 'beantragt') return null;
 
+  // Nur-Lese-Betrieb: Der Knopf bleibt sichtbar, aber gesperrt; den Grund
+  // liefert der globale Hinweis der Shell (per aria-describedby verknüpft) —
+  // in einer Tabellenzeile ist kein Platz für den Satz.
   if (!confirming) {
     return (
-      <button type="button" className="pt-btn pt-btn--danger-quiet pt-btn--sm" onClick={() => setConfirming(true)}>
+      <button
+        type="button"
+        className="pt-btn pt-btn--danger-quiet pt-btn--sm"
+        disabled={readOnly}
+        aria-describedby={readOnly ? READ_ONLY_NOTICE_ID : undefined}
+        onClick={() => setConfirming(true)}
+      >
         Zurückziehen
       </button>
     );
@@ -36,12 +47,12 @@ function CancelButton({ request }: { request: AbsenceRequest }) {
       <button
         type="button"
         className="pt-btn pt-btn--danger-quiet pt-btn--sm"
-        disabled={cancel.isPending}
+        disabled={readOnly || cancel.isPending}
+        aria-describedby={readOnly ? READ_ONLY_NOTICE_ID : undefined}
         onClick={() =>
           cancel.mutate(request.id, {
             onSuccess: () => toast.success('Antrag zurückgezogen'),
-            onError: (err) =>
-              toast.error(err instanceof ApiRequestError ? err.message : 'Aktion fehlgeschlagen'),
+            onError: (err) => toast.error(apiErrorMessage(err, 'Aktion fehlgeschlagen')),
             onSettled: () => setConfirming(false),
           })
         }

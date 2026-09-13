@@ -18,6 +18,29 @@ ausschließlich in der Desktop-App und entscheidet dort über die Anträge.
   alle übrigen Routen antworten mit `403 FORBIDDEN`. Die Self-Service-Routen
   wiederum verlangen ein verknüpftes, aktives Personalprofil und liefern
   ausschließlich eigene Daten.
+- **Nur-Lese-Betrieb der Lizenz** (`core/license.ts`, Details in
+  [`lizenzierung.md`](lizenzierung.md)): Ist die Lizenz des Arbeitgebers
+  abgelaufen (Zustand `expired`), weist derselbe Hook jeden Schreibzugriff
+  unter `/api/me/*` — Antrag, Krankmeldung, Dokument-Upload, Änderungsantrag,
+  Rückzug — mit `403 LICENSE_EXPIRED` ab; alle GETs und der signierte
+  Dokument-Download (`POST …/documents/:id/download`) bleiben offen. Das
+  Portal erfährt den Zustand aus `login`/`/api/auth/me` (`license.read_only`,
+  für Portal-Konten bewusst **nur** dieses eine Feld — Testphase, Vorwarnung
+  und Kulanz sind Sache des Arbeitgebers, nicht der Belegschaft) und aus dem
+  Header `x-ohrganize-license` jeder **angemeldeten** Antwort, der für
+  Portal-Konten ebenfalls nur `valid` oder `expired` trägt (öffentliche
+  Antworten wie Login-Fehler oder Health haben keinen). Es zeigt dann einen
+  neutralen Hinweis („Das Portal ist derzeit nur zur Ansicht verfügbar …“)
+  und lässt Formulare nicht erst in den 403 laufen. Läuft ein Schreibzugriff
+  doch in den 403, ersetzt `lib/license.ts#apiErrorMessage` die
+  Servermeldung zu `LICENSE_EXPIRED` durch denselben neutralen Hinweis
+  (`PORTAL_READ_ONLY_NOTICE`) — die Zuordnung ist tragend, nicht Kosmetik:
+  Der für Admin-Konten bestimmte Servertext verweist auf Einstellungen →
+  Lizenz, das es im Portal nicht gibt, und nennt Testphase bzw.
+  Kulanzfrist, beides bleibt der Belegschaft bewusst verborgen. (Der Server
+  schickt Portal-Konten inzwischen selbst nur den neutralen Text; die
+  Ersetzung im Portal bleibt als zweite Sicherung gegen einen älteren
+  Server.) Alle anderen API-Fehler sind deutsch und werden direkt angezeigt.
 - **Das Token belegt nur die Identität:** Rolle und `employee_id` werden im
   Hook pro Request frisch aus `users` geladen. Rollenentzug, Umverknüpfung
   oder Kontolöschung wirken damit sofort — wichtig für ein internetseitig
@@ -208,6 +231,9 @@ kundenneutral). Wildcard-Zertifikat, Subdomain-Zuordnung und das Anlegen einer
 Kundeninstanz stehen in `../deploy/README.md`, Abschnitt 9.
 
 1. Build: `npm run build:web` → `apps/web/dist` (statisch, beliebig hostbar).
+   Kundenserver bekommen beides fertig gebaut im Release-Archiv
+   (`npm run release:server` → `release/ohrganize-server-<version>.zip`,
+   Ablauf in `../deploy/README.md`, Abschnitt 2).
 2. Backend als Dienst: `npm run build -w apps/backend`, dann
    `node apps/backend/dist/cli.cjs` (z. B. via systemd) mit:
    - `OHRGANIZE_DATA_DIR=/var/lib/ohrganize` — Datenbank, Dateien, Secret
@@ -234,11 +260,23 @@ Kundeninstanz stehen in `../deploy/README.md`, Abschnitt 9.
    nginx analog: `location /api/ { proxy_pass http://127.0.0.1:3001; }` und
    `location / { try_files $uri /index.html; }` (SPA-Fallback wegen
    BrowserRouter nicht vergessen).
+
+   Das ist nur das Gerüst. Verbindlich sind die mitgelieferten Dateien in
+   `../deploy/` (Sicherheitskopfzeilen, Protokoll ohne Query-String,
+   `X-Forwarded-For`), und dort steht auch, was für die Desktop-App
+   unverzichtbar ist: Sie nagelt den Serverschlüssel fest, der deshalb
+   Zertifikatserneuerungen überleben muss — Caddy ≥ 2.8.0 mit
+   `tls { reuse_private_keys }`, nginx mit `certbot --reuse-key`
+   (`../deploy/README.md`, Abschnitt 3).
 4. Die Desktop-App der HR-Administration arbeitet auf demselben Backend,
    sobald eine Basis-URL konfiguriert ist — dann startet sie **kein** eigenes
    Backend mehr und HR-Administration und Portal teilen sich eine Datenbank.
    Zwei Quellen, Umgebungsvariable schlägt Datei
-   (`readConfiguredApiBase` in `apps/desktop/src/main.ts`):
+   (`readDesktopConfig` in `apps/desktop/src/main.ts`). Die `config.json`
+   wird dabei **immer** gelesen, auch wenn `OHRGANIZE_API_BASE` die Adresse
+   vorgibt — sie kann die `serverKeyPins` enthalten. Eine defekte Datei bricht
+   den Start ab, wenn sie die einzige Adressquelle ist; gibt die Variable die
+   Adresse vor, wird sie mit Warnung übersprungen:
 
    | Quelle | Wofür |
    |---|---|

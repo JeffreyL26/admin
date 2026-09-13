@@ -8,6 +8,11 @@ import {
 } from '@ohrganize/shared';
 import { useOnboardingProcesses } from '../admin/api';
 import { useLeaderStatus, useLeadershipReport } from '../leadership/api';
+import { useAuth } from '../../auth/AuthContext';
+import { Badge } from '../../components/ui';
+import {
+  LICENSE_PATH, LICENSE_STATE_LABELS, licenseStateTone, remainingLabel, seatsLabel,
+} from '../settings/license';
 import type { DashboardData } from './api';
 
 /* Reine Widget-Inhalte des Dashboards — der Card-Rahmen (Titel, Icon,
@@ -254,6 +259,49 @@ export function LeadershipReportWidget() {
         ))
       )}
     </div>
+  );
+}
+
+/**
+ * Lizenzzustand aus dem Auth-Kontext (Login, /api/auth/me) — keine eigene
+ * Abfrage. Der Sprung zur Lizenzseite hängt am Bereich `einstellungen`; ohne
+ * ihn bleibt die Kachel reine Anzeige.
+ */
+export function LicenseWidget() {
+  const { license, can } = useAuth();
+  if (!license) return <Empty text="Lizenzzustand nicht verfügbar." />;
+  const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 'var(--text-sm)' };
+  const runtime =
+    license.state === 'entwicklung'
+      ? 'keine Prüfung'
+      : license.state === 'expired'
+        ? 'Nur-Lese-Betrieb'
+        : `${formatDate(license.valid_until)} · ${remainingLabel(license.days_left)}`;
+  const body = (
+    <div className="stack" style={{ gap: 8 }}>
+      <div className="row row--between">
+        <Badge tone={licenseStateTone(license)}>{LICENSE_STATE_LABELS[license.state]}</Badge>
+        <span style={muted}>{license.customer ?? ''}</span>
+      </div>
+      <div className="row row--between">
+        <span>{license.state === 'grace' ? 'Kulanz bis' : 'Gültig bis'}</span>
+        <span style={muted}>
+          {license.state === 'grace'
+            ? `${formatDate(license.grace_until)} · ${remainingLabel(license.days_left)}`
+            : runtime}
+        </span>
+      </div>
+      <div className="row row--between">
+        <span>Plätze</span>
+        <span style={muted}>{seatsLabel(license)}</span>
+      </div>
+    </div>
+  );
+  if (!can('einstellungen')) return body;
+  return (
+    <Link to={LICENSE_PATH} style={{ color: 'inherit', textDecoration: 'none' }}>
+      {body}
+    </Link>
   );
 }
 

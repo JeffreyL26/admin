@@ -19,7 +19,9 @@
     "seed:desktop": "npm run seed:desktop -w apps/backend --",
     "build": "npm run build -w apps/renderer && npm run build -w apps/backend && npm run build -w apps/desktop",
     "build:web": "npm run build -w apps/web",
-    "dist:win": "npm run build && npm run dist:win -w apps/desktop"
+    "dist:win": "npm run build && npm run dist:win -w apps/desktop",
+    "release:server": "node scripts/release-server.mjs",
+    "lizenz": "npm run lizenz -w apps/backend --"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

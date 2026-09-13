@@ -2,7 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Users, CalendarDays, Send, Stethoscope, FolderClock, Wallet, Briefcase,
   CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
-  UserPlus, UsersRound, Gauge, FilePenLine,
+  UserPlus, UsersRound, Gauge, FilePenLine, BadgeCheck,
 } from 'lucide-react';
 import type { AdminArea } from '@ohrganize/shared';
 import type { DashboardStats } from './api';
@@ -152,7 +152,8 @@ export type WidgetKey =
   | 'birthdays'
   | 'onboarding'
   | 'leadership-team'
-  | 'leadership-report';
+  | 'leadership-report'
+  | 'license';
 
 export interface WidgetDef {
   title: string;
@@ -192,6 +193,11 @@ export const WIDGET_DEFS: Record<WidgetKey, WidgetDef> = {
   // inhaltlich aus, statt gar nicht erst angeboten zu werden.
   'leadership-team': { title: 'Mein Team', description: 'Bewertungsstand Ihres Zuständigkeitsbereichs', icon: UsersRound },
   'leadership-report': { title: 'Satisfaction-Report', description: 'Bewertungsstand je Führungskraft im Zeitraum', icon: Gauge, area: 'fuehrung' },
+  // Kein `area`: Der Lizenzzustand kommt mit Login und /api/auth/me zu jedem
+  // Admin-Konto (Auth-Kontext), unabhängig vom Bereich `einstellungen` — das
+  // Widget braucht keine eigene Abfrage. Nur der Sprung zur Lizenzseite hängt
+  // am Bereich. Standardmäßig ausgeblendet; die Banner sagen ohnehin Bescheid.
+  license: { title: 'Lizenz', description: 'Zustand, Laufzeit und Plätze der Lizenz', icon: BadgeCheck },
 };
 
 export const ALL_WIDGETS = Object.keys(WIDGET_DEFS) as WidgetKey[];

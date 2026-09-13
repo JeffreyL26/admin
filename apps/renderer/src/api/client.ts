@@ -4,7 +4,12 @@
  *   (Backend läuft eingebettet auf zufälligem 127.0.0.1-Port)
  * - Browser-Dev: http://127.0.0.1:3001
  */
-import { CLIENT_VERSION_HEADER } from '@ohrganize/shared';
+import {
+  CLIENT_VERSION_HEADER,
+  LICENSE_ERROR_CODES,
+  LICENSE_STATE_HEADER,
+  type LicenseState,
+} from '@ohrganize/shared';
 
 declare global {
   interface Window {
@@ -74,6 +79,32 @@ export function setUnauthorizedHandler(fn: () => void): void {
   onUnauthorized = fn;
 }
 
+/**
+ * Lizenzsignal aus dem laufenden Verkehr. Die verbindliche Quelle für den
+ * Lizenzzustand ist das Feld `license` in Login und /api/auth/me
+ * (auth/AuthContext.tsx); hier geht es nur darum, einen Wechsel MITTEN in der
+ * Sitzung zu bemerken (Kulanz läuft ab, jemand spielt am Nebenplatz eine Lizenz
+ * ein). Zwei Quellen:
+ * - der Header `x-ohrganize-license`, den das Backend auf jede angemeldete
+ *   Antwort setzt (öffentliche Routen wie der Login tragen ihn nicht) —
+ *   lesbar aber nur, wenn CORS ihn freigibt; sonst liefert `headers.get` null
+ *   und dieser Zweig bleibt still;
+ * - ein 403 `LICENSE_EXPIRED` auf einen Schreibzugriff — der zuverlässige Weg,
+ *   weil er ohne Header-Freigabe auskommt.
+ * Der Handler bekommt nur den Zustand; die Vertragsdaten holt er sich selbst
+ * über /api/auth/me. Gemeldet wird nur ein Wechsel, sonst feuerte jede Antwort.
+ */
+let onLicenseState: ((state: LicenseState) => void) | null = null;
+let lastLicenseState: string | null = null;
+export function setLicenseStateHandler(fn: ((state: LicenseState) => void) | null): void {
+  onLicenseState = fn;
+}
+function noteLicenseState(state: string | null): void {
+  if (state === null || state === lastLicenseState) return;
+  lastLicenseState = state;
+  onLicenseState?.(state as LicenseState);
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const isForm = body instanceof FormData;
   const res = await fetch(`${API_BASE}${path}`, {
@@ -85,11 +116,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     },
     body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
   });
+  noteLicenseState(res.headers.get(LICENSE_STATE_HEADER));
   if (res.status === 204) return undefined as T;
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     const err = json?.error ?? { code: 'UNKNOWN', message: `HTTP ${res.status}` };
     if (res.status === 401 && err.code !== 'UNAUTHORIZED_LOGIN') onUnauthorized?.();
+    // Nur-Lese-Betrieb erst jetzt bemerkt (Header nicht lesbar, Zustand seit
+    // dem Login gekippt): den Zustand nachziehen, damit das Banner erscheint.
+    if (res.status === 403 && err.code === LICENSE_ERROR_CODES.EXPIRED) noteLicenseState('expired');
     throw new ApiRequestError(res.status, err.code, err.message, err.details);
   }
   return json as T;

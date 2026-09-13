@@ -58,11 +58,15 @@ dieselbe Absicht wie `/opt/ohrganize` unter root.
 - **NSSM** ([nssm.cc](https://nssm.cc)) — eine einzelne Exe, nach
   `C:\Program Files\nssm\nssm.exe`, und dieses Verzeichnis in den PATH.
 - **Caddy für Windows** ([caddyserver.com](https://caddyserver.com/download)) —
-  ebenfalls eine einzelne Exe.
-- **Git for Windows** ([git-scm.com](https://git-scm.com/download/win)) — Schritt
-  2.1 klont damit das Repository, und Abschnitt 6 aktualisiert damit. Wer
-  stattdessen ein Release-Archiv entpackt, braucht es nicht; dann entfallen
-  `git clone` und `git pull`.
+  ebenfalls eine einzelne Exe, **Version ≥ 2.8.0** (`caddy version`; der
+  Download dort ist aktuell). Das mitgelieferte Caddyfile enthält die
+  Pflichtzeile `reuse_private_keys`, die ältere Fassungen nicht kennen
+  (Abschnitt 7).
+- Das **Release-Archiv** `ohrganize-server-<version>.zip` des Anbieters samt
+  `.sha256`. Es enthält die fertig gebauten Bundles, den Portal-Build, dieses
+  Verzeichnis und die Betriebsdokumente — kein Quelltext. **Git for Windows**
+  wird damit nicht gebraucht; es bleibt nur für den Eigenbau aus dem
+  Quelltext (Kasten am Ende von Abschnitt 2) relevant.
 - Visual Studio Build Tools **nur**, falls `npm ci` kein Fertigpaket für
   `better-sqlite3` findet. Für aktuelle Node-LTS-Versionen gibt es eines.
 - Eine Domain, die auf den Server zeigt, Ports 80 und 443 aus dem Internet
@@ -70,19 +74,19 @@ dieselbe Absicht wie `/opt/ohrganize` unter root.
 - 2 vCPU, 4 GB RAM, 40 GB Platte. (Unter Linux genügen 2 GB — Windows Server
   selbst belegt mehr.)
 
-**Heruntergeladene `.ps1` freigeben.** Kommen die Skripte aus diesem Verzeichnis
-über den Browser oder eine Dateifreigabe auf den Server, hängt Windows ihnen die
-Zone-Kennung „aus dem Internet" an; PowerShell verweigert dann die Ausführung
-oder fragt bei jedem Aufruf nach. Einmal entfernen:
+**Heruntergeladene `.ps1` freigeben.** Ein im Browser geladenes Archiv trägt
+die Zone-Kennung „aus dem Internet"; wer es mit dem Explorer entpackt, vererbt
+sie an jede Datei, und PowerShell verweigert dann die Ausführung der Skripte
+oder fragt bei jedem Aufruf nach. Am einfachsten die Kennung **vor** dem
+Entpacken vom Archiv nehmen (`Unblock-File ohrganize-server-<version>.zip`);
+`Expand-Archive` vererbt sie ohnehin nicht. Nachträglich:
 
 ```powershell
 Get-ChildItem 'C:\Program Files\oHRganize\deploy\windows\*.ps1' | Unblock-File
 ```
 
-Aus einem `git clone` heraus entsteht die Kennung nicht — dieser Schritt gilt
-nur für den Weg über Download oder Netzlaufwerk.
-
-**`git` in `C:\Program Files`.** Git prüft seit 2.35.2, ob das Repository
+**`git` in `C:\Program Files`** — nur für den Eigenbau aus dem Quelltext
+relevant. Git prüft seit 2.35.2, ob das Repository
 demselben Konto gehört wie der aufrufende Benutzer. `C:\Program Files` gehört
 `TrustedInstaller`, nicht dem Administrator — `git pull` kann dort deshalb mit
 `detected dubious ownership in repository` abbrechen. Abhilfe, einmalig in der
@@ -106,24 +110,32 @@ Deshalb bleibt der Befehl hier stehen: als Abhilfe, nicht als Pflichtschritt.
 Alle Schritte in einer **Administrator**-PowerShell.
 
 ```powershell
-# 2.1 Programm ablegen
+# 2.1 Programm ablegen — Release-Archiv des Anbieters, OHNE Zwischenverzeichnis
+#     (Prüfsumme: Get-FileHash gegen die .sha256-Datei neben dem Archiv)
+(Get-FileHash 'C:\Temp\ohrganize-server-<version>.zip' -Algorithm SHA256).Hash.ToLower()
+Get-Content 'C:\Temp\ohrganize-server-<version>.zip.sha256'
 New-Item -ItemType Directory 'C:\Program Files\oHRganize' -Force
-git clone <repository-url> 'C:\Program Files\oHRganize'
+Expand-Archive 'C:\Temp\ohrganize-server-<version>.zip' -DestinationPath 'C:\Program Files\oHRganize' -Force
 Set-Location 'C:\Program Files\oHRganize'
+Get-Content LIESMICH.txt                        # Inhalt des Archivs
 
-# 2.2 Abhängigkeiten und Build
-#     WICHTIG: kein --omit=dev. Der Build braucht esbuild und typescript aus
-#     den devDependencies.
-npm ci
+# 2.2 Laufzeitabhängigkeit installieren
+#     Gebaut wird auf dem Server nichts: apps\backend\dist\cli.cjs (Dienst),
+#     backup.cjs (Sicherung) und apps\web\dist (Portal) liegen fertig im
+#     Archiv. Das Bundle enthält alle npm-Pakete bis auf eines: better-sqlite3
+#     bringt eine native Bibliothek mit und muss auf dem Zielsystem installiert
+#     werden. package.json und package-lock.json im Archiv sind genau darauf
+#     gekürzt — deshalb --omit=dev, und es gibt kein npm run build.
+npm ci --omit=dev
 
 #     KONTROLLE — nicht überspringen. Der Dienst startet sonst später mit einem
 #     Fehler, der nicht nach der Ursache aussieht.
 #     better-sqlite3 holt seine native Bibliothek über ein Installationsskript.
 #     npm sperrt solche Skripte ab Version 12, sofern das Paket nicht in
-#     "allowScripts" der Root-package.json steht UND der Lockfile eine
+#     "allowScripts" der package.json steht UND der Lockfile eine
 #     "resolved"-URL dazu mitbringt (ohne die kann npm nicht auf eine Version
-#     festnageln). Fehlt eine der beiden Bedingungen, meldet npm ci trotzdem
-#     Erfolg, der Build läuft durch — und erst der erste Datenbankzugriff
+#     festnageln). Das Archiv bringt beides mit; fehlt trotzdem eine der beiden
+#     Bedingungen, meldet npm ci Erfolg — und erst der erste Datenbankzugriff
 #     bricht mit "Could not locate the bindings file" ab.
 #     ACHTUNG: Ein blosses require() genügt als Prüfung NICHT. Die native
 #     Bindung wird erst beim "new Database" geladen.
@@ -134,9 +146,6 @@ node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite
 #       node ..\prebuild-install\bin.js
 #       Pop-Location
 #     und danach die Kontrollzeile wiederholen.
-
-npm run build -w apps/backend
-npm run build:web
 
 # 2.3 Portal-Build ausliefern
 New-Item -ItemType Directory 'C:\ProgramData\oHRganize\web' -Force
@@ -155,13 +164,21 @@ Get-Service oHRganize
 Invoke-RestMethod http://127.0.0.1:3001/api/health
 ```
 
-Schritt 2.2 erzeugt `apps\backend\dist\` mit `cli.cjs` (Diensteinstieg),
-`server.cjs` (Embedding-Bundle der Desktop-App) und `backup.cjs`.
+Das Archiv bringt `apps\backend\dist\` mit `cli.cjs` (Diensteinstieg) und
+`backup.cjs` (Sicherung) fertig gebaut und minifiziert mit; `server.cjs`, das
+Embedding-Bundle der Desktop-App, gehört nicht zum Serverpaket.
 
 > Beim allerersten Start legt oHRganize den Standard-Admin an und schreibt ein
 > **generiertes** Initialpasswort ins Protokoll und nach
 > `C:\ProgramData\oHRganize\data\initial-admin-password.txt`. Weiter geht es in
 > `../../docs/inbetriebnahme.md`.
+
+> **Eigenbau aus dem Quelltext** (Entwicklung, eigener Fork): `git clone
+> <repository-url> 'C:\Program Files\oHRganize'`, `npm ci` — ausdrücklich
+> **ohne** `--omit=dev`, der Build braucht esbuild und typescript —, dann
+> `npm run build -w apps/backend` und `npm run build:web`; die Dienstpfade
+> sind dieselben. `npm run release:server` erzeugt aus dem Quelltext genau das
+> Archiv, das Schritt 2.1 voraussetzt.
 
 **Eine Falle, die es unter Linux nicht gibt:** systemd liest die
 `EnvironmentFile` bei jedem Start neu. NSSM speichert die Werte **einmalig in
@@ -188,6 +205,12 @@ nssm start Caddy
 
 Caddy holt und erneuert das Zertifikat selbst — kein certbot, kein win-acme,
 keine Aufgabenplanung dafür.
+
+Läuft der Server unter einem Namen in der Zone des Anbieters
+(`<kunde>.ohrganize.com` statt eigener Domain), gilt zusätzlich
+`../../docs/kunden-subdomain.md`: DNS-only, HTTP-01 ohne API-Token auf dem
+Server, CAA auf das eigene ACME-Konto, CT-Überwachung — und das Pinning der
+Desktop-App aus Abschnitt 7.
 
 ## 4. Firewall
 
@@ -258,6 +281,7 @@ icacls $Probe /grant:r      '*S-1-5-32-544:(OI)(CI)F'           | Out-Null   # A
 
 Copy-Item "$Backup\ohrganize.db","$Backup\secret.key" $Probe
 Copy-Item "$Backup\storage" $Probe -Recurse
+if (Test-Path "$Backup\lizenz.ohrganize") { Copy-Item "$Backup\lizenz.ohrganize" $Probe }   # falls gesichert
 
 # OHRGANIZE_DATA_DIR ausdruecklich setzen: Ohne die Variable faellt das Backend
 # auf sein Vorgabe-Datenverzeichnis zurueck und legte dort eine leere Datenbank
@@ -280,7 +304,10 @@ Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:3999/api/auth/login' `
 
 Eine Anmeldung, die ein Token liefert, belegt Datenbank **und** `secret.key`.
 Danach in der Desktop-App gegen `http://127.0.0.1:3999` eine Datei öffnen — das
-belegt `storage\`. Zum Schluss aufräumen:
+belegt `storage\`. Die Anmeldeantwort enthält `license.state`; steht dort
+`valid`, ist auch die Lizenzdatei mitgekommen (`/api/health` ohne Anmeldung
+nennt nur `license.read_only` und unterscheidet Testphase und Lizenz nicht).
+Zum Schluss aufräumen:
 
 ```powershell
 Remove-Item $Probe -Recurse -Force
@@ -299,6 +326,7 @@ Rename-Item 'C:\ProgramData\oHRganize\data' "data.defekt-$(Get-Date -Format yyyy
 New-Item -ItemType Directory 'C:\ProgramData\oHRganize\data' -Force | Out-Null
 Copy-Item "$Backup\ohrganize.db","$Backup\secret.key" 'C:\ProgramData\oHRganize\data'
 Copy-Item "$Backup\storage" 'C:\ProgramData\oHRganize\data' -Recurse
+if (Test-Path "$Backup\lizenz.ohrganize") { Copy-Item "$Backup\lizenz.ohrganize" 'C:\ProgramData\oHRganize\data' }
 
 # Das frisch angelegte Verzeichnis erbt die Rechte von C:\ProgramData —
 # also inklusive Lesezugriff der Gruppe "Benutzer". Ohne diesen Aufruf ist der
@@ -322,19 +350,25 @@ das Gegenteil — siehe Abschnitt 8.)
 nssm stop oHRganize
 Start-ScheduledTask -TaskName 'oHRganize-Sicherung'
 Set-Location 'C:\Program Files\oHRganize'
-git pull
-npm ci
-npm run build -w apps/backend
-npm run build:web
+(Get-FileHash 'C:\Temp\ohrganize-server-<version>.zip' -Algorithm SHA256).Hash.ToLower()   # gegen .sha256 vergleichen
+Remove-Item 'apps' -Recurse -Force                # Altstand weg (node_modules bleibt); sonst sammeln sich alte Portal-Assets an
+Expand-Archive 'C:\Temp\ohrganize-server-<version>.zip' -DestinationPath 'C:\Program Files\oHRganize' -Force
+npm ci --omit=dev                                 # nur nötig, wenn better-sqlite3 gewechselt hat — schadet nie
+node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
+Remove-Item 'C:\ProgramData\oHRganize\web\*' -Recurse -Force
 Copy-Item 'apps\web\dist\*' 'C:\ProgramData\oHRganize\web' -Recurse -Force
 nssm start oHRganize
 Get-Content 'C:\ProgramData\oHRganize\logs\backend.log' -Tail 50
 ```
 
+(Eigenbau aus dem Quelltext: `git pull`, `npm ci` ohne `--omit=dev`,
+`npm run build -w apps/backend`, `npm run build:web` — Kasten in Abschnitt 2.)
+
 Die Sicherung läuft bewusst **vor** dem Update. Migrationen laufen automatisch
 beim Start in **einer** Transaktion; bricht eine ab, bleibt die Datenbank auf
 dem Stand davor und der Dienst startet nicht. **Ein Downgrade ist nicht
-vorgesehen** — der Rückweg ist immer das Backup von vor dem Update.
+vorgesehen** — der Rückweg ist immer das Backup von vor dem Update. Die
+Lizenzdatei liegt im Datenverzeichnis und ist vom Update nicht betroffen.
 
 Hat sich `MIN_CLIENT_VERSION` erhöht (`packages/shared/src/version.ts`), weist
 der Server ältere Desktop-Apps nach dem Update mit einer klaren Meldung ab. Die
@@ -359,17 +393,29 @@ zwei getrennten Datenbeständen.
    | Maschinenvariable `OHRGANIZE_API_BASE` | Rollout per Gruppenrichtlinie oder Skript | ganzer Rechner |
    | `%APPDATA%\oHRganize\config.json` mit `{ "apiBaseUrl": "https://portal.firma.de" }` | Einrichtung von Hand, je Benutzerprofil | ein Windows-Profil |
 
-   **Die Umgebungsvariable gewinnt**, wenn beides gesetzt ist
-   (`readConfiguredApiBase` in `apps/desktop/src/main.ts`). Wer eine falsche
+   **Die Umgebungsvariable gewinnt** für die Adresse, wenn beides gesetzt
+   ist (`readDesktopConfig` in `apps/desktop/src/main.ts`). Wer eine falsche
    Adresse in der Variablen sucht, während er die `config.json` korrigiert,
-   sucht lange.
+   sucht lange. Die `config.json` wird trotzdem **immer** gelesen — sie kann
+   die `serverKeyPins` enthalten (unten). Ohne Umgebungsvariable bricht eine
+   defekte Datei den Start ab (sonst liefe der Arbeitsplatz still mit
+   eingebettetem Backend und leerer Datenbank); gibt `OHRGANIZE_API_BASE` die
+   Adresse vor, wird die Datei nur mit einer Warnung im Protokoll übersprungen —
+   dann gelten allein Pins aus `OHRGANIZE_SERVER_KEY_PINS` bzw. das Lernen beim
+   ersten Kontakt.
 
-   Von Hand:
+   Von Hand — **ohne BOM schreiben**: `Set-Content -Encoding utf8` setzt in
+   Windows PowerShell 5.1 eine Byte-Order-Markierung (EF BB BF) an den
+   Dateianfang, die ein strenger JSON-Parser als „kein gültiges JSON“
+   abweist. Die App toleriert die Markierung inzwischen, die Anleitung
+   verlässt sich darauf nicht; `[IO.File]::WriteAllText` mit
+   `UTF8Encoding($false)` schreibt in 5.1 und pwsh dieselben Bytes
+   (`-Encoding ascii` ginge ebenfalls, der Inhalt ist reines ASCII):
 
    ```powershell
    New-Item -ItemType Directory "$env:APPDATA\oHRganize" -Force | Out-Null
-   '{ "apiBaseUrl": "https://portal.firma.de" }' |
-     Set-Content "$env:APPDATA\oHRganize\config.json" -Encoding utf8
+   [IO.File]::WriteAllText("$env:APPDATA\oHRganize\config.json",
+     '{ "apiBaseUrl": "https://portal.firma.de" }', [Text.UTF8Encoding]::new($false))
    ```
 
    Per Gruppenrichtlinie/Skript (Computerkonfiguration → Einstellungen →
@@ -413,6 +459,82 @@ sinnvoll), muss `ohrganize://app` mit in der Liste stehen (siehe
 (Abschnitt 6). Umgekehrt weist ein Arbeitsplatz mit zu **neuer** App den
 Serverstand ab — dieselbe Prüfung, andere Richtung.
 
+### Serverschlüssel festnageln (`serverKeyPins`)
+
+Die Desktop-App prüft im Serverbetrieb über `https://` zusätzlich zur
+normalen Zertifikatskette den **öffentlichen Schlüssel** des Servers —
+SHA-256 über die SPKI des Blattzertifikats, Base64, in der HPKP-Schreibweise
+`sha256/<44 Zeichen>` (`apps/desktop/src/serverPinning.ts`). Dann hilft einem
+Angreifer auch ein regulär ausgestelltes Zertifikat für den Namen nichts
+(untergeschobene CA im Firmennetz, umgebogener DNS-Eintrag — siehe
+`../../docs/kunden-subdomain.md`). Für `http://127.0.0.1:3001` und das
+eingebettete Backend gilt es nicht (kein TLS).
+
+**Ohne Konfiguration** merkt sich die App den Schlüssel beim ersten
+erfolgreichen Kontakt („trust on first use“) in
+`%APPDATA%\oHRganize\server-pins.json` und bricht bei jedem späteren
+Wechsel mit einer klaren Meldung ab, die diese Datei nennt. Das schützt ab
+dem zweiten Start. **Mit Konfiguration** — empfohlen, sobald der Verkehr der
+HR-Administration das Firmennetz verlässt — gilt der Schutz ab dem ersten
+Start, und ein Wechsel ist eine bewusste IT-Entscheidung:
+
+1. **Der Serverschlüssel muss Erneuerungen überleben.** Caddy erzeugt bei
+   jeder Erneuerung sonst ein neues Schlüsselpaar. Die mitgelieferten
+   `Caddyfile`s (Linux wie Windows) enthalten deshalb im Site-Block
+   `tls { reuse_private_keys }` — **nicht entfernen**, auch nicht bei
+   `tls internal` (dort erneuert Caddy mehrmals täglich). Die Zeile gibt es
+   ab **Caddy 2.8.0**; meldet `caddy validate` eine unbekannte Option, ist
+   die Exe zu alt — aktualisieren, nicht die Zeile löschen. Zeigt der
+   Arbeitsplatz auf einen Linux-Server mit nginx, leistet dort
+   `certbot --reuse-key` dasselbe (`../README.md`, Abschnitt 3).
+
+2. **Pin ermitteln**, gegen das Zertifikat, das Caddy tatsächlich ausliefert
+   (Node ist auf dem Server ohnehin da; bei `tls internal` in den Optionen
+   `rejectUnauthorized:false` ergänzen). Die `openssl`-Fassung derselben
+   Zeile steht im Kommentar des Caddyfile.
+
+   ```powershell
+   node -e "const tls=require('tls'),c=require('crypto');const s=tls.connect(443,'portal.firma.de',{servername:'portal.firma.de'},()=>{const x=new c.X509Certificate(s.getPeerCertificate().raw);console.log('sha256/'+c.createHash('sha256').update(x.publicKey.export({type:'spki',format:'der'})).digest('base64'));s.end()})"
+   ```
+
+3. **Auf jedem Arbeitsplatz eintragen**, neben `apiBaseUrl` — als Datei oder
+   per Rollout über die Maschinenvariable `OHRGANIZE_SERVER_KEY_PINS`
+   (kommagetrennt; sie schlägt die Datei):
+
+   ```powershell
+   [IO.File]::WriteAllText("$env:APPDATA\oHRganize\config.json",
+     '{ "apiBaseUrl": "https://portal.firma.de", "serverKeyPins": ["sha256/<Base64-Hash>"] }',
+     [Text.UTF8Encoding]::new($false))
+   ```
+
+   (Wieder ohne BOM — nicht `Set-Content -Encoding utf8`, siehe Schritt 2
+   oben.) Stimmt der Pin nicht, startet die App nicht, sondern nennt
+   erwarteten und vorgefundenen Wert samt der Datei, in der der neue
+   einzutragen wäre.
+
+**Schlüsselwechsel** (planmäßig oder nach einem Vorfall) ist bei ACME und bei
+`tls internal` ein **geplanter Ausfall der Arbeitsplätze** — das lässt sich
+nicht wegdokumentieren: Den neuen Schlüssel erzeugt Caddy erst bei der
+Neuausstellung, sein Pin ist vorher niemandem bekannt und kann deshalb nicht
+vorab verteilt werden (`reuse_private_keys` lädt nur einen Schlüssel, der
+noch im Speicher liegt). Ablauf: (1) Wechsel ankündigen — Freitagabend, nicht
+Montagmorgen. (2) `nssm stop Caddy`, im Caddy-Speicher den Ordner
+`certificates\<aussteller>\<domain>\` samt `.key` entfernen (unter
+`%APPDATA%\Caddy` des Dienstkontos, bei LocalSystem
+`C:\Windows\System32\config\systemprofile\AppData\Roaming\Caddy`),
+`nssm start Caddy` — es holt ein Zertifikat mit neuem Schlüssel, und
+`reuse_private_keys` hält ab jetzt diesen fest. (3) Neuen Pin mit dem Befehl
+aus Schritt 2 ablesen und auf **jedem** Arbeitsplatz eintragen
+(`config.json` oder `OHRGANIZE_SERVER_KEY_PINS`); Arbeitsplätze im
+Trust-on-first-use-Modus löschen stattdessen ihre `server-pins.json`. Bis
+dahin startet die Desktop-App dort nicht — ihre Fehlermeldung nennt den neu
+vorgefundenen Pin, das ist die zweite Quelle für Schritt 3. (4) Alten Pin
+austragen. **Ohne Ausfall** geht ein Wechsel nur mit einem selbst erzeugten
+Schlüssel (Variante (a) im Caddyfile, Firmen-CA): neues Paar erzeugen, Pin
+berechnen, auf allen Arbeitsplätzen **neben** dem alten eintragen (die Liste
+darf mehrere Werte enthalten), dann die Dateien tauschen, zuletzt den alten
+Pin austragen.
+
 ## 8. Umzug einer Einzelplatz-Installation
 
 Der häufige Fall: Die HR hat die Desktop-App schon eine Weile **ohne Server**
@@ -428,6 +550,7 @@ nicht nur die Datenbankdatei.
 | `ohrganize.db-wal`, `ohrganize.db-shm` | **die jüngsten Änderungen** — siehe unten |
 | `storage\` | Verträge, AU-Bescheinigungen, Fotos |
 | `secret.key` | ohne sie erzeugt der Server ein neues Secret: alle Sitzungen und alle verschickten Download-Links sind tot |
+| `lizenz.ohrganize` (falls vorhanden) | die Lizenz ist an die Installations-ID gebunden, und die steht in der Datenbank — Datei und Datenbank gehören zusammen; ohne die Datei läuft der Server im Nur-Lese-Betrieb |
 
 **Warum hier `-wal` mitmuss — und beim Restore nicht.** Das sind zwei
 verschiedene Fälle, und wer sie verwechselt, verliert Daten:
@@ -523,6 +646,38 @@ Verzeichnis offen — dann `harden-data-dir.ps1` erneut ausführen.
 Invoke-WebRequest "http://$env:COMPUTERNAME:3001/api/health" -TimeoutSec 5
 ```
 
+### Lizenz
+
+Die Nutzungsberechtigung ist eine vom Anbieter signierte Datei
+**`C:\ProgramData\oHRganize\data\lizenz.ohrganize`** — im Datenverzeichnis
+neben `ohrganize.db` und `secret.key`, mit denselben NTFS-Rechten
+(`harden-data-dir.ps1` härtet das ganze Verzeichnis). Eine frische
+Installation läuft **30 Tage als Testphase**, danach im **Nur-Lese-Betrieb**
+(Einsicht und Export gehen weiter, Änderungen nicht), bis eine Lizenz
+eingespielt ist.
+
+- **Einspielen** erledigt die HR-Administration in der Desktop-App unter
+  Einstellungen → Lizenz; **kein Dienstneustart**, kein erneutes
+  `install-service.ps1`. Wird die Datei stattdessen von Hand ins
+  Datenverzeichnis kopiert, bemerkt das Backend sie innerhalb weniger
+  Sekunden — ebenfalls ohne Neustart. (Das Verzeichnis ist für die Gruppe
+  „Benutzer" gesperrt; kopieren aus einer Administrator-PowerShell.)
+- **Zustand prüfen:** Ohne Anmeldung liefert
+  `(Invoke-RestMethod 'http://127.0.0.1:3001/api/health').license.read_only`
+  nur, ob Änderungen möglich sind (`False`; für Monitoring gedacht, verrät
+  nichts über den Vertrag). Den Zustand (`trial`, `valid`, `grace`,
+  `expired`) tragen angemeldete Antworten im Header `x-ohrganize-license`
+  und vollständig `GET /api/license` bzw. die Anmeldeantwort
+  (`license.state`); öffentliche Antworten haben den Header bewusst nicht.
+  Beim Start steht eine Warnzeile in `backend.log`, sobald etwas
+  Aufmerksamkeit verdient (Testphase, nahender Ablauf, Nur-Lese-Betrieb,
+  verstellte Uhr) — der schnellste Blick ohne Token.
+- **Sicherung:** `backup.cjs` sichert die Datei automatisch mit; beim
+  Restore (Abschnitt 5) und beim Umzug (Abschnitt 8) gehört sie ins
+  Datenverzeichnis zurück.
+- Zustände, Fristen, Bericht für den Anbieter und der Ablauf einer
+  Verlängerung: **`../../docs/lizenzierung.md`**.
+
 ## 10. Wenn etwas nicht startet
 
 Die fachlichen Startfehler (CORS, Token-Laufzeit, Downgrade, `SQLITE_CANTOPEN`)
@@ -537,11 +692,14 @@ sind diese:
 | Sicherung läuft, Verzeichnis bleibt leer | Aufgabe hat anderes `OHRGANIZE_DATA_DIR` als der Dienst | Beide Werte vergleichen |
 | `nssm` meldet `OpenSCManager` | PowerShell ohne Administratorrechte | Als Administrator starten |
 | Umlaute in `.ps1` erscheinen als Kraut | PowerShell 5.1 liest `.ps1` ohne BOM als ANSI | Die Skripte hier sind deshalb umlautfrei — beim Erweitern so lassen |
-| `MODULE_NOT_FOUND: better-sqlite3` | `npm ci` fehlt oder lief mit `--omit=dev` | Schritt 2.2 wiederholen |
+| `MODULE_NOT_FOUND: better-sqlite3` | `npm ci --omit=dev` in `C:\Program Files\oHRganize` fehlt (oder lief in einem anderen Verzeichnis) | Schritt 2.2 wiederholen |
+| `backend.log` beginnt mit `NUR-LESE-BETRIEB` oder `Keine Lizenz eingespielt — Testphase bis …` | Der Dienst läuft; er meldet nur den Lizenzzustand | Lizenz einspielen (Abschnitt 9, „Lizenz"); nach einem Restore `lizenz.ohrganize` aus der Sicherung ins Datenverzeichnis |
 | `Could not locate the bindings file` (better-sqlite3) | npm ≥ 12 hat das Installationsskript gesperrt — `npm ci` meldete trotzdem Erfolg | `prebuild-install` aus Schritt 2.2 nachholen |
 | Dienst steht auf *Angehalten*, `backend.log` zeigt `Cannot find module 'C:\Program'` | `AppParameters` steht ohne Anführungszeichen in der Registry, der Pfad bricht am Leerzeichen von `C:\Program Files` ab | `install-service.ps1` erneut ausführen (es prüft den Wert seit dem Probelauf selbst) |
 | `harden-data-dir.ps1` meldet „Dienstkonto noch unbekannt" | `icacls` weist eine Dienst-SID mit `ERROR_NONE_MAPPED` (1332) ab, solange der Dienst nie existiert hat | Nichts tun — das Skript trägt die SID danach über .NET ein. Bleibt die Meldung *und* fehlt das Konto in `icacls`, ist der Rückfall gescheitert |
 | Portal zeigt bei `/kalender` einen 404 | SPA-Fallback fehlt | `try_files` im Caddyfile prüfen |
+| `caddy validate` meldet `unknown subdirective: reuse_private_keys` | `caddy.exe` älter als 2.8.0 | Aktuelle Exe von caddyserver.com einsetzen. Die Zeile **nicht** entfernen — sonst wechselt der Schlüssel bei jeder Erneuerung und alle Desktop-Arbeitsplätze sperren sich aus (Abschnitt 7) |
+| Desktop-App meldet „Die Konfigurationsdatei … enthält kein gültiges JSON" | Tippfehler in der `config.json`; bei älteren App-Fassungen auch ein BOM aus `Set-Content -Encoding utf8` (PowerShell 5.1) | Datei wie in Abschnitt 7 mit `[IO.File]::WriteAllText(…, UTF8Encoding($false))` neu schreiben |
 
 ## Was der Probelauf gezeigt hat
 
@@ -579,6 +737,17 @@ durchlaufen. Die Begründungen stehen in `../../docs/entscheidungen.md`.
       Abschnitt 1 ist damit nur noch Notnagel, keine Voraussetzung.
 - [x] Ein `git clone` erzeugt keine Zone-Kennung; `Unblock-File` bleibt nur für
       den Weg über Download oder Netzlaufwerk nötig.
+- [x] **Release-Archiv** (13.09.2026, Node 24.16 / npm 12.0.1): `Expand-Archive`
+      in ein leeres Verzeichnis, `npm ci --omit=dev` mit dem gekürzten Lockfile
+      (38 Pakete, `npm install-scripts ls` ohne offene Einträge), Kontrollzeile
+      `better-sqlite3 ok`, Start von `apps\backend\dist\cli.cjs` auf Port 3999,
+      `/api/health` mit `license.read_only: false` (der Header
+      `x-ohrganize-license: trial` stand damals noch auf dieser öffentlichen
+      Antwort; seit dem Lizenz-Audit tragen ihn nur angemeldete Antworten,
+      Abschnitt 9), Anmeldung mit Token, `GET /api/license`,
+      unbrauchbare Lizenz → `400 LICENSE_INVALID`, Sicherungslauf mit
+      `backup.cjs`. Ohne Dienstregistrierung — die ist gegenüber dem Probelauf
+      oben unverändert, weil die Dienstpfade dieselben sind.
 
 **Weiterhin offen:**
 

@@ -63,7 +63,7 @@ export function GoalsPage() {
       toast.success('Ziel gelöscht');
       invalidate();
     },
-    onError: () => toast.error('Fehler beim Löschen'),
+    onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Löschen'),
   });
 
   const objectives = useMemo(() => goals.filter((g) => g.kind === 'objective'), [goals]);

@@ -161,4 +161,41 @@ export const coreMigrations: Migration[] = [
         WHERE email = 'admin@hrmonic.de' AND role = 'admin';
     `,
   },
+  {
+    name: '004_license',
+    // Lizenzmodell (core/license.ts). Eine Zeile je Datenbank:
+    //
+    //   installation_id  Zufalls-ID, an die der Anbieter eine Lizenzdatei
+    //                    bindet. Von SQLite erzeugt, weil Migrationen reine
+    //                    SQL-Strings sind (kein JS-Hook, siehe migrate.ts).
+    //                    Wandert mit der Datei — eine kopierte Datenbank trägt
+    //                    dieselbe ID; das ist bekannt und kein Schutz gegen
+    //                    Kopien, sondern eine Kennung für Support und Register.
+    //   created_at       Anker der 30-tägigen Testphase für Datenbanken, die
+    //                    noch nie eine Lizenz gesehen haben. Für Bestands-
+    //                    installationen ist das der Moment dieses Updates.
+    //   licensed_at      Erstes Einspielen einer gültigen Lizenz. Danach gibt es
+    //                    keine Testphase mehr — sonst wäre „Datei löschen“ ein
+    //                    Weg zurück in 30 freie Tage.
+    //   last_seen_date   Größter Kalendertag, den das Backend je gesehen hat
+    //                    (wird nur vorwärts geschrieben). Stolperdraht gegen
+    //                    zurückgestellte Uhren; ausdrücklich KEIN Riegel — ein
+    //                    Administrator mit Zugriff auf die Datei kann ihn
+    //                    zurücksetzen, und Windows stellt Uhren auch von selbst
+    //                    um. Er wird protokolliert und angezeigt, mehr nicht.
+    //
+    // CHECK (id = 1) hält die Tabelle einzeilig; getInstallation() in
+    // core/license.ts verlässt sich darauf.
+    sql: `
+      CREATE TABLE installation (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        installation_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        licensed_at TEXT,
+        last_seen_date TEXT
+      );
+      INSERT INTO installation (id, installation_id)
+        VALUES (1, lower(hex(randomblob(16))));
+    `,
+  },
 ];

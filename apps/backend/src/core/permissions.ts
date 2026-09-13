@@ -42,6 +42,8 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AdminArea]> = [
   ['/api/recruiting', 'recruiting'],
   ['/api/communication', 'kommunikation'],
   ['/api/settings', 'einstellungen'],
+  // Lizenz einsehen (lesen) und einspielen (bearbeiten) — core/licenseRoutes.ts.
+  ['/api/license', 'einstellungen'],
   ['/api/leadership', 'fuehrung'],
 ];
 

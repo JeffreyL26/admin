@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { ServerPinInfo } from './serverPinning';
 
 // Der API-Port wird vom Main-Prozess deterministisch via additionalArguments
 // übergeben (im Prod-Betrieb ist es ein zufälliger freier Port).
@@ -44,5 +45,10 @@ contextBridge.exposeInMainWorld('ohrganize', {
     toggleFullscreen: () => ipcRenderer.send('app:toggle-fullscreen'),
     zoom: (delta: number) => ipcRenderer.send('app:zoom', delta),
     openExternal: (url: string) => ipcRenderer.send('app:open-external', url),
+    // Gepinnter Serverschlüssel (Server-Betrieb über https), zur Anzeige auf
+    // einer Einstellungsseite. Im Einzelplatz-/Dev-Betrieb sind origin und
+    // pin null. Nur lesend — geändert wird über config.json bzw. die Datei
+    // der gemerkten Schlüssel (storePath), nie aus dem Renderer.
+    serverPin: () => ipcRenderer.invoke('app:server-pin') as Promise<ServerPinInfo>,
   },
 });

@@ -2,7 +2,7 @@ import React from 'react';
 import { createHashRouter, Navigate } from 'react-router-dom';
 import { AppShell } from './layout/AppShell';
 import { DashboardPage } from './features/dashboard/DashboardPage';
-import { SettingsPage } from './features/settings/SettingsPage';
+import { settingsRoutes } from './features/settings/routes';
 import { employeesRoutes } from './features/employees/routes';
 import { absencesRoutes } from './features/absences/routes';
 import { performanceRoutes } from './features/performance/routes';
@@ -28,7 +28,7 @@ export const router = createHashRouter([
       ...communicationRoutes,
       ...adminRoutes,
       ...leadershipRoutes,
-      { path: '/einstellungen', element: <SettingsPage /> },
+      ...settingsRoutes,
       { path: '*', element: <Navigate to="/dashboard" replace /> },
     ],
   },

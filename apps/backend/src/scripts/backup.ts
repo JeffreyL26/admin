@@ -11,6 +11,10 @@
  *   1. ohrganize.db  — Datenbank (WAL-Modus!)
  *   2. storage/      — die Datei-Blobs (Verträge, Bescheinigungen, Fotos …)
  *   3. secret.key    — JWT-/Signatur-Secret
+ * Dazu, falls vorhanden, lizenz.ohrganize — die signierte Lizenzdatei. Sie ist
+ * kein Nutzdatum (der Anbieter kann sie neu ausstellen), aber ohne sie steht
+ * ein zurückgespielter Server im Nur-Lese-Betrieb, bis jemand sie wieder
+ * einspielt. Fehlt sie im Quellverzeichnis (Testphase), gibt es keine Warnung.
  *
  * Warum nicht einfach `cp ohrganize.db`: Die Datenbank läuft im WAL-Modus. Eine
  * nackte Dateikopie ohne `-wal` ist KEIN gültiges Backup — die jüngsten
@@ -78,7 +82,7 @@ function parseArgs(argv: string[]): Options {
           `  --keep, -k <anzahl>      Anzahl aufzubewahrender Sicherungen (Vorgabe: ${DEFAULT_KEEP}, 0 = keine löschen)`,
           '  --quiet, -q              Nur Fehler ausgeben',
           '',
-          'Gesichert werden ohrganize.db (Online-Backup), storage/ und secret.key.',
+          'Gesichert werden ohrganize.db (Online-Backup), storage/, secret.key und — falls vorhanden — lizenz.ohrganize.',
         ].join('\n'),
       );
       process.exit(0);
@@ -114,6 +118,7 @@ function restoreSteps(): string[] {
       '  Rename-Item C:\\ProgramData\\oHRganize\\data data.alt',
       '  New-Item -ItemType Directory C:\\ProgramData\\oHRganize\\data',
       '  Copy-Item ohrganize.db, secret.key, storage -Destination C:\\ProgramData\\oHRganize\\data -Recurse',
+      '  if (Test-Path lizenz.ohrganize) { Copy-Item lizenz.ohrganize -Destination C:\\ProgramData\\oHRganize\\data }',
       '  powershell -File <Programmverzeichnis>\\deploy\\windows\\harden-data-dir.ps1',
       '  nssm start oHRganize',
     ];
@@ -123,6 +128,7 @@ function restoreSteps(): string[] {
     '  mv /var/lib/ohrganize /var/lib/ohrganize.alt',
     '  install -d -o ohrganize -g ohrganize -m 0700 /var/lib/ohrganize',
     '  cp -a ohrganize.db storage secret.key /var/lib/ohrganize/',
+    '  [ -f lizenz.ohrganize ] && cp -a lizenz.ohrganize /var/lib/ohrganize/',
     '  chown -R ohrganize:ohrganize /var/lib/ohrganize && chmod -R go-rwx /var/lib/ohrganize',
     '  systemctl start ohrganize-backend',
   ];
@@ -283,6 +289,20 @@ async function main(): Promise<void> {
       );
     }
 
+    // ---------------------------------------------------------------
+    // 4. Lizenzdatei — falls vorhanden. Kein Nutzdatum, aber ohne sie steht
+    //    der zurückgespielte Server im Nur-Lese-Betrieb (siehe Kopfkommentar).
+    // ---------------------------------------------------------------
+    const licenseSource = config.licensePath;
+    const licenseName = path.basename(licenseSource);
+    const hasLicense = fs.existsSync(licenseSource);
+    if (hasLicense) {
+      const licenseTarget = path.join(tmpDir, licenseName);
+      fs.copyFileSync(licenseSource, licenseTarget);
+      fs.chmodSync(licenseTarget, 0o600);
+      log(`Sichere ${licenseName} …`);
+    }
+
     // Kurzprotokoll neben den Daten: Wer im Ernstfall vor dem Backup steht,
     // soll die Restore-Schritte nicht erst im Repository suchen müssen.
     const manifest = [
@@ -300,6 +320,9 @@ async function main(): Promise<void> {
       '  ohrganize.db  Datenbank (konsistenter Online-Backup-Stand, kein -wal nötig)',
       '  storage/      Datei-Blobs',
       '  secret.key    JWT-/Signatur-Secret',
+      hasLicense
+        ? `  ${licenseName}  Signierte Lizenzdatei (ohne sie: Nur-Lese-Betrieb nach dem Restore)`
+        : `  (keine ${licenseName} vorhanden — Testphase oder noch nicht eingespielt)`,
       '',
       'Restore (Dienst muss gestoppt sein):',
       ...restoreSteps(),

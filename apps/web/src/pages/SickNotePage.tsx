@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import type { SickNote } from '@ohrganize/shared';
-import { ApiRequestError } from '../api/client';
 import { useCreateSickNote, useMySickNotes } from '../api/hooks';
+import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, Field, LoadError, SkeletonRows } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { formatDate, formatRange, todayIso } from '../lib/format';
+import { apiErrorMessage, PORTAL_READ_ONLY_NOTICE } from '../lib/license';
 
 function certificateState(note: SickNote): { label: string; tone: string } {
   if (note.received_date) return { label: `AU eingegangen am ${formatDate(note.received_date)}`, tone: 'success' };
@@ -15,6 +16,7 @@ function certificateState(note: SickNote): { label: string; tone: string } {
 
 export function SickNotePage() {
   const toast = useToast();
+  const { readOnly } = useAuth();
   const { data: sickNotes, isLoading, error: listError } = useMySickNotes();
   const create = useCreateSickNote();
 
@@ -30,7 +32,7 @@ export function SickNotePage() {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!dateFrom || !dateTo || rangeInvalid) return;
+    if (readOnly || !dateFrom || !dateTo || rangeInvalid) return;
     setApiError(null);
     create.mutate(
       { date_from: dateFrom, date_to: dateTo, child_sick: childSick, comment: comment.trim() || undefined },
@@ -41,9 +43,7 @@ export function SickNotePage() {
           toast.success('Krankmeldung übermittelt');
         },
         onError: (err) => {
-          setApiError(
-            err instanceof ApiRequestError ? err.message : 'Krankmeldung konnte nicht übermittelt werden',
-          );
+          setApiError(apiErrorMessage(err, 'Krankmeldung konnte nicht übermittelt werden'));
         },
       },
     );
@@ -138,11 +138,16 @@ export function SickNotePage() {
                 <button
                   type="submit"
                   className="pt-btn pt-btn--primary"
-                  disabled={create.isPending || !dateFrom || !dateTo || rangeInvalid}
+                  disabled={readOnly || create.isPending || !dateFrom || !dateTo || rangeInvalid}
                 >
                   {create.isPending ? 'Wird übermittelt …' : 'Krank melden'}
                 </button>
               </div>
+              {readOnly && (
+                <p style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                  {PORTAL_READ_ONLY_NOTICE}
+                </p>
+              )}
             </Card>
           </form>
         )}

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { LICENSE_FILE_NAME } from '@ohrganize/shared';
 
 // Datenverzeichnis: im Dev-Betrieb ./data neben dem Backend, im Desktop-Betrieb
 // wird OHRGANIZE_DATA_DIR von Electron auf app.getPath('userData') gesetzt.
@@ -22,6 +23,28 @@ const dbPath = path.join(dataDir, 'ohrganize.db');
 const secretPath = path.join(dataDir, 'secret.key');
 /** Ablage des generierten Initialpassworts (siehe core/auth.ts, ensureDefaultAdmin). */
 const initialPasswordPath = path.join(dataDir, 'initial-admin-password.txt');
+/** Signierte Lizenzdatei des Anbieters (Prüfung und Zustand: core/license.ts). */
+const licensePath = path.join(dataDir, LICENSE_FILE_NAME);
+
+/**
+ * Die Lizenz wird nur geprüft, wenn ein Datenverzeichnis ausdrücklich gesetzt
+ * ist — also auf jedem Server, in jeder installierten Desktop-App und in den
+ * Smoke-Tests. Ohne die Variable läuft das Backend gegen apps/backend/data:
+ * das Entwicklungsverzeichnis, dieselbe Grenze, an der auch seed.ts den
+ * Produktivbetrieb erkennt. Dort wäre eine Lizenzpflicht nur Reibung.
+ */
+const licenseEnforced = Boolean(process.env.OHRGANIZE_DATA_DIR);
+
+/**
+ * Prüfschlüssel aus der Umgebung — ausschließlich für Tests, die mit einem
+ * eigenen Schlüsselpaar signieren (src/test/smoke.ts). Im Betrieb bleibt die
+ * Variable leer; dann gelten allein die eingebauten Schlüssel aus
+ * core/licenseKeys.ts. Wer sie auf einem Kundensystem setzt, hat denselben
+ * Zugriff, mit dem er auch den Quelltext ändern könnte — sie öffnet nichts,
+ * was nicht ohnehin offen wäre, wird aber beim Start als Warnung protokolliert
+ * (weiter unten, sobald die Warnliste existiert).
+ */
+const licensePublicKeyOverride = (process.env.OHRGANIZE_LICENSE_PUBLIC_KEY ?? '').trim() || null;
 
 function chmodQuiet(target: string, mode: number): void {
   try {
@@ -49,7 +72,14 @@ export function hardenDataPermissions(): void {
   chmodQuiet(dataDir, 0o700);
   chmodQuiet(storageDir, 0o700);
   // -wal/-shm enthalten dieselben Nutzdaten wie die Datenbank selbst.
-  for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`, secretPath, initialPasswordPath]) {
+  for (const file of [
+    dbPath,
+    `${dbPath}-wal`,
+    `${dbPath}-shm`,
+    secretPath,
+    initialPasswordPath,
+    licensePath,
+  ]) {
     chmodQuiet(file, 0o600);
   }
 }
@@ -68,6 +98,14 @@ function loadOrCreateSecret(): string {
  * config.ts läuft, bevor es einen Logger gibt — deshalb sammeln statt loggen.
  */
 const startupWarnings: string[] = [];
+
+if (licensePublicKeyOverride) {
+  startupWarnings.push(
+    'OHRGANIZE_LICENSE_PUBLIC_KEY ist gesetzt: Lizenzdateien werden gegen diesen Schlüssel ' +
+      'statt gegen die eingebauten geprüft. Das ist eine Testeinstellung und gehört auf kein ' +
+      'Produktivsystem.',
+  );
+}
 
 // Standard 127.0.0.1 (Desktop-Embedding). Für den Server-Deploy hinter
 // einem Reverse-Proxy OHRGANIZE_HOST setzen (z. B. 0.0.0.0 im Container).
@@ -173,6 +211,9 @@ export const config = {
   dbPath,
   secretPath,
   initialPasswordPath,
+  licensePath,
+  licenseEnforced,
+  licensePublicKeyOverride,
   host,
   /** true, wenn das Backend ausschließlich lokal erreichbar ist. */
   boundToLoopbackOnly,

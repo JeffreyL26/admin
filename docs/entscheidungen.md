@@ -596,3 +596,75 @@ Fertigpaket für ABI 146 wurde gefunden), still installiert, gestartet — Fenst
 offen, eingebettetes Backend antwortet auf `/api/health`, `/api/employees` ohne
 Anmeldung 401. Damit ist belegt, dass `better-sqlite3` unter der neuen
 Electron-ABI lädt.
+
+## Lizenz als signierte Offline-Datei; kein Rückkanal; Nur-Lese statt Sperre; Wasserzeichen nur Stolperdraht; Subdomain bleibt mit Pinning/CAA/CT statt Verzicht
+
+**Entscheidung:** Die Nutzungsberechtigung ist eine Ed25519-signierte
+Textdatei im Datenverzeichnis (`lizenz.ohrganize`, Prüfung in
+`core/license.ts`, Schlüssel in `core/licenseKeys.ts`, Werkzeug
+`npm run lizenz`). Kein Lizenzserver, keine Telemetrie, keine
+Fernabschaltung. Nach Ablauf: 14 Tage Kulanz mit voller Funktion, dann
+Nur-Lese-Betrieb mit Einsicht und Export. Der Uhren-Stolperdraht
+(`installation.last_seen_date`) warnt nur. Ausgeliefert wird das Backend als
+minifiziertes Bundle im Release-Archiv, nicht als Quelltext. Beschreibung
+für Betreiber: `lizenzierung.md`.
+
+**Warum kein Rückkanal:** Das Backend läuft auf Kundenhardware, oft ohne
+Internetzugang, und die Personalakte darf an keiner Stelle vom Anbieter
+abhängen — dieselbe Überlegung wie bei den berechneten Feiertagen (oben).
+Ein Online-Check wäre zudem ein Datenabfluss (wer arbeitet wann mit wie
+vielen Profilen), der eine Auftragsverarbeitung nach sich zöge. Der einzige
+Rückweg ist der Lizenzbericht, den der Kunde selbst herunterlädt und
+mitschickt. Ed25519 über `node:crypto`, weil keine neue Abhängigkeit nötig
+ist (vgl. OpenAPI-Eintrag oben).
+
+**Warum Nur-Lese statt Sperre:** Auf Kundenhardware ist jede Durchsetzung
+ein Zaun — wer Administrator ist, kann die Uhr stellen, die Datenbank ändern
+oder das Bundle patchen. Eine harte Sperre hielte den Entschlossenen nicht
+auf, träfe aber den ehrlichen Kunden, dessen Zahlung sich verzögert, und
+schnitte ihn von Daten ab, die Aufbewahrungsfristen unterliegen. Nur-Lese
+ist gleichzeitig das, was ein Vertrag tragen kann (offengelegte
+Ablaufsperre, keine Sperre bei geringem Verzug; Stichworte in
+`lizenzierung.md`, Abschnitt 5). Regel für alle Folgeänderungen: Die
+Lizenzlogik löscht nie Daten.
+
+**Warum das Wasserzeichen nur warnt:** Windows stellt Uhren von selbst um
+(Secure Time Seeding korrigiert aus TLS-Handshakes heraus, teils um Stunden
+oder Tage), VM-Snapshots springen zurück, NTP korrigiert nach. Ein Riegel
+„Uhr steht vor gesehenem Datum ⇒ gesperrt“ hätte zuerst ehrliche Kunden
+ausgesperrt, während ein Umgeher den Wert in der Datenbank zurücksetzt. Also
+protokollieren, anzeigen, nicht sperren — mit einem Tag Toleranz, damit ein
+einmal in die Zukunft gesprungener Wert nicht tagelang warnt.
+
+**Warum minifiziert, aber nicht obfuskiert:** Das Archiv soll den Quelltext
+nicht mitliefern (Source-Maps bleiben draußen, `--legal-comments=none`),
+weil es sonst gleichgültig wäre, ob man das Repository weitergibt. Mehr als
+Minifizierung ist kein Schutz, sondern Aufwand ohne Gegenwert: Die Prüfung
+sitzt in einer JavaScript-Datei auf der Maschine des Kunden.
+
+**Verworfen — Verzicht auf `<kunde>.ohrganize.com` bei Kundenservern:** Der
+Einwand war ernst: Der Zoneninhaber kann DNS umbiegen und sich ein
+Zertifikat holen, also könnte er Verkehr abfangen. Die Antwort ist nicht
+Verzicht, sondern Sichtbarkeit und Pinning (`kunden-subdomain.md`): DNS-only
+statt Proxy, HTTP-01 mit dem ACME-Konto des Kunden, CAA mit `accounturi` auf
+dieses Konto, CT-Überwachung durch den Kunden, und für die Desktop-App —
+den Verkehr der HR-Administration — feste Schlüssel (`serverKeyPins` in
+`config.json`; serverseitig Caddy ≥ 2.8.0 mit `reuse_private_keys` bzw.
+certbot mit `--reuse-key` bei nginx — ohne eines von beiden bräche der Pin
+bei der ersten Erneuerung). Der Browserpfad des Portals
+bleibt vom Zoneninhaber sichtbar umleitbar; das ist dieselbe
+Vertrauensklasse wie die Auslieferung der Software, und wer sie nicht will,
+nimmt die eigene Domain. Dass Let's-Encrypt-Laufzeiten bis 2028 auf 45 Tage
+fallen, ändert daran nichts: Der Proxy erneuert selbst, der Schlüssel bleibt.
+
+**In Kauf genommen — Schlüsselwechsel als geplanter Ausfall:** Bei einem
+ACME-Aussteller (und bei Caddys interner CA) existiert der neue Schlüssel
+erst nach der Neuausstellung; sein Pin lässt sich also nicht vorab
+verteilen, und jede Desktop-App verweigert den Start, bis er eingetragen
+ist. Die frühere Anleitung „erst Pin verteilen, dann Schlüssel tauschen“
+war für ACME nicht ausführbar (Caddy erzeugt nach dem Löschen des
+Speichers einen eigenen, vorher unbekannten Schlüssel). Statt Caddys
+Speicheraufbau als Schnittstelle zu behandeln und einen selbst erzeugten
+Schlüssel hineinzulegen, sagt die Doku es ehrlich: ankündigen, Freitagabend,
+neuen Pin ablesen und ausrollen. Ohne Ausfall geht es nur mit einem selbst
+erzeugten Schlüssel (Firmen-CA, statische Dateien).

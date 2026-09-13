@@ -1,16 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ABSENCE_CATEGORY_LABELS, type AbsenceCategory } from '@ohrganize/shared';
-import { ApiRequestError } from '../api/client';
 import { useCreateRequest, useLeavePreview, useLeaveTypes, useMyBalance } from '../api/hooks';
+import { useAuth } from '../auth/AuthContext';
 import { Card, Field, Skeleton } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { formatDays, todayIso } from '../lib/format';
+import { apiErrorMessage, PORTAL_READ_ONLY_NOTICE } from '../lib/license';
 import { Select } from '../components/Select';
 
 export function NewRequestPage() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { readOnly } = useAuth();
   const { data: types, isLoading: typesLoading } = useLeaveTypes();
   const create = useCreateRequest();
 
@@ -48,7 +50,7 @@ export function NewRequestPage() {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!typeId || !dateFrom || !dateTo || rangeInvalid) return;
+    if (readOnly || !typeId || !dateFrom || !dateTo || rangeInvalid) return;
     setApiError(null);
     create.mutate(
       {
@@ -69,7 +71,7 @@ export function NewRequestPage() {
           navigate('/antraege');
         },
         onError: (err) => {
-          setApiError(err instanceof ApiRequestError ? err.message : 'Antrag konnte nicht gestellt werden');
+          setApiError(apiErrorMessage(err, 'Antrag konnte nicht gestellt werden'));
         },
       },
     );
@@ -219,7 +221,7 @@ export function NewRequestPage() {
             <button
               type="submit"
               className="pt-btn pt-btn--primary"
-              disabled={create.isPending || !typeId || !dateFrom || !dateTo || rangeInvalid}
+              disabled={readOnly || create.isPending || !typeId || !dateFrom || !dateTo || rangeInvalid}
             >
               {create.isPending ? 'Wird eingereicht …' : 'Antrag einreichen'}
             </button>
@@ -227,6 +229,11 @@ export function NewRequestPage() {
               Abbrechen
             </Link>
           </div>
+          {readOnly && (
+            <p style={{ marginTop: 12, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+              {PORTAL_READ_ONLY_NOTICE}
+            </p>
+          )}
         </Card>
       </form>
     </div>

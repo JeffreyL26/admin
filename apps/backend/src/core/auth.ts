@@ -9,6 +9,7 @@ import { AppError, parse, unauthorized, badRequest } from './errors.js';
 import { permissionsFor } from './permissions.js';
 import { audit } from './audit.js';
 import { getSetting } from './settings.js';
+import { licenseForRole } from './license.js';
 
 /** Rollen: 'admin' = HR-Administration (Desktop), 'mitarbeiter' = Web-Portal. */
 export interface AuthUser {
@@ -437,13 +438,21 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       // Die Rechte reisen mit der Antwort, damit die Oberfläche gesperrte
       // Bereiche gar nicht erst anbietet. Sie sind reine Anzeigehilfe — die
       // Durchsetzung passiert ausschließlich im Hook (core/permissions.ts).
-      return { token, user, permissions: permissionsFor(user.admin_role_id) };
+      // Der Lizenzzustand reist ebenfalls mit (Banner ohne Zusatzabfrage);
+      // Portal-Konten bekommen nur, ob Änderungen gerade möglich sind.
+      return {
+        token,
+        user,
+        permissions: permissionsFor(user.admin_role_id),
+        license: licenseForRole(user.role),
+      };
     },
   );
 
   app.get('/api/auth/me', async (req) => ({
     user: req.user,
     permissions: permissionsFor(req.user.admin_role_id),
+    license: licenseForRole(req.user.role),
   }));
 
   app.put('/api/auth/password', { preHandler: throttlePasswordChange }, async (req) => {

@@ -180,6 +180,52 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
 - **Dateien** liegen ausschließlich im Backend-Storage (`files`-Tabelle + Ordner).
   Downloads laufen über kurzlebige HMAC-signierte URLs (`core/files.ts`) — für
   Desktop- und späteren Web-Client identisch.
+- **Lizenz: signierte Offline-Datei, Nur-Lese statt Sperre.** Die
+  Nutzungsberechtigung ist `<dataDir>/lizenz.ohrganize` (eine Zeile
+  `OHRG1.<payload>.<Ed25519-Signatur>`; Format und Prüfung `core/licenseCodec.ts`,
+  Vertrauensanker `core/licenseKeys.ts`, Zustand und Durchsetzung
+  `core/license.ts`, Routen `core/licenseRoutes.ts`; gemeinsamer Vertrag mit den
+  Clients in `packages/shared/src/license.ts`). Kein Rückkanal, keine
+  Fernabschaltung. Zustände `entwicklung` · `trial` (30 Tage ab
+  `installation.created_at`) · `valid` (`warning` ab `warn_days`, Vorgabe 30) ·
+  `grace` (14 Tage, volle Funktion) · `expired` (**Nur-Lese**: GET/HEAD, Exporte
+  und signierte Downloads offen, alles andere `403 LICENSE_EXPIRED`). Das Gate
+  `assertLicenseAllows` sitzt im globalen Hook in `server.ts` **nach** dem
+  `must_change_password`-Gate und **vor** der Rollenprüfung; offen bleiben die
+  Routen in `LICENSE_OPEN_ROUTES` (`/api/auth/me`, `/api/auth/password`,
+  `/api/license`, die drei `…/sign`- bzw. `…/download`-POSTs sowie der
+  Konto-Widerruf `DELETE`/`PATCH /api/admin/users/:id` und
+  `POST …/reset-password` — der Lesezugriff steht im Nur-Lese-Betrieb allen
+  bestehenden Konten offen, also muss ein ausgeschiedenes oder
+  kompromittiertes Konto entziehbar bleiben; Anlegen bleibt gesperrt).
+  Die 403-Meldung ist kontoabhängig: Admins der Sachstand, Portal-Konten
+  nur der neutrale Hinweis. `/api/license` hängt in `ROUTE_AREAS` am Bereich
+  `einstellungen`; der Header `x-ohrganize-license` steht **nur auf
+  angemeldeten Antworten** (Admins der Zustand, Portal nur `valid`/`expired`,
+  öffentliche Routen ohne Header — `licenseHeaderValueFor`),
+  Login/`/api/auth/me` liefern `license` (Admins alles, Portal nur
+  `{ read_only }`), `/api/health` nur `license.read_only`. Einspielen ist
+  monoton (kein früheres `valid_until`, kein früheres `issued_at`; gleicher
+  Tag erlaubt), `valid_until` ≤ `LICENSE_MAX_DATE` (2999-12-31 =
+  „unbefristet“), und eine bereits über die Kulanz hinaus abgelaufene Datei
+  im Datenverzeichnis beendet die Testphase nicht. Platzgrenze `max_users` ⇒
+  `assertSeatsAvailable` an genau den Stellen, an denen Profile aktiv werden
+  (`employeeRoutes.ts`: POST, PATCH-Reaktivierung, Sammeländerung;
+  `recruiting/routes.ts`: hire) → `409 LICENSE_SEATS_EXCEEDED`. Tabelle
+  `installation` kommt aus dem Eintrag `004_license` in `000_core.ts`
+  (`installation_id`, Testphasen-Anker, `licensed_at` gegen eine zweite
+  Testphase, `last_seen_date` als Uhren-Stolperdraht — warnt, sperrt nie).
+  **`licenseEnforced = Boolean(OHRGANIZE_DATA_DIR)`**: ohne die Variable (Dev-DB)
+  keine Prüfung, mit ihr (Server, installierte App, Smoke-Tests) immer. Der
+  private Schlüssel liegt nie im Repo/OneDrive/Mail; `npm run lizenz`
+  (`scripts/license-tool.ts`) erzeugt, signiert, prüft. Tests:
+  `src/test/licenseSmoke.ts` (eigenes Schlüsselpaar über
+  `OHRGANIZE_LICENSE_PUBLIC_KEY`, nur dort — die Produktionsbundles
+  kompilieren die Variable per `esbuild --define` heraus, `release-server.mjs`
+  weist ein Bundle ab, das sie noch liest, und die Desktop-App löscht sie vor
+  dem Laden des eingebetteten Backends). **Die Lizenzlogik löscht nie
+  Daten** — Nur-Lese heißt lesbar und exportierbar, die Personalakte hat
+  Aufbewahrungsfristen. Betreiberdoku: docs/lizenzierung.md.
 
 ## Konventionen
 
@@ -331,6 +377,23 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   füllt NUR die Dev-DB; für die installierte App `npm run seed:desktop -- --force`
   (App vorher schließen — SQLite-Dateisperre). Ein frisch installiertes Programm
   startet absichtlich leer (nur Admin-Login).
+- **`licenseKeys.ts`: neuer Schlüssel = neuer Eintrag, alter bleibt bis alle
+  Kunden neu signiert sind; sonst fällt deren Server nach dem Update in den
+  Nur-Lese-Betrieb.** Lizenzen nennen ihren Schlüssel über `kid`; ein Server
+  ohne passenden Eintrag hält die Datei für unbrauchbar. Ablauf in
+  docs/lizenzierung.md, Abschnitt 3.1.
+- **Serverauslieferung ist das Release-Archiv, nicht das Repo.**
+  `npm run release:server` (`scripts/release-server.mjs`) baut Backend und
+  Portal und packt `release/ohrganize-server-<version>.zip`: nur `cli.cjs` und
+  `backup.cjs` (minifiziert, **ohne** `.map` — die enthalten den Quelltext),
+  `apps/web/dist`, `deploy/`, Betriebsdokumente und ein auf `better-sqlite3`
+  gekürztes `package.json`/`package-lock.json` (aus dem Root-Lockfile
+  abgeleitet, samt `allowScripts`-Eintrag). Die Pfade spiegeln das Repo, weil
+  Units und `install-service.ps1` `apps/backend/dist/cli.cjs` kennen. Das
+  Backend-Build läuft mit `--minify --legal-comments=none --sourcemap=external`;
+  Textdateien unter `deploy/` werden im Archiv auf LF normalisiert (`.ps1` auf
+  CRLF), weil die Windows-Arbeitskopie CRLF trägt und ein CR in einer Unit
+  `ExecStart` bricht.
 
 ## Häufige Kommandos
 
@@ -341,6 +404,8 @@ npm run typecheck      # alle Workspaces
 npm run seed           # Demo-Daten
 npm run build:web      # statisches Portal-Build → apps/web/dist
 npm run dist:win       # kompletter Windows-Installer (NSIS) → apps/desktop/release
+npm run release:server # Server-Release-Archiv (Bundles + Portal + deploy/) → release/
+npm run lizenz -- …    # Lizenzwerkzeug des Anbieters: keygen | keys | sign | inspect (docs/lizenzierung.md)
 ```
 
 Login bei Frischinstallation: `admin@ohrganize.de` mit einem **zufällig

@@ -303,6 +303,18 @@ button {
   margin: 0 auto;
   padding: 36px 24px 72px;
 }
+/* Globaler Hinweis (Nur-Lese-Betrieb) zwischen Topbar und Seiteninhalt:
+   gleiche Spaltenbreite und Seitenränder wie .portal-main, der Inhalt rückt
+   darunter etwas enger auf, damit nicht zwei volle Abstände übereinanderliegen. */
+.portal-notice {
+  width: 100%;
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 24px 24px 0;
+}
+.portal-notice + .portal-main {
+  padding-top: 20px;
+}
 .portal-footer {
   max-width: var(--content-width);
   margin: 0 auto;
@@ -458,6 +470,20 @@ button {
 .pt-select:disabled,
 .pt-textarea:disabled {
   background: var(--gray-100);
+}
+/* Dokument-Ablagefläche (DocumentsPage): Der Aufruf „Datei wählen“ trägt die
+   Markenfarbe; gesperrt (Nur-Lese-Betrieb oder laufender Upload) wird die
+   Fläche gedämpft statt ausgeblendet — sie bleibt als Bedienelement erkennbar,
+   lädt aber nicht mehr zum Klick ein. */
+.doc-drop__cta {
+  color: var(--brand-primary);
+}
+.doc-drop.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.doc-drop.is-disabled .doc-drop__cta {
+  color: var(--text-muted);
 }
 .pt-textarea {
   height: auto;
@@ -946,6 +972,12 @@ button {
   }
   .portal-main {
     padding: 24px 16px 56px;
+  }
+  .portal-notice {
+    padding: 16px 16px 0;
+  }
+  .portal-notice + .portal-main {
+    padding-top: 16px;
   }
   .portal-footer {
     padding: 0 16px 24px;

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
+import { ReadOnlyNotice } from '../components/ReadOnlyNotice';
 import {
   IconCalendar,
   IconClose,
@@ -215,6 +216,9 @@ export function PortalShell() {
             <Wordmark />
           </div>
         </div>
+
+        {/* Nur im Nur-Lese-Betrieb sichtbar; auf jeder Seite über dem Inhalt. */}
+        <ReadOnlyNotice />
 
         <main className="portal-main">
           <Outlet />

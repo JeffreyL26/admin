@@ -54,17 +54,80 @@ portal.example.invalid {
 	# -----------------------------------------------------------------------
 	# Zertifikat
 	# -----------------------------------------------------------------------
-	# OHNE `tls`-Direktive versucht Caddy automatisch ACME (Let's Encrypt).
-	# Das setzt einen aus dem Internet erreichbaren, öffentlich auflösbaren
-	# Namen voraus und schlägt für interne Namen (ohrganize.firma.local, reine
-	# LAN-Installationen) zwangsläufig fehl — Let's Encrypt kann nichts
-	# bestätigen, was es nicht erreicht. Für den reinen Firmennetzbetrieb
-	# deshalb eine der beiden folgenden Varianten einkommentieren.
+	# Ohne Aussteller-Angabe in `tls` besorgt Caddy das Zertifikat automatisch
+	# über ACME (Let's Encrypt). Das setzt einen aus dem Internet erreichbaren,
+	# öffentlich auflösbaren Namen voraus und schlägt für interne Namen
+	# (ohrganize.firma.local, reine LAN-Installationen) zwangsläufig fehl —
+	# Let's Encrypt kann nichts bestätigen, was es nicht erreicht. Für den
+	# reinen Firmennetzbetrieb deshalb den Block durch eine der beiden
+	# Varianten (a) oder (b) darunter ERSETZEN.
+	#
+	# reuse_private_keys — NICHT ENTFERNEN. Die HR-Desktop-App pinnt den
+	# ÖFFENTLICHEN SCHLÜSSEL dieses Servers: Sie merkt sich ihn beim ersten
+	# Kontakt (bzw. bekommt ihn per config.json "serverKeyPins" vorgegeben) und
+	# verweigert danach jeden Server, der sich mit einem anderen Schlüssel
+	# ausweist — auch mit einem formal gültigen Zertifikat. Caddy erzeugt bei
+	# jeder Erneuerung standardmäßig ein NEUES Schlüsselpaar; ohne diese Zeile
+	# stünde nach der ersten Erneuerung (Let's Encrypt: alle ~60 Tage) jeder
+	# Arbeitsplatz vor der Warnung „anderer Schlüssel“. Mit der Zeile überlebt
+	# der Schlüssel die Erneuerungen, nur das Zertifikat wird neu ausgestellt.
+	# Setzt Caddy >= 2.8.0 voraus (der Download von caddyserver.com ist
+	# aktuell); eine ältere Exe meldet „unknown subdirective:
+	# reuse_private_keys“ — dann Caddy aktualisieren, NICHT die Zeile löschen.
+	# Die Caddy-Dokumentation nennt Pinning „against industry best practices“
+	# und behält sich vor, die Option später zu entfernen — bei einem
+	# Caddy-Update deshalb prüfen, ob sie noch existiert (`caddy validate`
+	# meldet eine unbekannte Option), und den Pin nach dem Update
+	# kontrollieren (Befehl unten).
+	#
+	# Muss der Schlüssel doch einmal gewechselt werden (Kompromittierung,
+	# Turnus), ist das bei ACME und bei `issuer internal` ein GEPLANTER
+	# AUSFALL der Arbeitsplätze — ehrlich gesagt, weil es nicht anders geht:
+	# Den neuen Schlüssel erzeugt Caddy erst bei der nächsten Ausstellung,
+	# sein Pin ist also vorher niemandem bekannt und kann nicht vorab verteilt
+	# werden (reuse_private_keys lädt nur einen Schlüssel, der noch im Speicher
+	# liegt; Caddys Speicheraufbau ist keine Schnittstelle, in die man einen
+	# eigenen Schlüssel legt). Reihenfolge: (1) Wechsel ankündigen —
+	# Freitagabend, nicht Montagmorgen. (2) `nssm stop Caddy`, im Caddy-Speicher
+	# den Ordner certificates\<aussteller>\portal.example.invalid\ samt .key
+	# entfernen (unter %APPDATA%\Caddy des Caddy-Dienstkontos; bei LocalSystem
+	# C:\Windows\System32\config\systemprofile\AppData\Roaming\Caddy),
+	# `nssm start Caddy`: Es holt ein Zertifikat mit neuem Schlüssel; die Zeile
+	# reuse_private_keys bleibt stehen und hält ab jetzt den neuen fest.
+	# (3) Neuen Pin mit dem Befehl unten ablesen und auf JEDEM Arbeitsplatz in
+	# config.json "serverKeyPins" eintragen (bzw. OHRGANIZE_SERVER_KEY_PINS im
+	# Rollout); Arbeitsplätze ohne Konfiguration (Trust on first use) löschen
+	# stattdessen ihre server-pins.json. Bis dahin verweigert die Desktop-App
+	# dort den Start und nennt den neuen Pin in ihrer Fehlermeldung. (4) Den
+	# alten Pin austragen. Vorab verteilen lässt sich ein Pin nur bei einem
+	# selbst erzeugten Schlüssel, also Variante (a) unten: neues Paar erzeugen,
+	# Pin berechnen, auf allen Arbeitsplätzen NEBEN dem alten eintragen (die
+	# Liste darf mehrere Werte haben), erst dann die Dateien tauschen.
+	#
+	# Pin des laufenden Servers ablesen (openssl aus Git für Windows, in
+	# cmd.exe — NICHT in Windows PowerShell 5.1, die verfälscht Binärdaten
+	# zwischen zwei Programmen in der Pipe; bewusst eine Zeile zum Kopieren):
+	#   openssl s_client -connect portal.example.invalid:443 -servername portal.example.invalid <NUL 2>NUL | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+	# (In Git Bash statt <NUL 2>NUL: </dev/null 2>/dev/null.)
+	# Ergebnis mit dem Präfix „sha256/“ in config.json eintragen.
+	tls {
+		reuse_private_keys
+	}
 	#
 	# (a) Zertifikat der eigenen Firmen-CA (empfohlen, wenn es eine gibt —
 	#     in einer Domänenumgebung mit AD-Zertifikatdiensten ist das der
 	#     Regelfall): Die Arbeitsplätze vertrauen der Firmen-CA bereits, es
-	#     ist nichts zu verteilen.
+	#     ist nichts zu verteilen. Statische Datei: Caddy erneuert nichts, der
+	#     Schlüssel bleibt von selbst — `reuse_private_keys` ist hier
+	#     gegenstandslos, den Block oben also durch diese eine Zeile ersetzen.
+	#     Wer das Zertifikat erneuert, behält das Schlüsselpaar (CSR mit dem
+	#     vorhandenen Schlüssel); ein bewusster Schlüsselwechsel läuft hier
+	#     OHNE Ausfall, weil der Pin vorab bekannt ist: neues Paar erzeugen,
+	#     Pin berechnen (openssl pkey -in neu.key -pubout -outform der |
+	#     openssl dgst -sha256 -binary | openssl enc -base64 — in cmd.exe oder
+	#     Git Bash, nicht in Windows PowerShell 5.1), auf allen Arbeitsplätzen
+	#     NEBEN dem alten eintragen, Dateien tauschen, `nssm restart Caddy`,
+	#     alten Pin austragen.
 	#     ACHTUNG: Caddy erneuert ein selbst mitgebrachtes Zertifikat NICHT.
 	#     Das Ablaufdatum gehört in den Betriebskalender — läuft es ab, meldet
 	#     sich am Montagmorgen niemand mehr an.
@@ -72,7 +135,9 @@ portal.example.invalid {
 	# tls C:/ProgramData/oHRganize/tls/portal.crt C:/ProgramData/oHRganize/tls/portal.key
 	#
 	# (b) Caddys eigene interne CA (kein Zertifikat zu beschaffen, Erneuerung
-	#     übernimmt Caddy):
+	#     übernimmt Caddy). Hier ist `reuse_private_keys` unverzichtbar: Diese
+	#     Zertifikate leben nur wenige Stunden und werden laufend erneuert —
+	#     ohne die Zeile wechselte der Schlüssel mehrmals täglich.
 	#     ACHTUNG: Das Root-Zertifikat dieser CA muss per Gruppenrichtlinie an
 	#     alle Arbeitsplätze verteilt werden (Computerkonfiguration →
 	#     Windows-Einstellungen → Sicherheitseinstellungen → Richtlinien für
@@ -80,7 +145,10 @@ portal.example.invalid {
 	#     stellen), sonst zeigt jeder Browser eine Zertifikatswarnung. Es liegt
 	#     nach dem ersten Start unter
 	#     %APPDATA%\Caddy\pki\authorities\local\root.crt des Caddy-Dienstkontos.
-	# tls internal
+	# tls {
+	# 	issuer internal
+	# 	reuse_private_keys
+	# }
 
 	# -----------------------------------------------------------------------
 	# Zugriffsprotokoll OHNE Query-String

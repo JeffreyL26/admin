@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
+import { assertSeatsAvailable } from '../../core/license.js';
 import {
   EMPLOYEE_COLUMNS,
   assertExitNotBeforeHire,
@@ -241,6 +242,17 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     if (fields.length === 0) throw badRequest('Keine Felder zum Setzen angegeben');
 
     const db = getDb();
+    // Platzgrenze der Lizenz (core/license.ts): zählt, wie viele der gewählten
+    // Profile durch dieses Set von 'ausgeschieden' auf 'aktiv' wechseln würden.
+    if (set.status === 'aktiv') {
+      const reactivating = ids.filter((id) => {
+        const row = db.prepare('SELECT status FROM employees WHERE id = ?').get(id) as
+          | { status: string }
+          | undefined;
+        return row?.status === 'ausgeschieden';
+      }).length;
+      assertSeatsAvailable(reactivating);
+    }
     inTransaction(() => {
       const update = db.prepare(
         `UPDATE employees SET ${fields.map(([k]) => `${k} = ?`).join(', ')},
@@ -295,6 +307,8 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     // gesetzt sind).
     assertExitNotBeforeHire(body);
     assertPersonnelNumberFree(body.personnel_number);
+    // Platzgrenze der Lizenz (core/license.ts) — nur ein aktives Profil zählt.
+    if (body.status === 'aktiv') assertSeatsAvailable(1);
     const cols = EMPLOYEE_COLUMNS.filter((c) => body[c] !== undefined);
     const info = getDb()
       .prepare(
@@ -333,6 +347,8 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       assertExitNotBeforeHire({ ...existing, ...patch });
     }
     assertPersonnelNumberFree(patch.personnel_number, id);
+    // Reaktivierung belegt einen Platz der Lizenz.
+    if (existing.status === 'ausgeschieden' && patch.status === 'aktiv') assertSeatsAvailable(1);
     getDb()
       .prepare(
         `UPDATE employees SET ${cols.map((c) => `${c} = ?`).join(', ')},

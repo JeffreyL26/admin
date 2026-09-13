@@ -3,9 +3,11 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, Search } from 'lucide-react';
 import type { AdminArea } from '@ohrganize/shared';
 import { useSidebarSections } from './sidebarConfig';
+import { LicenseBanner } from './LicenseBanner';
 import { useAuth } from '../auth/AuthContext';
 import { Avatar } from '../components/ui';
 import { CommandPalette } from '../components/CommandPalette';
+import { Tooltip } from '../components/Tooltip';
 import { useLeaderStatus } from '../features/leadership/api';
 import logo from '../assets/logo.png';
 
@@ -108,7 +110,7 @@ export function AppShell() {
               <div key={section.key}>
                 {section.title && <div className="sidebar__section">{section.title}</div>}
                 {items.map((item) => (
-                  <NavLink key={item.path} to={item.path} className="sidebar__link">
+                  <NavLink key={item.path} to={item.path} className="sidebar__link" end={item.end}>
                     <item.icon size={17} />
                     {item.label}
                   </NavLink>
@@ -123,16 +125,21 @@ export function AppShell() {
             <div className="sidebar__user-name">{user?.name}</div>
             <div className="sidebar__user-role">HR-Administration</div>
           </div>
-          <button
-            className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-            onClick={logout}
-            title="Abmelden"
-          >
-            <LogOut size={16} />
-          </button>
+          <Tooltip content={<div className="hm-tooltip__title">Abmelden</div>}>
+            <button
+              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+              onClick={logout}
+              aria-label="Abmelden"
+            >
+              <LogOut size={16} />
+            </button>
+          </Tooltip>
         </div>
       </aside>
       <main className="main">
+        {/* Lizenzhinweise sitzen über dem scrollenden Seitenbereich, damit sie
+            auf jeder Seite stehen bleiben (Zustand aus dem Auth-Kontext). */}
+        <LicenseBanner />
         <div className="page">
           {/* Key = Pfad: löst die Einblend-Animation bei jedem Seitenwechsel aus. */}
           <div className="page-enter" key={location.pathname}>

@@ -4,7 +4,7 @@ import {
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
   FileText, Radio, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
   LineChart, FileStack, UserPlus, ShieldCheck, KeyRound, UsersRound, Gauge, SlidersHorizontal,
-  FilePenLine,
+  FilePenLine, BadgeCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { AdminArea } from '@ohrganize/shared';
@@ -21,6 +21,12 @@ export interface NavItem {
    * Zugriff im Backend (modules/leadership, requireLeader).
    */
   leaderOnly?: boolean;
+  /**
+   * Nur bei exaktem Pfad aktiv. Nötig, wenn ein Eintrag Unterseiten hat, die
+   * selbst in der Seitenleiste stehen (/einstellungen → /einstellungen/lizenz):
+   * NavLink markiert sonst beide, weil es Präfixe als aktiv wertet.
+   */
+  end?: boolean;
 }
 
 export interface NavSection {
@@ -140,6 +146,10 @@ export const NAV_SECTIONS: NavSection[] = [
     key: 'system',
     title: 'System',
     area: 'einstellungen',
-    items: [{ path: '/einstellungen', label: 'Einstellungen', icon: Settings }],
+    items: [
+      { path: '/einstellungen', label: 'Einstellungen', icon: Settings, end: true },
+      // Lizenzzustand, Lizenzdatei einspielen, Lizenzbericht (features/settings/LicensePage.tsx).
+      { path: '/einstellungen/lizenz', label: 'Lizenz', icon: BadgeCheck },
+    ],
   },
 ];

@@ -19,11 +19,13 @@ curl -sS https://portal.firma.de/api/health
 Invoke-RestMethod https://portal.firma.de/api/health
 ```
 
-Erwartete Antwort — vier Felder, `version` ist die installierte Ausgabe,
-`min_client_version` die älteste noch bediente Desktop-App:
+Erwartete Antwort — fünf Felder, `version` ist die installierte Ausgabe,
+`min_client_version` die älteste noch bediente Desktop-App,
+`license.read_only` sagt, ob das System Änderungen annimmt (`false` in der
+Testphase und mit gültiger Lizenz, Punkt 10):
 
 ```json
-{"ok":true,"name":"oHRganize Backend","version":"1.0.0-beta.1","min_client_version":"1.0.0"}
+{"ok":true,"name":"oHRganize Backend","version":"1.0.0-beta.1","min_client_version":"1.0.0","license":{"read_only":false}}
 ```
 
 **Zeitbedarf:** rund 60 Minuten, plus die Restore-Probe.
@@ -88,7 +90,10 @@ Portal (das Portal ist ausschließlich der Self-Service für Mitarbeitende).
 Die App muss dafür auf den Server zeigen — entweder über die Umgebungsvariable
 `OHRGANIZE_API_BASE=https://portal.firma.de` oder über
 `%APPDATA%\oHRganize\config.json` mit `{ "apiBaseUrl": "https://portal.firma.de" }`
-(Einzelheiten in [`web-portal.md`](web-portal.md)).
+(Einzelheiten in [`web-portal.md`](web-portal.md)). Sobald der Verkehr das
+Firmennetz verlässt, gehört in dieselbe Datei auch `serverKeyPins` — der
+festgenagelte Schlüssel des Servers, siehe
+[`../deploy/windows/README.md`](../deploy/windows/README.md), Abschnitt 7.
 
 Ohne installierte App lässt sich der Zugang auch direkt prüfen:
 
@@ -335,7 +340,63 @@ Wer die Funktion nicht einsetzt, überspringt diesen Punkt.
 - [ ] Nur Geschäftsführung/HR haben `fuehrung` auf `lesen` oder `bearbeiten`;
       die Rolle „Führungskraft" hat keinen HR-Bereich.
 
-## 10. Datensicherung scharf schalten
+## 10. Lizenz einspielen
+
+Eine frische Installation läuft **30 Tage als Testphase** — ohne Platzgrenze,
+mit einem Hinweisbanner für Admins. Danach schaltet das System in den
+**Nur-Lese-Betrieb**: Einsicht und Export gehen weiter, jede Änderung wird mit
+`403 LICENSE_EXPIRED` abgewiesen, auch im Portal. Daten gehen dabei nie
+verloren; die Testphase ist aber der Zeitraum, in dem die Lizenz besorgt
+gehört. Das Modell im Ganzen: [`lizenzierung.md`](lizenzierung.md).
+
+1. In der Desktop-App **Einstellungen → Lizenz** öffnen. Dort stehen die
+   **Installations-ID** (32 Zeichen), der Zustand („Testphase, noch N Tage")
+   und die Platzbelegung.
+2. Installations-ID an den Anbieter senden — am einfachsten über den
+   **Lizenzbericht** (Schaltfläche auf derselben Seite; eine JSON-Datei mit
+   Kennungen und Zahlen, ohne Personendaten). Der Anbieter stellt daraufhin
+   die Datei `lizenz-<kunde>-<datum>.ohrganize` aus.
+3. Die Datei auf derselben Seite einspielen. Kein Dienstneustart, keine
+   Kopie auf den Server — das Backend prüft Signatur, Bindung und Laufzeit,
+   bevor es sie übernimmt, und nennt bei Ablehnung den Grund.
+4. Prüfen: Zustand **„gültig"**, das Datum unter „gültig bis" entspricht der
+   bestellten Laufzeit, die Platzzahl reicht für die geplanten
+   Personalprofile (Punkt 8 — beim Anlegen darüber hinaus antwortet der
+   Server `409 LICENSE_SEATS_EXCEEDED`).
+
+Ohne Desktop-App lässt sich der Zustand auch direkt abfragen. Das
+unangemeldete `/api/health` (Punkt 1) nennt nur `license.read_only` und
+unterscheidet Testphase und Lizenz nicht; den Zustand liefert die
+Anmeldeantwort (`license.state`) — der Header `x-ohrganize-license` steht
+ebenfalls nur auf angemeldeten Antworten:
+
+```bash
+# Linux — erwartet: "state":"trial" (vorher) bzw. "state":"valid" (nachher)
+curl -sS -X POST https://portal.firma.de/api/auth/login \
+     -H 'Content-Type: application/json' \
+     -d '{"email":"<eigene-adresse>","password":"<eigenes-passwort>"}' | grep -o '"state":"[a-z]*"'
+```
+
+```powershell
+# Windows
+$body = @{ email = '<eigene-adresse>'; password = '<eigenes-passwort>' } | ConvertTo-Json
+(Invoke-RestMethod -Method Post -Uri 'https://portal.firma.de/api/auth/login' -ContentType 'application/json' -Body $body).license.state
+```
+
+Die Datei liegt danach als `lizenz.ohrganize` im Datenverzeichnis und wird von
+der Sicherung mitgenommen (Punkt 11). **30 Tage vor Ablauf** erscheint ein
+Banner; das ist der Moment, die Verlängerung zu bestellen — die neue Datei
+wird auf demselben Weg eingespielt und verlängert nahtlos.
+
+- [ ] Installations-ID an den Anbieter übermittelt, Lizenzdatei erhalten.
+- [ ] Lizenz eingespielt; Einstellungen → Lizenz zeigt „gültig" und das
+      erwartete Ablaufdatum.
+- [ ] `license.state` in der Anmeldeantwort (bzw. `GET /api/license`) meldet
+      `valid`.
+- [ ] Ablaufdatum im Kalender der Administration eingetragen (Wiedervorlage
+      30 Tage davor).
+
+## 11. Datensicherung scharf schalten
 
 Nach [`../deploy/README.md`](../deploy/README.md), Abschnitt 5 (Linux) bzw.
 [`../deploy/windows/README.md`](../deploy/windows/README.md), Abschnitt 5
@@ -355,13 +416,14 @@ Get-ChildItem 'C:\ProgramData\oHRganize\backups' | Sort-Object LastWriteTime -De
 - [ ] Zeitplan aktiv (Timer bzw. geplante Aufgabe) und mit einem
       erfolgreichen Lauf hinterlegt.
 - [ ] Ein Lauf erfolgreich, Verzeichnis enthält `ohrganize.db`, `storage/`,
-      `secret.key`, `MANIFEST.txt`.
+      `secret.key`, `lizenz.ohrganize` (sobald eingespielt, Punkt 10),
+      `MANIFEST.txt`.
 - [ ] Auslagerung auf ein zweites System eingerichtet (eine Sicherung neben den
       Daten schützt vor keinem der Fälle, für die man sichert).
 - [ ] **Restore-Probe** einmal durchgeführt und protokolliert (Datum, wer,
       Ergebnis). Wiedervorlage in sechs Monaten.
 
-## 11. Abnahme
+## 12. Abnahme
 
 **Linux:**
 
@@ -454,7 +516,7 @@ icacls 'C:\ProgramData\oHRganize\data\storage'
 > `curl -sSI http://portal.firma.de` von einem beliebigen anderen Rechner zu
 > prüfen.
 
-- [ ] Punkte 1 bis 10 abgehakt (Punkt 9 nur, wenn die Führungsfunktion
+- [ ] Punkte 1 bis 11 abgehakt (Punkt 9 nur, wenn die Führungsfunktion
       eingesetzt wird).
 - [ ] Ein Arbeitsplatz der HR-Administration arbeitet über die Desktop-App
       gegen den Server (nicht mehr gegen die lokale Datenbank).
@@ -472,5 +534,6 @@ icacls 'C:\ProgramData\oHRganize\data\storage'
 | wöchentlich | Journal auf gehäufte Anmeldefehler durchsehen | `Select-String -Path 'C:\ProgramData\oHRganize\logs\backend*.log' -Pattern 'Anmeldung fehlgeschlagen'` |
 | monatlich | Kontenliste durchgehen: ausgeschiedene Personen, Rollen noch passend? | dito |
 | halbjährlich | Restore-Probe | Restore-Probe (`deploy/windows/README.md`) |
+| 30 Tage vor Lizenzablauf | Verlängerung bestellen (Banner erscheint; Einstellungen → Lizenz zeigt das Datum) — danach 14 Tage Kulanz, dann Nur-Lese-Betrieb | dito |
 | bei jedem Update | Sicherung vorher, Journal nachher (`deploy/README.md`, Abschnitt 6) | Sicherung vorher, `backend.log` nachher (`deploy/windows/README.md`, Abschnitt 6) |
 | nach jeder Rechteänderung am Server | `ls -ld /var/lib/ohrganize` | `icacls 'C:\ProgramData\oHRganize\data'` — anders als unter Linux zieht der Dienststart die Rechte **nicht** von selbst zurecht |

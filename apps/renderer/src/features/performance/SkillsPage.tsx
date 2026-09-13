@@ -92,7 +92,7 @@ function CatalogTab() {
       toast.success('Skill gelöscht');
       invalidate();
     },
-    onError: () => toast.error('Fehler beim Löschen'),
+    onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Löschen'),
   });
 
   if (isLoading) return <Spinner center />;
@@ -248,7 +248,7 @@ function MatrixTab() {
       qc.invalidateQueries({ queryKey: ['performance', 'skills-matrix'] });
       setCell(null);
     },
-    onError: () => toast.error('Fehler beim Entfernen'),
+    onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Entfernen'),
   });
 
   if (isLoading) return <Spinner center />;
@@ -550,7 +550,7 @@ function ProfilesTab() {
       toast.success('Soll-Level aktualisiert');
       invalidate();
     },
-    onError: () => toast.error('Fehler beim Aktualisieren'),
+    onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Aktualisieren'),
   });
 
   const deleteMutation = useMutation({
@@ -559,7 +559,7 @@ function ProfilesTab() {
       toast.success('Eintrag gelöscht');
       invalidate();
     },
-    onError: () => toast.error('Fehler beim Löschen'),
+    onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Löschen'),
   });
 
   if (isLoading) return <Spinner center />;

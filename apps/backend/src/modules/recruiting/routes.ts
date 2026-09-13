@@ -5,6 +5,7 @@ import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { signDownloadUrl } from '../../core/files.js';
 import { todayIso } from '../../core/dates.js';
+import { assertSeatsAvailable } from '../../core/license.js';
 import { isoDateString } from '../../core/validation.js';
 
 // ---------------------------------------------------------------------------
@@ -957,6 +958,9 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     if (appl.status === 'abgelehnt' || appl.status === 'zurueckgezogen') {
       throw conflict('Nur aktive Bewerbungen können eingestellt werden');
     }
+    // Die Einstellung legt ein aktives Personalprofil an — Platzgrenze der
+    // Lizenz prüfen, bevor die Transaktion beginnt (core/license.ts).
+    assertSeatsAvailable(1);
 
     const hiredStage = stageByCategory('eingestellt');
     const result = inTransaction(() => {

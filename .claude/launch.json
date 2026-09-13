@@ -4,7 +4,31 @@
     {
       "name": "ohrganize-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "C:\\Users\\jeffr\\OneDrive\\Documents\\jba-team\\website\\ohrganize",
+        "run",
+        "dev"
+      ],
+      "port": 5180
+    },
+    {
+      "name": "ohrganize-lizenz-demo",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$env:OHRGANIZE_DATA_DIR=\"C:/Users/jeffr/AppData/Local/Temp/ohrganize-lizenz-demo\"; $env:OHRGANIZE_INITIAL_ADMIN_PASSWORD=\"Demo-Kennwort-2026!\"; npm run dev"
+      ],
       "port": 5173
     }
   ]

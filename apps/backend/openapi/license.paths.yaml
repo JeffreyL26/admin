@@ -1,0 +1,86 @@
+# Lizenz (core/licenseRoutes.ts) — Pfade (Merge via npm run openapi -w apps/backend).
+#
+# Zustand und Durchsetzung: core/license.ts. Im Nur-Lese-Betrieb (Zustand
+# `expired`) antworten alle schreibenden Routen außer /api/auth/*, PUT
+# /api/license und den Signierrouten mit 403 LICENSE_EXPIRED. Der Zustand
+# steht zusätzlich auf jeder ANGEMELDETEN Antwort im Header `x-ohrganize-license`
+# (Administration: entwicklung | valid | trial | grace | expired; Portal-Konten
+# nur valid | expired; öffentliche Routen tragen ihn nicht) und in den
+# Antworten von POST /api/auth/login, GET /api/auth/me (Feld `license`) und
+# GET /api/health (nur `read_only`).
+paths:
+  /api/license:
+    get:
+      summary: Lizenzzustand der Installation (Bereich einstellungen, lesen)
+      responses:
+        "200":
+          description: Zustand, Laufzeit, Plätze, Installations-ID, Hinweise
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  license:
+                    type: object
+                    properties:
+                      state: { type: string, enum: [entwicklung, valid, trial, grace, expired] }
+                      read_only: { type: boolean }
+                      warning: { type: boolean }
+                      days_left: { type: integer, nullable: true }
+                      valid_until: { type: string, format: date, nullable: true }
+                      grace_until: { type: string, format: date, nullable: true }
+                      customer: { type: string, nullable: true }
+                      license_id: { type: string, nullable: true }
+                      kind: { type: string, enum: [standard, evaluation], nullable: true }
+                      max_users: { type: integer, nullable: true }
+                      seats_used: { type: integer }
+                      installation_id: { type: string, description: 32 Hex-Zeichen; gehört in die Bestellung beim Anbieter }
+                      notice: { type: string, nullable: true }
+                      invalid_reason: { type: string, nullable: true }
+                      clock_warning: { type: boolean }
+    put:
+      summary: Lizenzdatei einspielen (Bereich einstellungen, bearbeiten; auch im Nur-Lese-Betrieb)
+      description: >
+        Prüft Signatur, Format, Bindung an die Installation und Laufzeit, BEVOR
+        die Datei geschrieben wird. Eine Lizenz mit früherem Ablauf als die
+        eingespielte wird abgelehnt (monoton); eine bereits über die Kulanz hinaus
+        abgelaufene ebenfalls.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [license]
+              properties:
+                license: { type: string, description: Inhalt der Datei lizenz.ohrganize (eine Zeile, max. 16 KiB) }
+      responses:
+        "200": { description: Eingespielt; Antwort wie GET }
+        "400":
+          description: LICENSE_INVALID — Signatur, Format, andere Installation, abgelaufen oder kürzer als die vorhandene
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/license/report:
+    get:
+      summary: Lizenzbericht als Datei (Kennungen und Zahlen, keine Personendaten)
+      description: >
+        Für die Verlängerung beim Anbieter: Installations-ID, Lizenz-ID, Zustand,
+        aktive Profile, Platzgrenze, Serverversion. Content-Disposition attachment.
+      responses:
+        "200":
+          description: JSON-Datei ohrganize-lizenzbericht-JJJJ-MM-TT.json
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated_at: { type: string, format: date-time }
+                  installation_id: { type: string }
+                  license_id: { type: string, nullable: true }
+                  customer_id: { type: string, nullable: true }
+                  state: { type: string }
+                  valid_until: { type: string, format: date, nullable: true }
+                  seats_used: { type: integer }
+                  max_users: { type: integer, nullable: true }
+                  server_version: { type: string }

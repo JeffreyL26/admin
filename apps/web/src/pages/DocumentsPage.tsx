@@ -12,10 +12,12 @@ import {
   useUploadDocument,
   type PortalUploadCategory,
 } from '../api/hooks';
+import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, Field, LoadError, SkeletonRows } from '../components/ui';
 import { IconClose, IconDocuments, type IconProps } from '../components/icons';
 import { useToast } from '../components/Toast';
 import { formatDate } from '../lib/format';
+import { apiErrorMessage, PORTAL_READ_ONLY_NOTICE, READ_ONLY_NOTICE_ID } from '../lib/license';
 import { Select } from '../components/Select';
 
 /*
@@ -145,13 +147,18 @@ function DocumentDropzone({
   file,
   onFile,
   busy,
+  disabled = false,
 }: {
   file: File | null;
   onFile: (file: File | null) => void;
+  /** Upload läuft: Auswahl gesperrt, Beschriftung zeigt den Vorgang. */
   busy: boolean;
+  /** Auswahl gesperrt ohne laufenden Vorgang (Nur-Lese-Betrieb). */
+  disabled?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const inert = busy || disabled;
 
   const input = (
     <input
@@ -159,7 +166,7 @@ function DocumentDropzone({
       type="file"
       accept={ACCEPT_ATTR}
       hidden
-      disabled={busy}
+      disabled={inert}
       onChange={(e) => {
         const picked = e.target.files?.[0] ?? null;
         // Wert zurücksetzen, damit dieselbe Datei erneut gewählt werden kann.
@@ -198,21 +205,25 @@ function DocumentDropzone({
 
   return (
     <div
-      className={`doc-drop doc-drop--empty${dragging ? ' is-dragging' : ''}${busy ? ' is-disabled' : ''}`}
+      className={`doc-drop doc-drop--empty${dragging ? ' is-dragging' : ''}${inert ? ' is-disabled' : ''}`}
       role="button"
-      tabIndex={0}
-      aria-disabled={busy || undefined}
-      aria-describedby="doc-drop-hint"
-      onClick={() => !busy && inputRef.current?.click()}
+      // Gesperrt aus der Tab-Reihenfolge nehmen: Ein fokussierbares Element,
+      // das auf Enter nichts tut, wirkt für Tastaturnutzende wie ein Defekt.
+      tabIndex={inert ? -1 : 0}
+      aria-disabled={inert || undefined}
+      // Im Nur-Lese-Betrieb beschreibt der globale Hinweis in der Shell den
+      // Grund — nicht der Dateityp-Hinweis, der dann nichts erklärt.
+      aria-describedby={disabled ? READ_ONLY_NOTICE_ID : 'doc-drop-hint'}
+      onClick={() => !inert && inputRef.current?.click()}
       onKeyDown={(e) => {
-        if ((e.key === 'Enter' || e.key === ' ') && !busy) {
+        if ((e.key === 'Enter' || e.key === ' ') && !inert) {
           e.preventDefault();
           inputRef.current?.click();
         }
       }}
       onDragOver={(e) => {
         e.preventDefault();
-        if (!busy) setDragging(true);
+        if (!inert) setDragging(true);
       }}
       onDragLeave={(e) => {
         // Beim Wechsel auf ein Kindelement feuert dragleave ebenfalls — nur
@@ -222,7 +233,7 @@ function DocumentDropzone({
       onDrop={(e) => {
         e.preventDefault();
         setDragging(false);
-        if (busy) return;
+        if (inert) return;
         const dropped = e.dataTransfer.files?.[0];
         if (dropped) onFile(dropped);
       }}
@@ -232,8 +243,16 @@ function DocumentDropzone({
       </span>
       <span className="doc-drop__meta">
         <span className="doc-drop__name">
-          <b style={{ color: 'var(--brand-primary)' }}>Datei wählen</b> oder hierher ziehen
+          {disabled ? (
+            'Upload derzeit nicht möglich'
+          ) : (
+            <>
+              <b className="doc-drop__cta">Datei wählen</b> oder hierher ziehen
+            </>
+          )}
         </span>
+        {/* Die Id bleibt auch gesperrt bestehen, damit der Verweis gültig ist,
+            sobald die Fläche wieder freigegeben wird. */}
         <span className="doc-drop__sub" id="doc-drop-hint">
           PDF, PNG, JPEG oder Textdatei, höchstens {MAX_UPLOAD_MB} MB
         </span>
@@ -245,6 +264,7 @@ function DocumentDropzone({
 
 function UploadCard() {
   const toast = useToast();
+  const { readOnly } = useAuth();
   const upload = useUploadDocument();
 
   const [file, setFile] = useState<File | null>(null);
@@ -270,7 +290,7 @@ function UploadCard() {
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file || upload.isPending) return;
+    if (readOnly || !file || upload.isPending) return;
     setApiError(null);
     upload.mutate(
       { file, category, title: title.trim() || undefined },
@@ -283,9 +303,10 @@ function UploadCard() {
         },
         onError: (err) => {
           setApiError(
-            err instanceof ApiRequestError
-              ? err.message
-              : 'Das Dokument konnte nicht hochgeladen werden. Bitte versuchen Sie es erneut.',
+            apiErrorMessage(
+              err,
+              'Das Dokument konnte nicht hochgeladen werden. Bitte versuchen Sie es erneut.',
+            ),
           );
         },
       },
@@ -295,7 +316,7 @@ function UploadCard() {
   return (
     <Card title="Dokument hochladen">
       <form onSubmit={submit}>
-        <DocumentDropzone file={file} onFile={pickFile} busy={upload.isPending} />
+        <DocumentDropzone file={file} onFile={pickFile} busy={upload.isPending} disabled={readOnly} />
 
         {upload.isPending && (
           // Der Upload läuft als eine Anfrage; einen Bytestand meldet das
@@ -355,12 +376,14 @@ function UploadCard() {
           <button
             type="submit"
             className="pt-btn pt-btn--primary"
-            disabled={!file || upload.isPending}
+            disabled={readOnly || !file || upload.isPending}
           >
             {upload.isPending ? 'Wird hochgeladen …' : 'Hochladen'}
           </button>
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Ihre Personalabteilung sieht hochgeladene Dokumente und behält sie in Ihrer Akte.
+            {readOnly
+              ? PORTAL_READ_ONLY_NOTICE
+              : 'Ihre Personalabteilung sieht hochgeladene Dokumente und behält sie in Ihrer Akte.'}
           </span>
         </div>
       </form>

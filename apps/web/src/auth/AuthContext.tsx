@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { AuthUserDto } from '@ohrganize/shared';
-import { api, hasToken, setToken, setUnauthorizedHandler } from '../api/client';
+import type { AuthUserDto, LicenseStatusPublic } from '@ohrganize/shared';
+import { api, hasToken, setLicenseHandler, setToken, setUnauthorizedHandler } from '../api/client';
 
 /**
  * Das Portal steht allen Accounts mit verknüpftem Personalprofil offen —
@@ -12,9 +12,28 @@ import { api, hasToken, setToken, setUnauthorizedHandler } from '../api/client';
 const NO_PROFILE_MESSAGE =
   'Für diesen Zugang ist kein Personalprofil hinterlegt. HR-Administrationskonten melden sich in der oHRganize Desktop-App an.';
 
+/**
+ * Antwort von Login und /api/auth/me, soweit das Portal sie liest. `license`
+ * ist für Portal-Konten `{ read_only }`; ein verknüpftes Admin-Konto bekommt
+ * den vollen Lizenzstatus, der dieses Feld ebenfalls trägt — mehr als das
+ * eine Bit wertet das Portal in keinem Fall aus.
+ */
+interface SessionResponse {
+  user: AuthUserDto;
+  license?: LicenseStatusPublic;
+}
+
 interface AuthState {
   user: AuthUserDto | null;
   loading: boolean;
+  /**
+   * Nur-Lese-Betrieb des Servers (Lizenz abgelaufen): Anträge, Krankmeldungen,
+   * Änderungsanträge und Uploads sind gesperrt, Lesen und Herunterladen nicht.
+   * Quelle ist das Feld `license` aus Login und /api/auth/me; der API-Client
+   * hält den Wert danach über den Zustands-Header bzw. ein 403 LICENSE_EXPIRED
+   * aktuell (setLicenseHandler).
+   */
+  readOnly: boolean;
   login: (email: string, password: string) => Promise<void>;
   /**
    * Passwort setzen. MUSS über den Kontext laufen und nicht direkt über
@@ -30,6 +49,7 @@ interface AuthState {
 const AuthContext = createContext<AuthState>({
   user: null,
   loading: true,
+  readOnly: false,
   login: async () => {},
   changePassword: async () => {},
   logout: () => {},
@@ -40,7 +60,15 @@ export const useAuth = () => useContext(AuthContext);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUserDto | null>(null);
   const [loading, setLoading] = useState(true);
+  // Fehlt das Feld (älteres Backend), gilt schreibbar — der Server lehnt
+  // Schreibzugriffe ohnehin selbst ab, und der Client folgt dann dem 403.
+  const [readOnly, setReadOnly] = useState(false);
   const queryClient = useQueryClient();
+
+  const adoptSession = useCallback((res: SessionResponse) => {
+    setUser(res.user);
+    setReadOnly(res.license?.read_only === true);
+  }, []);
 
   const logout = useCallback(() => {
     setToken(null);
@@ -52,30 +80,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setUnauthorizedHandler(logout);
+    setLicenseHandler(setReadOnly);
     if (!hasToken()) {
       setLoading(false);
       return;
     }
     api
-      .get<{ user: AuthUserDto }>('/api/auth/me')
+      .get<SessionResponse>('/api/auth/me')
       .then((res) => {
         if (res.user.employee_id === null) setToken(null);
-        else setUser(res.user);
+        else adoptSession(res);
       })
       .catch(() => setToken(null))
       .finally(() => setLoading(false));
-  }, [logout]);
+  }, [logout, adoptSession]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api.post<{ token: string; user: AuthUserDto }>('/api/auth/login', {
+    const res = await api.post<SessionResponse & { token: string }>('/api/auth/login', {
       email,
       password,
     });
     if (res.user.employee_id === null) throw new Error(NO_PROFILE_MESSAGE);
     queryClient.clear();
     setToken(res.token);
-    setUser(res.user);
-  }, [queryClient]);
+    adoptSession(res);
+  }, [queryClient, adoptSession]);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     const res = await api.put<{ ok: boolean; token: string }>('/api/auth/password', {
@@ -86,12 +115,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // liefert danach must_change_password = 0, und der Wechselzwang-Schirm
     // verschwindet von selbst.
     setToken(res.token);
-    const me = await api.get<{ user: AuthUserDto }>('/api/auth/me');
-    setUser(me.user);
-  }, []);
+    const me = await api.get<SessionResponse>('/api/auth/me');
+    adoptSession(me);
+  }, [adoptSession]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, changePassword, logout }}>
+    <AuthContext.Provider value={{ user, loading, readOnly, login, changePassword, logout }}>
       {children}
     </AuthContext.Provider>
   );
