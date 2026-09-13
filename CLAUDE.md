@@ -401,6 +401,11 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   `$ErrorActionPreference = Stop` (deshalb `Invoke-Quiet`), und ein
   Funktionsparameter darf nicht `$Args` heißen (automatische Variable —
   Argumente kommen leer an).
+  Gegenstück für den Arbeitsplatz: `deploy/windows/setup-workstation.ps1`
+  (App still installieren, `config.json` ohne BOM mit Adresse und Pin,
+  Erreichbarkeit, Start; `npm run dist:win` legt es neben den Installer).
+  `npm run lizenz -- protect` verschlüsselt einen bestehenden Schlüssel
+  nachträglich, ohne kid-Wechsel.
 
 ## Häufige Kommandos
 

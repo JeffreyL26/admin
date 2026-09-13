@@ -407,6 +407,24 @@ zwei getrennten Datenbeständen.
 
 **Deshalb: Serveradresse setzen, bevor die App das erste Mal startet.**
 
+> **Schnellweg: `setup-workstation.ps1`.** `npm run dist:win` legt das Skript
+> neben den Installer nach `apps\desktop\release`; es steckt auch im
+> Release-Archiv unter `deploy\windows\`. Im Windows-Konto der HR-Person
+> (keine Adminrechte), Installer und Skript z. B. auf einem Stick:
+>
+> ```powershell
+> .\setup-workstation.ps1 -ApiBaseUrl 'https://portal.firma.de' -ServerPin 'sha256/…' -Installer '.\oHRganize Setup <Version>.exe'
+> ```
+>
+> Es installiert die App still, wenn sie fehlt, schreibt die `config.json`
+> ohne BOM (Adresse und Pin), prüft, dass kein lokales Datenverzeichnis
+> existiert und der Server antwortet, und startet die App. Den Pin liefert
+> `setup-server.ps1` am Ende seines Laufs; ohne `-ServerPin` lernt die App
+> den Schlüssel beim ersten Kontakt. `-Machine` setzt stattdessen die
+> Maschinenvariablen (Adminrechte, alle Konten des Rechners),
+> `-RemoveLocalData` räumt eine leere Erstanlage weg (Schritt 4 unten). Die
+> Schritte 1–4 sind dasselbe von Hand.
+
 1. Installer ausführen (`oHRganize Setup <Version>.exe` aus
    `apps\desktop\release`). Danach die App **noch nicht öffnen**.
 2. Serveradresse hinterlegen — eine der beiden Quellen genügt:

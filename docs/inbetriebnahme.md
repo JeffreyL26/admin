@@ -94,6 +94,8 @@ Die App muss dafür auf den Server zeigen — entweder über die Umgebungsvariab
 Firmennetz verlässt, gehört in dieselbe Datei auch `serverKeyPins` — der
 festgenagelte Schlüssel des Servers, siehe
 [`../deploy/windows/README.md`](../deploy/windows/README.md), Abschnitt 7.
+Beides erledigt `deploy/windows/setup-workstation.ps1` im Konto der
+HR-Person in einem Lauf (ebenfalls Abschnitt 7).
 
 Ohne installierte App lässt sich der Zugang auch direkt prüfen:
 

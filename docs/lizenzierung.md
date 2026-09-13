@@ -186,6 +186,19 @@ Datenträger, Passphrase getrennt davon. Wer den Schlüssel hat, kann jedem
 Kunden unbegrenzte Lizenzen ausstellen; wer ihn verliert, kann keinem Kunden
 mehr eine verlängern, bis ein neuer Schlüssel per Update ausgeliefert ist.
 
+**Nachträglich verschlüsseln** — ein ohne Passphrase erzeugter Schlüssel
+bleibt derselbe Schlüssel (gleiche `kid`, kein Update, kein Eintrag in
+`licenseKeys.ts`), nur die Datei wird geschützt:
+
+```bash
+OHRGANIZE_LICENSE_PASSPHRASE='…' npm run lizenz -- protect --key /pfad/zum/tresor/lizenz-privat-2026-09.pem
+```
+
+`protect` liest die verschlüsselte Fassung zurück, prüft eine Signatur
+gegen den Originalschlüssel und ersetzt erst dann die Datei; die Passphrase
+muss mindestens zwölf Zeichen haben. Ab da braucht jedes `sign` dieselbe
+Variable.
+
 **Schlüsselwechsel** (Kompromittierung, Turnus): `keygen` mit neuem `kid`,
 den Eintrag in `licenseKeys.ts` **hinzufügen** (nicht ersetzen), Update
 ausliefern, ab dann mit dem neuen Schlüssel signieren. Der alte Eintrag

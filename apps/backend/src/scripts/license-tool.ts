@@ -10,6 +10,7 @@
  *        [--seats 50] [--grace 14] [--warn 30] [--kind standard|evaluation] \
  *        [--notice "Rechnung 2026-1234"] [--out <datei>] [--register <csv>]
  *   npm run lizenz -- inspect <datei> [--pubkey <oeffentlich.pem>]
+ *   npm run lizenz -- protect --key <privat.pem>      (Passphrase aus OHRGANIZE_LICENSE_PASSPHRASE)
  *
  * Der private Schlüssel gehört NICHT ins Repo, nicht in OneDrive, nicht in
  * eine Mail. `keygen` legt ihn mit 0600 ab; verschlüsselt, wenn
@@ -252,6 +253,38 @@ function sign(args: string[]): void {
 // ---------------------------------------------------------------------------
 // inspect
 // ---------------------------------------------------------------------------
+// protect: vorhandenen (unverschlüsselten) privaten Schlüssel nachträglich mit
+// Passphrase versehen — derselbe Schlüssel, dieselbe kid, kein Update nötig.
+// Erst wird die verschlüsselte Fassung zurückgelesen und gegen den Original-
+// schlüssel geprüft, dann ersetzt sie die Datei.
+// ---------------------------------------------------------------------------
+function protect(args: string[]): void {
+  const { values } = parseArgs({ args, options: { key: { type: 'string' } } });
+  const keyPath = values.key ?? fail('--key <privat.pem> fehlt');
+  const passphrase = process.env.OHRGANIZE_LICENSE_PASSPHRASE?.trim() || '';
+  if (passphrase.length < 12) fail('OHRGANIZE_LICENSE_PASSPHRASE muss gesetzt sein und mindestens 12 Zeichen haben.');
+  if (!fs.existsSync(keyPath)) fail(`Datei nicht gefunden: ${keyPath}`);
+  const pem = fs.readFileSync(keyPath, 'utf8');
+  if (/ENCRYPTED/.test(pem)) fail('Der Schlüssel ist bereits verschlüsselt.');
+  let privateKey: crypto.KeyObject;
+  try {
+    privateKey = crypto.createPrivateKey({ key: pem });
+  } catch (err) {
+    fail(`Kein lesbarer privater Schlüssel: ${(err as Error).message}`);
+  }
+  const encrypted = privateKey.export({ format: 'pem', type: 'pkcs8', cipher: 'aes-256-cbc', passphrase }) as string;
+  // Gegenprobe vor dem Überschreiben: zurücklesen und Signatur vergleichen.
+  const reread = crypto.createPrivateKey({ key: encrypted, passphrase });
+  const probe = Buffer.from('ohrganize-protect-probe');
+  if (!crypto.verify(null, probe, crypto.createPublicKey(privateKey), crypto.sign(null, probe, reread))) {
+    fail('Gegenprobe fehlgeschlagen — Datei unverändert gelassen.');
+  }
+  fs.writeFileSync(keyPath, encrypted, { mode: 0o600 });
+  console.log(`Schlüssel verschlüsselt: ${keyPath} (kid unverändert, Fingerabdruck ${publicKeyFingerprint(crypto.createPublicKey(privateKey))})`);
+  console.log('Ab jetzt braucht jedes `sign` die Passphrase in OHRGANIZE_LICENSE_PASSPHRASE. Die Passphrase gehört in den Passwort-Manager — ohne sie ist der Schlüssel wertlos.');
+}
+
+// ---------------------------------------------------------------------------
 function inspect(args: string[]): void {
   const { values, positionals } = parseArgs({
     args,
@@ -306,8 +339,11 @@ function run(command: string | undefined, rest: string[]): void {
     case 'inspect':
       inspect(rest);
       break;
+    case 'protect':
+      protect(rest);
+      break;
     default:
-      console.log('Befehle: keygen | keys | sign | inspect  (Aufrufbeispiele im Kopf dieser Datei)');
+      console.log('Befehle: keygen | keys | sign | inspect | protect  (Aufrufbeispiele im Kopf dieser Datei)');
       process.exit(command ? 1 : 0);
   }
 }
