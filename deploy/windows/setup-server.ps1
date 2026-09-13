@@ -31,7 +31,7 @@
   anders eingerichtet ist. Ein Lauf ohne Dienst kann keine Abnahme machen.
 
 .EXAMPLE
-  .\deploy\windows\setup-server.ps1 -Archive 'C:\Temp\ohrganize-server-1.0.0-beta.1.zip' `
+  .\deploy\windows\setup-server.ps1 -Archive 'C:\Temp\ohrganize-server-1.0.0.zip' `
       -Domain 'kunde.ohrganize.com' -AcmeEmail 'it@kunde.de'
 
 .EXAMPLE

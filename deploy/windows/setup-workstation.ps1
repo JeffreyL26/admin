@@ -29,7 +29,7 @@
 
 .EXAMPLE
   .\setup-workstation.ps1 -ApiBaseUrl 'https://kunde.ohrganize.com' `
-      -ServerPin 'sha256/…' -Installer '.\oHRganize Setup 1.0.0-beta.1.exe'
+      -ServerPin 'sha256/…' -Installer '.\oHRganize Setup 1.0.0.exe'
 
 .NOTES
   Windows PowerShell 5.1 genuegt. Bewusst ohne Umlaute (5.1 liest .ps1 ohne

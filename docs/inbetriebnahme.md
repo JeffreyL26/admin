@@ -25,7 +25,7 @@ Erwartete Antwort — fünf Felder, `version` ist die installierte Ausgabe,
 Testphase und mit gültiger Lizenz, Punkt 10):
 
 ```json
-{"ok":true,"name":"oHRganize Backend","version":"1.0.0-beta.1","min_client_version":"1.0.0","license":{"read_only":false}}
+{"ok":true,"name":"oHRganize Backend","version":"1.0.0","min_client_version":"1.0.0","license":{"read_only":false}}
 ```
 
 **Zeitbedarf:** rund 60 Minuten, plus die Restore-Probe.
