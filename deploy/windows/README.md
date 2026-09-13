@@ -107,6 +107,29 @@ Deshalb bleibt der Befehl hier stehen: als Abhilfe, nicht als Pflichtschritt.
 
 ## 2. Installation
 
+> **Schnellweg: `setup-server.ps1`.** Die Abschnitte 2 bis 5 und der
+> Sicherungs-Probelauf aus Abschnitt 9 stecken in einem Skript, das die
+> vorhandenen Bausteine (`install-service.ps1`, `harden-data-dir.ps1`,
+> `install-backup-task.ps1`) in der richtigen Reihenfolge aufruft, nach jedem
+> Schritt prüft und bei Fehlern abbricht — idempotent, also nach Behebung
+> einfach erneut starten. Voraussetzungen aus Abschnitt 1 (Node, NSSM, Caddy
+> ≥ 2.8, Archiv samt `.sha256` unter `C:\Temp`) prüft es, installiert sie
+> aber nicht. Aus dem entpackten Archiv oder direkt aus `C:\Temp` (das Skript
+> liegt auch dort im Archiv unter `deploy\windows\`):
+>
+> ```powershell
+> Expand-Archive 'C:\Temp\ohrganize-server-<version>.zip' -DestinationPath 'C:\Temp\ohrganize-release' -Force
+> & 'C:\Temp\ohrganize-release\deploy\windows\setup-server.ps1' -Archive 'C:\Temp\ohrganize-server-<version>.zip' -Domain 'portal.firma.de' -AcmeEmail 'it@firma.de'
+> ```
+>
+> Am Ende stehen Initialpasswort-Datei, Installations-ID, der Server-Pin und
+> der fertige `config.json`-Befehl für die Arbeitsplätze (Abschnitt 7). Eine
+> später ausgestellte Lizenzdatei spielt `setup-server.ps1 -OnlyLicense
+> -LicenseFile <datei>` ein — oder die HR in der App. Wer die Schritte
+> einzeln nachvollziehen will (oder ein Teil ist schon anders eingerichtet:
+> `-NoCaddy`, `-NoFirewall`, `-NoBackup`), folgt dem Rest dieses Abschnitts;
+> die Ergebnisse sind dieselben.
+
 Alle Schritte in einer **Administrator**-PowerShell.
 
 ```powershell

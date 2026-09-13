@@ -394,6 +394,13 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   Textdateien unter `deploy/` werden im Archiv auf LF normalisiert (`.ps1` auf
   CRLF), weil die Windows-Arbeitskopie CRLF trägt und ein CR in einer Unit
   `ExecStart` bricht.
+  **Windows-Einrichtung in einem Lauf:** `deploy/windows/setup-server.ps1`
+  (Archiv → npm ci → Portal → env → Dienst → Caddy → Firewall → Sicherung →
+  Abnahme, idempotent, ruft die drei Einzelskripte auf). Zwei 5.1-Fallen darin
+  bewusst umschifft: `2>$null` an nativen Programmen wirft unter
+  `$ErrorActionPreference = Stop` (deshalb `Invoke-Quiet`), und ein
+  Funktionsparameter darf nicht `$Args` heißen (automatische Variable —
+  Argumente kommen leer an).
 
 ## Häufige Kommandos
 
