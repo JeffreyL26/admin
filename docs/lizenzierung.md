@@ -226,7 +226,7 @@ OHRGANIZE_LICENSE_PASSPHRASE='…' npm run lizenz -- sign \
 | `--key`, `--kid` | privater Schlüssel und seine Kennung; das Werkzeug prüft, dass der Schlüssel zum eingebauten öffentlichen Schlüssel dieses `kid` passt, und warnt, wenn der `kid` in `licenseKeys.ts` fehlt |
 | `--customer`, `--customer-id` | Anzeigename und stabile Kennung (Dateiname, Register) |
 | `--installation` | 32 Hex-Zeichen aus Einstellungen → Lizenz beim Kunden, oder `-` für eine ungebundene Datei (alles andere weist das Werkzeug ab) |
-| `--until`, `--from` | letzter gültiger Tag (einschließlich) und erster Tag (Vorgabe: heute); echte Kalendertage `JJJJ-MM-TT`, `--until` höchstens `2999-12-31` („unbefristet“) |
+| `--until`, `--from` | letzter gültiger Tag (einschließlich) und erster Tag (Vorgabe: heute); echte Kalendertage `JJJJ-MM-TT`, `--until` höchstens `2999-12-31` — oder wörtlich `--until unbefristet` (die App zeigt dann „unbefristet“ statt eines Datums; zusammen mit weggelassenem `--seats` die Lizenz für einen Kunden ohne Laufzeit und Platzgrenze) |
 | `--seats` | `max_users`; ohne Angabe unbegrenzt |
 | `--grace`, `--warn` | Kulanz- und Vorwarntage (Vorgaben 14 und 30) |
 | `--kind` | `standard` (Vorgabe) oder `evaluation` — nur Anzeige und Register |

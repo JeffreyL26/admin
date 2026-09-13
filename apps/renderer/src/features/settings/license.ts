@@ -5,7 +5,13 @@
  * (`license` in Login und /api/auth/me) bzw. GET /api/license; der Vertrag
  * steht in packages/shared/src/license.ts.
  */
-import { formatDate, type LicenseKind, type LicenseState, type LicenseStatus } from '@ohrganize/shared';
+import {
+  formatDate,
+  isPerpetualLicense,
+  type LicenseKind,
+  type LicenseState,
+  type LicenseStatus,
+} from '@ohrganize/shared';
 import type { BadgeTone } from '../../components/ui';
 
 /** Pfad der Lizenzseite (nav.ts, features/settings/routes.tsx). */
@@ -87,6 +93,11 @@ export function expiredLead(l: LicenseStatus): string {
   }
   if (l.valid_until !== null) return `Die Testphase ist am ${formatDate(l.valid_until)} abgelaufen.`;
   return 'Es liegt keine gültige Lizenz vor.';
+}
+
+/** „31.12.2027“ oder „unbefristet“ (valid_until = LICENSE_MAX_DATE). */
+export function validUntilLabel(license: LicenseStatus): string {
+  return isPerpetualLicense(license.valid_until) ? 'unbefristet' : formatDate(license.valid_until);
 }
 
 /** Plätze: „12 von 25“ oder „unbegrenzt“ (max_users = null). */

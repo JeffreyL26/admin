@@ -6,7 +6,7 @@
  *   npm run lizenz -- keys
  *   npm run lizenz -- sign --key <privat.pem> --kid 2026-09 \
  *        --customer "Musterfirma GmbH" --customer-id musterfirma \
- *        --installation <32 hex | -> --until 2027-09-12 [--from 2026-09-13] \
+ *        --installation <32 hex | -> --until 2027-09-12|unbefristet [--from 2026-09-13] \
  *        [--seats 50] [--grace 14] [--warn 30] [--kind standard|evaluation] \
  *        [--notice "Rechnung 2026-1234"] [--out <datei>] [--register <csv>]
  *   npm run lizenz -- inspect <datei> [--pubkey <oeffentlich.pem>]
@@ -29,10 +29,10 @@ import {
   LICENSE_DEFAULT_GRACE_DAYS,
   LICENSE_DEFAULT_WARN_DAYS,
   LICENSE_FILE_NAME,
+  LICENSE_MAX_DATE,
   type LicensePayload,
 } from '@ohrganize/shared';
 import {
-  LICENSE_MAX_DATE,
   decodeLicenseText,
   parseLicensePayload,
   publicKeyFingerprint,
@@ -141,7 +141,9 @@ function sign(args: string[]): void {
   const customer = values.customer ?? fail('--customer fehlt');
   const customerId = values['customer-id'] ?? fail('--customer-id fehlt');
   const installationArg = values.installation ?? fail('--installation <32 hex | -> fehlt');
-  const validUntil = values.until ?? fail('--until JJJJ-MM-TT fehlt');
+  // „unbefristet“ = LICENSE_MAX_DATE; die Clients zeigen dafür „unbefristet“ statt eines Datums.
+  const untilArg = values.until ?? fail('--until JJJJ-MM-TT | unbefristet fehlt');
+  const validUntil = untilArg.toLowerCase() === 'unbefristet' ? LICENSE_MAX_DATE : untilArg;
   const validFrom = values.from ?? todayIsoLocal();
   const seats = values.seats === undefined ? null : Number(values.seats);
   const grace = values.grace === undefined ? LICENSE_DEFAULT_GRACE_DAYS : Number(values.grace);

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Check, CheckCircle2, Copy, Download, Info, ShieldAlert, Upload,
 } from 'lucide-react';
-import { formatDate, todayIsoLocal, type LicenseStatus } from '@ohrganize/shared';
+import { formatDate, isPerpetualLicense, todayIsoLocal, type LicenseStatus } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { Badge, Card, EmptyState, PageHeader, Spinner } from '../../components/ui';
@@ -14,6 +14,7 @@ import { downloadAuthenticated } from '../compensation/lib';
 import {
   LICENSE_FILE_MAX_BYTES, LICENSE_KIND_LABELS, LICENSE_QUERY_KEY, LICENSE_STATE_LABELS,
   addDaysIso, expiredLead, licenseStateTone, remainingLabel, remainingLabelSentence, seatsLabel,
+  validUntilLabel,
 } from './license';
 
 /**
@@ -41,6 +42,7 @@ function statusLine(l: LicenseStatus): string {
     case 'entwicklung':
       return 'Entwicklungsverzeichnis — es findet keine Lizenzprüfung statt.';
     case 'valid':
+      if (isPerpetualLicense(l.valid_until)) return 'Unbefristet gültig.';
       return l.warning
         ? `Läuft am ${formatDate(l.valid_until)} ab (${remainingLabel(l.days_left)}).`
         : `Gültig bis ${formatDate(l.valid_until)} (${remainingLabel(l.days_left)}).`;
@@ -142,7 +144,7 @@ export function LicensePage() {
           >
             <Fact label="Kunde" value={license.customer ?? '—'} />
             <Fact label="Art" value={license.kind ? LICENSE_KIND_LABELS[license.kind] : '—'} />
-            <Fact label="Gültig bis" value={formatDate(license.valid_until)} />
+            <Fact label="Gültig bis" value={validUntilLabel(license)} />
             <Fact label="Kulanz bis" value={formatDate(license.grace_until)} />
             <Fact
               label="Plätze"
@@ -233,7 +235,7 @@ export function LicensePage() {
                 {result.ok ? (
                   <>
                     Lizenz eingespielt — Zustand jetzt <b>{LICENSE_STATE_LABELS[result.license.state]}</b>
-                    {result.license.valid_until ? <>, gültig bis {formatDate(result.license.valid_until)}</> : null}.
+                    {result.license.valid_until ? <>, gültig bis {validUntilLabel(result.license)}</> : null}.
                   </>
                 ) : (
                   result.message

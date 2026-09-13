@@ -19,7 +19,7 @@
  */
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { LICENSE_FILE_PREFIX, type LicensePayload } from '@ohrganize/shared';
+import { LICENSE_FILE_PREFIX, LICENSE_MAX_DATE, type LicensePayload } from '@ohrganize/shared';
 
 /** Ein Schlüssel, dem das Backend vertraut — identifiziert über `kid`. */
 export interface TrustedLicenseKey {
@@ -43,14 +43,6 @@ const isoDay = z
     },
     'Kein gültiger Kalendertag',
   );
-
-/**
- * Obergrenze für Laufzeiten. „Unbefristet“ heißt im Werkzeug 2999-12-31 —
- * weit genug, aber diesseits der Jahr-10000-Grenze, an der die
- * ISO-Datumsarithmetik (addDaysIso) kippt und eine Dauerlizenz als
- * „abgelaufen“ gälte.
- */
-export const LICENSE_MAX_DATE = '2999-12-31';
 
 /**
  * Inhalt der Datei. `.strict()`: Unbekannte Felder werden abgelehnt — eine

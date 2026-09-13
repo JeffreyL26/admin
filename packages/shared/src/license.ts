@@ -33,6 +33,18 @@ export const LICENSE_STATE_HEADER = 'x-ohrganize-license';
  *  Copy & Paste, aber nicht für Missbrauch als Ablage. */
 export const LICENSE_FILE_MAX_BYTES = 16 * 1024;
 
+/**
+ * Obergrenze für `valid_until` und zugleich die Schreibweise für „unbefristet“:
+ * weit genug, aber diesseits der Jahr-10000-Grenze, an der die ISO-Datums-
+ * arithmetik kippt. Das Werkzeug nimmt `--until unbefristet` als Alias.
+ */
+export const LICENSE_MAX_DATE = '2999-12-31';
+
+/** Unbefristete Lizenz: Anzeige „unbefristet“ statt eines Datums in 973 Jahren. */
+export function isPerpetualLicense(validUntil: string | null): boolean {
+  return validUntil !== null && validUntil >= LICENSE_MAX_DATE;
+}
+
 /** Testphase für eine Datenbank, die noch nie eine Lizenz gesehen hat. */
 export const LICENSE_TRIAL_DAYS = 30;
 /** Ab so vielen Resttagen warnt die Testphase. */
