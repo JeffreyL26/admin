@@ -31,7 +31,9 @@ export function LoginPage() {
   return (
     <div className="login">
       <form className="login__card" onSubmit={submit}>
-        <img className="login__logo" src={logo} alt="oHRganize" />
+        <div className="login__logo-plate">
+          <img className="login__logo" src={logo} alt="oHRganize" />
+        </div>
         <h1 className="login__title">Willkommen zurück!</h1>
         <p className="login__subtitle">Melden Sie sich mit Ihrem HR-Administrationskonto an.</p>
         <Field label="E-Mail-Adresse" required>

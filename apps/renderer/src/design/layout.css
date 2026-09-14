@@ -378,9 +378,29 @@
   box-shadow: var(--shadow-lg);
   animation: hm-page-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.login__logo {
-  width: 140px;
+/* Plattform und Bild sind getrennte Elemente: Die Plattform hebt das Logo
+   leicht von der Kartenfläche ab (bg-app statt bg-surface, je Theme ein
+   dezenter Unterschied), das Bild bekommt im Dunkel-Theme einen Invert-Filter.
+   Lägen beide in einem Element, würde der Filter die Plattform mit-invertieren
+   und Text sowie Hintergrund liefen auf denselben hellen Ton hinaus —
+   unlesbar. */
+.login__logo-plate {
   align-self: center;
+  padding: 16px 22px;
+  border-radius: 18px;
+  background: radial-gradient(120px 60px at 50% 50%, var(--bg-tint-1), transparent 75%), var(--bg-app);
+}
+.login__logo {
+  display: block;
+  width: 140px;
+}
+/* Die Wortmarke ist navy und stünde im Dunkel-Theme unsichtbar auf der dunklen
+   Plattform. invert dreht sie ins Helle, hue-rotate holt den dabei
+   verdrehten Farbton zurück — so bleibt „HR" blau (wie im Portal, siehe
+   apps/web/src/design/portal.css). Die drei übrigen Themes haben helle
+   Flächen und brauchen den Filter nicht. */
+:root[data-theme='dark'] .login__logo {
+  filter: invert(1) hue-rotate(180deg);
 }
 .login__title {
   text-align: center;

@@ -52,7 +52,9 @@ export function PasswordChangePage() {
   return (
     <div className="login">
       <form className="login__card" onSubmit={submit}>
-        <img className="login__logo" src={logo} alt="oHRganize" />
+        <div className="login__logo-plate">
+          <img className="login__logo" src={logo} alt="oHRganize" />
+        </div>
         <h1 className="login__title">Passwort vergeben</h1>
         <p className="login__subtitle">
           Für <strong>{user?.email}</strong> ist noch ein Erstpasswort hinterlegt. Bitte vergeben
