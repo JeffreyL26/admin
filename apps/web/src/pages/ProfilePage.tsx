@@ -16,7 +16,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
     >
       <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', flex: 'none' }}>{label}</span>
       <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, textAlign: 'right', minWidth: 0 }}>
-        {value ?? '—'}
+        {value ?? '-'}
       </span>
     </div>
   );

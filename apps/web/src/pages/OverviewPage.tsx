@@ -359,7 +359,7 @@ export function OverviewPage() {
               </>
             ) : (
               <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                Keine genehmigten Abwesenheiten in Sicht. Zeit für etwas Planung?
+                Hallo, {profile?.first_name ?? ''}! Was steht an?
               </p>
             )}
           </Card>

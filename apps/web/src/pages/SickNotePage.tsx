@@ -58,7 +58,7 @@ export function SickNotePage() {
             sichtbar — mehr passiert technisch nicht. */}
         <p className="portal-subtitle">
           Melden Sie sich hier krank, sobald Sie ausfallen. Ihre Meldung wird sofort erfasst und ist
-          damit für die Personalabteilung sichtbar; die ärztliche Bescheinigung reichen Sie nach.
+          damit für die Personalabteilung sichtbar. Ärztliche Bescheinigungen können Sie nachreichen.
         </p>
       </header>
 

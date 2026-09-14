@@ -182,7 +182,7 @@ export function PortalShell() {
             </span>
             <div className="portal-user__text">
               <div className="portal-user__name">{user.name}</div>
-              <div className="portal-user__role">Mitarbeitenden-Portal</div>
+              <div className="portal-user__role">Mitarbeiter-Portal</div>
             </div>
             <button
               type="button"
@@ -226,8 +226,8 @@ export function PortalShell() {
 
         <footer className="portal-footer">
           <div className="portal-footer__inner">
-            <span>oHRganize Mitarbeitenden-Portal</span>
-            <span>Fragen? Wenden Sie sich an Ihre Personalabteilung.</span>
+            <span>oHRganize Mitarbeiter-Portal</span>
+            <span>Fragen? Wenden Sie sich gerne an Ihre Personalabteilung.</span>
           </div>
         </footer>
       </div>

@@ -55,7 +55,7 @@ export function PasswordChangePage() {
             <h1 className="login-card__title">Passwort vergeben</h1>
             <p className="login-card__subtitle">
               Für {user?.email} ist noch das Erstpasswort Ihrer Personalabteilung hinterlegt. Bitte
-              vergeben Sie jetzt ein eigenes — bis dahin ist das Portal gesperrt.
+              vergeben Sie jetzt ein eigenes.
             </p>
           </div>
           <Field label="Aktuelles Passwort" required>

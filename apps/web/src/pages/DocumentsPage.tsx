@@ -132,7 +132,7 @@ function validateFile(file: File): string | null {
     ? ALLOWED_MIME_TYPES.includes(mime)
     : ALLOWED_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext));
   if (!allowed) {
-    return 'Dieser Dateityp wird nicht unterstützt. Erlaubt sind PDF, PNG, JPEG und einfache Textdateien.';
+    return 'Dieser Dateityp wird nicht unterstützt. Erlaubt sind PDF, PNG, JPEG und gängige Textdateien.';
   }
   return null;
 }
@@ -450,7 +450,7 @@ export function DocumentsPage() {
       <header className="portal-page-header">
         <h1 className="portal-title">Dokumente</h1>
         <p className="portal-subtitle">
-          Ihre Personalunterlagen zum Herunterladen — und Platz für eigene Nachweise.
+          Personalunterlagen zum Herunterladen oder eigene Nachweise. Das ist Ihr Platz.
         </p>
       </header>
 

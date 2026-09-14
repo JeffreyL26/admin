@@ -416,7 +416,7 @@ export function CalendarPage() {
         ) : rows.length === 0 ? (
           <EmptyState
             title="Keine aktiven Mitarbeitenden"
-            hint="Sobald Kolleg:innen im System geführt werden, erscheinen sie hier."
+            hint="Noch sind keine Einträge im System."
           />
         ) : filtered.length === 0 ? (
           <EmptyState
@@ -429,7 +429,7 @@ export function CalendarPage() {
             hint={
               filtersActive
                 ? 'In dieser Auswahl ist kein Urlaub und keine andere Abwesenheit eingetragen. Blättern Sie zu einem anderen Monat oder setzen Sie die Filter zurück.'
-                : 'Ein ganzer Monat ohne eingetragene Abwesenheit — blättern Sie zu einem anderen Monat.'
+                : 'Ein ganzer Monat ohne eingetragene Abwesenheit. Blättern Sie ggf. zu einem anderen Monat.'
             }
           />
         ) : (

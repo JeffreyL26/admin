@@ -187,7 +187,7 @@ export const meDocumentRoutes: FastifyPluginAsync = async (app) => {
           // Platz auf dem Datenträger.
           if (!ALLOWED_MIME_TYPES.has(mimeType)) {
             throw badRequest(
-              'Dieser Dateityp wird nicht unterstützt. Erlaubt sind PDF, PNG, JPEG und einfache Textdateien.',
+              'Dieser Dateityp wird nicht unterstützt. Erlaubt sind PDF, PNG, JPEG und gängige Textdateien.',
             );
           }
           filename = part.filename;

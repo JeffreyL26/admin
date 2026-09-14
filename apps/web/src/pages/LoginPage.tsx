@@ -83,14 +83,14 @@ export function LoginPage() {
       <div className="login__content">
         <img className="login__logo" src="/logo-full.png" alt="oHRganize" />
         <p className="login__claim">
-          Urlaub beantragen, krankmelden, Stammdaten einsehen: <span>Ihr direkter Draht zur
-          Personalabteilung.</span>
+          Alles, was Sie brauchen - an einem Ort. <span>Urlaub beantragen, krankmelden,
+          Stammdaten einsehen und mehr. Direkt an die Personalabteilung übermittelt.</span>
         </p>
         <form className="login-card" onSubmit={submit}>
           <div>
             <h1 className="login-card__title">Anmelden</h1>
             <p className="login-card__subtitle">
-              Mit den Zugangsdaten, die Sie von Ihrer Personalabteilung erhalten haben.
+              Die Zugangsdaten sollten Sie von Ihrer Personalabteilung erhalten haben.
             </p>
           </div>
           <Field label="E-Mail-Adresse" required>
@@ -99,7 +99,7 @@ export function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="vorname.nachname@firma.de"
+              placeholder="E-Mail"
               autoComplete="username"
               autoFocus
               required
@@ -123,8 +123,8 @@ export function LoginPage() {
           </p>
         </form>
         <p className="login__foot">
-          Anträge, die Sie hier stellen, landen ohne Umweg bei Ihrer Personalabteilung und werden
-          dort geprüft und entschieden. Den Stand sehen Sie jederzeit unter „Anträge“.
+          Gestellte Anträge landen ohne Umwege bei Ihrer Personalabteilung und werden dort geprüft.
+          Den Stand sehen Sie jederzeit unter "Anträge".
         </p>
       </div>
     </div>

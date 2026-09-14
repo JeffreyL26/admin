@@ -92,7 +92,7 @@ export function OrgPage() {
     <>
       <header className="portal-page-header">
         <h1 className="portal-title">Organigramm</h1>
-        <p className="portal-subtitle">Wer berichtet an wen: alle Kolleg:innen entlang der Berichtslinie.</p>
+        <p className="portal-subtitle">So sind Sie aufgestellt.</p>
       </header>
       {isError ? (
         <LoadError error={error} />
@@ -103,7 +103,7 @@ export function OrgPage() {
       ) : data.people.length === 0 ? (
         <Card title="Organigramm">
           <EmptyState
-            title="Noch keine Kolleg:innen hinterlegt"
+            title="Noch sind keine Einträge im System."
             hint="Sobald die Personalabteilung Mitarbeitende angelegt hat, erscheint hier das Organigramm."
           />
         </Card>
