@@ -583,6 +583,44 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   Erreichbarkeit, Start; `npm run dist:win` legt es neben den Installer).
   `npm run lizenz -- protect` verschlüsselt einen bestehenden Schlüssel
   nachträglich, ohne kid-Wechsel.
+- **Betreiberwerkzeuge (`apps/backend/src/scripts/`).** `status.ts`
+  (Zustand einer Instanz: Installations-ID, Lizenz, Plaetze, Zaehlungen,
+  ausstehende Migrationen; `--json` fuer Skripte), `admin-reset.ts`
+  (Passwort neu setzen, Sitzungen entwerten, Audit-Zeile mit `user_id NULL`)
+  und `migrate-check.ts` (Migrations-Probelauf auf einer `db.backup()`-Kopie).
+  Drei Regeln gelten fuer jedes weitere Werkzeug, sie stehen ausfuehrlich in
+  `scripts/toolkit.ts`:
+  **kein Import von `config.ts`** (der Import legt Verzeichnisse an und
+  erzeugt `secret.key` mit den Rechten des Aufrufers; das Datenverzeichnis
+  kommt aus `--data-dir`), **kein Lauf als root** (`refuseRoot`; ein Zugriff
+  als root legt `-wal`/`-shm` mit falschem Eigentuemer an, danach startet der
+  Dienst nicht mehr; auf Windows greift die Regel mangels `process.getuid`
+  nicht) und **`variantBanner()` in der Ausgabe** (sonst laesst esbuild den
+  Variantenmarker weg und das Bundle ist keiner Ausgabe mehr zuzuordnen).
+  Deshalb liegt `migrateDatabase` in `db/migrateDatabase.ts` ohne `db.js`.
+  `apps/backend/scripts/build.mjs` baut die drei Einstiege automatisch,
+  sobald sie existieren; `release-server.mjs` nimmt sie ins Archiv.
+- **Hosting: Programm je Instanz als Symlink.**
+  `/opt/ohrganize/releases/<variante>-<version>` ist das entpackte Archiv,
+  `/opt/ohrganize/kunden/<kunde>` und
+  `/srv/ohrganize-web/kunden/<domain>` sind Symlinks darauf. Das Pinnen einer
+  Instanz IST dieser Symlink, und der Rueckweg aus einem misslungenen Update
+  auch. `deploy/ohrganize-update.sh` (Pruefsumme, Signatur, Ausgabe gegen
+  env-Datei UND `/api/health`, `npm ci`, better-sqlite3-Probe,
+  Migrations-Probelauf auf Kopien, dann je Instanz Sicherung, stop, Symlink,
+  start, Health, bei Fehler Ruecknahme samt Markerdatei
+  `.update-fehlgeschlagen`) und das Windows-Gegenstueck
+  `deploy/windows/update-server.ps1`. Gemeinsame Pfade und Hilfsfunktionen:
+  `deploy/ohrganize-lib.sh` (nur EINMAL, sonst driften Provisionierung und
+  Update auseinander). `ohrganize-provision.sh` kann ausserdem `status`,
+  `id`, `lizenz`, `passwort`, `pin`, `pausieren`, `fortsetzen`, `restore`
+  und `check`; alle Node-Aufrufe ueber `runuser -u $DIENST_BENUTZER`.
+  Leseisolation zwischen den Instanzen ueber
+  `TemporaryFileSystem=/var/lib/ohrganize:ro` plus `BindPaths=.../%i` in
+  beiden Units (`ReadWritePaths` allein verhindert nur das Schreiben),
+  dazu Ressourcengrenzen. `OHRGANIZE_QUIET_INITIAL_PASSWORD=1` haelt das
+  Initialpasswort aus dem Journal; abgeholt wird es mit
+  `provision.sh passwort <kunde>`.
 
 ## Häufige Kommandos
 

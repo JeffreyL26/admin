@@ -899,3 +899,64 @@ Arbeitsplaetze aus, die testen sollen. Der Hinweis steht an der Konstante.
 fuer etwas, das auf beiden Zielplattformen bereits installiert ist, waere eine
 zusaetzliche Lieferkette fuer genau den Schritt, der die Lieferkette absichern
 soll.
+
+## Hosting: Programm je Instanz als Symlink, Werkzeuge ohne config.ts, nie als root
+
+**Entscheidung:** Im Mehrkunden-Hosting hat jede Instanz ihr eigenes
+Programmverzeichnis: `/opt/ohrganize/kunden/<kunde>` ist ein Symlink auf
+`/opt/ohrganize/releases/<variante>-<version>`, das Portal ebenso. Updates
+laufen ueber `deploy/ohrganize-update.sh` (und `update-server.ps1` unter
+Windows), der vor jedem Eingriff Pruefsumme, Signatur, Ausgabe und einen
+Migrations-Probelauf auf einer Kopie prueft. Die Betreiberwerkzeuge
+`status`, `admin-reset` und `migrate-check` importieren `config.ts` nicht und
+verweigern den Lauf als root. Zwischen den Instanzen gilt Leseisolation ueber
+`TemporaryFileSystem` plus `BindPaths`.
+
+**Warum der Symlink:** Ein gemeinsames `/opt/ohrganize` traegt genau eine
+Ausgabe. Sobald zwei Kunden verschiedene Editionen oder Laender haben, geht
+das nicht mehr, und das Portal-Build traegt die Ausgabe ebenfalls. Der Symlink
+loest gleich drei Dinge auf einmal: mehrere Ausgaben auf einem Host, einen
+Rueckweg aus einem misslungenen Update (Symlink zurueck, fertig, ohne das
+alte Archiv erneut zu entpacken) und das absichtliche Festhalten einer
+Instanz auf einem alten Stand.
+
+**Warum kein config.ts in den Werkzeugen:** Schon der Import legt
+Verzeichnisse an und erzeugt ein `secret.key`, und zwar mit den Rechten des
+aufrufenden Kontos. Ein Betreiber, der als root schnell den Zustand einer
+Kundeninstanz nachsieht, haette damit root-eigene Dateien im Datenverzeichnis
+des Dienstbenutzers hinterlassen und die Instanz beim naechsten Start
+lahmgelegt. Genau deshalb steht `migrateDatabase` jetzt in einer eigenen
+Datei ohne `db.js`: Beim ersten Testlauf des Probelaufs hing `config.ts`
+ueber diesen Umweg noch mit drin und legte prompt Verzeichnisse an.
+
+**Warum nie als root:** Jeder Zugriff auf eine SQLite-Datenbank im WAL-Modus
+legt `-wal` und `-shm` daneben an, auch ein rein lesender. Als root gehoeren
+die beiden dann root, und die naechste Schreibsperre des Dienstes scheitert
+an den Rechten. Die Werkzeuge weisen den Lauf deshalb selbst zurueck, und
+`provision.sh` ruft sie ueber `runuser -u` auf. Auf Windows greift die Regel
+nicht (kein `process.getuid`, die Rechte haengen an NTFS-ACLs); die Pruefung
+ueberspringt sich dort selbst, statt mit einer Fehlermeldung zu scheitern.
+
+**Warum der Migrations-Probelauf:** Bisher war die Antwort auf "laeuft das
+Schema dieses Kunden durch die neuen Migrationen" der Neustart des Dienstes,
+und wenn nicht, stand der Kunde. `db.backup()` schreibt einen konsistenten
+Stand in ein temporaeres Verzeichnis, dort wird migriert, und die
+Kundendatenbank bleibt unberuehrt. Scheitert der Probelauf irgendwo, wird gar
+keine Instanz umgestellt.
+
+**Warum TemporaryFileSystem und nicht ein Benutzer je Kunde:**
+`ReadWritePaths` verhindert seit jeher das Schreiben in fremde
+Verzeichnisse, nicht das Lesen. Alle Instanzen laufen unter demselben Konto,
+also konnte jede die Personalakte jeder anderen mitlesen. Ein leeres tmpfs
+ueber `/var/lib/ohrganize` plus ein Bind-Mount des eigenen Verzeichnisses
+schliesst das ohne neue Konten, ohne Migration und ohne Aenderung an den
+Datenverzeichnissen. Echte Benutzertrennung bleibt die naechste Ausbaustufe;
+sie ist mit `DynamicUser` nicht zu haben (die Datenverzeichnisse brauchen
+einen stabilen Eigentuemer) und lohnt ab einer Handvoll Kunden je Host.
+
+**In Kauf genommen:** Die Haertung ist auf der Entwicklungsmaschine gebaut
+und in ihren Einzelteilen geprueft, aber noch nicht auf einem Debian-Server
+durchgespielt. Die Wechselwirkung von `TemporaryFileSystem` mit
+`StateDirectory` und `PrivateUsers=true` ist die Stelle, an der es klemmen
+kann; `deploy/README.md` 9.7 fuehrt die Pruefliste dafuer, und die
+Ressourcengrenzen sind bis zur Messung ausdruecklich Startwerte.

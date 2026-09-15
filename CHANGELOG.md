@@ -20,6 +20,36 @@ eigenen Abschnitt.
   Installername `oHRganize-Setup-<version>-<variante>.exe`; Sicherungen
   nennen die Variante im MANIFEST. Heute gibt es genau `de-vollversion`.
 
+### Hinzugefuegt (Hosting und Betreiberwerkzeuge)
+- Drei Werkzeuge im Backend-Bundle: `status.cjs` (Zustand einer Instanz mit
+  Installations-ID, Lizenz, Plaetzen, Zaehlungen und ausstehenden
+  Migrationen, `--json`), `admin-reset.cjs` (Passwort neu setzen, Sitzungen
+  entwerten, Audit-Zeile) und `migrate-check.cjs` (Migrations-Probelauf auf
+  einer Kopie der Datenbank). Sie importieren `config.ts` nicht, verweigern
+  den Lauf als root und wandern mit ins Release-Archiv.
+- `deploy/ohrganize-update.sh` (neu): Pruefsumme, Signatur, Ausgabe gegen
+  env-Datei und `/api/health`, `npm ci --omit=dev`, better-sqlite3-Probe,
+  Migrations-Probelauf, dann je Instanz Sicherung, stop, Symlink, start,
+  Health; bei Fehler Ruecknahme auf das alte Release, notfalls samt
+  Datenbank aus der eben erstellten Sicherung. Windows-Gegenstueck:
+  `deploy/windows/update-server.ps1`.
+- Hosting: Programmverzeichnis je Instanz als Symlink auf ein Release
+  (`/opt/ohrganize/releases/<variante>-<version>`), Portal ebenso
+  (`/srv/ohrganize-web/kunden/<domain>`, nginx `root ... $host`). Damit
+  laufen verschiedene Ausgaben auf einem Host, ein Update ist zuruecknehmbar
+  und eine Instanz laesst sich auf einem alten Stand pinnen.
+- `ohrganize-provision.sh` kann `status [--json]`, `id`, `lizenz`,
+  `passwort [--loeschen|--zuruecksetzen]`, `pin`, `pausieren`, `fortsetzen`,
+  `restore` und `check`; `anlegen` nimmt `--variante` und `--release`. Alle
+  Node-Aufrufe ueber `runuser -u <dienstbenutzer>`. Gemeinsame Pfade in
+  `deploy/ohrganize-lib.sh`.
+- Leseisolation zwischen den Instanzen (`TemporaryFileSystem` plus
+  `BindPaths` in beiden Units) und Ressourcengrenzen (`MemoryHigh`,
+  `MemoryMax`, `TasksMax`, `CPUWeight`, `IOWeight`).
+- `OHRGANIZE_QUIET_INITIAL_PASSWORD=1`: Das Initialpasswort steht dann nur in
+  der Datei im Datenverzeichnis, nicht im Journal.
+- Wartungsseite `deploy/wartung.html`, ausgeliefert bei 502/503/504.
+
 ### Hinzugefuegt (Release und Kanal)
 - Der Kanal ist eine Funktion der Version: `channelOf` in
   `packages/shared/src/version.ts` (`1.2.0` = stable, `1.2.0-beta.1` = beta),
@@ -66,6 +96,10 @@ eigenen Abschnitt.
   folgen der Lizenz. Ohne einschraenkende Lizenz ist alles an.
 
 ### Geaendert
+- Das MANIFEST einer Sicherung nennt im Hosting
+  `ohrganize-provision.sh restore <kunde> <ordner>` statt der pauschalen
+  Einzelschritte (die stoppten den Dienst ohne Instanznamen) und weist darauf
+  hin, dass eine seither eingespielte neuere Lizenzdatei erneut abzulegen ist.
 - Die Versionsordnung kennt Vorabkennungen: `1.1.0-beta.1` ist AELTER als
   `1.1.0`, `beta.2` neuer als `beta.1`. Damit wird `isAtLeast('1.1.0-beta.1',
   '1.1.0')` falsch; solange eine Beta derselben Nummer im Umlauf sein soll,

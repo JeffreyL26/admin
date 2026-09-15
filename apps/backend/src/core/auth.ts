@@ -142,12 +142,34 @@ export function ensureDefaultAdmin(): void {
   if (provided) return;
 
   let fileHint = `Datei: ${config.initialPasswordPath}`;
+  let fileWritten = true;
   try {
     // mode 0600 wie secret.key — die Datei steht im Datenverzeichnis, das auf
     // einem Server auch dem Backup-Agenten und dem Monitoring offensteht.
     fs.writeFileSync(config.initialPasswordPath, `${password}\n`, { mode: 0o600 });
   } catch (err) {
+    fileWritten = false;
     fileHint = `Datei konnte nicht geschrieben werden (${String(err)}) — bitte JETZT notieren.`;
+  }
+
+  // Hosting: Das Passwort bleibt in der Datei, das Journal nennt nur den Weg
+  // dorthin (config.quietInitialPassword). Ohne Datei hilft das niemandem,
+  // dann steht es trotzdem hier.
+  if (config.quietInitialPassword && fileWritten) {
+    console.log(
+      [
+        '',
+        '='.repeat(72),
+        'oHRganize: Erstinbetriebnahme, Standard-Admin angelegt',
+        '  Benutzer: admin@ohrganize.de',
+        `  Passwort: steht in ${config.initialPasswordPath} (nur fuer den Dienstbenutzer lesbar)`,
+        '  Abholen:  ohrganize-provision.sh passwort <kunde>',
+        '  Das Passwort wird beim ersten Login zwingend geaendert; danach die Datei loeschen.',
+        '='.repeat(72),
+        '',
+      ].join('\n'),
+    );
+    return;
   }
 
   // Bewusst console.log statt Logger: Der Logger existiert zu diesem Zeitpunkt
