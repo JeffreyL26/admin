@@ -9,6 +9,18 @@ eigenen Abschnitt.
 ## Unveroeffentlicht
 
 ### Geaendert
+- Lizenz v2: Dateien koennen Ausgabe (`edition`, `country`), Funktionen
+  (`features`), Vertragsbedingungen (`terms`) und eine signierte
+  Ueberschrift (`headline`) tragen. v1-Dateien bleiben gueltig. Werkzeug:
+  neue Flags `--edition`, `--country`, `--feature`, `--billing`,
+  `--interval`, `--label`, `--headline`, `--v2` und Laufzeiten
+  `--until 3t|2w|6m|1j`.
+- Monotonie beim Einspielen haengt nur noch am Ausstelltag: Eine spaeter
+  ausgestellte Datei wird angenommen, auch wenn sie kuerzer laeuft (bisher
+  wurde jede kuerzere Datei abgelehnt). Gleichtaegig bleibt "nicht kuerzer".
+- `/api/health` und der Lizenzbericht melden `license_format` (2).
+- Ein Tausch der Lizenzdatei im Datenverzeichnis ohne Upload erzeugt eine
+  Audit-Zeile `license.file_changed` (user_id NULL) und eine Journalzeile.
 - Lizenztexte kommen fuer Desktop-App, Portal und Backend aus einer
   Funktion (`describeLicense` in `packages/shared`). Unbefristete Lizenzen
   melden `perpetual = true`, keinen Countdown und kein Kulanzdatum mehr

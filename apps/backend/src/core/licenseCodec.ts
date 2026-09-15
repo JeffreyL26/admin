@@ -19,7 +19,16 @@
  */
 import crypto from 'node:crypto';
 import { z } from 'zod';
-import { LICENSE_FILE_PREFIX, LICENSE_MAX_DATE, type LicensePayload } from '@ohrganize/shared';
+import {
+  COUNTRY_CODES,
+  EDITION_PATTERN,
+  FEATURE_KEY_PATTERN,
+  LICENSE_FILE_PREFIX,
+  LICENSE_HEADLINE_MAX,
+  LICENSE_MAX_DATE,
+  LICENSE_MAX_FEATURES,
+  type LicensePayload,
+} from '@ohrganize/shared';
 
 /** Ein Schlüssel, dem das Backend vertraut — identifiziert über `kid`. */
 export interface TrustedLicenseKey {
@@ -44,14 +53,21 @@ const isoDay = z
     'Kein gültiger Kalendertag',
   );
 
+/** Felder, die es erst ab v2 gibt; bei v1 muessen sie fehlen. */
+const V2_FIELDS = ['edition', 'country', 'features', 'terms', 'headline'] as const;
+
 /**
- * Inhalt der Datei. `.strict()`: Unbekannte Felder werden abgelehnt — eine
+ * Inhalt der Datei. `.strict()`: Unbekannte Felder werden abgelehnt; eine
  * neuere Datei mit Feldern, die dieser Server nicht kennt, soll auffallen
- * statt still halb zu gelten. Formatänderungen laufen über `v`.
+ * statt still halb zu gelten. Formataenderungen laufen ueber `v`: v1 ist die
+ * Urfassung, v2 traegt Ausgabe, Land, Funktionen, Bedingungen und
+ * Ueberschrift. Ein v1-Server (Stand vor diesem Schema) lehnt eine v2-Datei
+ * ab, weil er `v: 2` und die neuen Felder nicht kennt; deshalb Rollout
+ * immer Server vor Datei.
  */
 export const licensePayloadSchema = z
   .object({
-    v: z.literal(1),
+    v: z.union([z.literal(1), z.literal(2)]),
     license_id: z.string().min(1).max(64),
     kid: z.string().min(1).max(32),
     customer: z.string().min(1).max(200),
@@ -68,8 +84,41 @@ export const licensePayloadSchema = z
     warn_days: z.number().int().min(0).max(365),
     max_users: z.number().int().min(1).nullable(),
     notice: z.string().max(200).nullable(),
+    // ab v2 (Pflichtfelder und Verbote regelt superRefine unten)
+    edition: z.string().regex(EDITION_PATTERN, 'Editionsschlüssel: Kleinbuchstaben, Ziffern, Bindestrich').optional(),
+    country: z.enum(COUNTRY_CODES).optional(),
+    features: z
+      .array(z.string().regex(FEATURE_KEY_PATTERN, 'Feature-Schlüssel wie kunde.musterfirma.export'))
+      .max(LICENSE_MAX_FEATURES)
+      .optional(),
+    terms: z
+      .object({
+        billing: z.enum(['kostenfrei', 'abo', 'kauf', 'individuell']),
+        interval: z.enum(['monatlich', 'jaehrlich']).nullable(),
+        label: z.string().min(1).max(80).nullable(),
+      })
+      .strict()
+      .optional(),
+    headline: z.string().min(1).max(LICENSE_HEADLINE_MAX).optional(),
   })
   .strict()
+  .superRefine((p, ctx) => {
+    if (p.v === 1) {
+      for (const f of V2_FIELDS) {
+        if (p[f] !== undefined) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['v'], message: `Feld ${f} gibt es erst ab v 2` });
+          return;
+        }
+      }
+    } else {
+      if (p.edition === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['edition'], message: 'edition ist ab v 2 Pflicht' });
+      }
+      if (p.country === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['country'], message: 'country ist ab v 2 Pflicht' });
+      }
+    }
+  })
   .refine((p) => p.valid_from <= p.valid_until, {
     message: 'valid_from liegt nach valid_until',
     path: ['valid_until'],

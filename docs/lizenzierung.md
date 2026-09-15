@@ -108,11 +108,14 @@ Darüber hinaus antwortet der Server `409 LICENSE_SEATS_EXCEEDED`; bestehende
 Profile bleiben unangetastet, es entstehen nur keine neuen. Ohne `max_users`
 (und in der Testphase) gibt es keine Grenze.
 
-**Monoton.** Eine neue Datei wird nur übernommen, wenn sie mindestens so
-lange läuft wie die eingespielte **und** nicht früher ausgestellt wurde
-(`issued_at`; derselbe Tag bleibt erlaubt) — ein alter Mail-Anhang kann
-eine bezahlte Laufzeit nie verkürzen und auch eine später ausgestellte Datei
-mit geänderter Platzzahl nicht wieder verdrängen. Abgelehnt werden außerdem
+**Monoton über den Ausstelltag.** Eine neue Datei wird übernommen, wenn sie
+nicht früher ausgestellt wurde als die eingespielte (`issued_at`). Eine
+später ausgestellte Datei darf auch kürzer laufen: So löst ein Jahresabo
+eine kostenfreie unbefristete Lizenz ab, und ein gekürzter Vertrag wird
+abbildbar. Nur bei gleichem Ausstelltag gilt zusätzlich "nicht kürzer",
+weil dann nichts die Reihenfolge belegt. Ein alter Mail-Anhang kann damit
+weiterhin keine bezahlte Laufzeit verkürzen und keine später ausgestellte
+Datei mit geänderter Platzzahl verdrängen. Abgelehnt werden außerdem
 Dateien, deren Kulanzfrist schon vorbei ist, und Dateien für eine andere
 Installation. `valid_until` reicht höchstens bis **2999-12-31**; das ist im
 Werkzeug „unbefristet“ — weit genug, aber diesseits der Jahr-10000-Grenze,
@@ -214,12 +217,45 @@ OHRGANIZE_LICENSE_PASSPHRASE='…' npm run lizenz -- sign \
   --key /pfad/zum/tresor/lizenz-privat-2026-09.pem --kid 2026-09 \
   --customer "Musterfirma GmbH" --customer-id musterfirma \
   --installation 799b5d35736252a62f5ad3f8a5903945 \
-  --until 2027-09-12 [--from 2026-09-13] \
+  --until 2027-09-12|unbefristet|3t|6m|1j [--from 2026-09-13] \
   [--seats 50] [--grace 14] [--warn 30] [--kind standard|evaluation] \
   [--notice "Rechnung 2026-1234"] \
   [--out /pfad/lizenz-musterfirma-2027-09-12.ohrganize] \
-  [--register /pfad/zum/tresor/lizenzen.csv]
+  [--register /pfad/zum/tresor/lizenzen.csv] \
+  [--edition vollversion --country DE] [--feature kunde.musterfirma.export] \
+  [--billing kostenfrei|abo|kauf|individuell] [--interval monatlich|jaehrlich] \
+  [--label "Partnerkonditionen"] [--headline "Ihre Partnerlizenz"] [--v2]
 ```
+
+**Lizenzfassung v1 und v2.** Ohne eines der Flags `--edition`, `--country`,
+`--feature`, `--billing`, `--headline`, `--v2` entsteht eine v1-Datei, die
+jeder Server liest. Sobald eines gesetzt ist, entsteht v2; dann sind
+`--edition` und `--country` Pflicht, und der Server des Kunden muss v2
+lesen: `GET /api/health` und der Lizenzbericht melden `license_format`
+(2 = liest v2; fehlt das Feld, ist der Server älter). **Rollout immer
+Server vor Datei.** Ein v2-Server prüft Ausgabe und Land der Datei gegen
+seine Variante (ab dem Varianten-Build) und lehnt eine fremde Ausgabe ab.
+Welche Editionen es gibt, legt der Anbieter im Variantenregister fest;
+das Werkzeug prüft nur das Muster (Kleinbuchstaben, Ziffern, Bindestrich).
+
+**Lizenzmodelle entstehen nur aus der Datei.** Nichts davon ist beim
+Kunden umstellbar; jede Änderung ist eine neue signierte Datei:
+
+| Modell | Aufruf (Auszug) | Anzeige beim Kunden |
+|---|---|---|
+| Testlizenz, 3 Tage | `--kind evaluation --until 3t` | Testlizenz bis TT.MM.JJJJ, noch 3 Tage. |
+| Testlizenz, 6 Wochen | `--kind evaluation --until 6w` | wie oben, Warnung ab der Hälfte der Laufzeit |
+| kostenfrei unbefristet | `--until unbefristet --billing kostenfrei --edition ... --country DE` | Ihre Lizenz läuft unbegrenzt und kostenfrei. |
+| Kauflizenz | `--until unbefristet --billing kauf ...` | Ihre Lizenz läuft unbegrenzt. Kauflizenz. |
+| Jahresabo | `--until 1j --billing abo --interval jaehrlich ...` | Ihre Lizenz gilt bis TT.MM.JJJJ (noch N Tage). Abonnement, jährliche Verlängerung. |
+| Kundenfunktion | `... --feature kunde.musterfirma.export` | Funktionen: kunde.musterfirma.export |
+| eigene Überschrift | `... --headline "Partnerlizenz der Musterfirma"` | ersetzt die erzeugte Überschrift, solange die Lizenz gültig ist |
+
+Laufzeiten: `3t` Tage, `2w` Wochen, `6m` Monate, `1j` Jahre, jeweils ab
+`--from` (Vorgabe heute) bis einschließlich des letzten Tages. Vorgaben je
+Art: `standard` Kulanz 14 und Warnung 30 Tage; `evaluation` Kulanz 0 und
+Warnung ab der Hälfte der Laufzeit (höchstens 30 Tage). Beides ist mit
+`--grace` und `--warn` frei überschreibbar.
 
 | Option | Bedeutung |
 |---|---|
@@ -232,7 +268,12 @@ OHRGANIZE_LICENSE_PASSPHRASE='…' npm run lizenz -- sign \
 | `--kind` | `standard` (Vorgabe) oder `evaluation` (in der Oberfläche "Testlizenz"); nur Anzeige und Register. Die Laufzeit einer Testlizenz ist frei: `--until` bestimmt sie, drei Tage sind so möglich wie drei Monate |
 | `--notice` | Freitext, den Admins unter Einstellungen → Lizenz sehen (z. B. Rechnungsbezug); nicht für Portal-Konten |
 | `--out` | Dateiname (Vorgabe: `lizenz-<customer-id>-<until>.ohrganize`) |
-| `--register` | CSV-Register, wird angelegt und fortgeschrieben |
+| `--register` | CSV-Register, wird angelegt und fortgeschrieben (Spalten inklusive `v`, `edition`, `country`, `features`, `billing`, `interval`, `headline`) |
+| `--edition`, `--country` | Ausgabe der Datei (ab v2 Pflicht); Land `DE`, `AT` oder `CH` |
+| `--feature` | Feature-Schlüssel, mehrfach möglich (`kunde.musterfirma.export`); ohne das Flag sind alle Funktionen des Builds an |
+| `--billing`, `--interval`, `--label` | Vertragsbedingungen, nur Anzeige und Register: Abrechnungsart, Intervall, freier Kurztext, der den erzeugten Satz ersetzt |
+| `--headline` | signierte Überschrift des Anbieters (höchstens 120 Zeichen), ersetzt im Zustand gültig die erzeugte Überschrift |
+| `--v2` | erzwingt v2 auch ohne weitere v2-Felder |
 
 Das Werkzeug prüft die Eingaben **vor** dem Signieren (Installations-ID
 32 Hex oder `-`, `--until`/`--from` echte Kalendertage, `--until` nicht nach

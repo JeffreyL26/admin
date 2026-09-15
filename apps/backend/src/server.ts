@@ -1,6 +1,11 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
-import { LICENSE_STATE_HEADER, MIN_CLIENT_VERSION, SERVER_VERSION_HEADER } from '@ohrganize/shared';
+import {
+  LICENSE_FORMAT_VERSION,
+  LICENSE_STATE_HEADER,
+  MIN_CLIENT_VERSION,
+  SERVER_VERSION_HEADER,
+} from '@ohrganize/shared';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import { config, hardenDataPermissions } from './config.js';
@@ -18,6 +23,7 @@ import {
   licenseHeaderValueFor,
   licenseStatusPublic,
   logLicenseAtStartup,
+  setLicenseLogger,
 } from './core/license.js';
 import { licenseRoutes } from './core/licenseRoutes.js';
 import { registerModules } from './modules/index.js';
@@ -79,6 +85,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   for (const warning of config.startupWarnings) app.log.warn(warning);
+  // Dateiwechsel im Datenverzeichnis (ohne Request) landen ueber diesen Logger
+  // im Journal, zusaetzlich zur Audit-Zeile.
+  setLicenseLogger(app.log);
   // Lizenzzustand nach den Migrationen (braucht die Tabelle installation) —
   // eine Testphase, Kulanz oder der Nur-Lese-Betrieb soll im Journal stehen,
   // bevor der erste Nutzer davon in der Oberfläche liest.
@@ -208,8 +217,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     min_client_version: MIN_CLIENT_VERSION,
     // Nur die Frage „sind Änderungen möglich?“ — Monitoring kann darauf
     // alarmieren, ohne dass hier etwas über den Vertrag preisgegeben wird
-    // (die Route ist ohne Anmeldung erreichbar).
-    license: licenseStatusPublic(),
+    // (die Route ist ohne Anmeldung erreichbar). Die Feature-Liste bleibt
+    // angemeldeten Antworten vorbehalten.
+    license: { read_only: licenseStatusPublic().read_only },
+    // Hoechste Lizenzfassung, die dieser Server liest: Der Anbieter prueft sie,
+    // bevor er eine v2-Datei ausstellt.
+    license_format: LICENSE_FORMAT_VERSION,
   }));
 
   await app.register(authRoutes);

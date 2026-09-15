@@ -729,3 +729,27 @@ eine Datenbank beschreiben, ohne sie zu veraendern (Phase 7).
 Zahlen und Daten, die Oberflaeche formt Saetze daraus; ein Text im
 API-Vertrag wuerde jede Wortaenderung zu einem Backend-Release machen und
 Portal-Konten Texte zeigen, die nicht fuer sie bestimmt sind.
+
+## Lizenz v2: Ausgabe und Bedingungen in der Datei, Editionen ohne feste Liste
+
+**Entscheidung:** Die Lizenzdatei bekommt mit `v: 2` die Felder `edition`
+und `country` (Pflicht), `features`, `terms` und `headline`. Das Schema
+bleibt `.strict()`; v1-Dateien bleiben unveraendert gueltig, ein v1-Server
+lehnt v2 ab. Editionen sind kein Enum, sondern ein Muster; welche es gibt,
+steht im Variantenregister des Anbieters. Der Ausstell-Baustein
+`core/licenseIssue.ts` ist gemeinsam fuer Werkzeug und conspectus. Die
+Monotonie beim Einspielen haengt nur noch am Ausstelltag.
+
+**Warum:** Lizenzmodelle sollen frei anlegbar UND funktionsfaehig sein
+(3-Tage-Test, kostenfrei unbefristet, Abo, Kundenfunktion), ohne dass der
+Kunde etwas umstellen kann. Das geht nur, wenn die Datei alles traegt, was
+Anzeige und Durchsetzung brauchen. Editionen und Tarife sind beim Anbieter
+noch nicht final; ein Enum im Schema haette jede Umbenennung zu einem
+Server-Update gemacht. Die alte Monotonie (nie kuerzer) haette eine
+kostenfreie Dauerlizenz nie durch ein Abo abloesen lassen; der Schutz gegen
+alte Anhaenge bleibt ueber `issued_at`.
+
+**Verworfen, Mindestserverversion als Konstante:** Die Version bleibt bis
+zum Abschluss aller Phasen 1.0.0; eine Versionsschwelle haette nichts
+unterschieden. Stattdessen melden Health und Lizenzbericht
+`license_format`, und der Anbieter prueft die Faehigkeit statt der Zahl.

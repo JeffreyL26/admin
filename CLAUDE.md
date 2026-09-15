@@ -207,9 +207,11 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   angemeldeten Antworten** (Admins der Zustand, Portal nur `valid`/`expired`,
   öffentliche Routen ohne Header — `licenseHeaderValueFor`),
   Login/`/api/auth/me` liefern `license` (Admins alles, Portal nur
-  `{ read_only }`), `/api/health` nur `license.read_only`. Einspielen ist
-  monoton (kein früheres `valid_until`, kein früheres `issued_at`; gleicher
-  Tag erlaubt), `valid_until` ≤ `LICENSE_MAX_DATE` (2999-12-31 =
+  `{ read_only, features }`), `/api/health` nur `license.read_only` und
+  `license_format` (hoechste lesbare Payload-Fassung, heute 2). Einspielen
+  ist monoton ueber den Ausstelltag (kein frueheres `issued_at`; eine
+  spaeter ausgestellte Datei darf kuerzer laufen, gleichtaegig nicht),
+  `valid_until` ≤ `LICENSE_MAX_DATE` (2999-12-31 =
   „unbefristet“), und eine bereits über die Kulanz hinaus abgelaufene Datei
   im Datenverzeichnis beendet die Testphase nicht. Platzgrenze `max_users` ⇒
   `assertSeatsAvailable` an genau den Stellen, an denen Profile aktiv werden
@@ -229,6 +231,16 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   dem Laden des eingebetteten Backends). **Die Lizenzlogik löscht nie
   Daten** — Nur-Lese heißt lesbar und exportierbar, die Personalakte hat
   Aufbewahrungsfristen. Betreiberdoku: docs/lizenzierung.md.
+  **Lizenz v2** (`v: 2`, Schema `licenseCodec.ts`) traegt `edition`,
+  `country` (Pflicht), `features`, `terms`, `headline`; v1-Dateien bleiben
+  gueltig, ein v1-Server lehnt v2 ab (Rollout Server vor Datei). Editionen
+  sind KEINE feste Liste (nur ein Muster), der Anbieter legt sie im
+  Variantenregister fest. Ausstellen ueber `core/licenseIssue.ts`
+  (`issueLicense`, gemeinsam fuer `npm run lizenz` und conspectus); die
+  Vorgaben je Art (`evaluation`: Kulanz 0, Warnung ab halber Laufzeit) und
+  Laufzeiten (`3t`, `2w`, `6m`, `1j`) stehen dort. Ein Dateiwechsel im
+  Datenverzeichnis ohne Upload schreibt `license.file_changed` mit
+  `user_id NULL` ins Audit-Log (`loadLicenseFile`).
 
 ## Konventionen
 

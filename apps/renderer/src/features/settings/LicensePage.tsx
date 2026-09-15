@@ -4,7 +4,8 @@ import {
   AlertTriangle, Check, CheckCircle2, Copy, Download, Info, ShieldAlert, Upload,
 } from 'lucide-react';
 import {
-  LICENSE_CLOCK_WARNING_TEXT, LICENSE_READ_ONLY_DETAIL, formatDate, todayIsoLocal, type LicenseStatus,
+  COUNTRY_LABELS, LICENSE_CLOCK_WARNING_TEXT, LICENSE_READ_ONLY_DETAIL, formatDate, termsLabel, todayIsoLocal,
+  type LicenseStatus,
 } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
@@ -134,6 +135,12 @@ export function LicensePage() {
           >
             <Fact label="Kunde" value={license.customer ?? '—'} />
             <Fact label="Art" value={license.kind ? LICENSE_KIND_LABELS[license.kind] : '—'} />
+            <Fact
+              label="Ausgabe"
+              value={license.country ? `${COUNTRY_LABELS[license.country]} ${license.edition ?? ''}`.trim() : '—'}
+              hint={license.license_id && !license.country ? 'Lizenz v1, ohne Ausgabe' : undefined}
+            />
+            <Fact label="Vertrag" value={license.terms ? termsLabel(license.terms).replace(/\.$/, '') : '—'} />
             <Fact label="Gültig bis" value={validUntilLabel(license)} />
             <Fact label="Kulanz bis" value={license.perpetual ? 'entfällt' : formatDate(license.grace_until)} />
             <Fact
@@ -146,6 +153,30 @@ export function LicensePage() {
               }
             />
             <Fact label="Lizenz-ID" value={license.license_id ?? '—'} mono />
+            <div style={{ gridColumn: '1 / -1' }}>
+              <Fact
+                label="Funktionen"
+                value={
+                  license.features === null
+                    ? 'alle Funktionen dieser Ausgabe'
+                    : license.features.length === 0
+                      ? 'keine Zusatzfunktionen'
+                      : ''
+                }
+                hint={license.features === null ? undefined : 'Zusatzfunktionen laut Lizenzdatei'}
+                action={
+                  license.features && license.features.length > 0 ? (
+                    <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                      {license.features.map((f) => (
+                        <Badge key={f} tone="neutral">
+                          {f}
+                        </Badge>
+                      ))}
+                    </span>
+                  ) : undefined
+                }
+              />
+            </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <Fact
                 label="Installations-ID"

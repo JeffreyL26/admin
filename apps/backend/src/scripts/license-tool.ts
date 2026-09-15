@@ -1,24 +1,41 @@
 /**
- * oHRganize — Lizenzwerkzeug des ANBIETERS. Läuft aus dem Repository, nie auf
- * einem Kundensystem (es ist nicht Teil des dist-Bundles).
+ * oHRganize Lizenzwerkzeug des ANBIETERS. Laeuft aus dem Repository, nie auf
+ * einem Kundensystem (es ist nicht Teil des dist-Bundles). Schlanke
+ * Alternative ohne Register; mit Register, Instanzen und Rollouts arbeitet
+ * tools/conspectus, das denselben Baustein core/licenseIssue.ts nutzt.
  *
  *   npm run lizenz -- keygen --out <verzeichnis> --kid 2026-09
  *   npm run lizenz -- keys
  *   npm run lizenz -- sign --key <privat.pem> --kid 2026-09 \
  *        --customer "Musterfirma GmbH" --customer-id musterfirma \
- *        --installation <32 hex | -> --until 2027-09-12|unbefristet [--from 2026-09-13] \
+ *        --installation <32 hex | -> --until 2027-09-12|unbefristet|3t|6m|1j [--from 2026-09-13] \
  *        [--seats 50] [--grace 14] [--warn 30] [--kind standard|evaluation] \
- *        [--notice "Rechnung 2026-1234"] [--out <datei>] [--register <csv>]
+ *        [--notice "Rechnung 2026-1234"] [--out <datei>] [--register <csv>] \
+ *        [--edition vollversion --country DE] [--feature kunde.musterfirma.export ...] \
+ *        [--billing kostenfrei|abo|kauf|individuell] [--interval monatlich|jaehrlich] \
+ *        [--label "Partnerkonditionen"] [--headline "Ihre Lizenz ..."] [--v2]
  *   npm run lizenz -- inspect <datei> [--pubkey <oeffentlich.pem>]
  *   npm run lizenz -- protect --key <privat.pem>      (Passphrase aus OHRGANIZE_LICENSE_PASSPHRASE)
  *
- * Der private Schlüssel gehört NICHT ins Repo, nicht in OneDrive, nicht in
- * eine Mail. `keygen` legt ihn mit 0600 ab; verschlüsselt, wenn
- * OHRGANIZE_LICENSE_PASSPHRASE gesetzt ist — dieselbe Variable liest `sign`.
- * Das Register (CSV, Semikolon) ist die Sicht des Anbieters auf „wer hat was
- * bis wann“; es wird bei jedem `sign` fortgeschrieben.
+ * Lizenzfassung: Ohne v2-Flag entsteht eine v1-Datei (jeder Server liest
+ * sie). Sobald --edition, --country, --feature, --billing, --headline oder
+ * --v2 gesetzt ist, entsteht v2; dann sind --edition und --country Pflicht,
+ * und der Server des Kunden muss v2 lesen (Health und Lizenzbericht melden
+ * license_format >= 2). Rollout immer Server vor Datei.
  *
- * Prüfung und Format teilen sich Werkzeug und Server (core/licenseCodec.ts),
+ * Beispiele fuer Lizenzmodelle (alle nur ueber die Datei, nichts davon ist
+ * beim Kunden umstellbar):
+ *   3 Tage Test:            --kind evaluation --until 3t
+ *   kostenfrei unbefristet: --until unbefristet --billing kostenfrei --edition ... --country DE
+ *   Jahresabo:              --until 1j --billing abo --interval jaehrlich --edition ... --country DE
+ *
+ * Der private Schluessel gehoert NICHT ins Repo, nicht in OneDrive, nicht in
+ * eine Mail. `keygen` legt ihn mit 0600 ab; verschluesselt, wenn
+ * OHRGANIZE_LICENSE_PASSPHRASE gesetzt ist; dieselbe Variable liest `sign`.
+ * Das Register (CSV, Semikolon) ist die Sicht des Anbieters auf "wer hat was
+ * bis wann"; es wird bei jedem `sign` fortgeschrieben.
+ *
+ * Pruefung und Format teilen sich Werkzeug und Server (core/licenseCodec.ts),
  * damit eine hier erzeugte Datei genau das ist, was der Server akzeptiert.
  */
 import crypto from 'node:crypto';
@@ -26,10 +43,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import {
-  LICENSE_DEFAULT_GRACE_DAYS,
-  LICENSE_DEFAULT_WARN_DAYS,
   LICENSE_FILE_NAME,
-  LICENSE_MAX_DATE,
+  todayIsoLocal,
+  type LicenseBilling,
+  type LicenseInterval,
   type LicensePayload,
 } from '@ohrganize/shared';
 import {
@@ -38,9 +55,15 @@ import {
   publicKeyFingerprint,
   publicKeyFrom,
   publicKeyToRawBase64,
-  signLicensePayload,
   verifyLicenseText,
 } from '../core/licenseCodec.js';
+import {
+  LicenseIssueError,
+  REGISTER_CSV_HEADER,
+  issueLicense,
+  privateKeyMatches,
+  registerCsvLine,
+} from '../core/licenseIssue.js';
 import { TRUSTED_LICENSE_KEYS_RAW } from '../core/licenseKeys.js';
 
 function fail(message: string): never {
@@ -54,16 +77,6 @@ function describeZod(err: unknown): string {
   if (!issues?.length) return (err as Error).message;
   const first = issues[0];
   return `${first.path.length ? first.path.join('.') + ': ' : ''}${first.message}`;
-}
-
-function todayIsoLocal(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function csvCell(value: unknown): string {
-  const s = value === null || value === undefined ? '' : String(value);
-  return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,6 +139,7 @@ function sign(args: string[]): void {
       installation: { type: 'string' },
       from: { type: 'string' },
       until: { type: 'string' },
+      laufzeit: { type: 'string' },
       seats: { type: 'string' },
       grace: { type: 'string' },
       warn: { type: 'string' },
@@ -133,6 +147,14 @@ function sign(args: string[]): void {
       notice: { type: 'string' },
       out: { type: 'string' },
       register: { type: 'string' },
+      edition: { type: 'string' },
+      country: { type: 'string' },
+      feature: { type: 'string', multiple: true },
+      billing: { type: 'string' },
+      interval: { type: 'string' },
+      label: { type: 'string' },
+      headline: { type: 'string' },
+      v2: { type: 'boolean' },
     },
   });
 
@@ -141,33 +163,26 @@ function sign(args: string[]): void {
   const customer = values.customer ?? fail('--customer fehlt');
   const customerId = values['customer-id'] ?? fail('--customer-id fehlt');
   const installationArg = values.installation ?? fail('--installation <32 hex | -> fehlt');
-  // „unbefristet“ = LICENSE_MAX_DATE; die Clients zeigen dafür „unbefristet“ statt eines Datums.
-  const untilArg = values.until ?? fail('--until JJJJ-MM-TT | unbefristet fehlt');
-  const validUntil = untilArg.toLowerCase() === 'unbefristet' ? LICENSE_MAX_DATE : untilArg;
-  const validFrom = values.from ?? todayIsoLocal();
-  const seats = values.seats === undefined ? null : Number(values.seats);
-  const grace = values.grace === undefined ? LICENSE_DEFAULT_GRACE_DAYS : Number(values.grace);
-  const warn = values.warn === undefined ? LICENSE_DEFAULT_WARN_DAYS : Number(values.warn);
-  const kind = (values.kind ?? 'standard') as LicensePayload['kind'];
-  const notice = values.notice ?? null;
+  // --laufzeit ist ein Alias fuer --until mit Laufzeitangabe (3t, 6m, 1j).
+  const until = values.until ?? values.laufzeit ?? fail('--until JJJJ-MM-TT | unbefristet | 3t | 6m | 1j fehlt');
 
   if (!TRUSTED_LICENSE_KEYS_RAW.some((k) => k.kid === kid)) {
     console.warn(
-      `WARNUNG: kid ${kid} steht nicht in licenseKeys.ts — ein Server ohne diesen Eintrag lehnt die Datei ab.`,
+      `WARNUNG: kid ${kid} steht nicht in licenseKeys.ts; ein Server ohne diesen Eintrag lehnt die Datei ab.`,
     );
   }
-  if (seats !== null && (!Number.isInteger(seats) || seats < 1)) fail('--seats muss eine ganze Zahl ≥ 1 sein');
-  if (installationArg !== '-' && !/^[0-9a-fA-F]{32}$/.test(installationArg)) {
-    fail('--installation muss die 32-stellige Installations-ID (Einstellungen → Lizenz) oder - für ungebunden sein');
+  const numberOrNull = (flag: string, raw: string | undefined): number | null => {
+    if (raw === undefined) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) fail(`${flag} muss eine Zahl sein (erhalten: ${raw})`);
+    return n;
+  };
+  const billing = values.billing;
+  if (billing !== undefined && !['kostenfrei', 'abo', 'kauf', 'individuell'].includes(billing)) {
+    fail('--billing: kostenfrei | abo | kauf | individuell');
   }
-  for (const [flag, value] of [['--until', validUntil], ['--from', validFrom]] as const) {
-    const t = Date.parse(`${value}T00:00:00Z`);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== value) {
-      fail(`${flag} muss ein gültiger Kalendertag JJJJ-MM-TT sein (erhalten: ${value})`);
-    }
-  }
-  if (validUntil > LICENSE_MAX_DATE) fail(`--until darf nicht nach ${LICENSE_MAX_DATE} liegen („unbefristet“ = ${LICENSE_MAX_DATE})`);
-  if (kind !== 'standard' && kind !== 'evaluation') fail('--kind: standard | evaluation');
+  const interval = values.interval;
+  if (interval !== undefined && !['monatlich', 'jaehrlich'].includes(interval)) fail('--interval: monatlich | jaehrlich');
 
   const passphrase = process.env.OHRGANIZE_LICENSE_PASSPHRASE?.trim() || undefined;
   let privateKey: crypto.KeyObject;
@@ -176,80 +191,73 @@ function sign(args: string[]): void {
   } catch (err) {
     fail(`Privater Schlüssel nicht lesbar (${(err as Error).message}). Passphrase in OHRGANIZE_LICENSE_PASSPHRASE?`);
   }
-  // Der eingebettete öffentliche Schlüssel muss zum privaten passen — sonst
+  // Der eingebettete oeffentliche Schluessel muss zum privaten passen; sonst
   // signiert man Dateien, die kein Server je annimmt.
   const embedded = TRUSTED_LICENSE_KEYS_RAW.find((k) => k.kid === kid);
-  if (embedded) {
-    const derived = publicKeyToRawBase64(crypto.createPublicKey(privateKey));
-    if (derived !== embedded.publicKey) {
-      fail(`Der private Schlüssel passt nicht zum eingebauten öffentlichen Schlüssel ${kid}.`);
-    }
+  if (embedded && !privateKeyMatches(privateKey, embedded.publicKey)) {
+    fail(`Der private Schlüssel passt nicht zum eingebauten öffentlichen Schlüssel ${kid}.`);
   }
 
-  const payload: LicensePayload = {
-    v: 1,
-    license_id: crypto.randomUUID(),
-    kid,
-    customer,
-    customer_id: customerId,
-    installation_id: installationArg === '-' ? null : installationArg.toLowerCase(),
-    kind,
-    issued_at: todayIsoLocal(),
-    valid_from: validFrom,
-    valid_until: validUntil,
-    grace_days: grace,
-    warn_days: warn,
-    max_users: seats,
-    notice,
-  };
-
-  let text: string;
+  let issued;
   try {
-    text = signLicensePayload(payload, privateKey);
+    issued = issueLicense(
+      {
+        kid,
+        customer,
+        customerId,
+        installationId: installationArg === '-' ? null : installationArg,
+        until,
+        from: values.from ?? null,
+        seats: numberOrNull('--seats', values.seats),
+        graceDays: numberOrNull('--grace', values.grace),
+        warnDays: numberOrNull('--warn', values.warn),
+        kind: (values.kind ?? 'standard') as LicensePayload['kind'],
+        notice: values.notice ?? null,
+        edition: values.edition ?? null,
+        country: values.country ?? null,
+        features: values.feature ?? null,
+        billing: (billing ?? null) as LicenseBilling | null,
+        interval: (interval ?? null) as LicenseInterval | null,
+        termsLabel: values.label ?? null,
+        headline: values.headline ?? null,
+        forceV2: values.v2 === true,
+      },
+      privateKey,
+    );
   } catch (err) {
+    if (err instanceof LicenseIssueError) fail(err.message);
     fail(`Ungültige Angaben: ${describeZod(err)}`);
   }
-  // Gegenprobe mit genau der Prüfung, die der Server macht.
-  verifyLicenseText(text, [{ kid, publicKey: crypto.createPublicKey(privateKey) }]);
+  const { text, payload } = issued;
 
-  const outPath = values.out ?? `lizenz-${customerId}-${validUntil}.ohrganize`;
+  const outPath = values.out ?? `lizenz-${customerId}-${payload.valid_until}.ohrganize`;
   fs.writeFileSync(outPath, `${text}\n`, { mode: 0o644 });
 
   if (values.register) {
-    const header =
-      'issued_at;license_id;kid;customer_id;customer;installation_id;kind;valid_from;valid_until;grace_days;warn_days;max_users;notice;file\n';
-    const line =
-      [
-        payload.issued_at,
-        payload.license_id,
-        payload.kid,
-        payload.customer_id,
-        payload.customer,
-        payload.installation_id ?? '',
-        payload.kind,
-        payload.valid_from,
-        payload.valid_until,
-        payload.grace_days,
-        payload.warn_days,
-        payload.max_users ?? '',
-        payload.notice ?? '',
-        path.resolve(outPath),
-      ]
-        .map(csvCell)
-        .join(';') + '\n';
-    if (!fs.existsSync(values.register)) fs.writeFileSync(values.register, header, { mode: 0o600 });
-    fs.appendFileSync(values.register, line);
+    if (!fs.existsSync(values.register)) fs.writeFileSync(values.register, REGISTER_CSV_HEADER, { mode: 0o600 });
+    fs.appendFileSync(values.register, registerCsvLine(payload, path.resolve(outPath)));
   }
 
-  console.log(`Lizenz ausgestellt: ${outPath}`);
-  console.log(`  Kunde:          ${customer} (${customerId})`);
+  const untilLabel = payload.valid_until === '2999-12-31' ? 'unbefristet' : payload.valid_until;
+  console.log(`Lizenz ausgestellt (v${payload.v}): ${outPath}`);
+  console.log(`  Kunde:          ${payload.customer} (${payload.customer_id})`);
   console.log(`  Installation:   ${payload.installation_id ?? 'ungebunden'}`);
-  console.log(`  Gültig:         ${validFrom} bis ${validUntil} (Kulanz ${grace} Tage, Warnung ${warn} Tage vorher)`);
-  console.log(`  Plätze:         ${seats ?? 'unbegrenzt'}   Art: ${kind}`);
+  console.log(`  Gültig:         ${payload.valid_from} bis ${untilLabel} (Kulanz ${payload.grace_days} Tage, Warnung ${payload.warn_days} Tage vorher)`);
+  console.log(`  Plätze:         ${payload.max_users ?? 'unbegrenzt'}   Art: ${payload.kind}`);
+  if (payload.v === 2) {
+    console.log(`  Ausgabe:        ${payload.country} ${payload.edition}`);
+    console.log(`  Funktionen:     ${payload.features?.length ? payload.features.join(', ') : 'alle des Builds'}`);
+    if (payload.terms) {
+      const t = payload.terms;
+      console.log(`  Bedingungen:    ${t.billing}${t.interval ? `, ${t.interval}` : ''}${t.label ? ` (${t.label})` : ''}`);
+    }
+    if (payload.headline) console.log(`  Überschrift:    ${payload.headline}`);
+    console.log('  HINWEIS: v2-Datei. Der Server des Kunden muss license_format 2 melden (Health, Lizenzbericht), sonst lehnt er sie ab.');
+  }
   console.log(`  Lizenz-ID:      ${payload.license_id}`);
   if (values.register) console.log(`  Register:       ${values.register}`);
   console.log('');
-  console.log(`Beim Kunden: Datei unter Einstellungen → Lizenz einspielen (oder als ${LICENSE_FILE_NAME} ins Datenverzeichnis legen — der Dienst erkennt sie binnen Sekunden, ohne Neustart).`);
+  console.log(`Beim Kunden: Datei unter Einstellungen → Lizenz einspielen (oder als ${LICENSE_FILE_NAME} ins Datenverzeichnis legen; der Dienst erkennt sie binnen Sekunden, ohne Neustart).`);
 }
 
 // ---------------------------------------------------------------------------
