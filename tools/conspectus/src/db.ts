@@ -40,10 +40,13 @@ export function registerDir(env: NodeJS.ProcessEnv = process.env): string {
     );
   }
   const dir = path.resolve(raw);
+  // Zweimal pruefen: vor dem Anlegen, damit ein abgewiesener Pfad kein
+  // Verzeichnis hinterlaesst (etwa im Repository), und nach dem Anlegen noch
+  // einmal aufgeloest, weil realpathSync Symlinks folgt und genau ein Symlink
+  // in ein synchronisiertes Verzeichnis sonst uebersehen wuerde.
+  assertOutsideRepo(dir);
+  assertNotSynced(dir);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  // Erst NACH dem Anlegen aufloesen: realpathSync folgt Symlinks, und genau
-  // ein Symlink in ein synchronisiertes Verzeichnis waere der Fall, den die
-  // Pruefung unten sonst uebersaehe.
   const real = fs.realpathSync(dir);
   assertOutsideRepo(real);
   assertNotSynced(real);
