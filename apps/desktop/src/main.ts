@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { pathToFileURL } from 'node:url';
-import { MIN_SERVER_VERSION, isAtLeast } from '@ohrganize/shared';
+import { DEFAULT_VARIANT_ID, MIN_SERVER_VERSION, isAtLeast, variantById } from '@ohrganize/shared';
 import { StartupError } from './startupError';
 import {
   PIN_STORE_FILE,
@@ -25,6 +25,13 @@ import {
 // Renderer wird als gebauter Build über das eigene Schema ohrganize://app geladen.
 const devServerUrl = process.env.ELECTRON_START_URL;
 const isDev = Boolean(devServerUrl);
+
+// Variante dieser App: scripts/build.mjs kompiliert OHRGANIZE_VARIANT als
+// Literal ein (define); im Dev-Betrieb gilt die Vorgabe des Registers. Der
+// Marker haelt die Zeichenkette fuer scripts/check-variant.mjs im Bundle.
+declare const __OHRGANIZE_VARIANT_MARKER__: string | undefined;
+const VARIANT = variantById(process.env.OHRGANIZE_VARIANT?.trim() || DEFAULT_VARIANT_ID);
+const VARIANT_MARKER = typeof __OHRGANIZE_VARIANT_MARKER__ === 'string' ? __OHRGANIZE_VARIANT_MARKER__ : `OHRGANIZE_VARIANT:${VARIANT.id}`;
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -436,14 +443,17 @@ function fetchJson(target: URL, agent: http.Agent | undefined, timeoutMs: number
 // Im https-Betrieb prüft dieselbe Verbindung den Serverschlüssel (policy) —
 // ein fremder Schlüssel ist ein eigener, immer tödlicher Startabbruch.
 async function assertReachable(base: string, policy: PinPolicy | null): Promise<void> {
-  let health: { version?: unknown };
+  let health: { version?: unknown; variant?: { id?: unknown; label?: unknown } };
   try {
     const agent = policy
       ? createPinningAgent(policy, (pin) => {
           observedServerPin = pin;
         })
       : undefined;
-    health = (await fetchJson(new URL(`${base}/api/health`), agent, 10_000)) as { version?: unknown };
+    health = (await fetchJson(new URL(`${base}/api/health`), agent, 10_000)) as {
+      version?: unknown;
+      variant?: { id?: unknown; label?: unknown };
+    };
   } catch (err) {
     const mismatch = findPinMismatch(err);
     if (mismatch) throw new StartupError(pinMismatchMessage(mismatch.policy, mismatch.observed));
@@ -476,6 +486,25 @@ async function assertReachable(base: string, policy: PinPolicy | null): Promise<
         `mindestens ${MIN_SERVER_VERSION} (App-Version: ${app.getVersion()}).\n\n` +
         `Bitte spielen Sie zuerst das Server-Update ein. Die Reihenfolge ist immer:\n` +
         `erst der Server, dann die Arbeitsplätze.`,
+    );
+  }
+
+  // Variantenabgleich: Server und App muessen dieselbe Ausgabe (Land x
+  // Edition) sein, sonst fehlen der App Seiten, die der Server kennt, oder
+  // umgekehrt. Ein Server ohne Variantenangabe ist aelter als diese App.
+  const serverVariant = typeof health.variant?.id === 'string' ? health.variant.id : null;
+  if (serverVariant === null) {
+    throw new StartupError(
+      `Das Backend unter ${base} meldet keine Variante und ist damit älter als diese App (${VARIANT.label}).\n\n` +
+        `Bitte spielen Sie zuerst das Server-Update ein.`,
+    );
+  }
+  if (serverVariant !== VARIANT.id) {
+    const serverLabel = typeof health.variant?.label === 'string' ? health.variant.label : serverVariant;
+    throw new StartupError(
+      `Der Server unter ${base} ist die Ausgabe ${serverLabel} (${serverVariant}), diese App ist ` +
+        `${VARIANT.label} (${VARIANT.id}).\n\n` +
+        `Bitte installieren Sie den Installer der passenden Ausgabe (der Name endet auf -${serverVariant}).`,
     );
   }
 }
@@ -543,6 +572,7 @@ async function startBackend(): Promise<string> {
 
   const dataDir = path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
+  console.log(`[oHRganize] Variante ${VARIANT.id} (${VARIANT.label}) [${VARIANT_MARKER}]`);
   process.env.OHRGANIZE_DATA_DIR = dataDir;
 
   // Serverkonfiguration NICHT erben — hart überschreiben, bevor das Bundle

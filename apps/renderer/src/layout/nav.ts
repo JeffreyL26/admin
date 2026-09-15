@@ -7,7 +7,10 @@ import {
   FilePenLine, BadgeCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { hasFeature, pathAllowedByFeatures, type AdminArea } from '@ohrganize/shared';
+import {
+  AREA_MODULES, hasFeature, moduleEnabled, pathAllowedByFeatures, type AdminArea, type ModuleKey,
+} from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 
 export interface NavItem {
   path: string;
@@ -28,6 +31,13 @@ export interface NavItem {
    */
   feature?: string;
   /**
+   * Fachmodul, zu dem der Eintrag gehoert, wenn es vom Abschnitt abweicht
+   * (die Fuehrungsseiten unter "Leistung & Fuehrung"). Ohne Angabe gilt das
+   * Modul des Abschnitts (AREA_MODULES ueber den Rechtebereich). Eintraege
+   * eines Moduls, das die Variante nicht enthaelt, existieren nicht.
+   */
+  module?: ModuleKey;
+  /**
    * Nur bei exaktem Pfad aktiv. Nötig, wenn ein Eintrag Unterseiten hat, die
    * selbst in der Seitenleiste stehen (/einstellungen → /einstellungen/lizenz):
    * NavLink markiert sonst beide, weil es Präfixe als aktiv wertet.
@@ -46,6 +56,32 @@ export interface NavSection {
    * ausschließlich im Backend (core/permissions.ts).
    */
   area?: AdminArea;
+  /** Fachmodul des Abschnitts; ohne Angabe aus `area` abgeleitet, ohne beides immer vorhanden. */
+  module?: ModuleKey;
+}
+
+function sectionModule(section: NavSection): ModuleKey | null {
+  return section.module ?? (section.area ? AREA_MODULES[section.area] : null);
+}
+
+function itemModule(section: NavSection, item: NavItem): ModuleKey | null {
+  if (item.module) return item.module;
+  if (item.area) return AREA_MODULES[item.area] ?? sectionModule(section);
+  return sectionModule(section);
+}
+
+/**
+ * Sicht der Variante: Abschnitte und Eintraege von Modulen, die dieser Build
+ * nicht enthaelt, fallen weg (Seitenleiste, Palette, Kuerzel, Einstellungen
+ * zur Seitenleiste arbeiten alle auf NAV_SECTIONS). Ein Abschnitt ohne
+ * verbleibende Eintraege entfaellt ganz.
+ */
+export function navSectionsForVariant(sections: NavSection[], modules: readonly ModuleKey[]): NavSection[] {
+  const variant = { modules };
+  return sections
+    .filter((s) => moduleEnabled(variant, sectionModule(s)))
+    .map((s) => ({ ...s, items: s.items.filter((i) => moduleEnabled(variant, itemModule(s, i))) }))
+    .filter((s) => s.items.length > 0);
 }
 
 /**
@@ -65,7 +101,7 @@ export function navItemAllowedByFeatures(
  * Navigations- und Routen-Kontrakt: Die Fachmodule implementieren exakt diese
  * Pfade in features/<modul>/routes.tsx. Neue Seiten = neuer Eintrag hier.
  */
-export const NAV_SECTIONS: NavSection[] = [
+export const ALL_NAV_SECTIONS: NavSection[] = [
   {
     key: 'dashboard',
     title: null,
@@ -114,7 +150,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: 'Leistung & Führung',
     area: 'leistung',
     items: [
-      { path: '/fuehrung/mein-team', label: 'Mein Team', icon: UsersRound, leaderOnly: true },
+      { path: '/fuehrung/mein-team', label: 'Mein Team', icon: UsersRound, leaderOnly: true, module: 'leadership' },
       { path: '/leistung/feedback', label: 'Gespräche', icon: MessagesSquare },
       { path: '/leistung/ziele', label: 'Ziele & OKR', icon: Target },
       { path: '/leistung/beurteilungen', label: 'Beurteilungen', icon: ClipboardCheck },
@@ -172,3 +208,6 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
 ];
+
+/** Navigation dieser Variante: nur Module, die der Build enthaelt. */
+export const NAV_SECTIONS: NavSection[] = navSectionsForVariant(ALL_NAV_SECTIONS, VARIANT.modules);

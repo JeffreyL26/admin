@@ -4,6 +4,7 @@ import {
   BookOpen, ZoomIn, ZoomOut, Expand, X,
 } from 'lucide-react';
 import { formatVersion } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { IS_ELECTRON } from '../api/client';
 import { Modal } from '../components/Modal';
 import logo from '../assets/logo.png';
@@ -168,6 +169,7 @@ function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
         <div className="row" style={{ gap: 8 }}>
           <span className="hm-badge hm-badge--blue">{formatVersion(version)}</span>
           <span className="hm-badge hm-badge--neutral">Desktop</span>
+          <span className="hm-badge hm-badge--neutral" title={VARIANT.id}>{VARIANT.label}</span>
         </div>
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', margin: 0 }}>
           © {new Date().getFullYear()} oHRganize

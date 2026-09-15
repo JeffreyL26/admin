@@ -8,6 +8,7 @@ import {
 } from '@ohrganize/shared';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
+import { VARIANT, VARIANT_MARKER } from '@variant-manifest';
 import { config, hardenDataPermissions } from './config.js';
 import { migrate } from './db/migrate.js';
 import { AppError, errorHandler, forbidden, unauthorized } from './core/errors.js';
@@ -87,6 +88,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   for (const warning of config.startupWarnings) app.log.warn(warning);
+  // Variante und Marker ins Journal; der Marker haelt die Zeichenkette fuer
+  // scripts/check-variant.mjs im Bundle.
+  app.log.info(`Variante ${VARIANT.id} (${VARIANT.label}) [${VARIANT_MARKER}]`);
   // Dateiwechsel im Datenverzeichnis (ohne Request) landen ueber diesen Logger
   // im Journal, zusaetzlich zur Audit-Zeile.
   setLicenseLogger(app.log);
@@ -223,6 +227,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     name: 'oHRganize Backend',
     version: APP_VERSION,
     min_client_version: MIN_CLIENT_VERSION,
+    // Variante dieses Servers: Die Desktop-App bricht bei Abweichung ab, das
+    // Update-Skript prueft sie vor dem Entpacken.
+    variant: { id: VARIANT.id, country: VARIANT.country, edition: VARIANT.edition, label: VARIANT.label },
     // Nur die Frage „sind Änderungen möglich?“ — Monitoring kann darauf
     // alarmieren, ohne dass hier etwas über den Vertrag preisgegeben wird
     // (die Route ist ohne Anmeldung erreichbar). Die Feature-Liste bleibt

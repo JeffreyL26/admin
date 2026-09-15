@@ -55,7 +55,7 @@ Satisfaction-Report.
 ## Windows-Installer bauen
 
 ```bash
-npm run dist:win       # → apps/desktop/release/oHRganize Setup <version>.exe
+npm run dist:win       # → apps/desktop/release/oHRganize-Setup-<version>-<variante>.exe
 ```
 
 ## Struktur

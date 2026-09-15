@@ -169,6 +169,10 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.ohrganize.apiBaseUrl`.
   Im Dev-Betrieb läuft das Backend separat auf 3001 (`npm run dev`).
+- **Varianten-Bundles:** `npm run build` baut die Variante aus `OHRGANIZE_VARIANT`
+  (Vorgabe: `default` im Register); Backend ueber `apps/backend/scripts/build.mjs`,
+  Desktop ueber `scripts/build.mjs` mit Marker-Abgleich. Nach dem Wechsel der
+  Variable alle Workspaces neu bauen, sonst bricht der Desktop-Build ab.
 - **Kein natives Menü:** Das Fenster ist rahmenlos (`titleBarStyle: 'hidden'`,
   auf macOS `hiddenInset`), `Menu.setApplicationMenu(null)`. Die eigene
   Titelleiste (`renderer/src/layout/TitleBar.tsx`) bringt App-Menü und
@@ -257,6 +261,60 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   bzw. `hasFeature(key)`. Test: `src/test/featureSmoke.ts` (Registry-Regeln:
   Praefixe beginnen mit `/api/`, treffen keine offene Lizenzroute und nie
   `/api/me` als Ganzes).
+
+## Varianten (Land x Edition als eigener Build)
+
+- **Register ist die einzige Quelle:** `packages/shared/src/variants/registry.json`
+  (`default`, je Variante `id`, `country`, `edition`, `label`, `modules`).
+  Editionen sind KEINE feste Liste im Code, nur ein Muster (`EDITION_PATTERN`);
+  welche es gibt und wie sie heissen, legt der Anbieter dort fest. Heute gibt
+  es genau `de-vollversion` (alle neun Module). Pflichtmodule `employees` und
+  `admin`, Abhaengigkeit `me` braucht `absences` (`variants/index.ts` prueft
+  beim Import und wirft bei Fehlern).
+- **Verdrahtung wird erzeugt, nicht geschrieben:** `npm run variants:gen`
+  (`scripts/variant-wiring.mjs`) schreibt je App `src/variants/<id>.ts`
+  (Backend `backendModules`, Renderer `variantRoutes`, Portal
+  `portalRoutes` als .tsx) plus `<id>.manifest.ts` (nur `VARIANT`,
+  `VARIANT_ID`, `VARIANT_MARKER`) und `default.*` (Re-Export der Vorgabe).
+  Die Dateien sind versioniert; `npm run variants:check` (Teil jeder
+  Abnahme) meldet Abweichungen vom Register. **Neue Module** tragen sich in
+  `MODULE_KEYS` (shared), in die Tabellen `BACKEND`/`RENDERER`/`WEB` des
+  Generators UND in `ROUTE_AREAS` ein; `modules/index.ts` und
+  `router.tsx` bleiben unangetastet.
+- **Alias statt Schalter:** `@variant` und `@variant-manifest` zeigen per
+  tsconfig `paths` (Typecheck, tsx, Dev-Betrieb) auf `default.*`; die Builds
+  (`apps/backend/scripts/build.mjs`, Vite ueber `scripts/variant-alias.mjs`,
+  Desktop per esbuild `define`) zeigen sie per `OHRGANIZE_VARIANT` auf die
+  Datei der Variante. Nur importierte Module landen im Bundle (esbuild
+  buendelt einen Import auch hinter totem Code, deshalb kein `if`).
+  Dateien, die NUR das Manifest brauchen (nav.ts, dashboardConfig.ts,
+  config.ts, backup.ts, main.tsx), importieren `@variant-manifest`, sonst
+  entstuenden Importzyklen ueber die Routen. Ein Root-`tsconfig.json` mit
+  denselben `paths` existiert nur, damit `npx tsx apps/backend/...` aus dem
+  Repo-Root laeuft. Eine andere Variante im Dev-Betrieb heisst: `default` im
+  Register umstellen, `variants:gen`, zurueckstellen vor dem Commit.
+- **Schema variantenunabhaengig:** Alle Migrationen laufen in jeder
+  Variante; Editionen entfernen Routen und Seiten, nie Tabellen. Ein
+  Editionswechsel ist Installer plus Lizenz, ohne Migration.
+- **Verwechslung wird technisch verhindert:** `/api/health` liefert
+  `variant { id, country, edition, label }`; die Desktop-App bricht bei
+  fremder Variante mit `StartupError` ab (main.ts `assertReachable`); das
+  Backend verweigert den Start, wenn `OHRGANIZE_VARIANT` in der Umgebung
+  nicht zur einkompilierten Variante passt (config.ts); eine v2-Lizenz
+  fremder Ausgabe ist unbrauchbar wie eine Fremdbindung
+  (`licenseState.ts` `variantMismatchReason`, Upload 400); der
+  Desktop-Build prueft die Marker von server.cjs und Renderer-Assets vor dem
+  Kopieren; `npm run check:variant -- --variant <id>` prueft alle Bundles
+  (Marker vorhanden, keine fremden Marker, Signaturen ausgeschlossener
+  Module fehlen). Der Installer heisst
+  `oHRganize-Setup-<version>-<variante>.exe` (`apps/desktop/scripts/dist.mjs`
+  setzt `OHRGANIZE_VARIANT` fuer electron-builder); `appId` und
+  `productName` bleiben gleich, sonst spaltete sich `%APPDATA%\oHRganize`.
+- **Sichtbarkeit in den Clients:** `NAV_SECTIONS` ist die Sicht der
+  Variante auf `ALL_NAV_SECTIONS` (`navSectionsForVariant`, Modul aus
+  `AREA_MODULES` oder explizit `module`); Dashboard-Widgets und Kacheln
+  filtern ueber `moduleEnabled(VARIANT, ...)`; das Portal ueber `module` an
+  den NavItems. Test: `src/test/variantSmoke.ts`.
 
 ## Konventionen
 

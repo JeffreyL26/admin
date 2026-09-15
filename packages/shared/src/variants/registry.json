@@ -1,0 +1,23 @@
+{
+  "$doc": "Variantenregister des Anbieters. Eine Variante ist Land x Edition und wird als eigener Build ausgeliefert. Editionen sind hier frei definierbar (Schluessel: Kleinbuchstaben, Ziffern, Bindestrich); es gibt keine feste Liste im Code. Nach jeder Aenderung: npm run variants:gen (erzeugt die Verdrahtungsdateien je App) und npm run variants:check.",
+  "default": "de-vollversion",
+  "variants": [
+    {
+      "id": "de-vollversion",
+      "country": "DE",
+      "edition": "vollversion",
+      "label": "Deutschland Vollversion",
+      "modules": [
+        "employees",
+        "absences",
+        "performance",
+        "leadership",
+        "compensation",
+        "communication",
+        "recruiting",
+        "admin",
+        "me"
+      ]
+    }
+  ]
+}

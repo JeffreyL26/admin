@@ -777,3 +777,41 @@ unveraendert.
 **Verworfen, Feature-Pruefung in den Routen:** Ein Gate je Modul waere in
 vier Erfassungswegen zu vergessen; der globale Hook ist die einzige
 Sicherheitsgrenze und kennt die Route ohnehin.
+
+## Varianten als getrennte Builds ueber erzeugte Verdrahtung und Alias
+
+**Entscheidung:** Eine Variante ist Land x Edition und wird als eigener
+Build ausgeliefert. Quelle ist ein Register (JSON) mit frei definierbaren
+Editionen; ein Generator schreibt je App eine Verdrahtungsdatei, die nur
+die Module der Variante statisch importiert, und der Build zeigt den Alias
+`@variant` darauf. Das Datenbankschema bleibt in allen Varianten gleich.
+
+**Warum:** Der Anbieter will Ausgaben je Land und je Funktionsumfang
+verkaufen, hat die Tarife aber noch nicht festgelegt. Ein Enum im Code
+haette jede Tarifentscheidung zu einem Codeumbau gemacht; das Register
+macht sie zu einem JSON-Eintrag plus `variants:gen`. Getrennte Builds
+statt eines Builds mit Schaltern, weil nicht verkaufter Code dann nicht
+beim Kunden liegt; die Verifikation (`check-variant`) misst genau das am
+Bundle. Die Probe mit einer temporaeren Variante ohne Leistung, Fuehrung,
+Verguetung, Kommunikation und Recruiting halbierte den Renderer-Bundle
+(1.319 kB auf 1.010 kB) und liess die Routen dieser Module aus dem Backend
+verschwinden.
+
+**Verworfen, `define` mit totem `if`:** esbuild und Vite buendeln einen
+statischen Import auch hinter totem Code, weil Routendateien Aufrufe auf
+oberster Ebene enthalten. Nur der Verzicht auf den Import haelt den Code
+fern; deshalb erzeugte Dateien mit genau den Importen der Variante.
+
+**Verworfen, Verdrahtung von Hand je Variante:** Drei Apps mal n
+Varianten von Hand zu pflegen waere die erste Fehlerquelle bei jeder
+neuen Edition. Der Generator ist 150 Zeilen, und `variants:check`
+verhindert, dass Repo und Register auseinanderlaufen.
+
+**Verworfen, Manifest per Alias und Routen im selben Modul:** nav.ts und
+dashboardConfig.ts brauchen nur das Manifest; importierten sie die
+Verdrahtung mit allen Routen, entstuenden Importzyklen ueber die Seiten.
+Daher zwei Aliasse.
+
+**In Kauf genommen:** Je Release entstehen so viele Installer und Archive
+wie Varianten; `appId` und `productName` bleiben gleich, die Variante
+steht im Dateinamen und in der Startpruefung.

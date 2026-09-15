@@ -29,7 +29,7 @@
 
 .EXAMPLE
   .\setup-workstation.ps1 -ApiBaseUrl 'https://kunde.ohrganize.com' `
-      -ServerPin 'sha256/…' -Installer '.\oHRganize Setup 1.0.0.exe'
+      -ServerPin 'sha256/…' -Installer '.\oHRganize-Setup-1.0.0-de-vollversion.exe'
 
 .NOTES
   Windows PowerShell 5.1 genuegt. Bewusst ohne Umlaute (5.1 liest .ps1 ohne
@@ -99,7 +99,7 @@ if (Test-Path -LiteralPath $AppExe) {
   if (-not (Test-Path -LiteralPath $AppExe)) { Fail "Nach der Installation fehlt $AppExe - Installer manuell ausfuehren und Zielordner pruefen." }
   Ok "Installiert (still): $AppExe"
 } else {
-  Fail "App nicht installiert ($AppExe fehlt). Installer mit -Installer '<pfad>\oHRganize Setup <version>.exe' angeben."
+  Fail "App nicht installiert ($AppExe fehlt). Installer mit -Installer '<pfad>\oHRganize-Setup-<version>-<variante>.exe' angeben."
 }
 
 # ---------------------------------------------------------------------------

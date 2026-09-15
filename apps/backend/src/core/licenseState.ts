@@ -8,12 +8,15 @@
  * sie zu veraendern.
  */
 import {
+  COUNTRY_LABELS,
   LICENSE_TRIAL_DAYS,
   LICENSE_TRIAL_WARN_DAYS,
   addDaysIso,
   daysBetweenIso,
   formatDate,
   isPerpetualLicense,
+  variantLabelFor,
+  type CountryCode,
   type LicensePayload,
   type LicenseState,
 } from '@ohrganize/shared';
@@ -50,9 +53,30 @@ export interface LoadedLicenseInput {
   invalidReason: string | null;
 }
 
+/** Land und Edition des laufenden Builds (packages/shared/src/variants). */
+export interface VariantIdentity {
+  country: CountryCode;
+  edition: string;
+  label: string;
+}
+
+/**
+ * v2-Dateien nennen Land und Edition; passt beides nicht zur Variante des
+ * Servers, ist die Datei fuer diese Installation unbrauchbar (wie eine
+ * Fremdbindung). v1-Dateien sind variantenneutral.
+ */
+export function variantMismatchReason(payload: LicensePayload, variant: VariantIdentity | null | undefined): string | null {
+  if (!variant || payload.v < 2 || !payload.country || !payload.edition) return null;
+  if (payload.country === variant.country && payload.edition === variant.edition) return null;
+  const wanted = variantLabelFor(payload.country, payload.edition, COUNTRY_LABELS[payload.country]);
+  return `Diese Lizenz gilt für die Ausgabe ${wanted}; installiert ist ${variant.label}.`;
+}
+
 export interface DeriveLicenseStateInput {
   /** Heutiger Kalendertag in lokaler Zeit (YYYY-MM-DD). */
   today: string;
+  /** Variante des Builds; ohne Angabe keine Variantenpruefung (Werkzeuge, Tests). */
+  variant?: VariantIdentity | null;
   /** false = Entwicklungsverzeichnis, keine Pruefung. */
   enforced: boolean;
   installation: LicenseInstallationInput;
@@ -103,6 +127,11 @@ export function deriveLicenseState(input: DeriveLicenseStateInput): DerivedLicen
   }
 
   let payload = loaded.payload;
+  const mismatch = payload ? variantMismatchReason(payload, input.variant) : null;
+  if (payload && mismatch) {
+    base.invalid_reason = mismatch;
+    payload = null;
+  }
   if (payload && payload.installation_id !== null && payload.installation_id !== inst.installation_id) {
     base.invalid_reason =
       `Die Lizenzdatei ist an eine andere Installation gebunden (${payload.installation_id}); ` +

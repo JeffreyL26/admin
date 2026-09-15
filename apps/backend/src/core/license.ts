@@ -46,7 +46,7 @@ import { audit } from './audit.js';
 import { addDaysIso, todayIso } from './dates.js';
 import { AppError } from './errors.js';
 import { TRUSTED_LICENSE_KEYS_RAW } from './licenseKeys.js';
-import { deriveLicenseState, type LicenseCore } from './licenseState.js';
+import { deriveLicenseState, variantMismatchReason, type LicenseCore } from './licenseState.js';
 import {
   LicenseFormatError,
   publicKeyFrom,
@@ -247,11 +247,12 @@ function licenseCore(): LicenseCore {
 
 function computeCore(today: string, loaded: LoadedLicense): LicenseCore {
   const inst = getInstallation();
+  const variant = config.variant;
   if (!config.licenseEnforced) {
-    return deriveLicenseState({ today, enforced: false, installation: inst, loaded, clockWarning: false }).core;
+    return deriveLicenseState({ today, variant, enforced: false, installation: inst, loaded, clockWarning: false }).core;
   }
   const clockWarning = advanceLastSeen(inst, today);
-  const derived = deriveLicenseState({ today, enforced: true, installation: inst, loaded, clockWarning });
+  const derived = deriveLicenseState({ today, variant, enforced: true, installation: inst, loaded, clockWarning });
   if (derived.markLicensed) {
     // Erste gueltige Lizenz dieser Datenbank: Testphase damit endgueltig vorbei.
     getDb().prepare(`UPDATE installation SET licensed_at = datetime('now') WHERE id = 1`).run();
@@ -460,6 +461,8 @@ export function installLicense(req: FastifyRequest, text: string): LicenseStatus
   }
 
   const inst = getInstallation();
+  const mismatch = variantMismatchReason(payload, config.variant);
+  if (mismatch) throw new AppError(400, LICENSE_ERROR_CODES.INVALID, mismatch);
   if (payload.installation_id !== null && payload.installation_id !== inst.installation_id) {
     throw new AppError(
       400,
