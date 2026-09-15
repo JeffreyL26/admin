@@ -47,7 +47,8 @@ export function sammleBefunde(tage = 30): Befund[] {
       if (l.gueltig_bis < heute) {
         befunde.push({ schwere: 'hoch', was: i.id, text: `Lizenz seit ${l.gueltig_bis} abgelaufen.` });
       } else {
-        const rest = daysBetweenIso(l.gueltig_bis, heute);
+        // daysBetweenIso(a, b) ist b minus a: Resttage sind bis minus heute.
+        const rest = daysBetweenIso(heute, l.gueltig_bis);
         if (rest <= tage) {
           befunde.push({
             schwere: 'mittel',

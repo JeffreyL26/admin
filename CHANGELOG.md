@@ -8,6 +8,15 @@ eigenen Abschnitt.
 
 ## Unveroeffentlicht
 
+### conspectus-Durchstich (15.09.2026)
+- Release-Signaturschluessel erzeugt und in `deploy/ohrganize-release.allowed_signers`
+  eingetragen; `scripts/release.mjs` signiert damit, `ohrganize-update.sh`
+  und conspectus pruefen die Signatur. Release-Skripte starten npm unter
+  Windows ueber `npm-cli.js` statt `npm.cmd`.
+- conspectus: `host anlegen --schluessel` (eigener SSH-Schluessel je Host),
+  Dateipfade relativ zum Aufruferverzeichnis, Resttage in `check` mit
+  richtigem Vorzeichen, `license_format` aus dem Hostbericht.
+
 ### Hosting-Durchstich (15.09.2026)
 - `ohrganize-provision.sh lizenz` prueft die Datei vor dem Einspielen fuer
   die Instanz (`status.cjs --lizenzdatei`) und lehnt unbrauchbare Dateien

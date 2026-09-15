@@ -901,19 +901,27 @@ Kanal und Release, Betreiberwerkzeuge, Hosting, conspectus), in `CHANGELOG.md`
 unter "Unveroeffentlicht" und je Phase als Eintrag in
 `docs/entscheidungen.md`. Betreiberdoku: `docs/betrieb-anbieter.md`.
 
+**Nachtrag 15.09.2026 (Abend):** Die Punkte 1 bis 3 sind erledigt und
+protokolliert: Hosting-Haertung auf dem Debian-13-Testserver durchgespielt
+(`deploy/README.md` 9.7, inklusive Rezept fuer Bestandshosts in 9.1 und
+Messwerten in den Units), conspectus per ssh gegen denselben Host
+(`docs/betrieb-anbieter.md` 10), Release-Signaturschluessel erzeugt und in
+`allowed_signers` eingetragen; `release.mjs` hat damit ein signiertes
+Manifest fuer 1.0.0 gebaut. Windows-Installer
+`oHRganize-Setup-1.0.0-de-vollversion.exe` gebaut. Dabei behobene Befunde
+stehen im CHANGELOG. Offen bleiben 4 und 5 sowie der Ruecknahmezweig "alte
+Fassung startet nicht, weil die Datenbank schon migriert ist" (braucht ein
+Release mit Schemaaenderung).
+
 **Was bewusst offen geblieben ist** (und beim naechsten Schritt dran waere):
 
-1. **Testserver-Durchstich der Hosting-Haertung.** Symlink je Instanz,
-   Leseisolation, Ressourcengrenzen, `ohrganize-update.sh` und die neuen
-   Unterbefehle sind gebaut und in ihren Einzelteilen geprueft, aber nicht auf
-   einem Debian-Server durchgespielt. Die Pruefliste steht in
-   `deploy/README.md`, Abschnitt 9.7; die Ressourcengrenzen sind bis zur
-   Messung ausdruecklich Startwerte.
-2. **Durchstich von conspectus gegen einen echten Host** (ssh, scp, Rollout
-   samt Ruecknahme): `docs/betrieb-anbieter.md`, Abschnitt 10.
-3. **Release-Signaturschluessel.** `deploy/ohrganize-release.allowed_signers`
-   enthaelt bisher nur die Anleitung; ohne Eintrag entsteht ein unsigniertes
-   `release.json`, und `release.mjs` sagt das deutlich.
+1. **Testserver-Durchstich der Hosting-Haertung.** Erledigt (siehe Nachtrag).
+2. **Durchstich von conspectus gegen einen echten Host.** Erledigt (siehe
+   Nachtrag).
+3. **Release-Signaturschluessel.** Erledigt: Schluessel 1 vom 15.09.2026 im
+   Tresor des Anbieters, oeffentlicher Teil in
+   `deploy/ohrganize-release.allowed_signers`. Ohne Passphrase erzeugt;
+   nachtraeglich `ssh-keygen -p`.
 4. **AT- und CH-Inhalte.** Phase 5 hat die Strukturen gelegt (Regionen,
    Feiertagsregeln, Kataloge, Adapter); gefuellt ist nur DE. Ein leerer
    Katalog heisst "gibt es hier nicht" und blendet das Feld aus.

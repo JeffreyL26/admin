@@ -40,10 +40,13 @@ npm run lizenz -- keygen --out "$OHRGANIZE_CONSPECTUS_DIR/schluessel" --kid 2026
 # Bestehenden Schluessel nachtraeglich verschluesseln, ohne kid-Wechsel
 npm run lizenz -- protect --key "$OHRGANIZE_CONSPECTUS_DIR/schluessel/2026-09.pem"
 
-# Release-Schluessel erzeugen
-ssh-keygen -t ed25519 -C release@ohrganize -f ~/.ssh/ohrganize-release
+# Release-Schluessel erzeugen (Stand 15.09.2026: erzeugt, Schluessel 1 liegt im
+# Tresor neben dem Lizenzschluessel als "ohrganize-release", bisher ohne
+# Passphrase; nachtraeglich: ssh-keygen -p -f ohrganize-release)
+ssh-keygen -t ed25519 -C release@ohrganize -f <tresor>/ohrganize-release
 # Inhalt von ohrganize-release.pub als letzte beiden Felder in
-# deploy/ohrganize-release.allowed_signers eintragen (Zeile mit dem Platzhalter).
+# deploy/ohrganize-release.allowed_signers eintragen; die Datei liegt auch auf
+# jedem Host unter /opt/ohrganize/deploy und muss dort mitgezogen werden.
 ```
 
 Das **Register** von conspectus (`OHRGANIZE_CONSPECTUS_DIR`) enthaelt
@@ -224,6 +227,8 @@ Download-Struktur beim Anbieter: `releases/<kanal>/<variante>/` mit einer
 ## 4. Rollout im Hosting
 
 ```bash
+# Host mit eigenem SSH-Schluessel (sonst gilt der Standardschluessel des Aufrufers)
+npm run conspectus -- host anlegen hz1 --adresse hz1.example.net --schluessel <tresor>/hz1_ed25519
 npm run conspectus -- rollout starten --release de-vollversion-1.1.0 --probelauf
 npm run conspectus -- rollout starten --release de-vollversion-1.1.0
 npm run conspectus -- rollout starten --release de-vollversion-1.1.0 --kunde musterfirma
@@ -354,17 +359,33 @@ in ein Repository und nicht in einen synchronisierten Ordner.
 
 ## 10. Durchstich auf dem Testserver
 
-Noch offen (Phase 8 ist gebaut und in ihren Einzelteilen geprueft, aber der
-Durchstich gegen einen echten Host steht aus). Zu pruefen sind:
+Durchgespielt am 15.09.2026 von einem Windows-Arbeitsplatz aus gegen den
+Debian-13-Testserver (ssh ueber 127.0.0.1:2222 mit eigenem Schluessel,
+`host anlegen --schluessel`), Register in einem lokalen Verzeichnis
+ausserhalb von Repo und OneDrive:
 
-1. `kunde anlegen`, `host anlegen`, `instanz anlegen --host test`.
-2. `status --host test` liest Installations-ID, Version, Kanal,
-   Lizenzzustand und Platzzahl ein.
-3. `lizenz ausstellen ... --einspielen`: Datei liegt danach mit 0600 beim
-   Dienstbenutzer, der Zustand wechselt ohne Neustart, die Kopie unter `/tmp`
-   des Servers ist weg.
-4. `release erfassen` mit echter Signatur (Signatur wird geprueft, nicht nur
-   vermerkt).
-5. `rollout --probelauf`, dann ein echter Rollout samt absichtlich brechender
-   Migration, um die Ruecknahme zu sehen.
-6. `check`, `uebersicht`, `html`.
+1. `kunde anlegen`, `host anlegen --port 2222 --schluessel ...`,
+   `instanz anlegen --host wsl --installation <id>`.
+2. `status --host wsl` liest Installations-ID, Version, Kanal, Lizenzzustand,
+   Platzzahl und `license_format` ein (aus `provision.sh status --json`).
+3. `lizenz ausstellen --until 60t --kind evaluation --einspielen`: erst
+   abgelehnt, solange kein Bericht `license_format >= 2` belegt (Server vor
+   Datei), nach dem Bericht ausgestellt und per scp plus
+   `provision.sh lizenz` eingespielt; die Datei liegt mit 0600 beim
+   Dienstbenutzer, der Zustand wechselt ohne Neustart.
+4. `release erfassen release/1.0.0/stable/de-vollversion/release.json` mit
+   dem echten Schluessel: Signatur geprueft. Ein manipuliertes Manifest wird
+   von `ssh-keygen -Y verify` abgelehnt.
+5. `rollout starten --probelauf` (alle drei Instanzen des Hosts) und ein
+   echter Rollout auf eine Instanz: `ohrganize-update.sh` prueft auf dem
+   Host Signatur, Pruefsumme gegen das Manifest, Ausgabe, Migrations-Probelauf
+   und stellt die Instanz um; Register vermerkt `fertig`. Die Ruecknahme
+   bei kaputtem Release ist in `deploy/README.md` 9.7 protokolliert (dort
+   mit einem absichtlich abbrechenden `cli.cjs`; eine brechende Migration
+   braucht ein Release mit Schemaaenderung).
+6. `check`, `lizenz faellig`, `uebersicht`, `html`.
+
+Dabei behoben: Dateipfade in Argumenten galten relativ zum Workspace statt
+zum Aufruferverzeichnis; `check` rechnete Resttage mit falschem Vorzeichen
+("noch -59 Tage"); ohne `license_format` im Bericht war v2 nie belegt
+(`status.cjs` und `provision.sh status --json` liefern es jetzt).

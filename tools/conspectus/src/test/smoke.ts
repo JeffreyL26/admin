@@ -208,6 +208,11 @@ async function main(): Promise<void> {
   const { sammleBefunde } = await import('../commands/check.js');
   const befunde = sammleBefunde(30);
   check('check findet Befunde', befunde.length > 0, befunde.length);
+  // Eine Jahreslizenz ist in 30 Tagen nicht faellig; mit grossem Fenster
+  // (verlaengert: bis zu zwei Jahre) muss die Restlaufzeit positiv sein (frueher stand dort "noch -364 Tage").
+  check('check: Jahreslizenz nicht in 30 Tagen faellig', !befunde.some((b) => /laeuft am .* ab/.test(b.text)), befunde.map((b) => b.text));
+  const weit = sammleBefunde(800).filter((b) => /laeuft am .* ab/.test(b.text));
+  check('check: Resttage positiv', weit.length > 0 && weit.every((b) => /noch [1-9][0-9]* Tage/.test(b.text)), weit.map((b) => b.text));
 
   const { buildHtml } = await import('../report.js');
   const html = buildHtml();
