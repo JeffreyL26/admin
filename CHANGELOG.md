@@ -8,6 +8,16 @@ eigenen Abschnitt.
 
 ## Unveroeffentlicht
 
+### Hosting-Durchstich (15.09.2026)
+- `ohrganize-provision.sh lizenz` prueft die Datei vor dem Einspielen fuer
+  die Instanz (`status.cjs --lizenzdatei`) und lehnt unbrauchbare Dateien
+  ab, statt eine gueltige zu ersetzen. `restore --ja` fuer Skripte ohne
+  Terminal. `check` rechnete mit Sekundenbruchteilen und brach ab;
+  `json_feld` fand in mehrzeiligem JSON keine verschachtelten Felder
+  (`liste` ohne Lizenzzustand). Markerdatei `.update-fehlgeschlagen`
+  gehoert dem Dienstbenutzer. Rezept fuer Bestandshosts in
+  `deploy/README.md` 9.1, Protokoll und Messwerte in 9.7.
+
 ### Hinzugefuegt (Varianten)
 - Varianten als getrennte Builds (Land x Edition): Register
   `packages/shared/src/variants/registry.json` (Editionen frei

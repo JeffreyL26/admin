@@ -10,8 +10,12 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Args } from '../args.js';
 import { ConspectusError, openRegister } from '../db.js';
+
+/** Vertrauensanker im Repo, unabhaengig vom Arbeitsverzeichnis des Aufrufers. */
+const REPO_SIGNERS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../deploy/ohrganize-release.allowed_signers');
 
 export interface ReleaseRow {
   id: string;
@@ -45,7 +49,7 @@ function pruefeSignatur(manifestFile: string, signers: string | undefined): bool
     console.warn(`Achtung: Keine ${path.basename(sig)} neben dem Manifest. Signatur NICHT geprueft.`);
     return false;
   }
-  const anchor = signers ?? path.resolve('deploy/ohrganize-release.allowed_signers');
+  const anchor = signers ? path.resolve(signers) : REPO_SIGNERS;
   if (!fs.existsSync(anchor)) {
     console.warn(`Achtung: ${anchor} fehlt. Signatur NICHT geprueft (${SIGNERS_HINT}).`);
     return false;

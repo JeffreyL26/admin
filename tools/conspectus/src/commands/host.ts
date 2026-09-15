@@ -1,4 +1,5 @@
 /** Hosts des Anbieters (Hosting-Server), Adresse und SSH-Zugang. */
+import path from 'node:path';
 import type { Args } from '../args.js';
 import { required } from '../args.js';
 import { openRegister } from '../db.js';
@@ -19,7 +20,7 @@ export function hostCommand(sub: string, args: Args): void {
       assertKey(id, 'Hostschluessel');
       const adresse = required(args, 'adresse', 'Beispiel: --adresse hz1.example.net');
       db.prepare(
-        'INSERT INTO hosts (id, adresse, ssh_benutzer, ssh_port, basis_domain, notiz) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO hosts (id, adresse, ssh_benutzer, ssh_port, basis_domain, notiz, ssh_schluessel) VALUES (?, ?, ?, ?, ?, ?, ?)',
       ).run(
         id,
         adresse,
@@ -27,6 +28,7 @@ export function hostCommand(sub: string, args: Args): void {
         Number(args.values.port ?? 22),
         args.values['basis-domain'] ?? null,
         args.values.notiz ?? null,
+        args.values.schluessel ? path.resolve(args.values.schluessel) : null,
       );
       console.log(`Host "${id}" (${adresse}) angelegt.`);
       return;
@@ -45,7 +47,7 @@ export function hostCommand(sub: string, args: Args): void {
           [
             r.id.padEnd(14),
             r.adresse.padEnd(34),
-            `${r.ssh_benutzer}@:${r.ssh_port}`.padEnd(20),
+            `${r.ssh_benutzer}@:${r.ssh_port}${r.ssh_schluessel ? ' (-i)' : ''}`.padEnd(20),
             r.basis_domain ?? '',
           ].join(' '),
         );

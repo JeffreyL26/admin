@@ -181,6 +181,10 @@ health_json() {
 # json_feld '<json>' 'version'       -> Wert eines Feldes erster Ebene.
 json_feld() {
   local json="$1" a="$2" b="${3:-}"
+  # Zeilenumbrueche entfernen: status.cjs gibt mehrzeiliges JSON aus, und
+  # sed arbeitet zeilenweise; ohne diese Zeile fand json_feld dort nie ein
+  # verschachteltes Feld (license.state blieb leer, liste zeigte "-").
+  json="$(printf '%s' "$json" | tr -d '\n\r')"
   if [[ -n "$b" ]]; then
     printf '%s' "$json" | sed -n "s/.*\"$a\"[[:space:]]*:[[:space:]]*{[^}]*\"$b\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
   else

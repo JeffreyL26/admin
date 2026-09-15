@@ -78,7 +78,10 @@ function assertV2Possible(instanz: InstanzRow, erzwingen: boolean): void {
   throw new ConspectusError(
     `Fuer die Instanz "${instanz.id}" ist nicht belegt, dass sie Lizenzen der Fassung 2 liest.\n` +
       (instanz.license_format === null
-        ? 'Es liegt noch kein Bericht vor. Einlesen mit:\n' +
+        ? (instanz.zuletzt_gesehen === null
+            ? 'Es liegt noch kein Bericht vor. Einlesen mit:\n'
+            : `Der letzte Bericht (${instanz.zuletzt_gesehen}) nennt kein license_format: Der Server ist aelter ` +
+              'als Lizenz v2, oder der Bericht stammt aus einem aelteren status.cjs. Neu einlesen mit:\n') +
           `  conspectus bericht importieren <datei.json> --instanz ${instanz.id}\n` +
           '(die Datei kommt aus `provision.sh status --json` bzw. `status.cjs --json`)'
         : `Der letzte Bericht meldet license_format ${instanz.license_format}.`) +

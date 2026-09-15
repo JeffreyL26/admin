@@ -341,6 +341,11 @@ status_json_eintrag() {
   printf '    "variante_health": "%s",\n' "$(json_feld "$health" variant id)"
   printf '    "version_health": "%s",\n' "$(json_feld "$health" version)"
   printf '    "kanal": "%s",\n' "$(json_feld "$health" channel)"
+  # Zahl, kein String: hoechste lesbare Lizenzfassung laut Health (fehlt bei
+  # Servern vor Lizenz v2, dann null). conspectus prueft sie vor dem Ausstellen.
+  local format
+  format="$(printf '%s' "$health" | tr -d '\n' | sed -n 's/.*"license_format"[[:space:]]*:[[:space:]]*\([0-9]\+\).*/\1/p' | head -1)"
+  printf '    "license_format_health": %s,\n' "${format:-null}"
   if [[ -n "$json" ]]; then
     # Das Werkzeug liefert bereits ein Objekt; es wird als Unterobjekt
     # eingehaengt statt neu zusammengesetzt zu werden.
@@ -406,6 +411,27 @@ lizenz_einspielen() {
   head -c 6 "$datei" | grep -q '^OHRG1' ||
     fehler "$datei beginnt nicht mit OHRG1 - das ist keine oHRganize-Lizenzdatei."
 
+  # Probe VOR dem Einspielen: status.cjs bewertet die neue Datei fuer diese
+  # Instanz (Signatur, Bindung, Ausgabe, Laufzeit), ohne etwas zu schreiben.
+  # Eine unbrauchbare Datei ersetzte sonst eine gueltige, und die Instanz
+  # fiele in den Nur-Lese-Betrieb.
+  local werk probe grund probedatei
+  if werk="$(werkzeug "$kunde" status.cjs)"; then
+    schritt 'Datei fuer diese Instanz pruefen'
+    # Kopie, die der Dienstbenutzer lesen darf: Die Datei liegt meist unter
+    # /root, und die Probe laeuft wie alle Werkzeuge als Dienstbenutzer.
+    probedatei="$(mktemp /tmp/ohrganize-lizenzprobe.XXXXXX)"
+    install -m 0600 -o "$DIENST_BENUTZER" -g "$DIENST_BENUTZER" "$datei" "$probedatei"
+    probe="$(als_dienst node "$werk" --data-dir "$daten" --lizenzdatei "$probedatei" --json 2>&1)" ||
+      { rm -f "$probedatei"; fehler "Pruefung fehlgeschlagen: $probe"; }
+    rm -f "$probedatei"
+    grund="$(json_feld "$probe" license invalid_reason)"
+    if [[ -n "$grund" ]]; then
+      fehler "Die Datei ist fuer diese Instanz unbrauchbar und wurde NICHT eingespielt: $grund"
+    fi
+    hinweis "Zustand mit dieser Datei: $(json_feld "$probe" license state), $(json_feld "$probe" license headline)"
+  fi
+
   if [[ -f "$ziel" ]]; then
     schritt "Alte Lizenz sichern nach $ziel.alt"
     cp -a "$ziel" "$ziel.alt"
@@ -414,8 +440,7 @@ lizenz_einspielen() {
   install -m 0600 -o "$DIENST_BENUTZER" -g "$DIENST_BENUTZER" "$datei" "$ziel"
 
   printf '\nZustand nach dem Einspielen:\n'
-  local werk
-  if werk="$(werkzeug "$kunde" status.cjs)"; then
+  if [[ -n "$werk" ]]; then
     als_dienst node "$werk" --data-dir "$daten" | sed 's/^/  /'
   else
     printf '  (status.cjs fehlt im Release dieser Instanz)\n'
@@ -540,8 +565,15 @@ fortsetzen() {
 # sonst von Hand schiefgeht: Dienst stoppen, ALTEN Stand wegsichern statt
 # ueberschreiben, kopieren, Rechte nachziehen, starten, Zustand zeigen.
 restore() {
-  local kunde="${1:-}" ordner="${2:-}"
-  [[ -n "$kunde" && -n "$ordner" ]] || fehler 'Aufruf: ohrganize-provision.sh restore <kunde> <sicherungsordner>'
+  local kunde="${1:-}" ordner="${2:-}" ja=0
+  [[ -n "$kunde" && -n "$ordner" ]] || fehler 'Aufruf: ohrganize-provision.sh restore <kunde> <sicherungsordner> [--ja]'
+  shift 2 || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --ja) ja=1; shift ;;
+      *) fehler "Unbekannte Option: $1" ;;
+    esac
+  done
   kunde_vorhanden "$kunde" || fehler "Kunde \"$kunde\" ist nicht angelegt."
   [[ -d "$ordner" ]] || fehler "Sicherungsordner $ordner existiert nicht."
   [[ -f "$ordner/ohrganize.db" ]] || fehler "In $ordner liegt keine ohrganize.db."
@@ -550,14 +582,20 @@ restore() {
   daten="$(kunden_datenverz "$kunde")"
   [[ -n "$daten" ]] || fehler "In $ENV_VERZ/$kunde.env steht kein OHRGANIZE_DATA_DIR."
 
-  [[ -t 0 ]] || fehler 'restore verlangt eine Rueckfrage und damit ein Terminal.'
   printf 'Restore fuer Kunde "%s"\n' "$kunde"
   printf '  Quelle: %s\n' "$ordner"
   printf '  Ziel:   %s (der jetzige Stand wird nach %s.alt-<zeit> verschoben)\n' "$daten" "$daten"
-  printf 'Zum Bestaetigen den Kundenschluessel eintippen: '
-  local antwort
-  read -r antwort
-  [[ "$antwort" == "$kunde" ]] || fehler 'Eingabe stimmt nicht ueberein - nichts geaendert.'
+  if [[ $ja -eq 1 ]]; then
+    # --ja ist fuer skriptierte Ablaeufe ohne Terminal (conspectus ueber ssh);
+    # von Hand bleibt die Rueckfrage der Schutz gegen den falschen Kunden.
+    hinweis 'Rueckfrage uebersprungen (--ja).'
+  else
+    [[ -t 0 ]] || fehler 'restore verlangt eine Rueckfrage und damit ein Terminal (oder --ja fuer Skripte).'
+    printf 'Zum Bestaetigen den Kundenschluessel eintippen: '
+    local antwort
+    read -r antwort
+    [[ "$antwort" == "$kunde" ]] || fehler 'Eingabe stimmt nicht ueberein - nichts geaendert.'
+  fi
 
   schritt 'Dienst anhalten'
   systemctl stop "ohrganize-backend@$kunde" || true
@@ -657,7 +695,10 @@ check() {
     if [[ -z "$letzte" ]]; then
       meld "$kunde: keine Sicherung unter $SICHERUNG_VERZ/$kunde."
     else
-      alter=$(( ( $(date +%s) - ${letzte%% *} ) / 86400 ))
+      # %T@ liefert Sekunden mit Nachkommastellen; Bash rechnet nur ganzzahlig.
+      local zeit="${letzte%% *}"
+      zeit="${zeit%%.*}"
+      alter=$(( ( $(date +%s) - zeit ) / 86400 ))
       [[ $alter -le 2 ]] || meld "$kunde: juengste Sicherung ist $alter Tage alt (${letzte#* })."
     fi
 

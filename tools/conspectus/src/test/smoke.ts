@@ -32,16 +32,16 @@ async function main(): Promise<void> {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
   const insideRepo = path.join(repoRoot, 'tools/conspectus/register');
 
-  let abgewiesen: string | false = false;
+  let abgelehnt: string | false = false;
   try {
     registerDir({ OHRGANIZE_CONSPECTUS_DIR: insideRepo } as NodeJS.ProcessEnv);
   } catch (err) {
-    abgewiesen = err instanceof ConspectusError && err.message.includes('Repository') ? 'ja' : String(err);
+    abgelehnt = err instanceof ConspectusError && err.message.includes('Repository') ? 'ja' : String(err);
   }
-  check('Pfad im Repository wird abgewiesen', abgewiesen === 'ja', abgewiesen);
+  check('Pfad im Repository wird abgewiesen', abgelehnt === 'ja', abgelehnt);
   check('Abgewiesener Pfad wurde nicht angelegt', !fs.existsSync(insideRepo), insideRepo);
 
-  abgewiesen = false;
+  let abgewiesen = false;
   try {
     registerDir({} as NodeJS.ProcessEnv);
   } catch (err) {

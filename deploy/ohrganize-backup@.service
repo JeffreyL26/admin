@@ -93,6 +93,7 @@ BindPaths=/var/lib/ohrganize/%i /var/backups/ohrganize/%i
 # Ressourcengrenzen: Das Kopieren von storage/ soll nachts nicht den ganzen
 # Host beschaeftigen. IOWeight niedriger als beim Backend, weil ein
 # verzoegerter Sicherungslauf niemanden stoert, eine langsame API aber schon.
+# Gemessen auf Debian 13 am 2026-09-15 (leerer Bestand): MemoryPeak 20 MB.
 MemoryHigh=384M
 MemoryMax=512M
 TasksMax=64

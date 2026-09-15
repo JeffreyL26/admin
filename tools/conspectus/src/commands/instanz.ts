@@ -151,7 +151,11 @@ export function berichtUebernehmen(json: unknown, instanzId?: string): string[] 
       typeof variant.id === 'string' ? variant.id : null,
       typeof license.state === 'string' ? license.state : null,
       typeof counts.employees_active === 'number' ? counts.employees_active : null,
-      typeof inner.license_format === 'number' ? inner.license_format : null,
+      typeof inner.license_format === 'number'
+        ? inner.license_format
+        : typeof e.license_format_health === 'number'
+          ? e.license_format_health
+          : null,
       id,
     );
     uebernommen.push(id);
