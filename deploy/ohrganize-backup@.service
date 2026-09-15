@@ -15,7 +15,7 @@ After=ohrganize-backend@%i.service
 Type=oneshot
 User=ohrganize
 Group=ohrganize
-WorkingDirectory=/opt/ohrganize/apps/backend
+WorkingDirectory=/opt/ohrganize/kunden/%i/apps/backend
 
 EnvironmentFile=/etc/ohrganize/kunden/%i.env
 
@@ -27,7 +27,7 @@ EnvironmentFile=/etc/ohrganize/kunden/%i.env
 # Herausgeben oder Löschen der Daten eines Kunden (Vertragsende, Art. 17 DSGVO)
 # muss klar sein, welche Dateien dazugehören. In einem gemeinsamen Topf ließe
 # sich das nur noch am Dateinamen raten.
-ExecStart=/usr/bin/node /opt/ohrganize/apps/backend/dist/backup.cjs --out /var/backups/ohrganize/%i --keep 14
+ExecStart=/usr/bin/node /opt/ohrganize/kunden/%i/apps/backend/dist/backup.cjs --out /var/backups/ohrganize/%i --keep 14
 
 UMask=0077
 NoNewPrivileges=true
@@ -81,6 +81,23 @@ IPAddressDeny=any
 # Lesen der Datenbank verlangt SCHREIBrechte: SQLite legt im WAL-Modus für jede
 # Verbindung -shm/-wal an. Beide Pfade müssen deshalb beschreibbar sein.
 ReadWritePaths=/var/lib/ohrganize/%i /var/backups/ohrganize/%i
+
+# --- Leseisolation ----------------------------------------------------------
+# Wie beim Backend, hier ueber BEIDE Baeume: Ein Sicherungslauf, der ausser
+# Kontrolle geraet, darf die Daten und die Sicherungen fremder Kunden nicht
+# einmal lesen koennen. Die Sicherung ist genau der Prozess, der einen
+# vollstaendigen Abzug in der Hand haelt.
+TemporaryFileSystem=/var/lib/ohrganize:ro /var/backups/ohrganize:ro
+BindPaths=/var/lib/ohrganize/%i /var/backups/ohrganize/%i
+
+# Ressourcengrenzen: Das Kopieren von storage/ soll nachts nicht den ganzen
+# Host beschaeftigen. IOWeight niedriger als beim Backend, weil ein
+# verzoegerter Sicherungslauf niemanden stoert, eine langsame API aber schon.
+MemoryHigh=384M
+MemoryMax=512M
+TasksMax=64
+CPUWeight=50
+IOWeight=50
 
 # /var/backups/ohrganize/<kunde> wird NICHT automatisch angelegt (es liegt
 # außerhalb von StateDirectory). ohrganize-provision.sh erledigt das beim

@@ -215,6 +215,21 @@ const tokenTtl = tokenTtlRaw || '1h';
  */
 const initialAdminPassword = (process.env.OHRGANIZE_INITIAL_ADMIN_PASSWORD ?? '').trim() || null;
 
+/**
+ * Im Hosting hat das Initialpasswort nichts im Journal zu suchen: Dort liest
+ * es jeder mit Journalzugriff, im Mehrkundenbetrieb also der Betreiber samt
+ * Monitoring und Logversand, und es bleibt dort stehen, bis die Rotation es
+ * abraeumt. Mit OHRGANIZE_QUIET_INITIAL_PASSWORD=1 nennt der Start nur den
+ * Pfad der Datei (0600 im Datenverzeichnis); der Betreiber holt das Passwort
+ * mit `provision.sh passwort <kunde>` und loescht die Datei danach.
+ *
+ * Laesst sich die Datei nicht schreiben, steht das Passwort trotzdem im
+ * Journal: Ein Konto, dessen Passwort niemand kennt, waere schlimmer.
+ */
+const quietInitialPassword = ['1', 'true'].includes(
+  (process.env.OHRGANIZE_QUIET_INITIAL_PASSWORD ?? '').trim().toLowerCase(),
+);
+
 // Bestandsinstallationen sofort nachziehen (die Datenbank wird erst später
 // geöffnet; server.ts ruft die Funktion nach migrate() ein zweites Mal auf).
 hardenDataPermissions();
@@ -238,6 +253,7 @@ export const config = {
   secret: loadOrCreateSecret(),
   tokenTtl,
   initialAdminPassword,
+  quietInitialPassword,
   startupWarnings,
   // Gültigkeit signierter Download-Links. Von 5 Minuten auf 60 Sekunden
   // gesenkt (Audit S7): Der Link steht im Query-String und landet damit im

@@ -18,10 +18,20 @@
 # betreiben ist möglich, aber unnötig verwirrend.
 #
 # Annahmen (identisch zur Einzel-Unit, dort stehen die ausführlichen Gründe):
-#   Programm:       /opt/ohrganize
+#   Programm:       /opt/ohrganize/kunden/<kunde>  (SYMLINK auf ein Release)
+#   Releases:       /opt/ohrganize/releases/<variante>-<version>
 #   Daten:          /var/lib/ohrganize/<kunde>
 #   Konfiguration:  /etc/ohrganize/kunden/<kunde>.env
 #   Dienstbenutzer: ohrganize:ohrganize
+#
+# Warum ein Symlink je Instanz statt eines gemeinsamen Programmverzeichnisses:
+#   1. Auf einem Host koennen verschiedene AUSGABEN laufen (Land x Edition).
+#      Ein gemeinsames /opt/ohrganize traegt genau eine.
+#   2. Ein Update wird instanzweise umgestellt und ist zuruecknehmbar: Der
+#      Symlink zeigt wieder auf das vorherige Release, fertig. Ohne ihn
+#      muesste das alte Archiv erneut entpackt werden, waehrend der Kunde steht.
+#   3. Eine Instanz laesst sich absichtlich auf einem alten Stand festhalten
+#      (Pinnen), ohne die anderen daran zu hindern weiterzuziehen.
 
 [Unit]
 Description=oHRganize Backend — Kunde %i
@@ -33,11 +43,11 @@ Wants=network-online.target
 Type=simple
 User=ohrganize
 Group=ohrganize
-WorkingDirectory=/opt/ohrganize/apps/backend
+WorkingDirectory=/opt/ohrganize/kunden/%i/apps/backend
 
 # dist/cli.cjs ist der CLI-Einstieg mit Selbststart und Signal-Handling —
 # NICHT dist/server.cjs (Embedding-Bundle der Desktop-App, startet nichts).
-ExecStart=/usr/bin/node /opt/ohrganize/apps/backend/dist/cli.cjs
+ExecStart=/usr/bin/node /opt/ohrganize/kunden/%i/apps/backend/dist/cli.cjs
 
 # Port und Datenverzeichnis stehen je Kunde in dieser Datei. Sie wird von
 # ohrganize-provision.sh aus deploy/ohrganize-kunde.env.example erzeugt.
@@ -144,6 +154,37 @@ IPAddressDeny=any
 # Grenze zwischen den Kunden: Ein Fehler in Instanz A kann die Datenbank von
 # Instanz B nicht überschreiben, obwohl beide unter demselben Konto laufen.
 ReadWritePaths=/var/lib/ohrganize/%i
+
+# --- Leseisolation zwischen den Instanzen ------------------------------------
+# ReadWritePaths oben verhindert das SCHREIBEN in fremde Verzeichnisse, nicht
+# das LESEN: Alle Instanzen laufen unter demselben Konto, also konnte jede die
+# Personalakte jeder anderen mitlesen. TemporaryFileSystem legt ein leeres
+# tmpfs ueber /var/lib/ohrganize; BindPaths blendet danach genau das eigene
+# Verzeichnis wieder ein. Ergebnis: Ein Verzeichnislauf aus dem Dienst heraus
+# zeigt nur die eigene Instanz, fremde Pfade existieren fuer ihn nicht.
+#
+# REIHENFOLGE ZAEHLT: TemporaryFileSystem wird vor BindPaths ausgewertet, und
+# beide wirken erst nach StateDirectory. Deshalb bleibt StateDirectory oben
+# stehen (es legt das Verzeichnis an und setzt den Eigentuemer), waehrend die
+# Sichtbarkeit hier geregelt wird. Nach jeder Aenderung an diesen beiden
+# Zeilen pruefen, dass die Instanz startet UND schreibt:
+#   systemctl restart ohrganize-backend@<kunde>
+#   runuser -u ohrganize -- ls /var/lib/ohrganize    (zeigt nur <kunde>)
+TemporaryFileSystem=/var/lib/ohrganize:ro
+BindPaths=/var/lib/ohrganize/%i
+
+# --- Ressourcengrenzen ------------------------------------------------------
+# Startwerte, damit eine einzelne Instanz den Host nicht mitnimmt: Ein
+# Exportlauf ueber eine grosse Belegschaft oder eine Endlosschleife nach einem
+# Fehler wuerde sonst alle anderen Kunden ausbremsen. MemoryHigh drosselt
+# (der Kernel raeumt auf und bremst), MemoryMax beendet. Nach einem Dauerlauf
+# mit echten Bestaenden justieren; die gemessenen Werte gehoeren in
+# deploy/README.md, Abschnitt 9.7.
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=256
+CPUWeight=100
+IOWeight=100
 
 Restart=on-failure
 RestartSec=5

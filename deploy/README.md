@@ -574,44 +574,120 @@ kein Provisorium: Die Trennung ist dadurch eine Dateisystem- und
 Prozessgrenze und nicht eine Bedingung in jeder einzelnen SQL-Abfrage, die man
 genau einmal vergessen muss.
 
-Was sich alle Kunden teilen: den Server, das Programmverzeichnis
-`/opt/ohrganize`, den Reverse-Proxy und **ein** Portal-Build. Der Build
-enthält nichts Kundenspezifisches — er spricht die API same-origin über den
-gerade aufgerufenen Namen an.
+Was sich alle Kunden teilen: den Server, den Reverse-Proxy und die
+eingespielten **Releases**. Was NICHT mehr geteilt wird: das
+Programmverzeichnis. Seit der Hosting-Haertung hat jede Instanz ihren eigenen
+Symlink auf ein Release.
+
+```
+/opt/ohrganize/releases/de-vollversion-1.1.0/     entpacktes Archiv samt node_modules
+/opt/ohrganize/kunden/musterfirma  -> releases/de-vollversion-1.1.0
+/opt/ohrganize/kunden/beispiel-ag  -> releases/de-vollversion-1.0.0   (auf altem Stand gepinnt)
+/srv/ohrganize-web/kunden/musterfirma.ohrganize.com -> releases/de-vollversion-1.1.0/apps/web/dist
+```
+
+Drei Gruende dafuer, und jeder einzelne haette den gemeinsamen Ordner
+frueher oder spaeter gesprengt:
+
+1. **Ausgaben.** Eine Variante ist Land x Edition und ein eigener Build. Ein
+   gemeinsames `/opt/ohrganize` traegt genau eine; zwei Kunden mit
+   verschiedenen Ausgaben auf einem Host waeren damit unmoeglich.
+   Dasselbe gilt fuer das Portal-Build: Es enthaelt zwar nichts
+   Kundenspezifisches, wohl aber die Ausgabe. Deshalb je Kunde ein Symlink
+   unter `/srv/ohrganize-web/kunden/<domain>`, und nginx setzt `$host` in den
+   `root`-Pfad.
+2. **Rueckweg.** Ein misslungenes Update wird zurueckgenommen, indem der
+   Symlink wieder auf das vorherige Release zeigt. Ohne ihn muesste das alte
+   Archiv erneut entpackt werden, waehrend der Kunde steht.
+3. **Pinnen.** Eine Instanz laesst sich absichtlich auf einem alten Stand
+   halten (Abnahme laeuft, Sondervereinbarung), ohne die anderen daran zu
+   hindern weiterzuziehen.
 
 | Je Kunde eigen | Pfad |
 |---|---|
 | Dienst | `ohrganize-backend@<kunde>` |
-| Konfiguration | `/etc/ohrganize/kunden/<kunde>.env` |
+| Programm | `/opt/ohrganize/kunden/<kunde>` (Symlink auf ein Release) |
+| Portal | `/srv/ohrganize-web/kunden/<kunde>.ohrganize.com` (Symlink) |
+| Konfiguration | `/etc/ohrganize/kunden/<kunde>.env` (inkl. `OHRGANIZE_VARIANT`) |
 | Daten (DB, storage/, secret, Lizenz) | `/var/lib/ohrganize/<kunde>` |
 | Sicherungen | `/var/backups/ohrganize/<kunde>` |
 | Port | 3100 aufwärts, vergeben von `ohrganize-provision.sh` |
 | Subdomain | `<kunde>.ohrganize.com` |
 
-### 9.1 Einmalige Einrichtung
+**Leseisolation.** Alle Instanzen laufen unter demselben Dienstkonto
+`ohrganize`. `ReadWritePaths` verhindert seit jeher das SCHREIBEN in fremde
+Verzeichnisse, nicht das LESEN: Jede Instanz konnte die Personalakte jeder
+anderen mitlesen. Die Vorlagen legen deshalb mit
+`TemporaryFileSystem=/var/lib/ohrganize:ro` ein leeres tmpfs darueber und
+blenden mit `BindPaths=/var/lib/ohrganize/%i` genau das eigene Verzeichnis
+wieder ein. Aus dem Dienst heraus zeigt ein Verzeichnislauf nur die eigene
+Instanz. Die Sicherungs-Unit macht dasselbe ueber beide Baeume (Daten und
+Sicherungen): Sie ist der Prozess, der einen vollstaendigen Abzug in der
+Hand haelt.
 
-Abschnitt 1 und 2 gelten unverändert (Dienstkonto, Archiv nach
-`/opt/ohrganize`, `npm ci --omit=dev` samt Kontrollzeile, Portal-Build nach
-`/srv/ohrganize-web`). **Nicht** eingerichtet werden für den Mehrkunden-Betrieb:
-`ohrganize-backend.service`, `ohrganize-backup.*` und `nginx.conf` — deren
-Aufgabe übernehmen die Vorlagen unten.
+Gegenprobe nach jeder Aenderung an diesen Zeilen:
 
 ```bash
+systemctl restart ohrganize-backend@musterfirma
+systemd-run --pipe --property=TemporaryFileSystem=/var/lib/ohrganize:ro \
+  --property=BindPaths=/var/lib/ohrganize/musterfirma --uid=ohrganize \
+  /bin/ls /var/lib/ohrganize        # zeigt nur musterfirma
+```
+
+**Ressourcengrenzen.** `MemoryHigh=512M`, `MemoryMax=768M`, `TasksMax=256`,
+`CPUWeight=100`, `IOWeight=100` beim Backend; die Sicherung bekommt weniger
+(`384M`/`512M`, `CPUWeight=50`, `IOWeight=50`), weil ein verzoegerter
+Sicherungslauf niemanden stoert, eine langsame API aber schon. Das sind
+Startwerte: Nach einem Dauerlauf mit echten Bestaenden nachmessen
+(`systemd-cgtop`, `systemctl show -p MemoryPeak ohrganize-backend@<kunde>`)
+und die Werte samt Datum hier in 9.7 festhalten.
+
+**Echte Benutzertrennung** je Kunde (eigenes Unix-Konto oder Container) bleibt
+die naechste Ausbaustufe. Sie ist mit `DynamicUser` nicht zu haben (die
+Datenverzeichnisse muessen einen stabilen Eigentuemer behalten) und
+verlangte je Instanz ein angelegtes Konto samt `User=`-Override. Sinnvoll,
+sobald mehr als eine Handvoll Kunden auf einem Host liegt.
+
+### 9.1 Einmalige Einrichtung
+
+Abschnitt 1 gilt unverändert (Node, Build-Werkzeuge, Dienstkonto `ohrganize`).
+**Nicht** eingerichtet werden für den Mehrkunden-Betrieb:
+`ohrganize-backend.service`, `ohrganize-backup.*` und `nginx.conf` — deren
+Aufgabe übernehmen die Vorlagen unten. Anders als beim Einzelkunden wird das
+Archiv NICHT nach `/opt/ohrganize` entpackt, sondern über
+`ohrganize-update.sh einspielen` nach `/opt/ohrganize/releases/`.
+
+```bash
+# Skripte und Vorlagen an ihren Platz (aus dem entpackten Archiv oder dem Repo)
+install -d -m 0755 /opt/ohrganize/deploy /opt/ohrganize/releases /opt/ohrganize/kunden
+install -m 0755 deploy/ohrganize-lib.sh deploy/ohrganize-provision.sh \
+  deploy/ohrganize-update.sh /opt/ohrganize/deploy/
+install -m 0644 deploy/ohrganize-kunde.env.example \
+  deploy/ohrganize-release.allowed_signers /opt/ohrganize/deploy/
+
 # Vorlagen für Dienst und Sicherung
 cp deploy/ohrganize-backend@.service /etc/systemd/system/
 cp deploy/ohrganize-backup@.service  /etc/systemd/system/
 cp deploy/ohrganize-backup@.timer    /etc/systemd/system/
 systemctl daemon-reload
+systemd-analyze verify /etc/systemd/system/ohrganize-backend@.service   # ohne Ausgabe = gut
 
 # Verzeichnisse
 install -d -m 0750 -o root -g ohrganize /etc/ohrganize/kunden
 install -d -m 0700 -o ohrganize -g ohrganize /var/backups/ohrganize
+install -d -m 0755 /srv/ohrganize-web/kunden
+
+# Wartungsseite (wird ausgeliefert, solange eine Instanz nicht antwortet)
+install -m 0644 deploy/wartung.html /srv/ohrganize-web/
 
 # Basisdomain hinterlegen (sonst gilt die Vorgabe ohrganize.com)
 printf 'BASIS_DOMAIN="ohrganize.com"\n' > /etc/ohrganize/provision.conf
 chmod 0644 /etc/ohrganize/provision.conf
 
-chmod +x deploy/ohrganize-provision.sh
+# Erstes Release einspielen (prueft Pruefsumme, Signatur und Ausgabe)
+/opt/ohrganize/deploy/ohrganize-update.sh einspielen \
+  /pfad/ohrganize-server-de-vollversion-1.0.0.zip
+/opt/ohrganize/deploy/ohrganize-update.sh releases
 ```
 
 ### 9.2 DNS
@@ -698,19 +774,39 @@ vorbereitet** — `deploy/Caddyfile` bleibt die Einzelkunden-Variante.
 ### 9.5 Kunden anlegen
 
 ```bash
-/opt/ohrganize/deploy/ohrganize-provision.sh anlegen musterfirma
+/opt/ohrganize/deploy/ohrganize-provision.sh anlegen musterfirma --variante de-vollversion
 ```
 
-Das Skript vergibt einen freien Port, erzeugt die env-Datei aus
-`ohrganize-kunde.env.example`, startet `ohrganize-backend@musterfirma`, wartet
-auf dessen `/api/health`, aktiviert die tägliche Sicherung und trägt die
-Subdomain in die Map ein. Scheitert ein Schritt, nimmt es die vorherigen
-zurück — eine halb angelegte Instanz sähe in der Liste sonst aus wie ein
-funktionierender Kunde.
+Das Skript setzt den Programm- und den Portal-Symlink auf das neueste Release
+dieser Ausgabe (oder auf das mit `--release` genannte), vergibt einen freien
+Port, erzeugt die env-Datei aus `ohrganize-kunde.env.example` (mit
+`OHRGANIZE_VARIANT` und `OHRGANIZE_QUIET_INITIAL_PASSWORD=1`), startet
+`ohrganize-backend@musterfirma`, wartet auf dessen `/api/health`, vergleicht
+die dort gemeldete Ausgabe mit der env-Datei, aktiviert die tägliche Sicherung
+und trägt die Subdomain in die Map ein. Scheitert ein Schritt, nimmt es die
+vorherigen zurück: Eine halb angelegte Instanz sähe in der Liste sonst aus
+wie ein funktionierender Kunde.
 
-Am Ende gibt es aus, was zur Übergabe gebraucht wird: das erzeugte
-Initialpasswort für `admin@ohrganize.de` (Wechsel beim ersten Login erzwungen,
-siehe `../docs/inbetriebnahme.md`) und den Inhalt der `config.json` für die
+Das Initialpasswort steht wegen `OHRGANIZE_QUIET_INITIAL_PASSWORD=1` NICHT im
+Journal (dort läse es jeder mit Journalzugriff, im Hosting also der Betreiber
+samt Logversand), sondern nur in der Datei im Datenverzeichnis:
+
+```bash
+ohrganize-provision.sh passwort musterfirma              # zeigen
+ohrganize-provision.sh passwort musterfirma --loeschen   # nach der Übergabe
+ohrganize-provision.sh id musterfirma                    # Installations-ID für die Lizenz
+```
+
+Kommt später niemand mehr hinein:
+`ohrganize-provision.sh passwort musterfirma --zuruecksetzen [--email <adresse>]`
+setzt ein Zufallspasswort, erzwingt den Wechsel und macht alle laufenden
+Sitzungen des Kontos ungültig. Der Vorgang steht im `audit_log`.
+
+Alle Werkzeuge laufen über `runuser -u ohrganize`: Ein Zugriff als root legt
+im WAL-Modus `-wal`/`-shm` mit falschem Eigentümer an, und der Dienst startet
+danach nicht mehr. Die Werkzeuge verweigern den Lauf als root von sich aus.
+
+Zur Übergabe gehört außerdem der Inhalt der `config.json` für die
 Desktop-Arbeitsplätze des Kunden:
 
 ```json
@@ -754,32 +850,68 @@ systemctl list-timers 'ohrganize-backup@*'             # Sicherungspläne
 grep ' musterfirma.ohrganize.com ' /var/log/nginx/ohrganize-wildcard.access.log
 ```
 
-**Update** (Abschnitt 6 sinngemaess, nur ueber alle Instanzen). Auch hier gilt
-Schritt 0: Variante des Archivs gegen `OHRGANIZE_VARIANT` JEDER Instanz
-pruefen. Laufen auf einem Host mehrere Ausgaben, braucht jede ihr eigenes
-Archiv und ihr eigenes Programmverzeichnis; ein gemeinsames `/opt/ohrganize`
-traegt genau eine Variante.
+**Update.** Es gibt dafuer ein Skript; der Weg von Hand aus Abschnitt 6 ist
+im Hosting nicht mehr vorgesehen.
 
 ```bash
-kunden() { for f in /etc/ohrganize/kunden/*.env; do basename "$f" .env; done; }
-# Schritt 0: Variante des Archivs gegen alle Instanzen abgleichen
-unzip -p /pfad/ohrganize-server-<variante>-<version>.zip VARIANTE.txt
-for k in $(kunden); do grep -H OHRGANIZE_VARIANT "/etc/ohrganize/kunden/$k.env"; done
+# Alles in einem: pruefen, einspielen, Instanzen umstellen
+ohrganize-update.sh update /pfad/ohrganize-server-de-vollversion-1.1.0.zip
 
-for k in $(kunden); do systemctl start "ohrganize-backup@$k.service"; done   # Sicherung VOR dem Update
-for k in $(kunden); do systemctl stop  "ohrganize-backend@$k"; done
-# Prüfsumme im Archivverzeichnis prüfen (die .sha256 nennt nur den Dateinamen, Abschnitt 6)
-(cd /pfad && sha256sum -c ohrganize-server-<variante>-<version>.zip.sha256) && cd /opt/ohrganize && rm -rf apps && unzip -o /pfad/ohrganize-server-<variante>-<version>.zip -d /opt/ohrganize && npm ci --omit=dev
-node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
-cp -a apps/web/dist/. /srv/ohrganize-web/
-for k in $(kunden); do systemctl start "ohrganize-backend@$k"; done
-for k in $(kunden); do systemctl is-active "ohrganize-backend@$k" || journalctl -t "ohrganize-$k" -n 30 --no-pager; done
+# oder in zwei Schritten
+ohrganize-update.sh einspielen /pfad/ohrganize-server-de-vollversion-1.1.0.zip
+ohrganize-update.sh umstellen de-vollversion-1.1.0 --probelauf   # nur pruefen
+ohrganize-update.sh umstellen de-vollversion-1.1.0
+ohrganize-update.sh umstellen de-vollversion-1.1.0 --kunde musterfirma   # eine Instanz
+
+ohrganize-update.sh releases        # was liegt da, wer benutzt es
+ohrganize-provision.sh check        # Symlinks, Ausgaben, Ports, Sicherungen, Platz
 ```
 
-Die Migrationen laufen je Instanz beim Start, jeweils in einer Transaktion.
-Eine Instanz, die dabei scheitert, hält die anderen nicht auf — deshalb die
-Kontrollschleife am Ende: Ohne sie fällt ein einzelner nicht gestarteter
-Kunde erst auf, wenn er anruft.
+Was das Skript tut, und warum jeder Schritt drin ist:
+
+1. **Pruefsumme und Signatur**, bevor entpackt wird. Die Signatur allein
+   reicht nicht: Erst der Abgleich der Archiv-Pruefsumme gegen das signierte
+   `release.json` bindet das Archiv an die Signatur.
+2. **Ausgabe.** `VARIANTE.txt` aus dem Archiv gegen `OHRGANIZE_VARIANT` jeder
+   Instanz. Instanzen anderer Ausgaben werden uebersprungen, nicht
+   umgestellt. Das ist der teuerste Fehler im Hosting, und er faellt sonst
+   erst auf, wenn der Dienst nicht startet oder eine Lizenz abgelehnt wird.
+3. **`npm ci --omit=dev` und eine Ladeprobe fuer better-sqlite3** im NEUEN
+   Release, bevor eine Instanz angehalten wird. Ein blosses `require()`
+   genuegt dafuer nicht; erst `new` laedt die native Bibliothek.
+4. **Migrations-Probelauf** (`migrate-check.cjs`) auf einer KOPIE jeder
+   Datenbank. Scheitert er irgendwo, wird gar nichts umgestellt.
+5. **Je Instanz:** Sicherung, stop, Symlink umsetzen, start, `/api/health`
+   samt Ausgabenabgleich. Schlaegt der Start fehl, zeigt der Symlink sofort
+   wieder auf das alte Release. Startet auch die alte Fassung nicht (weil die
+   neue die Datenbank schon migriert hat, Downgrade-Sperre), wird die
+   Datenbank aus der eben erstellten Sicherung zurueckgespielt. Die Instanz
+   bekommt in ihrem Datenverzeichnis die Markerdatei
+   `.update-fehlgeschlagen`, und das Skript macht mit der naechsten weiter:
+   ein Problem bei einem Kunden haelt die anderen nicht auf.
+
+Das Portal-Verzeichnis wird nicht mehr kopiert; der Symlink
+`/srv/ohrganize-web/kunden/<domain>` wird im selben Schritt mitgezogen.
+
+**Restore je Instanz** (der Weg, den das MANIFEST jeder Sicherung nennt):
+
+```bash
+ohrganize-provision.sh restore musterfirma /var/backups/ohrganize/musterfirma/ohrganize-20260915-023014
+```
+
+Es stoppt die Instanz, verschiebt den jetzigen Stand nach
+`<datenverzeichnis>.alt-<zeit>` (statt ihn zu ueberschreiben), spielt
+Datenbank, `storage/`, `secret.key` und die Lizenzdatei ein, zieht die Rechte
+nach, startet und zeigt den Lizenzzustand. Danach gilt: Wurde seit dieser
+Sicherung eine NEUERE Lizenz eingespielt, muss sie erneut abgelegt werden
+(`ohrganize-provision.sh lizenz <kunde> <datei>`), denn der Dateiwaechter des
+Servers prueft keine Monotonie, ein alter Stand bringt also still die alte
+Datei zurueck.
+
+**Pausieren** (Wartung, Vertragspause): `ohrganize-provision.sh pausieren
+<kunde>` haelt Dienst und Sicherungs-Timer an; der Proxy liefert dann die
+Wartungsseite aus (`error_page 502 503 504` in `nginx-wildcard.conf`).
+`fortsetzen` startet beides wieder.
 
 **Signatur des Anbieters pruefen.** Ab Fassung 1.1 liegt neben jedem Release
 ein `release.json` (Version, Kanal, Variante, Pruefsummen aller Artefakte)
@@ -842,6 +974,36 @@ startet, läuft in systemds Startlimit (5 Starts je 10 s) — dann
 `systemctl reset-failed ohrganize-backup@<kunde>`; der tägliche Timer ist
 davon nicht betroffen.
 
+**Noch nicht erprobt: die Hosting-Haertung aus dieser Fassung.** Programm je
+Instanz als Symlink, Leseisolation, Ressourcengrenzen, `ohrganize-update.sh`
+und die neuen Unterbefehle von `ohrganize-provision.sh` sind auf der
+Entwicklungsmaschine gebaut und in ihren Einzelteilen geprueft (Werkzeuge,
+Probelauf, Archivinhalt), aber noch nicht auf einem Debian-Testserver
+durchgespielt. Das Protokoll dieses Laufs gehoert hierher, sobald er
+stattgefunden hat; zu pruefen sind mindestens:
+
+1. Zwei Instanzen anlegen, je eine Ausgabe, `status --json` liefert beide mit
+   Variante, Release und Lizenzzustand.
+2. `lizenz <kunde> <datei>` wirkt ohne Neustart (Zustand wechselt von `trial`
+   auf `valid`), und `id`, `pin`, `passwort` laufen als root, ohne
+   root-eigene `-wal`-Dateien im Datenverzeichnis zu hinterlassen
+   (`find /var/lib/ohrganize -user root`).
+3. Isolation: aus der Unit heraus zeigt ein Verzeichnislauf nur die eigene
+   Instanz; `systemd-analyze security` bleibt bei SAFE; Start, Sicherung und
+   Restore laufen weiter (die Wechselwirkung von `TemporaryFileSystem` mit
+   `StateDirectory` und `PrivateUsers=true` ist genau die Stelle, an der es
+   klemmen kann).
+4. Update auf ein Beta-Release mit absichtlich FALSCHER Variante wird
+   verweigert; mit richtiger Variante laeuft es durch.
+5. Rueckweg mit einer absichtlich brechenden Migration (Testbuild): Die
+   Instanz landet wieder auf dem alten Release mit intakter Datenbank, die
+   Markerdatei `.update-fehlgeschlagen` liegt im Datenverzeichnis, und die
+   uebrigen Instanzen laufen weiter.
+6. `restore` je Instanz, `check` ohne Befund.
+7. Ressourcengrenzen nachmessen (`systemd-cgtop`,
+   `systemctl show -p MemoryPeak`) und die Werte samt Datum hier eintragen;
+   die Kommentare in den Units tragen dann "gemessen auf Debian 13 am <Datum>".
+
 **Nicht** erprobt und beim ersten echten Kunden zu prüfen:
 
 - **certbot mit DNS-01.** Auf dem Testserver stand ein selbst signiertes
@@ -871,9 +1033,12 @@ Ehrlich benannt, damit es niemand später herausfinden muss:
 
 - **Alle Instanzen laufen unter demselben Dienstbenutzer** (`ohrganize`). Die
   Trennung zwischen den Kunden ist die Verzeichnisstruktur plus
-  `ReadWritePaths` in der Unit — kein Unix-Benutzer je Kunde. Wer eine
-  Kompromittierung eines Kunden strikt vom nächsten trennen muss, betreibt je
-  Kunde einen Container oder eine VM; die Vorlagen bleiben dieselben.
+  `ReadWritePaths` und die Leseisolation über `TemporaryFileSystem`/`BindPaths`
+  und kein Unix-Benutzer je Kunde. Das deckt den Dienst ab, nicht einen
+  Angreifer, der bereits als `ohrganize` eine Shell hat: Ausserhalb der Unit
+  gelten die Mounts nicht. Wer eine Kompromittierung eines Kunden strikt vom
+  nächsten trennen muss, betreibt je Kunde einen Container oder eine VM; die
+  Vorlagen bleiben dieselben.
 - **Ein Server ist ein gemeinsamer Ausfallpunkt.** Ein voller Datenträger,
   ein misslungenes Update am Reverse-Proxy oder ein Neustart trifft alle
   Kunden gleichzeitig.

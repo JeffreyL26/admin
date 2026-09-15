@@ -104,6 +104,22 @@ function stamp(now: Date): string {
 }
 
 /**
+ * Kundenschluessel, wenn dieses Datenverzeichnis zu einer Hosting-Instanz
+ * gehoert: /var/lib/ohrganize/<kunde> (bzw. derselbe Aufbau unter einem
+ * anderen Wurzelverzeichnis). Erkannt wird er daran, dass das ELTERNverzeichnis
+ * "ohrganize" heisst und der Ordner selbst wie ein Kundenschluessel aussieht.
+ * Beim Einzelkunden ist das Datenverzeichnis selbst "ohrganize" (oder
+ * C:\\ProgramData\\oHRganize\\data) und die Funktion liefert null.
+ */
+function instanceKey(): string | null {
+  const dir = path.resolve(config.dataDir);
+  const self = path.basename(dir);
+  const parent = path.basename(path.dirname(dir));
+  if (parent.toLowerCase() !== 'ohrganize') return null;
+  return /^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$/.test(self) ? self : null;
+}
+
+/**
  * Restore-Schritte für das MANIFEST — plattformabhängig.
  *
  * Das Skript selbst läuft auf beiden Systemen unverändert (reines Node), die
@@ -113,6 +129,22 @@ function stamp(now: Date): string {
  * jemand unter Druck davorsteht.
  */
 function restoreSteps(): string[] {
+  // Mehrkunden-Hosting: Das Datenverzeichnis endet auf /var/lib/ohrganize/<kunde>.
+  // Dort sind die pauschalen Zeilen unten falsch (sie nennen das gemeinsame
+  // Verzeichnis und stoppen den Dienst OHNE Instanznamen, also gar keinen).
+  // Provision.sh kennt den ganzen Ablauf inklusive Rechten und Neustart;
+  // genau darauf wird hier verwiesen statt Zeilen anzubieten, die im Ernstfall
+  // die falsche Instanz treffen.
+  const instance = instanceKey();
+  if (instance) {
+    return [
+      `  ohrganize-provision.sh restore ${instance} <dieser Ordner>`,
+      '',
+      '  (Das Skript stoppt die Instanz, sichert den alten Stand weg, spielt',
+      '   Datenbank, storage/, secret.key und die Lizenzdatei ein, zieht die',
+      '   Rechte nach und startet die Instanz wieder.)',
+    ];
+  }
   if (process.platform === 'win32') {
     return [
       '  nssm stop oHRganize',
@@ -325,6 +357,11 @@ async function main(): Promise<void> {
       hasLicense
         ? `  ${licenseName}  Signierte Lizenzdatei (ohne sie: Nur-Lese-Betrieb nach dem Restore)`
         : `  (keine ${licenseName} vorhanden — Testphase oder noch nicht eingespielt)`,
+      '',
+      'Lizenzdatei nach dem Restore erneut ablegen (provision.sh lizenz <kunde> <datei>),',
+      'wenn seit dieser Sicherung eine neuere eingespielt wurde: Der Dateiwaechter des',
+      'Servers prueft keine Monotonie, ein alter Stand bringt also still die alte Datei',
+      'zurueck. Die Monotonie greift nur beim Einspielen ueber die Oberflaeche.',
       '',
       'Restore (Dienst muss gestoppt sein; Programm derselben Variante wie oben einsetzen):',
       ...restoreSteps(),

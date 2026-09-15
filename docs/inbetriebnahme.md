@@ -425,6 +425,25 @@ Get-ChildItem 'C:\ProgramData\oHRganize\backups' | Sort-Object LastWriteTime -De
 - [ ] **Restore-Probe** einmal durchgeführt und protokolliert (Datum, wer,
       Ergebnis). Wiedervorlage in sechs Monaten.
 
+      Im **Hosting** (mehrere Kundeninstanzen auf einem Server) ist der Weg
+      dafür ein Befehl, nicht eine Folge von Einzelschritten:
+
+      ```bash
+      ohrganize-provision.sh restore <kunde> /var/backups/ohrganize/<kunde>/ohrganize-JJJJMMTT-HHMMSS
+      ```
+
+      Er stoppt die Instanz, verschiebt den jetzigen Stand nach
+      `<datenverzeichnis>.alt-<zeit>` (statt ihn zu überschreiben), spielt
+      Datenbank, `storage/`, `secret.key` und die Lizenzdatei ein, zieht die
+      Rechte nach, startet und zeigt den Lizenzzustand. Das `MANIFEST.txt`
+      jeder Sicherung nennt genau diese Zeile. Danach prüfen, ob seit der
+      Sicherung eine neuere Lizenzdatei eingespielt wurde, und sie dann erneut
+      ablegen (`ohrganize-provision.sh lizenz <kunde> <datei>`).
+
+      Beim **Einzelkunden** bleiben die Schritte aus `deploy/README.md`
+      Abschnitt 5 bzw. `deploy/windows/README.md`; das MANIFEST nennt sie
+      plattformgerecht.
+
 ## 12. Abnahme
 
 **Linux:**
