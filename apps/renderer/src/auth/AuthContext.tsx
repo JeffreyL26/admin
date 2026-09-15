@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useQueryClient } from '@tanstack/react-query';
 import {
   FULL_ACCESS,
+  hasFeature,
   permits,
   type AdminArea,
   type AdminPermissions,
@@ -67,6 +68,13 @@ interface AuthState {
   permissions: AdminPermissions;
   /** Kurzform für Sichtbarkeitsprüfungen in der Oberfläche. */
   can: (area: AdminArea, needed?: 'lesen' | 'bearbeiten') => boolean;
+  /**
+   * Freigeschaltete Feature-Schluessel der Lizenz (null = alles an). Reine
+   * Anzeigehilfe wie `can`; durchgesetzt wird es im Backend
+   * (core/featureGate.ts, 403 LICENSE_FEATURE_MISSING).
+   */
+  features: string[] | null;
+  hasFeature: (key: string) => boolean;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   /**
@@ -86,6 +94,8 @@ const AuthContext = createContext<AuthState>({
   refreshLicense: async () => {},
   permissions: FULL_ACCESS,
   can: () => true,
+  features: null,
+  hasFeature: () => true,
   loading: true,
   login: async () => {},
   changePassword: async () => {},
@@ -193,10 +203,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (area: AdminArea, needed: 'lesen' | 'bearbeiten' = 'lesen') => permits(permissions[area], needed),
     [permissions],
   );
+  const features = license?.features ?? null;
+  const hasFeatureFn = useCallback((key: string) => hasFeature(features, key), [features]);
 
   return (
     <AuthContext.Provider
-      value={{ user, license, refreshLicense, permissions, can, loading, login, changePassword, logout }}
+      value={{
+        user, license, refreshLicense, permissions, can, features, hasFeature: hasFeatureFn, loading, login,
+        changePassword, logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

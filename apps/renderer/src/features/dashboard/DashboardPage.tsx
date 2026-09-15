@@ -39,7 +39,7 @@ function widgetBody(key: WidgetKey, data: DashboardData): React.ReactNode {
 }
 
 export function DashboardPage() {
-  const { user } = useAuth();
+  const { user, features } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
   const { data, isLoading } = useDashboard();
@@ -97,11 +97,11 @@ export function DashboardPage() {
    * Daten kommen bereits gefiltert an.
    */
   const allowedAreas = new Set(data.allowed_areas ?? []);
-  const visibleWidgets = config.widgets.filter((w) => widgetAllowed(w, allowedAreas));
-  const visibleKpis = config.kpis.filter((k) => statAllowed(k, allowedAreas));
-  const selectableStats = ALL_STATS.filter((k) => statAllowed(k, allowedAreas));
+  const visibleWidgets = config.widgets.filter((w) => widgetAllowed(w, allowedAreas, features));
+  const visibleKpis = config.kpis.filter((k) => statAllowed(k, allowedAreas, features));
+  const selectableStats = ALL_STATS.filter((k) => statAllowed(k, allowedAreas, features));
   const hiddenWidgets = ALL_WIDGETS.filter(
-    (w) => !config.widgets.includes(w) && widgetAllowed(w, allowedAreas),
+    (w) => !config.widgets.includes(w) && widgetAllowed(w, allowedAreas, features),
   );
 
   /** Rahmen im Bearbeitungsmodus: Greifer, gestrichelte Kontur, Entfernen-Knopf. */

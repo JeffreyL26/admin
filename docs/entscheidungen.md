@@ -753,3 +753,27 @@ alte Anhaenge bleibt ueber `issued_at`.
 zum Abschluss aller Phasen 1.0.0; eine Versionsschwelle haette nichts
 unterschieden. Stattdessen melden Health und Lizenzbericht
 `license_format`, und der Anbieter prueft die Faehigkeit statt der Zahl.
+
+## Feature-Schluessel als zweite Achse neben der Edition
+
+**Entscheidung:** Kundenspezifische und optionale Funktionen sind
+Lizenzschalter innerhalb eines Builds (`FEATURES` in
+`packages/shared/src/features.ts`, Gate `core/featureGate.ts` im globalen
+Hook). Die Edition bleibt der Build-Inhalt. Ohne einschraenkende Lizenz ist
+alles an; Routen ohne Feature-Eintrag bleiben offen (fail open), die
+Bereichspruefung dahinter fail closed. Der Fehlercode
+`LICENSE_FEATURE_MISSING` ist der einzige 403, den die Desktop-App als
+Hinweis zeigt.
+
+**Warum:** Der Anbieter will massgeschneiderte Loesungen ohne
+Kunden-Branches. Ein Feature ist eine Zeile in der Registry plus Code im
+Hauptprodukt, und die Freischaltung ist ein Feld in der signierten Datei;
+so bleibt ein Codestand fuer alle Kunden. Fail open ist hier richtig, weil
+ein vergessener Eintrag sonst eine bezahlte Funktion sperrte, waehrend die
+Rechtepruefung der Administration (fail closed) davon unberuehrt bleibt.
+"Alles an ohne Lizenz" haelt Bestandsinstallationen und die Testphase
+unveraendert.
+
+**Verworfen, Feature-Pruefung in den Routen:** Ein Gate je Modul waere in
+vier Erfassungswegen zu vergessen; der globale Hook ist die einzige
+Sicherheitsgrenze und kennt die Route ohnehin.

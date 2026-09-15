@@ -7,7 +7,7 @@ import {
   FilePenLine, BadgeCheck,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { AdminArea } from '@ohrganize/shared';
+import { hasFeature, pathAllowedByFeatures, type AdminArea } from '@ohrganize/shared';
 
 export interface NavItem {
   path: string;
@@ -21,6 +21,12 @@ export interface NavItem {
    * Zugriff im Backend (modules/leadership, requireLeader).
    */
   leaderOnly?: boolean;
+  /**
+   * Feature-Schluessel, den die Lizenz freischalten muss (packages/shared
+   * features.ts). Zusaetzlich greift die Registry ueber navPaths; beide
+   * Wege filtern nur die Anzeige, gesperrt wird im Backend.
+   */
+  feature?: string;
   /**
    * Nur bei exaktem Pfad aktiv. Nötig, wenn ein Eintrag Unterseiten hat, die
    * selbst in der Seitenleiste stehen (/einstellungen → /einstellungen/lizenz):
@@ -40,6 +46,19 @@ export interface NavSection {
    * ausschließlich im Backend (core/permissions.ts).
    */
   area?: AdminArea;
+}
+
+/**
+ * Sichtbar mit dieser Feature-Menge? Prueft den expliziten `feature`-Schluessel
+ * des Eintrags UND die Registry (navPaths in packages/shared features.ts).
+ * null = alles an. Reine Anzeige; gesperrt wird im Backend.
+ */
+export function navItemAllowedByFeatures(
+  item: Pick<NavItem, 'path' | 'feature'>,
+  features: readonly string[] | null,
+): boolean {
+  if (item.feature && !hasFeature(features, item.feature)) return false;
+  return pathAllowedByFeatures(item.path, features);
 }
 
 /**

@@ -21,11 +21,13 @@ import { APP_VERSION, assertClientSupported } from './core/version.js';
 import {
   assertLicenseAllows,
   licenseHeaderValueFor,
+  effectiveFeatures,
   licenseStatusPublic,
   logLicenseAtStartup,
   setLicenseLogger,
 } from './core/license.js';
 import { licenseRoutes } from './core/licenseRoutes.js';
+import { assertFeatureAllowed } from './core/featureGate.js';
 import { registerModules } from './modules/index.js';
 
 /**
@@ -195,6 +197,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     // Administration dieselbe ist. GET/HEAD und die offenen Routen (Passwort,
     // Lizenz-Upload, Signieren von Downloads) kommen durch.
     assertLicenseAllows(req.method, route, account.role);
+
+    // Feature-Schluessel der Lizenz (core/featureGate.ts): Eine Funktion, die
+    // der Build enthaelt, die Lizenz aber nicht freischaltet, antwortet 403
+    // LICENSE_FEATURE_MISSING. Vor dem Self-Service-Zweig, damit auch
+    // /api/me/* erfasst ist; Routen ohne Feature-Eintrag bleiben offen.
+    assertFeatureAllowed(req.method, route, effectiveFeatures());
 
     const selfService = route.startsWith('/api/me/') || route.startsWith('/api/auth/');
     if (!selfService && req.user.role !== 'admin') {

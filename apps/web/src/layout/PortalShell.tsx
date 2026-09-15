@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { hasFeature, pathAllowedByFeatures } from '@ohrganize/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ReadOnlyNotice } from '../components/ReadOnlyNotice';
 import {
@@ -24,6 +25,14 @@ interface NavItem {
   icon: ComponentType<IconProps>;
   /** Nur die Übersicht braucht `end` — sonst wäre "/" immer aktiv. */
   end?: boolean;
+  /** Feature-Schluessel, den die Lizenz freischalten muss (packages/shared features.ts). */
+  feature?: string;
+}
+
+/** Sichtbar mit dieser Feature-Menge? Expliziter Schluessel plus Registry (portalPaths). */
+function navItemAllowed(item: NavItem, features: readonly string[] | null): boolean {
+  if (item.feature && !hasFeature(features, item.feature)) return false;
+  return pathAllowedByFeatures(item.to, features, undefined, 'portalPaths');
 }
 
 interface NavSection {
@@ -87,7 +96,7 @@ function Wordmark() {
 }
 
 export function PortalShell() {
-  const { user, logout } = useAuth();
+  const { user, logout, features } = useAuth();
   const location = useLocation();
   // Nur unter 900px relevant: darüber liegt die Leiste ohnehin fest im Layout
   // und CSS blendet Overlay, Topbar und Schließen-Knopf aus.
@@ -155,10 +164,13 @@ export function PortalShell() {
         </div>
 
         <nav className="portal-nav" aria-label="Hauptnavigation">
-          {NAV_SECTIONS.map((section, i) => (
+          {NAV_SECTIONS.map((section, i) => {
+            const items = section.items.filter((item) => navItemAllowed(item, features));
+            if (items.length === 0) return null;
+            return (
             <div key={section.title ?? `section-${i}`}>
               {section.title && <div className="portal-nav__section">{section.title}</div>}
-              {section.items.map((item) => (
+              {items.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
@@ -172,7 +184,8 @@ export function PortalShell() {
                 </NavLink>
               ))}
             </div>
-          ))}
+            );
+          })}
         </nav>
 
         {user && (

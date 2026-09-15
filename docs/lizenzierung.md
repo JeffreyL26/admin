@@ -379,7 +379,44 @@ der Vertragsentwurf abdecken sollte:
 Hintergrund der Entscheidungen (Rückkanal, Nur-Lese statt Sperre,
 Wasserzeichen nur als Stolperdraht): `entscheidungen.md`.
 
-## 6. Texte: eine Quelle fuer alle Oberflaechen
+## 6. Funktionen (Feature-Schluessel)
+
+Zwei Achsen, die nicht verwechselt werden duerfen: Die **Edition** ist der
+Inhalt des Builds (was nicht dazugehoert, steckt nicht im Bundle; siehe
+Varianten). Ein **Feature** ist ein Schalter innerhalb eines Builds: Der
+Code ist da, die signierte Lizenz entscheidet, ob er freigeschaltet ist.
+Massgeschneiderte Kundenfunktionen werden so gebaut: als Feature im
+Hauptprodukt, registriert in `packages/shared/src/features.ts`
+(`FEATURES`), freigeschaltet ueber `--feature kunde.musterfirma.export`.
+Keine Kunden-Branches.
+
+Regeln der Durchsetzung (`apps/backend/src/core/featureGate.ts`, im
+globalen Hook direkt hinter dem Lizenz-Gate, vor dem Self-Service-Zweig):
+
+- Ohne einschraenkende Lizenz ist **alles an**: Entwicklung, Testphase ohne
+  Datei, v1-Datei, v2-Datei ohne `features`. Nur eine v2-Datei mit
+  `features` schraenkt ein, dann auch im Nur-Lese-Betrieb.
+- Ein Feature nennt Routen-Praefixe (`routes`); eine Route, die kein
+  Feature nennt, bleibt offen (fail open). Die Bereichspruefung dahinter
+  (`ROUTE_AREAS`) bleibt fail closed. Praefixe nur so konkret wie dort;
+  `/api/me` sperrte das ganze Portal.
+- Fehlt das Feature, antwortet der Server `403 LICENSE_FEATURE_MISSING`
+  mit "Die Funktion „<label>“ ist in Ihrer Lizenz nicht enthalten." Die
+  Desktop-App zeigt genau diesen 403 als Hinweis (andere 403 bleiben still),
+  das Portal reicht die Meldung unveraendert durch.
+- Unbekannte Schluessel in einer Lizenz werden ignoriert; die Registry ist
+  die einzige Quelle. Beide Clients blenden Navigation (`navPaths`,
+  `portalPaths`) und Dashboard-Widgets (`widgets`) fehlender Features aus;
+  `useAuth().hasFeature(key)` steht fuer Einzelfaelle bereit.
+- Login und `/api/auth/me` liefern `license.features` (Admins wie Portal);
+  `/api/health` nicht.
+
+Ein Feature anlegen: Eintrag in `FEATURES`, Routen im Backend unter dem
+genannten Praefix, Seiten in der App unter den genannten Pfaden, Test in
+`src/test/featureSmoke.ts` (prueft auch, dass Praefixe mit `/api/`
+beginnen und keine offene Lizenzroute treffen).
+
+## 7. Texte: eine Quelle fuer alle Oberflaechen
 
 Alle Saetze zum Lizenzzustand (Banner, Seite Einstellungen → Lizenz,
 Dashboard-Widget, 403-Meldung des Backends, Startlog) entstehen in
