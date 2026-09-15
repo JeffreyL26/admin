@@ -241,6 +241,22 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   Laufzeiten (`3t`, `2w`, `6m`, `1j`) stehen dort. Ein Dateiwechsel im
   Datenverzeichnis ohne Upload schreibt `license.file_changed` mit
   `user_id NULL` ins Audit-Log (`loadLicenseFile`).
+- **Edition gegen Feature.** Die Edition ist der Build-Inhalt (Varianten,
+  `packages/shared/src/variants`); ein **Feature** ist ein Lizenzschalter
+  innerhalb des Builds: Registry `FEATURES` in
+  `packages/shared/src/features.ts` (`key`, `label`, `routes`, `navPaths`,
+  `widgets`, `portalPaths`), Gate `core/featureGate.ts` im globalen Hook
+  direkt hinter `assertLicenseAllows` und VOR dem Self-Service-Zweig. Fail
+  open fuer Routen ohne Feature (die Bereichspruefung bleibt fail closed);
+  alles an ohne einschraenkende Lizenz (`effectiveFeatures()` in
+  `core/license.ts`: 'all' bei entwicklung, Testphase, v1, v2 ohne
+  `features`). Fehlt das Feature: `403 LICENSE_FEATURE_MISSING`, den die
+  Desktop-App als einzigen 403 als Toast zeigt. Kundenspezifische
+  Funktionen werden als Feature im Hauptprodukt gebaut, nie als Branch.
+  Beide Clients filtern Navigation und Widgets ueber `useAuth().features`
+  bzw. `hasFeature(key)`. Test: `src/test/featureSmoke.ts` (Registry-Regeln:
+  Praefixe beginnen mit `/api/`, treffen keine offene Lizenzroute und nie
+  `/api/me` als Ganzes).
 
 ## Konventionen
 

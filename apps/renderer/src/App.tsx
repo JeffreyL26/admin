@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { LICENSE_ERROR_CODES } from '@ohrganize/shared';
 import { ApiRequestError } from './api/client';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { ToastProvider, useToast } from './components/Toast';
@@ -65,7 +66,10 @@ function reportQueryError(error: unknown, query: { meta?: Record<string, unknown
   // Querbezüge in eigentlich erlaubte Seiten hinein (Kalender-Filter, Fotos),
   // die bewusst still degradieren. Ein Toast machte aus jedem Seitenbesuch
   // eine Dauermeldung über Rechte, die der Admin absichtlich so vergeben hat.
-  if (error instanceof ApiRequestError && error.status === 403) return;
+  // Ausnahme: Eine Funktion, die der Build enthaelt, die Lizenz aber nicht
+  // freischaltet (LICENSE_FEATURE_MISSING). Das ist keine Rechtefrage der
+  // Administration, sondern eine Vertragsfrage; der Hinweis muss sichtbar sein.
+  if (error instanceof ApiRequestError && error.status === 403 && error.code !== LICENSE_ERROR_CODES.FEATURE_MISSING) return;
   const message =
     error instanceof ApiRequestError
       ? `Daten konnten nicht geladen werden: ${error.message}`

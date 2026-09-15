@@ -4,7 +4,7 @@ import {
   CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
   UserPlus, UsersRound, Gauge, FilePenLine, BadgeCheck,
 } from 'lucide-react';
-import type { AdminArea } from '@ohrganize/shared';
+import { widgetAllowedByFeatures, type AdminArea } from '@ohrganize/shared';
 import type { DashboardStats } from './api';
 
 /**
@@ -214,13 +214,23 @@ export const ALL_WIDGETS = Object.keys(WIDGET_DEFS) as WidgetKey[];
  * zurückgeschrieben. Bekommt das Konto den Bereich später wieder, tauchen die
  * gewählten Widgets unverändert wieder auf.
  */
-export function widgetAllowed(key: WidgetKey, allowed: ReadonlySet<AdminArea>): boolean {
+export function widgetAllowed(
+  key: WidgetKey,
+  allowed: ReadonlySet<AdminArea>,
+  features: readonly string[] | null = null,
+): boolean {
   const area = WIDGET_DEFS[key].area;
+  if (!widgetAllowedByFeatures(key, features)) return false;
   return area === undefined || allowed.has(area);
 }
 
 /** Wie widgetAllowed, für die KPI-Kacheln. */
-export function statAllowed(key: StatKey, allowed: ReadonlySet<AdminArea>): boolean {
+export function statAllowed(
+  key: StatKey,
+  allowed: ReadonlySet<AdminArea>,
+  features: readonly string[] | null = null,
+): boolean {
+  if (!widgetAllowedByFeatures(key, features)) return false;
   return allowed.has(STAT_DEFS[key].area);
 }
 

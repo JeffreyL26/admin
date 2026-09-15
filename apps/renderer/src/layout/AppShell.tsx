@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut, Search } from 'lucide-react';
-import type { AdminArea } from '@ohrganize/shared';
+import { pathAllowedByFeatures, type AdminArea } from '@ohrganize/shared';
 import { useSidebarSections } from './sidebarConfig';
+import { navItemAllowedByFeatures } from './nav';
 import { LicenseBanner } from './LicenseBanner';
 import { useAuth } from '../auth/AuthContext';
 import { Avatar } from '../components/ui';
@@ -12,7 +13,7 @@ import { useLeaderStatus } from '../features/leadership/api';
 import logo from '../assets/logo.png';
 
 export function AppShell() {
-  const { user, logout, can } = useAuth();
+  const { user, logout, can, features } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -47,6 +48,7 @@ export function AppShell() {
         return;
       }
       const target = mod ? NAV_KEYS[e.key] : undefined;
+      if (target && !pathAllowedByFeatures(target.path, features)) return;
       if (target) {
         e.preventDefault();
         if (!target.area || can(target.area)) navigate(target.path);
@@ -96,14 +98,16 @@ export function AppShell() {
               Abschnitt entfällt samt Überschrift, sonst bliebe eine sinnlose
               Zwischenzeile stehen. Die eigentliche Sperre sitzt im Backend. */}
           {sections.map((section) => {
-            const items = section.items.filter((item) =>
-              item.leaderOnly
-                ? isLeader
-                : item.area
-                  ? can(item.area)
-                  : section.area
-                    ? can(section.area)
-                    : true,
+            const items = section.items.filter(
+              (item) =>
+                navItemAllowedByFeatures(item, features) &&
+                (item.leaderOnly
+                  ? isLeader
+                  : item.area
+                    ? can(item.area)
+                    : section.area
+                      ? can(section.area)
+                      : true),
             );
             if (items.length === 0) return null;
             return (

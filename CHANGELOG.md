@@ -8,6 +8,13 @@ eigenen Abschnitt.
 
 ## Unveroeffentlicht
 
+### Hinzugefuegt (Feature-Schluessel)
+- Feature-Gate: Funktionen innerhalb eines Builds koennen ueber die Lizenz
+  (`features`) freigeschaltet werden. Registry `packages/shared/src/features.ts`
+  (zu Beginn leer), Durchsetzung im globalen Hook
+  (`403 LICENSE_FEATURE_MISSING`), Navigation und Widgets beider Clients
+  folgen der Lizenz. Ohne einschraenkende Lizenz ist alles an.
+
 ### Geaendert
 - Lizenz v2: Dateien koennen Ausgabe (`edition`, `country`), Funktionen
   (`features`), Vertragsbedingungen (`terms`) und eine signierte

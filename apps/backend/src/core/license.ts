@@ -360,7 +360,7 @@ export function licenseHeaderValueFor(role: string): LicenseState {
  *
  * Route-Muster wie in req.routeOptions.url (mit `:id`), nicht die konkrete URL.
  */
-const LICENSE_OPEN_ROUTES: ReadonlySet<string> = new Set([
+export const LICENSE_OPEN_ROUTES: ReadonlySet<string> = new Set([
   '/api/auth/me',
   '/api/auth/password',
   '/api/license',

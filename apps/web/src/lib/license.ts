@@ -27,7 +27,9 @@ export const READ_ONLY_NOTICE_ID = 'portal-read-only-notice';
 /**
  * Meldung eines fehlgeschlagenen Schreibzugriffs für die Anzeige. Alle
  * API-Fehler sind deutsch und werden direkt gezeigt — außer LICENSE_EXPIRED,
- * dessen Text an die HR-Administration gerichtet ist.
+ * dessen Text an die HR-Administration gerichtet ist. LICENSE_FEATURE_MISSING
+ * ("Die Funktion ... ist in Ihrer Lizenz nicht enthalten.") geht unveraendert
+ * durch: Der Satz nennt keine Vertragsdaten.
  */
 export function apiErrorMessage(err: unknown, fallback: string): string {
   if (!(err instanceof ApiRequestError)) return fallback;

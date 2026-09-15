@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { AuthUserDto, LicenseStatusPublic } from '@ohrganize/shared';
+import { hasFeature, type AuthUserDto, type LicenseStatusPublic } from '@ohrganize/shared';
 import { api, hasToken, setLicenseHandler, setToken, setUnauthorizedHandler } from '../api/client';
 
 /**
@@ -34,6 +34,13 @@ interface AuthState {
    * aktuell (setLicenseHandler).
    */
   readOnly: boolean;
+  /**
+   * Freigeschaltete Feature-Schluessel der Lizenz (null = alles an), fuer die
+   * Navigation. Reine Anzeige; das Backend antwortet auf gesperrte Routen mit
+   * 403 LICENSE_FEATURE_MISSING.
+   */
+  features: string[] | null;
+  hasFeature: (key: string) => boolean;
   login: (email: string, password: string) => Promise<void>;
   /**
    * Passwort setzen. MUSS über den Kontext laufen und nicht direkt über
@@ -50,6 +57,8 @@ const AuthContext = createContext<AuthState>({
   user: null,
   loading: true,
   readOnly: false,
+  features: null,
+  hasFeature: () => true,
   login: async () => {},
   changePassword: async () => {},
   logout: () => {},
@@ -63,12 +72,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Fehlt das Feld (älteres Backend), gilt schreibbar — der Server lehnt
   // Schreibzugriffe ohnehin selbst ab, und der Client folgt dann dem 403.
   const [readOnly, setReadOnly] = useState(false);
+  const [features, setFeatures] = useState<string[] | null>(null);
   const queryClient = useQueryClient();
 
   const adoptSession = useCallback((res: SessionResponse) => {
     setUser(res.user);
     setReadOnly(res.license?.read_only === true);
+    setFeatures(res.license?.features ?? null);
   }, []);
+  const hasFeatureFn = useCallback((key: string) => hasFeature(features, key), [features]);
 
   const logout = useCallback(() => {
     setToken(null);
@@ -120,7 +132,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [adoptSession]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, readOnly, login, changePassword, logout }}>
+    <AuthContext.Provider
+      value={{ user, loading, readOnly, features, hasFeature: hasFeatureFn, login, changePassword, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

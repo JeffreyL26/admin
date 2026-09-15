@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CornerDownLeft, FileText, Megaphone, Search, User } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { NAV_SECTIONS } from '../layout/nav';
+import { NAV_SECTIONS, navItemAllowedByFeatures } from '../layout/nav';
 import { useLeaderStatus } from '../features/leadership/api';
 import { Avatar } from './ui';
 import { useDebounced } from './useDebounced';
@@ -32,7 +32,7 @@ const NAV_ITEMS = NAV_SECTIONS.flatMap((s) =>
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate();
-  const { can } = useAuth();
+  const { can, features } = useAuth();
   const isLeader = useLeaderStatus().data?.is_leader === true;
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
@@ -82,8 +82,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     // Dieselbe Regel wie in der Sidebar (AppShell): Gesperrte Bereiche werden
     // gar nicht erst angeboten — sonst führte die Palette geradewegs auf
     // Seiten, deren Abfragen allesamt in 403 laufen.
-    const allowedNav = NAV_ITEMS.filter((n) =>
-      n.leaderOnly ? isLeader : n.area ? can(n.area) : true,
+    const allowedNav = NAV_ITEMS.filter(
+      (n) => navItemAllowedByFeatures(n, features) && (n.leaderOnly ? isLeader : n.area ? can(n.area) : true),
     );
     const navMatches = q
       ? allowedNav.filter((n) => n.label.toLowerCase().includes(lower) || n.section.toLowerCase().includes(lower))
