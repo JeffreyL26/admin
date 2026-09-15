@@ -7,6 +7,7 @@ import type {
   FreelancerRateUnit,
   SalaryComponentKind,
 } from './compensation.js';
+import type { CountryCode, RegionCode } from './country.js';
 import type { DocumentCategory, DocumentSource } from './employees.js';
 import type { OrgChartBasePerson } from './orgChart.js';
 
@@ -169,8 +170,14 @@ export interface MeCalendarEmployee {
   last_name: string;
   department_id: number | null;
   team_id: number | null;
-  /** Für die Feiertagsauflösung des Kalenders. */
-  bundesland: string;
+  /**
+   * Regionscode für die Feiertagsauflösung des Kalenders. Der Feldname bleibt
+   * aus Kompatibilität; `region` trägt denselben Wert landesneutral.
+   */
+  bundesland: RegionCode;
+  region: RegionCode;
+  /** Land der Region (Standort, sonst Land der Variante). */
+  country: CountryCode;
   absences: MeCalendarEntry[];
 }
 

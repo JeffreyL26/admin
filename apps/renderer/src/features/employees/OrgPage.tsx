@@ -5,7 +5,8 @@ import {
   Building2, Check, Download, MapPin, Maximize2, Network, Pencil, Plus, Trash2,
   Users, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
-import { BUNDESLAND_LABELS, type BundeslandCode, type OrgTreeNode } from '@ohrganize/shared';
+import { COUNTRY_LABELS, regionLabel, regionsFor, type OrgTreeNode } from '@ohrganize/shared';
+import { COUNTRY, DEFAULT_REGION, REGION_TERM } from '../../lib/locale';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
@@ -911,7 +912,7 @@ function LocationsTab() {
         <EmptyState
           icon={<MapPin size={40} />}
           title="Noch keine Standorte"
-          hint="Das Bundesland des Standorts steuert die Feiertagsberechnung der zugeordneten Mitarbeitenden."
+          hint={`Land und ${REGION_TERM} des Standorts steuern die Feiertagsberechnung der zugeordneten Mitarbeitenden.`}
         />
       ) : (
         <div className="hm-table-wrap">
@@ -920,7 +921,7 @@ function LocationsTab() {
               <tr>
                 <th>Name</th>
                 <th>Adresse</th>
-                <th>Bundesland</th>
+                <th>{REGION_TERM}</th>
                 <th className="num">Mitarbeitende</th>
                 <th style={{ width: 90 }} />
               </tr>
@@ -931,7 +932,7 @@ function LocationsTab() {
                   <td style={{ fontWeight: 600 }}>{l.name}</td>
                   <td>{[l.street, [l.zip, l.city].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '—'}</td>
                   <td>
-                    <Badge tone="navy">{BUNDESLAND_LABELS[l.bundesland as BundeslandCode] ?? l.bundesland}</Badge>
+                    <Badge tone="navy">{regionLabel(l.country ?? COUNTRY, l.bundesland)}</Badge>
                   </td>
                   <td className="num">{l.employee_count ?? 0}</td>
                   <td>
@@ -982,7 +983,18 @@ function LocationModal({
 }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: '', street: '', zip: '', city: '', bundesland: 'BY' });
+  // Das Land kommt aus der Variante; ein bestehender Standort behaelt seines.
+  // Die Regionsliste haengt an DIESEM Land, damit kein fremder Code gespeichert
+  // wird und die Feiertagsrechnung still danebenliegt.
+  const [form, setForm] = useState({
+    name: '',
+    street: '',
+    zip: '',
+    city: '',
+    country: COUNTRY,
+    bundesland: DEFAULT_REGION,
+  });
+  const regions = regionsFor(form.country);
 
   React.useEffect(() => {
     if (open) {
@@ -991,7 +1003,8 @@ function LocationModal({
         street: location?.street ?? '',
         zip: location?.zip ?? '',
         city: location?.city ?? '',
-        bundesland: location?.bundesland ?? 'BY',
+        country: location?.country ?? COUNTRY,
+        bundesland: location?.bundesland ?? DEFAULT_REGION,
       });
     }
   }, [open, location]);
@@ -1003,6 +1016,7 @@ function LocationModal({
         street: form.street.trim() || null,
         zip: form.zip.trim() || null,
         city: form.city.trim() || null,
+        country: form.country,
         bundesland: form.bundesland,
       };
       return location ? api.patch(`/api/locations/${location.id}`, payload) : api.post('/api/locations', payload);
@@ -1048,13 +1062,16 @@ function LocationModal({
         <Field label="Ort">
           <input className="hm-input" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
         </Field>
-        <Field label="Bundesland" required hint="Steuert die Feiertagsberechnung">
+        <Field label="Land" hint={`Ausgabe: ${COUNTRY_LABELS[COUNTRY]}`}>
+          <input className="hm-input" value={COUNTRY_LABELS[form.country]} readOnly disabled />
+        </Field>
+        <Field label={REGION_TERM} required hint="Steuert die Feiertagsberechnung">
           <Select
             className="hm-select"
             value={form.bundesland}
             onChange={(e) => setForm({ ...form, bundesland: e.target.value })}
           >
-            {Object.entries(BUNDESLAND_LABELS).map(([code, label]) => (
+            {Object.entries(regions).map(([code, label]) => (
               <option key={code} value={code}>
                 {label}
               </option>

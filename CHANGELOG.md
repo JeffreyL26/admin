@@ -20,6 +20,25 @@ eigenen Abschnitt.
   Installername `oHRganize-Setup-<version>-<variante>.exe`; Sicherungen
   nennen die Variante im MANIFEST. Heute gibt es genau `de-vollversion`.
 
+### Hinzugefuegt (Laender)
+- Land und Region sind eine Datendimension: `packages/shared/src/country.ts`
+  haelt Regionen, Sprachkennung, Waehrung und Regionsbegriff je Land; das
+  Land einer Installation kommt aus der Variante, nicht aus einer
+  Einstellung. Feiertage stehen als Regeltabelle je Land
+  (`HOLIDAY_RULES`), Beschaeftigungsarten, Steuerklassen und
+  Kirchensteuermerkmale als Kataloge je Land. Neue Route
+  `GET /api/regions[?country=]` (`/api/bundeslaender` bleibt als Alias).
+  Lohnexport und Bescheinigungen laufen ueber Adapter-Registrys
+  (`payrollExport/`, `certificates/`), die Route `/export.datev` bleibt.
+  Migration `107_locations_country` (additiv: `locations.country`,
+  `employees.private_country`). AT und CH bekommen Strukturen, keine
+  Inhalte.
+- Kalender- und Vorschau-Routen liefern neben `bundesland` zusaetzlich
+  `region` und `country`; `bundesland` bleibt aus Kompatibilitaet.
+- `formatMoney(cents, locale, currency)` in `@ohrganize/shared`;
+  `formatEuro` ist die Huelle dafuer. Beide Clients haben ein
+  `lib/locale.ts` mit `LOCALE`, `CURRENCY`, `REGIONS` und `REGION_TERM`.
+
 ### Hinzugefuegt (Feature-Schluessel)
 - Feature-Gate: Funktionen innerhalb eines Builds koennen ueber die Lizenz
   (`features`) freigeschaltet werden. Registry `packages/shared/src/features.ts`

@@ -298,4 +298,18 @@ export const employeesMigrations: Migration[] = [
       );
     `,
   },
+  {
+    // Laender-Dimension (Phase 5): Der Standort traegt sein Land, die
+    // Privatanschrift ihres. Additiv und variantenunabhaengig, wie jedes
+    // Schema: Editionen und Laender entfernen Routen und Seiten, nie
+    // Tabellen. Bestandszeilen sind deutsch, deshalb die Vorgabe 'DE';
+    // neue Standorte bekommen die Vorgabe aus dem Land der Variante
+    // (modules/employees/validation.ts). `bundesland` bleibt und traegt
+    // weiterhin den Regionscode des jeweiligen Landes.
+    name: '107_locations_country',
+    sql: `
+      ALTER TABLE locations ADD COLUMN country TEXT NOT NULL DEFAULT 'DE';
+      ALTER TABLE employees ADD COLUMN private_country TEXT;
+    `,
+  },
 ];

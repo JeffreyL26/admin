@@ -9,7 +9,9 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   `department_id`, `team_id`, `location_id`, `manager_id`, `hire_date`, `exit_date`,
   `weekly_hours`, `annual_leave_days`, `photo_file_id`. Vollständige Spaltenliste in
   `backend/src/db/migrations/100_employees.ts`.
-- `departments` (mit `parent_id`-Hierarchie), `teams`, `locations` (mit `bundesland`).
+- `departments` (mit `parent_id`-Hierarchie), `teams`, `locations` (mit `country`
+  und `bundesland`). `employees.private_country` haelt das Land der
+  Privatanschrift (Migration `107_locations_country`, additiv).
 - Andere Module dürfen per SQL **lesend joinen** und Fremdschlüssel auf diese
   Tabellen anlegen. Schreibzugriffe nur durch das Personal-Modul — mit **einer
   dokumentierten Ausnahme**: die Einstellung im Recruiting-Modul (siehe §2).
@@ -20,9 +22,21 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   `{ employees: [{ id, first_name, last_name, employee_type, status, job_title,
   department_id, team_id, location_id }] }`. Wird vom gemeinsamen
   `EmployeeSelect`/`useEmployees` (Renderer) benutzt.
-- Feiertage: `GET /api/holidays/:year/:land` (Core, fertig). Backend-intern:
-  `core/holidays.ts`. Bundesland eines Mitarbeitenden: `locations.bundesland`,
-  Fallback `getSetting('defaultBundesland')`.
+- Feiertage: `GET /api/holidays/:year/:land` (Core, fertig; optional
+  `?country=`). Backend-intern: `core/holidays.ts` mit
+  `holidaysForYear(year, country, region)` und `isHoliday(date, country, region)`.
+  Land und Region einer Person kommen aus `regionForEmployee(employeeId)`
+  (`modules/absences/service.ts`): `locations.country` und
+  `locations.bundesland`, ohne Standort das Land der Variante und
+  `getSetting('defaultBundesland')`. Fuer Sammelabfragen gibt es dort
+  `REGION_SELECT_SQL`, `REGION_JOIN_SQL` und `regionSelectParams()`; der
+  Spaltenalias heisst weiterhin `bundesland`, weil die Kalender-APIs ihn so
+  ausliefern.
+- Regionsbegriff: `bundesland` ist der DEUTSCHE Name der Region. Neue Felder
+  und Antworten heissen `region` (Code) und `country` (ISO-2); die
+  Auswahllisten kommen aus `GET /api/regions` bzw. aus `REGIONS` in
+  `packages/shared/src/country.ts`. Das LAND einer Installation ist
+  `VARIANT.country` und keine Einstellung.
 - Bonus-Kopplung: Vergütung liest Zielerreichung über die Tabelle `goals`
   (Leistungs-Modul) — Spalten-Kontrakt: `goals(id, employee_id, title, progress
   INTEGER 0–100, status TEXT)`. Nur lesend, LEFT JOIN, muss auch mit leerer

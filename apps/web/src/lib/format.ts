@@ -1,4 +1,5 @@
 import { formatDate } from '@ohrganize/shared';
+import { LOCALE } from './locale.js';
 
 export { formatDate };
 
@@ -10,7 +11,7 @@ export function todayIso(): string {
 
 /** Langform, z. B. "Freitag, 28. August 2026". */
 export function formatLongDate(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString('de-DE', {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(LOCALE, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -29,7 +30,7 @@ export function formatRange(from: string, to: string): string {
 
 /** Tageszahl mit halben Tagen: 0.5 → "0,5". */
 export function formatDays(days: number): string {
-  return days.toLocaleString('de-DE');
+  return days.toLocaleString(LOCALE);
 }
 
 export function greeting(name: string): string {

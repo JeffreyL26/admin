@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { parse, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { getSetting } from '../../core/settings.js';
-import { MINIJOB_LIMIT_CENTS, type PayrollFlag } from '@ohrganize/shared';
+import { getAllSettings, getSetting } from '../../core/settings.js';
+import { MINIJOB_LIMIT_CENTS, formatMoney, localeFor, currencyFor, type PayrollFlag } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
+import { decimalComma, payrollExporter } from './payrollExport/index.js';
 import {
   assertMonth,
   goalById,
@@ -16,6 +18,10 @@ import {
   type EmployeeRow,
   type SalaryComponentRow,
 } from './lib.js';
+
+/** Geldbetrag im Format des Variantenlandes (Sprachkennung und Waehrung). */
+const money = (cents: number): string =>
+  formatMoney(cents, localeFor(VARIANT.country), currencyFor(VARIANT.country));
 
 interface PayrollRunRow {
   id: number;
@@ -294,10 +300,12 @@ function assembleMonth(month: string): AssembledItem[] {
     if (!e.iban) warnings.push('Fehlende IBAN');
     if (!e.tax_id) warnings.push('Fehlende Steuer-ID');
     if (!e.social_security_number) warnings.push('Fehlende SV-Nummer');
-    // Minijob-Grenze: 556 €/Monat (Stand 2026, dynamische Geringfügigkeitsgrenze).
+    // Minijob-Grenze: dynamische Geringfuegigkeitsgrenze aus
+    // MINIJOB_LIMIT_CENTS. Betraege ueber formatMoney im Format des
+    // Variantenlandes, damit die Zahl im Text nicht zweimal gepflegt wird.
     if (e.employee_type === 'minijob' && gross + bonusCents > MINIJOB_LIMIT_CENTS) {
       warnings.push(
-        `Minijob-Grenze überschritten (${((gross + bonusCents) / 100).toFixed(2).replace('.', ',')} € > 556,00 €)`,
+        `Minijob-Grenze überschritten (${money(gross + bonusCents)} > ${money(MINIJOB_LIMIT_CENTS)})`,
       );
     }
 
@@ -346,33 +354,6 @@ function itemToJson(i: PayrollItemRow & { first_name?: string; last_name?: strin
     warnings_json: undefined,
   };
 }
-
-/** Betrag in Cent → DATEV-Dezimaldarstellung mit Komma ('1234,56'). */
-function datevAmount(cents: number): string {
-  return (cents / 100).toFixed(2).replace('.', ',');
-}
-
-/**
- * Vereinfachtes, aber strukturtreues Lohnart-Mapping für den LODAS-Export.
- * Nummernkreise angelehnt an übliche LODAS-Lohnartenkataloge; das reale
- * Mapping ist mandantenspezifisch und wird beim Steuerberater gepflegt.
- */
-const DATEV_LOHNART: Record<string, string> = {
-  grundgehalt: '200',
-  stundenlohn: '300',
-  zulage_schicht: '210',
-  zulage_erschwernis: '211',
-  zulage_funktion: '212',
-  sachbezug_dienstwagen: '860',
-  sachbezug_jobticket: '861',
-  sachbezug_essenszuschuss: '862',
-  vwl: '510',
-  bav_entgeltumwandlung: '590',
-  abzug_sonstig: '900',
-  bonus_zielbonus: '400',
-  bonus_provision: '410',
-  bonus_einmalzahlung: '420',
-};
 
 function markExported(req: FastifyRequest, run: PayrollRunRow, format: string): void {
   if (run.status === 'offen') {
@@ -484,65 +465,22 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * DATEV-LODAS-ASCII-Export (Bewegungsdaten), vereinfacht aber strukturtreu:
-   *
-   *   [Allgemein]            Kopf mit Ziel=LODAS, Schnittstellen-Version,
-   *                          Berater-/Mandantennummer (aus den Einstellungen),
-   *                          Feldtrennzeichen und Zahlenkomma.
-   *   [Satzbeschreibung]     Beschreibung der Bewegungsdaten-Satzart
-   *                          u_lod_bwd_buchung_standard.
-   *   [Bewegungsdaten]       Eine Zeile je Mitarbeiter:in und Lohnart:
-   *                          1;<Abrechnungszeitraum TT.MM.JJJJ>;<Personalnummer>;
-   *                          <Lohnart>;<Betrag mit Komma-Dezimale>
-   *
-   * Personalnummer = employee_id, Lohnart-Mapping siehe DATEV_LOHNART.
-   * Der Export setzt den Lauf-Status auf 'exportiert' (Voraussetzung: geprüft).
+   * Lohnexport im Format des Variantenlandes. Der Pfad nennt weiterhin
+   * `datev`, weil Oberflaeche und Lesezeichen ihn so kennen; den Inhalt
+   * liefert der Adapter `lodas` aus payrollExport/ (Registry je Land).
+   * Der Export setzt den Lauf-Status auf 'exportiert' (Voraussetzung:
+   * geprueft).
    */
   app.get('/api/compensation/payroll-runs/:id/export.datev', async (req, reply: FastifyReply) => {
     const id = Number((req.params as { id: string }).id);
     const run = getRun(id);
-    markExported(req, run, 'datev');
-    const items = getItems(id);
-    const [y, m] = run.month.split('-');
-    const zeitraum = `01.${m}.${y}`;
-    const today = new Date();
-    const heute = `${String(today.getDate()).padStart(2, '0')}.${String(today.getMonth() + 1).padStart(2, '0')}.${today.getFullYear()}`;
-    const lines: string[] = [
-      '[Allgemein]',
-      'Ziel=LODAS',
-      'Version_SST=1.0',
-      `BeraterNr=${getSetting('datevBeraterNr')}`,
-      `MandantenNr=${getSetting('datevMandantenNr')}`,
-      'Feldtrennzeichen=;',
-      'Zahlenkomma=,',
-      `Datum=${heute}`,
-      '',
-      '[Satzbeschreibung]',
-      '1;u_lod_bwd_buchung_standard;abrechnung_zeitraum#bwd;pnr#bwd;lohnart_nummer#bwd;betrag#bwd;',
-      '',
-      '[Bewegungsdaten]',
-    ];
-    for (const item of items) {
-      const components = JSON.parse(item.components_json) as {
-        kind: string;
-        monthly_cents: number;
-      }[];
-      for (const c of components) {
-        lines.push(
-          `1;${zeitraum};${item.employee_id};${DATEV_LOHNART[c.kind] ?? '999'};${datevAmount(Math.abs(c.monthly_cents))};`,
-        );
-      }
-      const bonuses = JSON.parse(item.bonuses_json) as { kind: string; payout_cents: number }[];
-      for (const b of bonuses) {
-        lines.push(
-          `1;${zeitraum};${item.employee_id};${DATEV_LOHNART[`bonus_${b.kind}`] ?? '999'};${datevAmount(b.payout_cents)};`,
-        );
-      }
-    }
+    const exporter = payrollExporter('lodas');
+    markExported(req, run, exporter.id);
+    const body = exporter.render(run, getItems(id), getAllSettings());
     reply
-      .header('Content-Type', 'text/plain; charset=utf-8')
-      .header('Content-Disposition', `attachment; filename="lodas_bewegungsdaten_${run.month}.txt"`);
-    return reply.send(lines.join('\r\n') + '\r\n');
+      .header('Content-Type', exporter.contentType)
+      .header('Content-Disposition', `attachment; filename="${exporter.filename(run)}"`);
+    return reply.send(body);
   });
 
   // Generischer CSV-Export (UTF-8 mit BOM, Semikolon) — setzt Status auf
@@ -577,9 +515,9 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
           esc(i.last_name),
           esc(i.first_name),
           run.month,
-          datevAmount(i.gross_cents),
-          datevAmount(i.bonus_cents),
-          datevAmount(i.total_cents),
+          decimalComma(i.gross_cents),
+          decimalComma(i.bonus_cents),
+          decimalComma(i.total_cents),
           i.unpaid_absence_days,
           esc((JSON.parse(i.flags_json) as string[]).join(', ')),
           esc((JSON.parse(i.warnings_json) as string[]).join(', ')),

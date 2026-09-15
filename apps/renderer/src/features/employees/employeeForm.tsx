@@ -3,12 +3,15 @@ import {
   CHURCH_TAX_LABELS,
   EMPLOYEE_STATUS_LABELS,
   EMPLOYEE_TYPE_LABELS,
-  EMPLOYEE_TYPE_RULES,
-  TAX_CLASSES,
+  churchTaxOptionsFor,
+  employeeTypeRulesFor,
+  employeeTypesFor,
+  taxClassesFor,
   type EmployeeRuleField,
   type EmployeeStatus,
   type EmployeeType,
 } from '@ohrganize/shared';
+import { COUNTRY } from '../../lib/locale';
 import { uploadFile } from '../../api/client';
 import { Field } from '../../components/ui';
 import { PhotoPicker } from '../../components/FilePicker';
@@ -178,9 +181,19 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
   };
 }
 
-/** Dynamische Pflichtfelder gemäß EMPLOYEE_TYPE_RULES (Spiegel der Server-Regeln). */
+/**
+ * Kataloge des Landes der Variante (Spiegel der Server-Regeln in
+ * modules/employees/validation.ts). Ein LEERER Katalog heisst "gibt es in
+ * diesem Land nicht": Das Feld wird dann gar nicht erst angeboten.
+ */
+const TYPE_RULES = employeeTypeRulesFor(COUNTRY);
+const EMPLOYEE_TYPES = employeeTypesFor(COUNTRY);
+const TAX_CLASSES = taxClassesFor(COUNTRY);
+const CHURCH_TAX = churchTaxOptionsFor(COUNTRY);
+
+/** Dynamische Pflichtfelder gemäß den Regeln des Landes. */
 export function requiredFor(type: EmployeeType): Set<EmployeeRuleField> {
-  return new Set(EMPLOYEE_TYPE_RULES[type].required);
+  return new Set(TYPE_RULES[type].required);
 }
 
 type SetForm = (patch: Partial<EmployeeFormState>) => void;
@@ -243,7 +256,7 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
   const { data: teams } = useTeams();
   const { data: locations } = useLocations();
   const required = requiredFor(form.employee_type);
-  const rule = EMPLOYEE_TYPE_RULES[form.employee_type];
+  const rule = TYPE_RULES[form.employee_type];
   const teamsInDep = (teams ?? []).filter(
     (t) => form.department_id === null || t.department_id === form.department_id,
   );
@@ -255,9 +268,9 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
           value={form.employee_type}
           onChange={(e) => set({ employee_type: e.target.value as EmployeeType })}
         >
-          {Object.entries(EMPLOYEE_TYPE_LABELS).map(([value, label]) => (
+          {EMPLOYEE_TYPES.map((value) => (
             <option key={value} value={value}>
-              {label}
+              {EMPLOYEE_TYPE_LABELS[value]}
             </option>
           ))}
         </Select>
@@ -386,40 +399,44 @@ export function FinanceFields({ form, set }: { form: EmployeeFormState; set: Set
       <Field label="Steuer-ID">
         <input className="hm-input" value={form.tax_id} onChange={(e) => set({ tax_id: e.target.value })} disabled={isFreelancer} />
       </Field>
-      <Field
-        label="Steuerklasse"
-        required={required.has('tax_class')}
-        hint={isFreelancer ? 'Entfällt bei freier Mitarbeit' : undefined}
-      >
-        <Select
-          className="hm-select"
-          value={form.tax_class}
-          disabled={isFreelancer}
-          onChange={(e) => set({ tax_class: e.target.value })}
+      {TAX_CLASSES.length > 0 && (
+        <Field
+          label="Steuerklasse"
+          required={required.has('tax_class')}
+          hint={isFreelancer ? 'Entfällt bei freier Mitarbeit' : undefined}
         >
-          <option value="">— keine —</option>
-          {TAX_CLASSES.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Kirchensteuer">
-        <Select
-          className="hm-select"
-          value={form.church_tax}
-          disabled={isFreelancer}
-          onChange={(e) => set({ church_tax: e.target.value })}
-        >
-          <option value="">— keine Angabe —</option>
-          {Object.entries(CHURCH_TAX_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
-      </Field>
+          <Select
+            className="hm-select"
+            value={form.tax_class}
+            disabled={isFreelancer}
+            onChange={(e) => set({ tax_class: e.target.value })}
+          >
+            <option value="">— keine —</option>
+            {TAX_CLASSES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
+      {CHURCH_TAX.length > 0 && (
+        <Field label="Kirchensteuer">
+          <Select
+            className="hm-select"
+            value={form.church_tax}
+            disabled={isFreelancer}
+            onChange={(e) => set({ church_tax: e.target.value })}
+          >
+            <option value="">— keine Angabe —</option>
+            {CHURCH_TAX.map((value) => (
+              <option key={value} value={value}>
+                {CHURCH_TAX_LABELS[value]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      )}
       <Field label="Kinderfreibeträge" hint="In 0,5-Schritten">
         <input
           className="hm-input"

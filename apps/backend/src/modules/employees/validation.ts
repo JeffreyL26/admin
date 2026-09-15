@@ -1,9 +1,18 @@
 import { z } from 'zod';
 import {
+  COUNTRY_CODES,
+  COUNTRY_LABELS,
   EMPLOYEE_RULE_FIELD_LABELS,
-  EMPLOYEE_TYPE_RULES,
+  churchTaxOptionsFor,
+  employeeTypeRulesFor,
+  employeeTypesFor,
+  isRegionOf,
+  regionCodesFor,
+  taxClassesFor,
+  type CountryCode,
   type EmployeeType,
 } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { badRequest } from '../../core/errors.js';
 import { isoDateString } from '../../core/validation.js';
 
@@ -11,15 +20,27 @@ import { isoDateString } from '../../core/validation.js';
 // '2026-02-31' durch, was in der Vertragsanlage bis zum 500er führt.
 const isoDate = isoDateString;
 
-const employeeTypeEnum = z.enum([
-  'vollzeit',
-  'teilzeit',
-  'minijob',
-  'werkstudent',
-  'praktikant',
-  'freiberufler',
-  'auszubildender',
-]);
+/**
+ * Kataloge des Variantenlandes statt fester Listen. Ein LEERER Katalog heisst
+ * "gibt es in diesem Land nicht": Das Feld darf dann nur leer bleiben, sonst
+ * landete ein deutsches Steuermerkmal in einer Schweizer Personalakte.
+ */
+const COUNTRY = VARIANT.country;
+
+function enumOfCatalog<T extends string>(values: readonly T[]) {
+  return values.length === 0
+    ? z.null()
+    : z.enum(values as unknown as [T, ...T[]]);
+}
+
+const employeeTypeEnum = enumOfCatalog(employeeTypesFor(COUNTRY));
+const taxClassField = enumOfCatalog(taxClassesFor(COUNTRY)).nullish();
+const churchTaxField = enumOfCatalog(churchTaxOptionsFor(COUNTRY)).nullish();
+
+/** Land einer Anschrift (ISO-2, Katalog aus country.ts). */
+const countryField = z
+  .enum(COUNTRY_CODES as unknown as [CountryCode, ...CountryCode[]])
+  .nullish();
 
 const nullableString = z.string().trim().max(500).nullish();
 
@@ -39,13 +60,18 @@ export const employeeBodySchema = z.object({
   private_street: nullableString,
   private_zip: nullableString,
   private_city: nullableString,
+  // Land der Privatanschrift. Bewusst NICHT in
+  // EMPLOYEE_SELF_EDITABLE_FIELDS: Das Portal-Formular kennt nur Textfelder,
+  // ein Landeswechsel gehoert ausserdem zur Meldung und damit in die Hand
+  // der Personalabteilung.
+  private_country: countryField,
   private_phone: nullableString,
   private_email: nullableString,
   iban: nullableString,
   bic: nullableString,
   tax_id: nullableString,
-  tax_class: z.enum(['I', 'II', 'III', 'IV', 'V', 'VI']).nullish(),
-  church_tax: z.enum(['keine', 'ev', 'rk']).nullish(),
+  tax_class: taxClassField,
+  church_tax: churchTaxField,
   child_allowances: z.number().min(0).max(20).multipleOf(0.5).nullish(),
   social_security_number: nullableString,
   health_insurance: nullableString,
@@ -76,7 +102,7 @@ export const EMPLOYEE_COLUMNS = Object.keys(employeeBodySchema.shape) as (keyof 
  */
 export function assertTypeRules(employee: Record<string, unknown>): void {
   const type = employee.employee_type as EmployeeType;
-  const rule = EMPLOYEE_TYPE_RULES[type];
+  const rule = employeeTypeRulesFor(COUNTRY)[type];
   if (!rule) throw badRequest(`Unbekannter Mitarbeitertyp: ${String(type)}`);
 
   const missing = rule.required.filter((field) => {
@@ -165,16 +191,40 @@ export const teamBodySchema = z.object({
   lead_employee_id: z.number().int().positive().nullish(),
 });
 
+/**
+ * Standort. `country` traegt das Land des Standorts (Vorgabe: Land der
+ * Variante), `bundesland` den Regionscode DIESES Landes. Beides steuert die
+ * Feiertagsberechnung der zugeordneten Mitarbeitenden, deshalb wird die
+ * Region gegen den Katalog des gewaehlten Landes geprueft und nicht gegen
+ * eine feste Liste.
+ *
+ * Die Pruefung steht als eigene Funktion daneben und nicht als `superRefine`
+ * im Schema: Beim PATCH kann das Land im Rumpf fehlen und muss aus dem
+ * Bestand kommen, und ein `superRefine` machte aus dem Schema ein
+ * ZodEffects, auf dem es kein `.partial()` gibt.
+ */
 export const locationBodySchema = z.object({
   name: z.string().trim().min(1, 'Name ist Pflicht'),
   street: nullableString,
   zip: nullableString,
   city: nullableString,
-  bundesland: z.enum([
-    'BW', 'BY', 'BE', 'BB', 'HB', 'HH', 'HE', 'MV',
-    'NI', 'NW', 'RP', 'SL', 'SN', 'ST', 'SH', 'TH',
-  ]),
+  country: z.enum(COUNTRY_CODES as unknown as [CountryCode, ...CountryCode[]]).default(COUNTRY),
+  bundesland: z.string(),
 });
+
+export const locationPatchSchema = locationBodySchema.partial();
+
+/** Passt der Regionscode zum Land des Standorts? Sonst 400. */
+export function assertLocationRegion(country: CountryCode, bundesland: string): void {
+  if (isRegionOf(country, bundesland)) return;
+  const codes = regionCodesFor(country);
+  throw badRequest(
+    codes.length === 0
+      ? `Für ${COUNTRY_LABELS[country]} sind keine Regionen hinterlegt; das Feld bleibt leer.`
+      : `Unbekannte Region für ${COUNTRY_LABELS[country]}: ${bundesland}`,
+    { field: 'bundesland' },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Dokumente

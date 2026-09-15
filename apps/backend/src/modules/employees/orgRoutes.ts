@@ -1,10 +1,16 @@
 import type { FastifyInstance } from 'fastify';
-import type { OrgChartPerson, OrgChartResponse, OrgTreeNode } from '@ohrganize/shared';
+import type { CountryCode, OrgChartPerson, OrgChartResponse, OrgTreeNode } from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { signDownloadUrl } from '../../core/files.js';
-import { departmentBodySchema, locationBodySchema, teamBodySchema } from './validation.js';
+import {
+  assertLocationRegion,
+  departmentBodySchema,
+  locationBodySchema,
+  locationPatchSchema,
+  teamBodySchema,
+} from './validation.js';
 
 interface DepartmentRow {
   id: number;
@@ -319,21 +325,46 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/locations', async (req, reply) => {
     const body = parse(locationBodySchema, req.body);
+    assertLocationRegion(body.country, body.bundesland);
     const info = getDb()
-      .prepare('INSERT INTO locations (name, street, zip, city, bundesland) VALUES (?, ?, ?, ?, ?)')
-      .run(body.name, body.street ?? null, body.zip ?? null, body.city ?? null, body.bundesland);
+      .prepare(
+        'INSERT INTO locations (name, street, zip, city, country, bundesland) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        body.name,
+        body.street ?? null,
+        body.zip ?? null,
+        body.city ?? null,
+        body.country,
+        body.bundesland,
+      );
     const id = Number(info.lastInsertRowid);
-    audit(req, 'create', 'location', id, { name: body.name, bundesland: body.bundesland });
+    audit(req, 'create', 'location', id, {
+      name: body.name,
+      country: body.country,
+      bundesland: body.bundesland,
+    });
     reply.status(201);
     return { location: getDb().prepare('SELECT * FROM locations WHERE id = ?').get(id) };
   });
 
   app.patch('/api/locations/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
-    const existing = getDb().prepare('SELECT * FROM locations WHERE id = ?').get(id);
+    const existing = getDb().prepare('SELECT * FROM locations WHERE id = ?').get(id) as
+      | { country: string; bundesland: string }
+      | undefined;
     if (!existing) throw notFound('Standort nicht gefunden');
-    const patch = parse(locationBodySchema.partial(), req.body);
-    const cols = (['name', 'street', 'zip', 'city', 'bundesland'] as const).filter(
+    const patch = parse(locationPatchSchema, req.body);
+    // Land und Region haengen zusammen: Aendert der Rumpf nur eines von
+    // beiden, wird gegen den Bestand geprueft, sonst liesse sich ein
+    // deutscher Code an einem Schweizer Standort halten.
+    if (patch.country !== undefined || patch.bundesland !== undefined) {
+      assertLocationRegion(
+        patch.country ?? (existing.country as CountryCode),
+        patch.bundesland ?? existing.bundesland,
+      );
+    }
+    const cols = (['name', 'street', 'zip', 'city', 'country', 'bundesland'] as const).filter(
       (c) => patch[c] !== undefined,
     );
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');

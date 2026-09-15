@@ -10,11 +10,21 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { MeCalendarEmployee, MeCalendarEntry } from '@ohrganize/shared';
+import type {
+  CountryCode,
+  MeCalendarEmployee,
+  MeCalendarEntry,
+  RegionCode,
+} from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
 import { badRequest, parse } from '../../core/errors.js';
-import { holidaysForYear, type Bundesland } from '../../core/holidays.js';
-import { getSetting } from '../../core/settings.js';
+import { holidaysByRegion } from '../../core/holidays.js';
+import {
+  companyRegionDefaults,
+  regionSelectParams,
+  REGION_JOIN_SQL,
+  REGION_SELECT_SQL,
+} from '../absences/service.js';
 import { requireEmployee } from './lib.js';
 
 /**
@@ -46,7 +56,8 @@ interface CalendarEmployeeRow {
   last_name: string;
   department_id: number | null;
   team_id: number | null;
-  bundesland: string;
+  country: CountryCode;
+  bundesland: RegionCode;
 }
 
 export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
@@ -74,19 +85,19 @@ export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
     const from = `${year}-${mm}-01`;
     const to = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
 
-    const defaultLand = getSetting('defaultBundesland');
-    // Nur aktive Mitarbeitende. Bundesland kommt vom Standort, sonst die
-    // Voreinstellung — dieselbe COALESCE-Logik wie im HR-Kalender.
+    // Nur aktive Mitarbeitende. Land und Region kommen vom Standort, sonst
+    // aus der Firmenvorgabe; derselbe Ausdruck wie im HR-Kalender.
+    const defaults = companyRegionDefaults();
     const employees = db()
       .prepare(
         `SELECT e.id, e.first_name, e.last_name, e.department_id, e.team_id,
-                COALESCE(l.bundesland, ?) AS bundesland
+                ${REGION_SELECT_SQL}
          FROM employees e
-         LEFT JOIN locations l ON l.id = e.location_id
+         ${REGION_JOIN_SQL}
          WHERE e.status = 'aktiv'
          ORDER BY e.last_name, e.first_name`,
       )
-      .all([defaultLand]) as CalendarEmployeeRow[];
+      .all(regionSelectParams(defaults)) as CalendarEmployeeRow[];
 
     // Eine Sammelabfrage für alle Mitarbeitenden (keine Abfrage je Person).
     // Die Maskierung passiert in SQL: Name, Farbe und ID der Art verlassen die
@@ -117,14 +128,11 @@ export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
       list.push(entry);
     }
 
-    // Feiertage je vorkommendem Bundesland, beschnitten auf den Monat.
-    const laender = [...new Set([...employees.map((e) => e.bundesland), defaultLand])];
-    const holidays = Object.fromEntries(
-      laender.map((land) => [
-        land,
-        holidaysForYear(year, land as Bundesland).filter((h) => h.date >= from && h.date <= to),
-      ]),
-    );
+    // Feiertage je vorkommender Region, beschnitten auf den Monat.
+    const holidays = holidaysByRegion(year, from, to, [
+      ...employees.map((e) => ({ country: e.country, region: e.bundesland })),
+      defaults,
+    ]);
 
     const closures = db()
       .prepare('SELECT * FROM company_closures WHERE date_from <= ? AND date_to >= ? ORDER BY date_from')
@@ -132,6 +140,7 @@ export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
 
     const result: MeCalendarEmployee[] = employees.map((e) => ({
       ...e,
+      region: e.bundesland,
       absences: byEmployee.get(e.id) ?? [],
     }));
 

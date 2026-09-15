@@ -15,7 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BUNDESLAENDER, holidaysForYear, type Bundesland } from '../core/holidays.js';
+import { holidayRegionsFor, holidaysForYear } from '../core/holidays.js';
 
 export const HOLIDAY_FIXTURE_YEARS = [2016, 2017, 2018, 2019, 2022, 2023, 2026, 2030] as const;
 
@@ -31,12 +31,12 @@ export interface HolidayFixture {
 }
 
 function build(): HolidayFixture {
-  const regions = Object.keys(BUNDESLAENDER) as Bundesland[];
+  const regions = holidayRegionsFor('DE');
   const holidays: HolidayFixture['holidays'] = {};
   for (const year of HOLIDAY_FIXTURE_YEARS) {
     const perRegion: Record<string, { date: string; name: string }[]> = {};
     for (const region of regions) {
-      perRegion[region] = holidaysForYear(year, region).map((h) => ({ date: h.date, name: h.name }));
+      perRegion[region] = holidaysForYear(year, 'DE', region).map((h) => ({ date: h.date, name: h.name }));
     }
     holidays[String(year)] = perRegion;
   }

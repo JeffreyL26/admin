@@ -1,7 +1,15 @@
 import { getDb } from '../db/db.js';
 
+// Das LAND der Installation steht bewusst NICHT hier: Es kommt aus der
+// Variante (VARIANT.country), weil Kataloge, Feiertagsrecht und Exporte am
+// Build haengen und ein Umschalten zur Laufzeit halbfertige Daten erzeugte.
 export interface CompanySettings {
   companyName: string;
+  /**
+   * Regionscode des Firmensitzes (in DE ein Bundesland), Rueckfall fuer
+   * Personen ohne Standort. Geprueft gegen den Katalog des Variantenlandes
+   * (core/settingsRoutes.ts, isRegionOf).
+   */
   defaultBundesland: string;
   /** Verfallsdatum für Resturlaub aus dem Vorjahr, Format "MM-TT". */
   carryoverDeadline: string;

@@ -59,6 +59,36 @@ paths:
       summary: Angemeldeter Benutzer
       responses:
         "200": { description: Benutzer }
+  /api/regions:
+    get:
+      summary: Regionen eines Landes (Vorgabe: Land der Variante)
+      description: >-
+        Nachschlagewerk fuer Auswahlfelder. Das Land der Installation kommt aus
+        der Variante (Build), nicht aus einer Einstellung; der Parameter dient
+        nur dem Nachschlagen anderer Kataloge.
+      parameters:
+        - { name: country, in: query, schema: { type: string, enum: [DE, AT, CH] } }
+      responses:
+        "200": { description: "{ country, country_label, regions: { code: name } }" }
+  /api/bundeslaender:
+    get:
+      summary: Alias von /api/regions fuer das Land der Variante
+      responses:
+        "200": { description: "{ bundeslaender: { code: name } }" }
+  /api/holidays/{year}/{land}:
+    get:
+      summary: Gesetzliche Feiertage eines Jahres in einer Region
+      parameters:
+        - { name: year, in: path, required: true, schema: { type: integer } }
+        - { name: land, in: path, required: true, schema: { type: string } }
+        - { name: country, in: query, schema: { type: string, enum: [DE, AT, CH] } }
+      responses:
+        "200": { description: "{ holidays: [{ date, name }] }" }
+        "400":
+          description: Region gehoert nicht zum Land
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/files/{id}/download:
     get:
       summary: Datei-Download über kurzlebige signierte URL (beide Clients identisch)

@@ -162,13 +162,20 @@ paths:
         "204": { description: Gelöscht }
   /api/locations:
     get:
-      summary: Standorte auflisten (inkl. Bundesland für Feiertage)
+      summary: Standorte auflisten (inkl. country und bundesland für Feiertage)
       responses:
         "200": { description: "{ locations: [...] }" }
     post:
-      summary: Standort anlegen
+      summary: >-
+        Standort anlegen. country ist ISO-2 (Vorgabe: Land der Variante),
+        bundesland ein Regionscode DIESES Landes.
       responses:
         "201": { description: Standort }
+        "400":
+          description: Region gehoert nicht zum Land des Standorts
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/locations/{id}:
     patch:
       summary: Standort ändern
