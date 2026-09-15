@@ -27,6 +27,7 @@ import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 import {
   LICENSE_CLOCK_WARNING_TEXT,
   LICENSE_ERROR_CODES,
+  LICENSE_FORMAT_VERSION,
   PORTAL_READ_ONLY_TEXT,
   daysBetweenIso,
   describeLicense,
@@ -114,6 +115,51 @@ interface FileStamp {
 
 let fileCache: { stamp: FileStamp | null; loaded: LoadedLicense } | null = null;
 
+/**
+ * Journal fuer Ereignisse ohne Request (Dateiwechsel im Datenverzeichnis).
+ * server.ts setzt ihn direkt nach der Fastify-Erzeugung; vorher (Werkzeuge,
+ * Tests ohne Server) bleibt es still.
+ */
+let licenseLogger: FastifyBaseLogger | null = null;
+export function setLicenseLogger(log: FastifyBaseLogger | null): void {
+  licenseLogger = log;
+}
+
+/**
+ * Zuletzt gesehene Lizenz-ID der Datei (null = keine brauchbare Datei,
+ * undefined = noch nie geladen). Aendert sie sich ausserhalb von
+ * installLicense, hat jemand die Datei im Datenverzeichnis getauscht oder
+ * entfernt; das landet als Zeile mit user_id NULL im Audit-Log, weil audit()
+ * ein Request-Objekt verlangt.
+ */
+let observedLicenseId: string | null | undefined = undefined;
+/** Von installLicense gesetzt, damit der eigene Tausch nicht als Fremdwechsel zaehlt. */
+let expectedLicenseId: string | null | undefined = undefined;
+
+function noteFileChange(previous: string | null, next: string | null, loaded: LoadedLicense): void {
+  const details = {
+    previous_license_id: previous,
+    license_id: next,
+    customer_id: loaded.payload?.customer_id ?? null,
+    valid_until: loaded.payload?.valid_until ?? null,
+    invalid_reason: loaded.invalidReason,
+    exists: loaded.exists,
+  };
+  try {
+    getDb()
+      .prepare('INSERT INTO audit_log (user_id, action, entity, details) VALUES (NULL, ?, ?, ?)')
+      .run('license.file_changed', 'license', JSON.stringify(details));
+  } catch (err) {
+    licenseLogger?.warn(`Audit-Zeile zum Lizenzdateiwechsel konnte nicht geschrieben werden: ${(err as Error).message}`);
+  }
+  const what = !loaded.exists
+    ? 'Die Lizenzdatei wurde aus dem Datenverzeichnis entfernt.'
+    : loaded.payload
+      ? `Die Lizenzdatei im Datenverzeichnis wurde getauscht (jetzt Lizenz ${next}, gültig bis ${formatDate(loaded.payload.valid_until)}).`
+      : `Die Lizenzdatei im Datenverzeichnis wurde getauscht und ist unbrauchbar: ${loaded.invalidReason}`;
+  licenseLogger?.warn(`${what} Der Wechsel kam nicht über Einstellungen → Lizenz.`);
+}
+
 function statLicenseFile(): FileStamp | null {
   try {
     const st = fs.statSync(config.licensePath);
@@ -148,6 +194,13 @@ function loadLicenseFile(): LoadedLicense {
     }
   }
   fileCache = { stamp, loaded };
+
+  const licenseId = loaded.payload?.license_id ?? null;
+  if (observedLicenseId !== undefined && observedLicenseId !== licenseId && expectedLicenseId !== licenseId) {
+    noteFileChange(observedLicenseId, licenseId, loaded);
+  }
+  observedLicenseId = licenseId;
+  expectedLicenseId = undefined;
   return loaded;
 }
 
@@ -236,6 +289,11 @@ export function licenseStatus(): LicenseStatus {
     grace_until: core.grace_until,
     perpetual: core.perpetual,
     issued_at: core.issued_at,
+    edition: p?.edition ?? null,
+    country: p?.country ?? null,
+    features: effectiveFeatureList(core),
+    terms: p?.terms ?? null,
+    headline: p?.headline ?? null,
     customer: p?.customer ?? null,
     license_id: p?.license_id ?? null,
     kind: p?.kind ?? null,
@@ -250,7 +308,25 @@ export function licenseStatus(): LicenseStatus {
 
 /** Für Portal-Konten: nur, ob Änderungen gerade möglich sind. */
 export function licenseStatusPublic(): LicenseStatusPublic {
-  return { read_only: licenseCore().read_only };
+  const core = licenseCore();
+  return { read_only: core.read_only, features: effectiveFeatureList(core) };
+}
+
+/**
+ * Freigeschaltete Funktionen: 'all' in Entwicklung, Testphase ohne Datei
+ * und bei einer Datei ohne `features` (v1 oder v2 ohne Feld); sonst die
+ * Menge der Datei, auch im Nur-Lese-Betrieb. Das Feature-Gate (Phase 3)
+ * fragt hier nach.
+ */
+export function effectiveFeatures(): ReadonlySet<string> | 'all' {
+  const core = licenseCore();
+  if (core.state === 'entwicklung' || !core.payload || core.payload.features === undefined) return 'all';
+  return new Set(core.payload.features);
+}
+
+function effectiveFeatureList(core: LicenseCore): string[] | null {
+  if (core.state === 'entwicklung' || !core.payload || core.payload.features === undefined) return null;
+  return [...core.payload.features];
 }
 
 /** Was Login und /api/auth/me mitliefern — je nach Systemzugang. */
@@ -414,11 +490,15 @@ export function installLicense(req: FastifyRequest, text: string): LicenseStatus
         `eine ältere Datei (ausgestellt ${formatDate(payload.issued_at)}) wird nicht übernommen.`,
     );
   }
-  if (current && payload.valid_until < current.valid_until) {
+  if (current && payload.issued_at === current.issued_at && payload.valid_until < current.valid_until) {
+    // Eine SPAETER ausgestellte Datei darf kuerzer laufen (kostenfrei
+    // unbefristet wird durch ein Abo abgeloest, ein Vertrag wird gekuerzt);
+    // der Schutz gegen alte Anhaenge liegt im Ausstelltag. Nur am selben Tag
+    // gilt weiter "nicht kuerzer", weil dann nichts die Reihenfolge belegt.
     throw new AppError(
       400,
       LICENSE_ERROR_CODES.INVALID,
-      `Die eingespielte Lizenz läuft bereits länger (bis ${formatDate(current.valid_until)}); ` +
+      `Die eingespielte Lizenz läuft bereits länger (bis ${formatDate(current.valid_until)}) und wurde am selben Tag ausgestellt; ` +
         `eine kürzere (bis ${formatDate(payload.valid_until)}) wird nicht übernommen.`,
     );
   }
@@ -428,14 +508,21 @@ export function installLicense(req: FastifyRequest, text: string): LicenseStatus
   const tmp = path.join(config.dataDir, `.${path.basename(config.licensePath)}.tmp`);
   fs.writeFileSync(tmp, `${text.replace(/\s+/g, '')}\n`, { mode: 0o600 });
   fs.renameSync(tmp, config.licensePath);
+  expectedLicenseId = payload.license_id;
   invalidateLicenseCaches();
 
   audit(req, 'license.install', 'license', undefined, {
     license_id: payload.license_id,
+    previous_license_id: current?.license_id ?? null,
     customer_id: payload.customer_id,
     kind: payload.kind,
+    v: payload.v,
     valid_until: payload.valid_until,
     max_users: payload.max_users,
+    edition: payload.edition ?? null,
+    country: payload.country ?? null,
+    features: payload.features ?? null,
+    billing: payload.terms?.billing ?? null,
   });
   return licenseStatus();
 }
@@ -458,6 +545,9 @@ export function licenseReport(): LicenseReport {
     seats_used: status.seats_used,
     max_users: status.max_users,
     server_version: APP_VERSION,
+    license_format: LICENSE_FORMAT_VERSION,
+    edition: status.edition,
+    country: status.country,
   };
 }
 

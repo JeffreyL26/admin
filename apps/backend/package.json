@@ -34,5 +34,11 @@
     "esbuild": "^0.28.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
+  },
+  "exports": {
+    "./core/licenseIssue": "./src/core/licenseIssue.ts",
+    "./core/licenseCodec": "./src/core/licenseCodec.ts",
+    "./core/licenseKeys": "./src/core/licenseKeys.ts",
+    "./core/licenseState": "./src/core/licenseState.ts"
   }
 }

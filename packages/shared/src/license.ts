@@ -16,8 +16,18 @@
  * unterliegt Aufbewahrungsfristen, die einen Vertrag überdauern.
  */
 
+import type { CountryCode, Edition } from './country.js';
+
 /** Kennung am Dateianfang; steigt nur bei inkompatiblem Format. */
 export const LICENSE_FILE_PREFIX = 'OHRG1';
+
+/**
+ * Hoechste Payload-Fassung (`v`), die dieser Stand liest. Server melden sie
+ * in /api/health und im Lizenzbericht (`license_format`), damit der Anbieter
+ * vor dem Ausstellen einer v2-Datei weiss, ob der Server sie annimmt.
+ * Rollout immer Server vor Datei.
+ */
+export const LICENSE_FORMAT_VERSION = 2;
 
 /** Dateiname im Datenverzeichnis des Backends (neben ohrganize.db und secret.key). */
 export const LICENSE_FILE_NAME = 'lizenz.ohrganize';
@@ -61,7 +71,29 @@ export const LICENSE_ERROR_CODES = {
   SEATS_EXCEEDED: 'LICENSE_SEATS_EXCEEDED',
   /** Eingespielte Datei unbrauchbar: Signatur, Format, Bindung, Laufzeit (400). */
   INVALID: 'LICENSE_INVALID',
+  /** Funktion ist im Build vorhanden, aber nicht in der Lizenz freigeschaltet (403). */
+  FEATURE_MISSING: 'LICENSE_FEATURE_MISSING',
 } as const;
+
+/** Abrechnungsart, nur Anzeige und Register; steuert keine Pruefung. */
+export type LicenseBilling = 'kostenfrei' | 'abo' | 'kauf' | 'individuell';
+export type LicenseInterval = 'monatlich' | 'jaehrlich';
+
+/** Vertragsbedingungen in der signierten Datei (ab v2), Quelle der Lizenztexte. */
+export interface LicenseTerms {
+  billing: LicenseBilling;
+  interval: LicenseInterval | null;
+  /** Freier Kurztext, der den erzeugten Satz ersetzt (z. B. "Partnerkonditionen"). */
+  label: string | null;
+}
+
+/**
+ * Feature-Schluessel: Kleinbuchstaben, Ziffern, Bindestrich, mindestens
+ * zwei Segmente mit Punkt (`kunde.musterfirma.export`, `modul.zeiterfassung`).
+ */
+export const FEATURE_KEY_PATTERN = /^[a-z0-9]+(\.[a-z0-9-]+)+$/;
+export const LICENSE_MAX_FEATURES = 50;
+export const LICENSE_HEADLINE_MAX = 120;
 
 /** Art der Lizenz — steuert nur Anzeige und Register, nicht die Prüfung. */
 export type LicenseKind = 'standard' | 'evaluation';
@@ -112,6 +144,14 @@ export interface LicenseStatus {
   perpetual: boolean;
   /** Ausstelldatum der Lizenzdatei; null ohne brauchbare Datei. */
   issued_at: string | null;
+  /** Ausgabe, fuer die die Datei gilt (ab v2); null bei v1 und ohne Datei. */
+  edition: Edition | null;
+  country: CountryCode | null;
+  /** Freigeschaltete Funktionen; null = alles an (v1, Testphase, keine Datei). */
+  features: string[] | null;
+  terms: LicenseTerms | null;
+  /** Signierte Ueberschrift des Anbieters; ersetzt im Zustand valid die erzeugte. */
+  headline: string | null;
   customer: string | null;
   license_id: string | null;
   kind: LicenseKind | null;
@@ -140,6 +180,8 @@ export interface LicenseStatus {
 /** Schlanke Fassung für Portal-Konten: nichts, was den Arbeitgeber betrifft. */
 export interface LicenseStatusPublic {
   read_only: boolean;
+  /** Freigeschaltete Funktionen fuer die Navigation des Portals; null = alles an. */
+  features: string[] | null;
 }
 
 /**
@@ -149,7 +191,8 @@ export interface LicenseStatusPublic {
  * `valid_until` ist einschließlich.
  */
 export interface LicensePayload {
-  v: 1;
+  /** 1 = Urfassung; 2 = mit Ausgabe, Land, Funktionen, Bedingungen, Ueberschrift. */
+  v: 1 | 2;
   license_id: string;
   /** Kennung des Signierschlüssels — erlaubt einen Schlüsselwechsel ohne Bruch. */
   kid: string;
@@ -165,6 +208,13 @@ export interface LicensePayload {
   warn_days: number;
   max_users: number | null;
   notice: string | null;
+  /** Ab v2 Pflicht: Ausgabe und Land, gegen die Variante des Servers geprueft. */
+  edition?: Edition;
+  country?: CountryCode;
+  /** Ab v2 optional; fehlt es, sind alle Funktionen des Builds an. */
+  features?: string[];
+  terms?: LicenseTerms;
+  headline?: string;
 }
 
 /** Inhalt des Lizenzberichts, den der Kunde selbst herunterlädt und einer
@@ -179,6 +229,10 @@ export interface LicenseReport {
   seats_used: number;
   max_users: number | null;
   server_version: string;
+  /** Hoechste Lizenzfassung, die dieser Server liest (fehlt bei Servern vor v2). */
+  license_format?: number;
+  edition?: Edition | null;
+  country?: CountryCode | null;
 }
 
 /** Tage zwischen zwei ISO-Kalendertagen (b − a), taggenau, ohne Zeitzoneneffekt. */
