@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { verifyLicenseText, publicKeyFrom } from '@ohrganize/backend/core/licenseCodec';
 import { issueLicense } from '@ohrganize/backend/core/licenseIssue';
 import { todayIsoLocal } from '@ohrganize/shared';
@@ -26,15 +27,19 @@ function check(label: string, ok: boolean, extra?: unknown): void {
 async function main(): Promise<void> {
   // --- Pfadregel zuerst: Sie ist die eine Zusage, die dieses Werkzeug macht ---
   const { registerDir, ConspectusError, openRegister, resetRegisterCache } = await import('../db.js');
-  const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../../..');
+  // fileURLToPath statt URL.pathname: Unter Windows liefert pathname "/C:/...",
+  // und path.resolve macht daraus einen Pfad mit doppeltem Laufwerksbuchstaben.
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+  const insideRepo = path.join(repoRoot, 'tools/conspectus/register');
 
-  let abgewiesen = false;
+  let abgewiesen: string | false = false;
   try {
-    registerDir({ OHRGANIZE_CONSPECTUS_DIR: path.join(repoRoot, 'tools/conspectus/register') } as NodeJS.ProcessEnv);
+    registerDir({ OHRGANIZE_CONSPECTUS_DIR: insideRepo } as NodeJS.ProcessEnv);
   } catch (err) {
-    abgewiesen = err instanceof ConspectusError && err.message.includes('Repository');
+    abgewiesen = err instanceof ConspectusError && err.message.includes('Repository') ? 'ja' : String(err);
   }
-  check('Pfad im Repository wird abgewiesen', abgewiesen);
+  check('Pfad im Repository wird abgewiesen', abgewiesen === 'ja', abgewiesen);
+  check('Abgewiesener Pfad wurde nicht angelegt', !fs.existsSync(insideRepo), insideRepo);
 
   abgewiesen = false;
   try {
