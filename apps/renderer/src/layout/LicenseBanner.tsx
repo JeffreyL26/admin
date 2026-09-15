@@ -1,24 +1,23 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, Info, Lock } from 'lucide-react';
-import { formatDate, type LicenseStatus } from '@ohrganize/shared';
+import { LICENSE_CLOCK_WARNING_TEXT, describeLicense, type LicenseStatus } from '@ohrganize/shared';
 import { useAuth } from '../auth/AuthContext';
-import { addDaysIso, expiredLead, LICENSE_PATH, remainingLabel } from '../features/settings/license';
+import { LICENSE_PATH } from '../features/settings/license';
 
 /**
  * Lizenz-Banner oberhalb des Seiteninhalts (AppShell, erstes Kind von `.main`,
- * scrollt nicht mit). Liest den Zustand aus dem Auth-Kontext — keine eigene
+ * scrollt nicht mit). Liest den Zustand aus dem Auth-Kontext, keine eigene
  * Abfrage; Login, /api/auth/me und `refreshLicense` halten ihn aktuell.
  *
- * Stufen (packages/shared/src/license.ts):
- *   entwicklung / valid ohne warning  → nichts
- *   trial                             → schmale Info-Leiste (gelb kurz vor Ende)
- *   valid mit warning                 → gelb, Ablauf naht
- *   grace                             → rot, Kulanz läuft, volle Funktion
- *   expired                           → rot, Nur-Lese-Betrieb
- * Dazu, unabhängig davon, die Uhrenwarnung (gelb). Nichts davon ist
+ * Text und Tonlage kommen aus describeLicense (packages/shared):
+ *   neutral  (entwicklung, gueltig ohne Warnung, unbefristet)  kein Banner
+ *   info     (Testphase, Testlizenz)                            schmale Leiste
+ *   warning  (Ablauf naht, Testphase kurz vor Ende)             gelb
+ *   danger   (Kulanz, Nur-Lese-Betrieb)                         rot
+ * Dazu, unabhaengig davon, die Uhrenwarnung (gelb). Nichts davon ist
  * wegklickbar: Das Banner ist die einzige Stelle, an der die Administration
- * vom Ablauf erfährt — der Server hat keinen Rückkanal zum Anbieter.
+ * vom Ablauf erfaehrt; der Server hat keinen Rueckkanal zum Anbieter.
  */
 
 type Tone = 'info' | 'warning' | 'danger';
@@ -26,52 +25,21 @@ type Tone = 'info' | 'warning' | 'danger';
 interface Notice {
   tone: Tone;
   slim?: boolean;
-  /** Satz vor dem Verweis auf die Lizenzseite. */
+  /** Saetze vor dem Verweis auf die Lizenzseite. */
   text: string;
-  /** Wort vor dem Link „Einstellungen → Lizenz“ (endet mit „unter“). */
+  /** Wort vor dem Link "Einstellungen → Lizenz" (endet mit "unter"). */
   lead: string;
 }
 
 function describe(l: LicenseStatus): Notice | null {
-  switch (l.state) {
-    case 'trial':
-      return {
-        tone: l.warning ? 'warning' : 'info',
-        slim: !l.warning,
-        text: `Testphase: ${remainingLabel(l.days_left)} (bis ${formatDate(l.valid_until)}).`,
-        lead: 'Lizenz einspielen unter',
-      };
-    case 'valid':
-      if (!l.warning) return null;
-      return {
-        tone: 'warning',
-        text: `Die oHRganize-Lizenz läuft am ${formatDate(l.valid_until)} ab (${remainingLabel(l.days_left)}).`,
-        lead: 'Verlängerung unter',
-      };
-    case 'grace': {
-      // Letzter Kulanztag + 1 = erster Tag im Nur-Lese-Betrieb.
-      const readOnlyFrom = l.grace_until ? formatDate(addDaysIso(l.grace_until, 1)) : '—';
-      return {
-        tone: 'danger',
-        text:
-          `Die Lizenz ist am ${formatDate(l.valid_until)} abgelaufen. ` +
-          `Ab ${readOnlyFrom} läuft oHRganize im Nur-Lese-Betrieb.`,
-        lead: 'Lizenz einspielen unter',
-      };
-    }
-    case 'expired':
-      // Die Ursache (Testphase, Lizenz, unbrauchbare oder fehlende Datei)
-      // entscheidet, was die Administration tun muss — deshalb hier benannt.
-      return {
-        tone: 'danger',
-        text:
-          `Nur-Lese-Betrieb: ${expiredLead(l)} Daten können eingesehen und exportiert werden, ` +
-          'Änderungen sind nicht möglich.',
-        lead: 'Lizenz einspielen unter',
-      };
-    default:
-      return null;
-  }
+  const d = describeLicense(l);
+  if (d.tone === 'neutral') return null;
+  return {
+    tone: d.tone,
+    slim: d.tone === 'info',
+    text: [d.headline, d.detail].filter(Boolean).join(' '),
+    lead: l.state === 'valid' && l.kind !== 'evaluation' ? 'Verlängerung unter' : 'Lizenz einspielen unter',
+  };
 }
 
 const ICONS: Record<Tone, React.ReactNode> = {
@@ -110,7 +78,7 @@ export function LicenseBanner() {
         <div className="hm-banner hm-banner--warning">
           {ICONS.warning}
           <div className="hm-banner__body">
-            Die Systemuhr des Servers steht vor einem bereits gesehenen Datum — bitte prüfen.
+            {LICENSE_CLOCK_WARNING_TEXT}
           </div>
         </div>
       )}

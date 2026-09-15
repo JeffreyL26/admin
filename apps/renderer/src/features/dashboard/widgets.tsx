@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import {
-  formatDate, isPerpetualLicense, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, ONBOARDING_KIND_LABELS,
+  formatDate, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, ONBOARDING_KIND_LABELS,
 } from '@ohrganize/shared';
 import { useOnboardingProcesses } from '../admin/api';
 import { useLeaderStatus, useLeadershipReport } from '../leadership/api';
@@ -276,7 +276,7 @@ export function LicenseWidget() {
       ? 'keine Prüfung'
       : license.state === 'expired'
         ? 'Nur-Lese-Betrieb'
-        : isPerpetualLicense(license.valid_until)
+        : license.perpetual
           ? 'unbefristet'
           : `${formatDate(license.valid_until)} · ${remainingLabel(license.days_left)}`;
   const body = (

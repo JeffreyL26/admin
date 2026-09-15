@@ -8,6 +8,15 @@ eigenen Abschnitt.
 
 ## Unveroeffentlicht
 
+### Geaendert
+- Lizenztexte kommen fuer Desktop-App, Portal und Backend aus einer
+  Funktion (`describeLicense` in `packages/shared`). Unbefristete Lizenzen
+  melden `perpetual = true`, keinen Countdown und kein Kulanzdatum mehr
+  (bisher "Kulanz bis 14.01.3000"). `kind = evaluation` heisst in der
+  Oberflaeche "Testlizenz". Neues Feld `issued_at` im Lizenzzustand.
+- Der Zustandsautomat der Lizenz ist eine reine Funktion
+  (`core/licenseState.ts`), tabellengetrieben geprueft.
+
 ### Hinzugefuegt
 - `scripts/check-dashes.mjs` und `npm run check:dashes`: prueft neue Zeilen
   auf Gedankenstriche (drei UI-Konventionen bleiben erlaubt).

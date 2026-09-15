@@ -130,6 +130,10 @@ const tooFar = await put(signRaw({ v: 1, license_id: 'far', kid: 'test', custome
 check('Upload: Datum nach 2999 → 400', tooFar.statusCode === 400, tooFar.json());
 const perpetual = await put(makeLicense({ valid_until: '2999-12-31', installation_id: installationId }));
 check('Upload: „unbefristet“ (2999-12-31) wird angenommen', perpetual.statusCode === 200 && perpetual.json().license?.state === 'valid', perpetual.json());
+{
+  const l = perpetual.json().license ?? {};
+  check('Unbefristet: perpetual, kein Countdown, keine Kulanz, keine Warnung', l.perpetual === true && l.days_left === null && l.grace_until === null && l.warning === false && l.issued_at === today, l);
+}
 // Zurück in die Testphase für die folgenden Fälle: Datei entfernen und die
 // Markierung „je lizenziert“ löschen (nur im Test zulässig).
 writeLicenseFile(null);

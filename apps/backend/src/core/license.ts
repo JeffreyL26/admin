@@ -25,11 +25,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 import {
+  LICENSE_CLOCK_WARNING_TEXT,
   LICENSE_ERROR_CODES,
-  LICENSE_TRIAL_DAYS,
-  LICENSE_TRIAL_WARN_DAYS,
+  PORTAL_READ_ONLY_TEXT,
   daysBetweenIso,
+  describeLicense,
   formatDate,
+  licenseMessage,
+  type LicenseDescribable,
   type LicensePayload,
   type LicenseReport,
   type LicenseState,
@@ -42,6 +45,7 @@ import { audit } from './audit.js';
 import { addDaysIso, todayIso } from './dates.js';
 import { AppError } from './errors.js';
 import { TRUSTED_LICENSE_KEYS_RAW } from './licenseKeys.js';
+import { deriveLicenseState, type LicenseCore } from './licenseState.js';
 import {
   LicenseFormatError,
   publicKeyFrom,
@@ -162,22 +166,6 @@ export function invalidateLicenseCaches(): void {
 // Zustand
 // ---------------------------------------------------------------------------
 
-/** Alles, was das Gate braucht — ohne die Platzzählung (die zahlt nur, wer sie sieht). */
-interface LicenseCore {
-  state: LicenseState;
-  read_only: boolean;
-  warning: boolean;
-  days_left: number | null;
-  valid_until: string | null;
-  grace_until: string | null;
-  payload: LicensePayload | null;
-  invalid_reason: string | null;
-  clock_warning: boolean;
-  installation_id: string;
-  /** Nur zur Meldung: Testphase (true) oder Lizenz (false) abgelaufen. */
-  trial: boolean;
-}
-
 /**
  * Cache je Kalendertag und Dateistand. Die Datei wird höchstens alle fünf
  * Sekunden neu gestat()et — ein Request-Sturm soll nicht in Dateisystemaufrufe
@@ -206,137 +194,16 @@ function licenseCore(): LicenseCore {
 
 function computeCore(today: string, loaded: LoadedLicense): LicenseCore {
   const inst = getInstallation();
-  const base = {
-    installation_id: inst.installation_id,
-    payload: null as LicensePayload | null,
-    invalid_reason: loaded.invalidReason,
-    grace_until: null as string | null,
-    clock_warning: false,
-    trial: false,
-  };
-
   if (!config.licenseEnforced) {
-    return {
-      ...base,
-      state: 'entwicklung',
-      read_only: false,
-      warning: false,
-      days_left: null,
-      valid_until: null,
-    };
+    return deriveLicenseState({ today, enforced: false, installation: inst, loaded, clockWarning: false }).core;
   }
-
-  base.clock_warning = advanceLastSeen(inst, today);
-
-  let payload = loaded.payload;
-  if (payload && payload.installation_id !== null && payload.installation_id !== inst.installation_id) {
-    base.invalid_reason =
-      `Die Lizenzdatei ist an eine andere Installation gebunden (${payload.installation_id}); ` +
-      `diese Datenbank hat die Installations-ID ${inst.installation_id}.`;
-    payload = null;
+  const clockWarning = advanceLastSeen(inst, today);
+  const derived = deriveLicenseState({ today, enforced: true, installation: inst, loaded, clockWarning });
+  if (derived.markLicensed) {
+    // Erste gueltige Lizenz dieser Datenbank: Testphase damit endgueltig vorbei.
+    getDb().prepare(`UPDATE installation SET licensed_at = datetime('now') WHERE id = 1`).run();
   }
-  if (
-    payload &&
-    inst.licensed_at === null &&
-    today > addDaysIso(payload.valid_until, payload.grace_days)
-  ) {
-    // Diese Datenbank war nie lizenziert, und die Datei ist schon über die
-    // Kulanz hinaus — dieselbe Regel wie beim Einspielen (installLicense):
-    // Ein alter Anhang, den jemand ins Datenverzeichnis kopiert, darf die
-    // Testphase nicht beenden. Der Grund bleibt sichtbar.
-    base.invalid_reason =
-      `Die Lizenzdatei ist bereits abgelaufen (gültig bis ${formatDate(payload.valid_until)}, ` +
-      `Kulanz bis ${formatDate(addDaysIso(payload.valid_until, payload.grace_days))}).`;
-    payload = null;
-  }
-
-  if (payload) {
-    if (inst.licensed_at === null) {
-      // Erste gültige Lizenz dieser Datenbank: Testphase damit endgültig vorbei.
-      getDb().prepare(`UPDATE installation SET licensed_at = datetime('now') WHERE id = 1`).run();
-    }
-    const graceUntil = addDaysIso(payload.valid_until, payload.grace_days);
-    if (today <= payload.valid_until) {
-      const daysLeft = daysBetweenIso(today, payload.valid_until);
-      return {
-        ...base,
-        payload,
-        state: 'valid',
-        read_only: false,
-        warning: daysLeft <= payload.warn_days,
-        days_left: daysLeft,
-        valid_until: payload.valid_until,
-        grace_until: graceUntil,
-      };
-    }
-    if (today <= graceUntil) {
-      return {
-        ...base,
-        payload,
-        state: 'grace',
-        read_only: false,
-        warning: true,
-        days_left: daysBetweenIso(today, graceUntil),
-        valid_until: payload.valid_until,
-        grace_until: graceUntil,
-      };
-    }
-    return {
-      ...base,
-      payload,
-      state: 'expired',
-      read_only: true,
-      warning: true,
-      days_left: 0,
-      valid_until: payload.valid_until,
-      grace_until: graceUntil,
-    };
-  }
-
-  // Keine brauchbare Lizenz. Testphase nur, solange nie eine eingespielt war.
-  if (inst.licensed_at === null) {
-    const trialUntil = addDaysIso(utcTimestampToLocalDate(inst.created_at), LICENSE_TRIAL_DAYS - 1);
-    if (today <= trialUntil) {
-      const daysLeft = daysBetweenIso(today, trialUntil);
-      return {
-        ...base,
-        trial: true,
-        state: 'trial',
-        read_only: false,
-        warning: daysLeft <= LICENSE_TRIAL_WARN_DAYS,
-        days_left: daysLeft,
-        valid_until: trialUntil,
-      };
-    }
-    return {
-      ...base,
-      trial: true,
-      state: 'expired',
-      read_only: true,
-      warning: true,
-      days_left: 0,
-      valid_until: trialUntil,
-    };
-  }
-  return {
-    ...base,
-    state: 'expired',
-    read_only: true,
-    warning: true,
-    days_left: 0,
-    valid_until: null,
-  };
-}
-
-/**
- * SQLite schreibt datetime('now') in UTC; die Testphase zählt aber in
- * Kalendertagen der Firma (todayIso ist lokal). Nachts liegt zwischen beiden
- * ein Tag — ohne Umrechnung wäre die Testphase je nach Uhrzeit der
- * Installation einen Tag kürzer.
- */
-function utcTimestampToLocalDate(sqliteUtc: string): string {
-  const d = new Date(`${sqliteUtc.replace(' ', 'T')}Z`);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return derived.core;
 }
 
 /**
@@ -367,6 +234,8 @@ export function licenseStatus(): LicenseStatus {
     days_left: core.days_left,
     valid_until: core.valid_until,
     grace_until: core.grace_until,
+    perpetual: core.perpetual,
+    issued_at: core.issued_at,
     customer: p?.customer ?? null,
     license_id: p?.license_id ?? null,
     kind: p?.kind ?? null,
@@ -432,24 +301,24 @@ const LICENSE_OPEN_ROUTES: ReadonlySet<string> = new Set([
   '/api/admin/users/:id/reset-password',
 ]);
 
-/** Neutraler Text für Portal-Konten: Vertragsdaten gehen Mitarbeitende nichts an. */
-const PORTAL_READ_ONLY_MESSAGE =
-  'Das Portal ist derzeit nur zur Ansicht verfügbar. Anträge und Änderungen sind ' +
-  'vorübergehend nicht möglich — bitte wenden Sie sich an die Personalabteilung.';
+/** Sicht des gemeinsamen Textbausteins auf den Kern (ohne Platzzaehlung). */
+function describable(core: LicenseCore): LicenseDescribable {
+  return {
+    state: core.state,
+    warning: core.warning,
+    days_left: core.days_left,
+    valid_until: core.valid_until,
+    grace_until: core.grace_until,
+    perpetual: core.perpetual,
+    license_id: core.payload?.license_id ?? null,
+    kind: core.payload?.kind ?? null,
+    invalid_reason: core.invalid_reason,
+  };
+}
 
+/** Meldung fuer abgewiesene Schreibzugriffe: Ursache, Nur-Lese-Erklaerung, Handlung (aus @ohrganize/shared). */
 function readOnlyMessage(core: LicenseCore): string {
-  const until = core.valid_until ? formatDate(core.valid_until) : null;
-  const lead = core.trial
-    ? `Die Testphase von oHRganize ist${until ? ` am ${until}` : ''} abgelaufen.`
-    : core.valid_until
-      ? `Die oHRganize-Lizenz ist am ${until} abgelaufen` +
-        (core.grace_until ? `; die Kulanzfrist endete am ${formatDate(core.grace_until)}.` : '.')
-      : 'Für diese Installation liegt keine gültige oHRganize-Lizenz vor.';
-  return (
-    `${lead} Das System läuft im Nur-Lese-Betrieb: Daten können eingesehen und exportiert ` +
-    'werden, Änderungen sind nicht möglich. Bitte spielen Sie unter Einstellungen → Lizenz ' +
-    'eine gültige Lizenzdatei ein.'
-  );
+  return licenseMessage(describable(core));
 }
 
 /**
@@ -464,7 +333,7 @@ export function assertLicenseAllows(method: string, route: string, role: string)
   throw new AppError(
     403,
     LICENSE_ERROR_CODES.EXPIRED,
-    role === 'admin' ? readOnlyMessage(core) : PORTAL_READ_ONLY_MESSAGE,
+    role === 'admin' ? readOnlyMessage(core) : PORTAL_READ_ONLY_TEXT,
   );
 }
 
@@ -592,43 +461,28 @@ export function licenseReport(): LicenseReport {
   };
 }
 
-function remaining(days: number | null): string {
-  if (days === null) return '—';
-  if (days === 0) return 'heute letzter Tag';
-  return days === 1 ? 'noch 1 Tag' : `noch ${days} Tage`;
-}
-
-/** Eine Zeile ins Journal beim Start, sobald etwas Aufmerksamkeit verdient. */
+/**
+ * Eine Zeile ins Journal beim Start, sobald etwas Aufmerksamkeit verdient.
+ * Text aus describeLicense, damit Journal, Banner und Fehlermeldung dieselbe
+ * Diagnose stellen. Ein Startlog ohne Warnung: gueltig ohne Warnfrist.
+ */
 export function logLicenseAtStartup(log: FastifyBaseLogger): void {
   const s = licenseStatus();
-  const tail = s.invalid_reason ? ` Lizenzdatei unbrauchbar: ${s.invalid_reason}` : '';
+  if (s.state === 'entwicklung') return;
+  const d = describeLicense(s);
+  const tail = s.invalid_reason && s.state !== 'expired' ? ` Lizenzdatei unbrauchbar: ${s.invalid_reason}` : '';
   switch (s.state) {
-    case 'entwicklung':
-      return;
     case 'valid':
-      if (s.warning) {
-        log.warn(`Lizenz läuft am ${formatDate(s.valid_until!)} ab (${remaining(s.days_left)}).`);
-      }
+      if (s.warning) log.warn(`${d.headline} ${d.detail}`.trim());
+      else if (s.invalid_reason) log.warn(tail.trim());
       break;
     case 'trial':
-      log.warn(
-        `Keine Lizenz eingespielt — Testphase bis ${formatDate(s.valid_until!)} (${remaining(s.days_left)}).${tail}`,
-      );
-      break;
     case 'grace':
-      log.warn(
-        `Lizenz am ${formatDate(s.valid_until!)} abgelaufen — Kulanzfrist bis ${formatDate(s.grace_until!)}, ` +
-          `danach Nur-Lese-Betrieb.${tail}`,
-      );
+      log.warn(`${d.headline} ${d.detail}${tail}`);
       break;
     case 'expired':
-      log.warn(`NUR-LESE-BETRIEB: ${readOnlyMessage(licenseCore())}${tail}`);
+      log.warn(`NUR-LESE-BETRIEB: ${readOnlyMessage(licenseCore())}`);
       break;
   }
-  if (s.clock_warning) {
-    log.warn(
-      'Die Systemuhr steht vor einem Datum, das diese Installation bereits gesehen hat. ' +
-        'Bitte Uhrzeit des Servers prüfen.',
-    );
-  }
+  if (s.clock_warning) log.warn(LICENSE_CLOCK_WARNING_TEXT);
 }

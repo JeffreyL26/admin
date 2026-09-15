@@ -76,6 +76,21 @@ export type LicenseKind = 'standard' | 'evaluation';
  */
 export type LicenseState = 'entwicklung' | 'valid' | 'trial' | 'grace' | 'expired';
 
+/** Anzeigename je Zustand (Badge auf der Lizenzseite und im Dashboard-Widget). */
+export const LICENSE_STATE_LABELS: Record<LicenseState, string> = {
+  entwicklung: 'Entwicklung',
+  valid: 'Gültig',
+  trial: 'Testphase',
+  grace: 'Kulanzfrist',
+  expired: 'Abgelaufen',
+};
+
+/** Anzeigename je Lizenzart. `evaluation` heisst in der Oberflaeche Testlizenz. */
+export const LICENSE_KIND_LABELS: Record<LicenseKind, string> = {
+  standard: 'Standard',
+  evaluation: 'Testlizenz',
+};
+
 /** Was das Backend über `GET /api/license`, `/api/auth/me` und Login liefert. */
 export interface LicenseStatus {
   state: LicenseState;
@@ -87,8 +102,16 @@ export interface LicenseStatus {
   days_left: number | null;
   /** Letzter Tag der Gültigkeit (Lizenz) bzw. der Testphase (trial). */
   valid_until: string | null;
-  /** Letzter Tag der Kulanzfrist; null ohne Lizenz. */
+  /** Letzter Tag der Kulanzfrist; null ohne Lizenz und bei unbefristeten Lizenzen. */
   grace_until: string | null;
+  /**
+   * Unbefristete Lizenz (valid_until = LICENSE_MAX_DATE). Dann gilt:
+   * days_left null, grace_until null, warning false. Die Anzeige sagt
+   * "unbegrenzt" statt eines Datums im Jahr 2999.
+   */
+  perpetual: boolean;
+  /** Ausstelldatum der Lizenzdatei; null ohne brauchbare Datei. */
+  issued_at: string | null;
   customer: string | null;
   license_id: string | null;
   kind: LicenseKind | null;

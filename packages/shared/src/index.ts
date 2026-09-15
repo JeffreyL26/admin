@@ -13,3 +13,4 @@ export * from './admin.js';
 export * from './me.js';
 export * from './leadership.js';
 export * from './license.js';
+export * from './licenseText.js';
