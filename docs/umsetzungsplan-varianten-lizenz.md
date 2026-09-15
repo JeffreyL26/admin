@@ -891,3 +891,49 @@ test`, `lizenz ausstellen … --einspielen`, `release erfassen`, `rollout
 11. **Windows-Server im Hosting:** Phase 7 zielt auf Linux; für
     Windows-Einzelkunden bleibt der manuelle Update-Weg mit
     Variantenprüfung.
+
+## 6. Uebergabe: Stand und verbindliche Vorgaben fuer die Fortsetzung
+
+Stand 15.09.2026, Phasen 0 bis 4 auf `main` gemerged (letzter Merge
+`b318f07`), Version bleibt 1.0.0. Wer hier weitermacht (lokal oder in einer
+Cloud-Sitzung), liest zuerst `CLAUDE.md` (Abschnitte Lizenz, Edition gegen
+Feature, Varianten) und `docs/entscheidungen.md` (die letzten sechs
+Eintraege) und arbeitet dann Phase 5 bis 8 dieses Plans ab.
+
+Vorgaben des Anbieters aus der Umsetzung, die den Plan ergaenzen oder
+uebersteuern:
+
+1. Keine Editionen oder Tarife hardcoden. Das Register
+   `packages/shared/src/variants/registry.json` enthaelt genau
+   `de-vollversion`; Basic, Enterprise oder andere Tiers sind NICHT
+   festgelegt. Es muss nur moeglich sein, sie anzulegen (Eintrag im
+   Register, `npm run variants:gen`).
+2. Testlizenzen haben eine frei waehlbare Laufzeit (`--until 3t`, `6w`,
+   `1j`, Datum, `unbefristet`); 3 oder 30 Tage waren Beispiele.
+3. Gedankenstriche im Bestand bleiben (der Anbieter entfernt sie selbst);
+   neue duerfen nicht dazukommen: `npm run check:dashes -- --base main`
+   prueft nur hinzugekommene Zeilen.
+4. Je Phase ein Branch `feat/phase-<n>-<kurzname>`, Abnahme mit
+   `npm run typecheck`, `npm test -w apps/backend`, allen neun Modul-Smokes
+   (`npx tsx apps/backend/src/modules/<modul>/smoke.ts`),
+   `npm run variants:check`, `npm run check:dashes -- --base main`; danach
+   Merge nach `main` mit `--no-ff`.
+5. Neuer Build und Installer erst nach Abschluss aller Phasen, Version
+   bleibt gleich; `MIN_*`-Versionen nicht anheben.
+6. Alles direkt Windows-faehig: Skripte in Node oder PowerShell 5.1,
+   Betreiberwerkzeuge (Phase 7) ohne `process.getuid` auf Windows, ein
+   Windows-Gegenstueck zum Update-Skript (`deploy/windows/update-server.ps1`
+   mit Varianten- und Signaturpruefung); Linux-Hosting bleibt Phase 7 wie
+   geplant.
+7. Mindestserverversion fuer Lizenz v2 gibt es nicht; stattdessen melden
+   `/api/health` und der Lizenzbericht `license_format` (2). conspectus
+   prueft diese Faehigkeit, nicht die Versionsnummer.
+
+Abweichungen der Umsetzung vom Plan, die fuer die Folgephasen zaehlen:
+Verdrahtungsdateien werden erzeugt (`scripts/variant-wiring.mjs`), nicht
+von Hand geschrieben; es gibt zwei Aliasse (`@variant`,
+`@variant-manifest`); `apps/backend/scripts/build.mjs` baut automatisch
+auch `src/scripts/status.ts`, `admin-reset.ts` und `migrate-check.ts`,
+sobald sie existieren; `apps/desktop/scripts/dist.mjs` setzt
+`OHRGANIZE_VARIANT` fuer electron-builder; Health traegt `variant` und
+`license_format`.
