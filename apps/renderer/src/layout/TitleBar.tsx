@@ -3,7 +3,7 @@ import {
   Info, Maximize2, Minus, PanelsTopLeft, RefreshCw, Square, Copy as CopyIcon,
   BookOpen, ZoomIn, ZoomOut, Expand, X,
 } from 'lucide-react';
-import { formatVersion } from '@ohrganize/shared';
+import { CHANNEL_LABELS, channelOf, formatVersion } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { IS_ELECTRON } from '../api/client';
 import { Modal } from '../components/Modal';
@@ -168,6 +168,9 @@ function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
         </div>
         <div className="row" style={{ gap: 8 }}>
           <span className="hm-badge hm-badge--blue">{formatVersion(version)}</span>
+          {channelOf(version) === 'beta' && (
+            <span className="hm-badge hm-badge--yellow">{CHANNEL_LABELS.beta}</span>
+          )}
           <span className="hm-badge hm-badge--neutral">Desktop</span>
           <span className="hm-badge hm-badge--neutral" title={VARIANT.id}>{VARIANT.label}</span>
         </div>

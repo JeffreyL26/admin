@@ -1,8 +1,14 @@
 #!/usr/bin/env node
 /**
- * Release-Archiv für den Serverbetrieb: release/ohrganize-server-<version>.zip
+ * Release-Archiv fuer den Serverbetrieb:
+ * release/ohrganize-server-<variante>-<version>.zip
  *
- * Aufruf: npm run release:server [-- --no-build]
+ * Aufruf: npm run release:server [-- --variant <id>] [--out <verz>] [--no-build]
+ *
+ * Eine Variante ist Land x Edition (packages/shared/src/variants/registry.json).
+ * Der Archivname traegt sie, das Archiv enthaelt VARIANTE.txt und ein
+ * unsigniertes release.json; die Signatur legt scripts/release.mjs daneben.
+ * Ohne --variant gilt OHRGANIZE_VARIANT, sonst die Vorgabe des Registers.
  *
  * Das Archiv enthält NUR gebaute Artefakte, keinen Quelltext: die minifizierten
  * Bundles cli.cjs und backup.cjs (ohne server.cjs — das ist das Embedding-Bundle
@@ -41,13 +47,32 @@ import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const args = new Set(process.argv.slice(2));
-const skipBuild = args.has('--no-build');
+const argv = process.argv.slice(2);
+const skipBuild = argv.includes('--no-build');
 
 function fail(message) {
   console.error(`Abbruch: ${message}`);
   process.exit(1);
 }
+
+function argValue(name) {
+  const i = argv.indexOf(name);
+  return i === -1 ? undefined : argv[i + 1];
+}
+
+// ---------------------------------------------------------------------------
+// 0. Variante
+// ---------------------------------------------------------------------------
+const registry = JSON.parse(
+  fs.readFileSync(path.join(root, 'packages/shared/src/variants/registry.json'), 'utf8'),
+);
+const variantId = (argValue('--variant') ?? process.env.OHRGANIZE_VARIANT ?? '').trim() || registry.default;
+const variant = registry.variants.find((v) => v.id === variantId);
+if (!variant) {
+  fail(`Unbekannte Variante "${variantId}". Bekannt: ${registry.variants.map((v) => v.id).join(', ')}.`);
+}
+// Alle Bauschritte sehen dieselbe Variante, auch wenn sie ueber --variant kam.
+process.env.OHRGANIZE_VARIANT = variantId;
 
 /**
  * npm-Aufruf ohne Shell: Unter Windows ist `npm` eine .cmd-Datei, die Node
@@ -58,12 +83,14 @@ function fail(message) {
 function runNpm(npmArgs) {
   console.log(`> npm ${npmArgs.join(' ')}`);
   const cli = process.env.npm_execpath;
+  const env = { ...process.env, OHRGANIZE_VARIANT: variantId };
   const r = cli
-    ? spawnSync(process.execPath, [cli, ...npmArgs], { cwd: root, stdio: 'inherit' })
+    ? spawnSync(process.execPath, [cli, ...npmArgs], { cwd: root, stdio: 'inherit', env })
     : spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', npmArgs, {
         cwd: root,
         stdio: 'inherit',
         shell: process.platform === 'win32',
+        env,
       });
   if (r.status !== 0) fail(`npm ${npmArgs.join(' ')} endete mit Status ${r.status}`);
 }
@@ -87,6 +114,11 @@ if (!skipBuild) {
 const inputs = {
   cli: path.join(root, 'apps/backend/dist/cli.cjs'),
   backup: path.join(root, 'apps/backend/dist/backup.cjs'),
+  // Betreiberwerkzeuge (Phase 7). Sie wandern mit, sobald der Build sie
+  // erzeugt; ein aelterer Stand ohne sie bleibt baubar.
+  tools: ['status.cjs', 'admin-reset.cjs', 'migrate-check.cjs']
+    .map((f) => path.join(root, 'apps/backend/dist', f))
+    .filter((f) => fs.existsSync(f)),
   webDist: path.join(root, 'apps/web/dist'),
   deploy: path.join(root, 'deploy'),
   docs: [
@@ -190,8 +222,49 @@ const trimmedLock = {
 };
 
 // ---------------------------------------------------------------------------
-// 3. Dateiliste
+// 3. Bau-Ausweis und Dateiliste
 // ---------------------------------------------------------------------------
+
+/** Commit des gebauten Standes; leer, wenn ausserhalb eines Arbeitsbaums gebaut wird. */
+function gitCommit() {
+  const r = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : '';
+}
+
+/**
+ * Mindestversionen aus packages/shared/src/version.ts. Dieses Skript ist
+ * reines JavaScript und kann die TypeScript-Quelle nicht importieren; gelesen
+ * wird sie trotzdem, damit die Zahlen nur an EINER Stelle stehen. Fehlen sie,
+ * bricht der Lauf ab statt still eine Vorgabe zu erfinden.
+ */
+function minVersions() {
+  const src = fs.readFileSync(path.join(root, 'packages/shared/src/version.ts'), 'utf8');
+  const pick = (name) => {
+    const m = new RegExp(`export const ${name} = '([^']+)'`).exec(src);
+    if (!m) fail(`${name} steht nicht in packages/shared/src/version.ts.`);
+    return m[1];
+  };
+  return { client: pick('MIN_CLIENT_VERSION'), server: pick('MIN_SERVER_VERSION') };
+}
+const MIN_VERSIONS = minVersions();
+
+/** Kanal ist eine Funktion der Version, wie channelOf in shared/version.ts. */
+function channelOf(v) {
+  const m = /^\d+\.\d+\.\d+(?:-([0-9A-Za-z.-]+))?$/.exec(v.trim());
+  if (!m) fail(`Version "${v}" ist keine Semver-Nummer.`);
+  return m[1] ? 'beta' : 'stable';
+}
+const channel = channelOf(version);
+const releaseInfo = {
+  product: 'ohrganize-server',
+  version,
+  channel,
+  variant: { id: variant.id, country: variant.country, edition: variant.edition, label: variant.label },
+  min_client_version: MIN_VERSIONS.client,
+  min_server_version: MIN_VERSIONS.server,
+  built_at: new Date().toISOString(),
+  commit: gitCommit(),
+};
 /** @type {{ name: string; data: Buffer; mtime: Date; mode: number }[]} */
 const entries = [];
 
@@ -229,51 +302,96 @@ function addGenerated(name, content, mtime = new Date(), { bom = false } = {}) {
 // nicht mehr gelesen werden (esbuild --define in apps/backend/package.json).
 // Die Zeichenkette kommt nur noch in der einkompilierten package.json vor —
 // ein tatsächlicher Lesezugriff auf process.env würde hier auffallen.
-for (const bundle of [inputs.cli, inputs.backup]) {
+for (const bundle of [inputs.cli, inputs.backup, ...inputs.tools]) {
   if (/env\.OHRGANIZE_LICENSE_PUBLIC_KEY\s*\?\?/.test(fs.readFileSync(bundle, 'utf8'))) {
     fail(`${path.relative(root, bundle)} liest OHRGANIZE_LICENSE_PUBLIC_KEY — Build ohne --define? Nicht ausliefern.`);
   }
 }
 
+// Variantenkontrolle vor dem Packen: Ein Bundle aus einem frueheren Lauf mit
+// anderer Variante wuerde sonst unbemerkt mitwandern (scripts/check-variant.mjs
+// prueft dasselbe umfassender, aber erst nach dem Build).
+const marker = `OHRGANIZE_VARIANT:${variantId}`;
+for (const bundle of [inputs.cli, inputs.backup, ...inputs.tools]) {
+  if (!fs.readFileSync(bundle, 'utf8').includes(marker)) {
+    fail(`${path.relative(root, bundle)} traegt nicht den Marker der Variante ${variantId}. Bundle neu bauen.`);
+  }
+}
+
 addFile('apps/backend/dist/cli.cjs', inputs.cli);
 addFile('apps/backend/dist/backup.cjs', inputs.backup);
+for (const tool of inputs.tools) addFile(`apps/backend/dist/${path.basename(tool)}`, tool);
 addFile('apps/backend/package.json', path.join(root, 'apps/backend/package.json'), { text: true });
 addTree('apps/web/dist', inputs.webDist);
 addTree('deploy', inputs.deploy, { text: true });
 for (const doc of inputs.docs) addFile(`docs/${path.basename(doc)}`, doc, { text: true });
 addGenerated('package.json', `${JSON.stringify(trimmedPkg, null, 2)}\n`);
 addGenerated('package-lock.json', `${JSON.stringify(trimmedLock, null, 2)}\n`);
+
+// Bau-Ausweis IM Archiv: Was ist das hier, aus welchem Stand, fuer welche
+// Variante und welchen Kanal? Die Pruefsumme des Archivs kann darin nicht
+// stehen (sie aenderte sich dadurch selbst); die Liste der Artefakte samt
+// Pruefsummen und die Signatur legt scripts/release.mjs daneben.
+addGenerated('VARIANTE.txt', `${variantId}\n`);
+addGenerated('release.json', `${JSON.stringify(releaseInfo, null, 2)}\n`);
 addGenerated(
   'LIESMICH.txt',
-  `oHRganize Server ${version} — Release-Archiv
+  `oHRganize Server ${version} (${variant.label}) - Release-Archiv
 =============================================
 
+Variante: ${variant.id}   Kanal: ${channel}
+
+SCHRITT 1 - Variante pruefen, BEVOR entpackt wird
+-------------------------------------------------
+Jede Ausgabe ist ein eigener Build. Wird ein Archiv der falschen Ausgabe ueber
+eine laufende Instanz entpackt, startet der Dienst nicht (das Backend prueft
+OHRGANIZE_VARIANT gegen die einkompilierte Variante) oder die Arbeitsplaetze
+brechen beim Start ab. Vor dem Entpacken:
+
+  Linux:    unzip -p ohrganize-server-${variantId}-${version}.zip VARIANTE.txt
+  Windows:  (Get-Content .\\VARIANTE.txt) nach dem Entpacken in ein leeres Verzeichnis
+
+Der Wert muss zu OHRGANIZE_VARIANT der Instanz passen (env-Datei bzw.
+Dienstumgebung) und zu dem, was die laufende Instanz unter /api/health als
+variant.id meldet.
+
+SCHRITT 2 - Pruefsumme
+----------------------
+  Linux:    sha256sum -c ohrganize-server-${variantId}-${version}.zip.sha256
+  Windows:  Get-FileHash .\\ohrganize-server-${variantId}-${version}.zip -Algorithm SHA256
+
+Liegt neben dem Archiv ein release.json samt release.json.sig, laesst sich die
+Signatur des Anbieters pruefen (Details in deploy/README.md, Abschnitt 9.6):
+
+  ssh-keygen -Y verify -f ohrganize-release.allowed_signers \\
+    -I release@ohrganize -n ohrganize-release -s release.json.sig < release.json
+
+SCHRITT 3 - Entpacken
+---------------------
 Dieses Archiv wird OHNE Zwischenverzeichnis direkt in das Programmverzeichnis
 entpackt (Linux: /opt/ohrganize, Windows: C:\\Program Files\\oHRganize):
 
-  Linux:    unzip -o ohrganize-server-${version}.zip -d /opt/ohrganize
-  Windows:  Expand-Archive ohrganize-server-${version}.zip -DestinationPath 'C:\\Program Files\\oHRganize' -Force
-
-Prüfsumme: die Datei ohrganize-server-${version}.zip.sha256 neben dem Archiv
-(sha256sum -c bzw. Get-FileHash).
+  Linux:    unzip -o ohrganize-server-${variantId}-${version}.zip -d /opt/ohrganize
+  Windows:  Expand-Archive ohrganize-server-${variantId}-${version}.zip -DestinationPath 'C:\\Program Files\\oHRganize' -Force
 
 Inhalt:
 
   apps/backend/dist/cli.cjs      Backend, Diensteinstieg (node apps/backend/dist/cli.cjs)
   apps/backend/dist/backup.cjs   Sicherungsskript (wird von Timer bzw. geplanter Aufgabe aufgerufen)
-  apps/backend/package.json      Versionsangabe des Backends (nur zur Information)
-  apps/web/dist/                 Mitarbeitenden-Portal, statisch — wird in das Web-Verzeichnis
+${inputs.tools.length ? `  apps/backend/dist/*.cjs        Betreiberwerkzeuge: ${inputs.tools.map((t) => path.basename(t)).join(', ')}\n` : ''}  apps/backend/package.json      Versionsangabe des Backends (nur zur Information)
+  apps/web/dist/                 Mitarbeitenden-Portal, statisch - wird in das Web-Verzeichnis
                                  des Reverse-Proxys kopiert
   deploy/                        Dienstdefinitionen, Proxy-Konfigurationen, Vorlagen der
                                  Umgebungsvariablen, Einrichtungsskripte (Linux und Windows)
   docs/inbetriebnahme.md         Checkliste der Erstinbetriebnahme
   docs/lizenzierung.md           Lizenzmodell: Testphase, Lizenzdatei, Nur-Lese-Betrieb
   docs/kunden-subdomain.md       Betrieb unter <kunde>.ohrganize.com
+  VARIANTE.txt, release.json     Ausgabe, Kanal und Bauzeitpunkt dieses Archivs
   package.json, package-lock.json
-                                 Laufzeitabhängigkeit better-sqlite3 (einzige native
-                                 Abhängigkeit) — Installation mit: npm ci --omit=dev
+                                 Laufzeitabhaengigkeit better-sqlite3 (einzige native
+                                 Abhaengigkeit) - Installation mit: npm ci --omit=dev
 
-Einrichtung Schritt für Schritt:
+Einrichtung Schritt fuer Schritt:
   Linux ............ deploy/README.md
   Windows Server ... deploy/windows/README.md
   danach ........... docs/inbetriebnahme.md
@@ -284,9 +402,11 @@ falls npm kein Fertigpaket findet (Linux: build-essential python3; Windows:
 siehe deploy/windows/README.md, Abschnitt 1). esbuild, typescript und git
 werden nicht gebraucht; der Quelltext ist nicht enthalten.
 
-Lizenz: Eine frische Installation läuft 30 Tage als Testphase, danach im
+Lizenz: Eine frische Installation laeuft 30 Tage als Testphase, danach im
 Nur-Lese-Betrieb. Die Lizenzdatei (lizenz.ohrganize) wird in der Desktop-App
-unter Einstellungen → Lizenz eingespielt — Einzelheiten in docs/lizenzierung.md.
+unter Einstellungen -> Lizenz eingespielt - Einzelheiten in docs/lizenzierung.md.
+Eine Lizenz ab Fassung 2 nennt Land und Ausgabe und wird nur von der passenden
+Variante angenommen.
 `,
   new Date(),
   { bom: true },
@@ -378,18 +498,22 @@ eocd.writeUInt16LE(0, 20);
 if (entries.length > 0xffff || offset + cdBuf.length > 0xffffffff) fail('Archiv zu groß für Zip ohne Zip64.');
 
 const zip = Buffer.concat([...parts, cdBuf, eocd]);
-const outDir = path.join(root, 'release');
+const outDir = path.resolve(root, argValue('--out') ?? 'release');
 fs.mkdirSync(outDir, { recursive: true });
-const outFile = path.join(outDir, `ohrganize-server-${version}.zip`);
+// Der Archivname traegt Land und Edition: Zwei Ausgaben derselben Version
+// duerfen sich im Downloadverzeichnis nicht ueberschreiben, und wer eine
+// Datei in der Hand hat, sieht am Namen, wohin sie gehoert.
+const baseName = `ohrganize-server-${variantId}-${version}`;
+const outFile = path.join(outDir, `${baseName}.zip`);
 fs.writeFileSync(outFile, zip);
 const sha256 = crypto.createHash('sha256').update(zip).digest('hex');
 fs.writeFileSync(`${outFile}.sha256`, `${sha256}  ${path.basename(outFile)}\n`);
 // Sourcemaps bleiben beim Anbieter (nicht im Archiv, sie machten den Quelltext
 // lesbar), aber neben dem Archiv: Eine Fehlerposition aus einem Kundenlog
 // (cli.cjs:Zeile:Spalte) lässt sich damit auf diesen exakten Build abbilden.
-for (const [src, name] of [[inputs.cli, 'cli.cjs.map'], [inputs.backup, 'backup.cjs.map']]) {
+for (const src of [inputs.cli, inputs.backup, ...inputs.tools]) {
   const map = `${src}.map`;
-  if (fs.existsSync(map)) fs.copyFileSync(map, path.join(outDir, `ohrganize-server-${version}.${name}`));
+  if (fs.existsSync(map)) fs.copyFileSync(map, path.join(outDir, `${baseName}.${path.basename(src)}.map`));
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +523,8 @@ const mb = (n) => `${(n / 1024 / 1024).toFixed(1)} MB`;
 console.log('');
 console.log(`Release-Archiv: ${path.relative(root, outFile)} (${mb(zip.length)}, ${entries.length} Dateien)`);
 console.log(`SHA-256:        ${sha256}`);
-console.log(`Sourcemaps:     release/ohrganize-server-${version}.{cli,backup}.cjs.map (nur Anbieter, nicht im Archiv)`);
-console.log(`Backend:        cli.cjs ${mb(fs.statSync(inputs.cli).size)}, backup.cjs ${mb(fs.statSync(inputs.backup).size)}`);
+console.log(`Variante:       ${variant.id} (${variant.label}), Kanal ${channel}`);
+console.log(`Sourcemaps:     ${path.relative(root, outDir)}/${baseName}.*.cjs.map (nur Anbieter, nicht im Archiv)`);
+console.log(`Backend:        cli.cjs ${mb(fs.statSync(inputs.cli).size)}, backup.cjs ${mb(fs.statSync(inputs.backup).size)}${inputs.tools.length ? `, Werkzeuge: ${inputs.tools.map((t) => path.basename(t)).join(', ')}` : ''}`);
 console.log(`npm-Manifest:   ${Object.keys(trimmedLockPackages).length - 1} Pakete (${Object.entries(trimmedDeps).map(([n, v]) => `${n}@${v}`).join(', ')} samt Abhängigkeiten)`);
 console.log(`allowScripts:   ${Object.keys(allowScripts).join(', ') || '—'}`);

@@ -371,6 +371,27 @@ den zurückgespielten Stand.
 
 ## 6. Update
 
+**Schritt 0: Variante pruefen, bevor irgendetwas entpackt wird.** Jede Ausgabe
+(Land x Edition) ist ein eigener Build. Ein Archiv der falschen Ausgabe ueber
+eine laufende Instanz entpackt heisst: Der Dienst startet nicht (das Backend
+prueft `OHRGANIZE_VARIANT` gegen die einkompilierte Variante) oder die
+Arbeitsplaetze brechen beim Start ab.
+
+```bash
+# Was steckt im Archiv?
+unzip -p /pfad/ohrganize-server-<variante>-<version>.zip VARIANTE.txt
+# Was laeuft gerade?
+curl -s http://127.0.0.1:3001/api/health | grep -o '"id":"[^"]*"'
+# Was steht in der Dienstumgebung?
+grep OHRGANIZE_VARIANT /etc/ohrganize/ohrganize.env
+```
+
+Alle drei muessen denselben Wert nennen. Der Archivname traegt die Variante
+ebenfalls (`ohrganize-server-de-vollversion-1.2.0.zip`).
+
+Liegt neben dem Archiv ein `release.json` mit `release.json.sig`, wird zuerst
+die Signatur des Anbieters geprueft (Abschnitt 9.6).
+
 ```bash
 systemctl stop ohrganize-backend
 systemctl start ohrganize-backup.service          # Sicherung VOR dem Update
@@ -379,10 +400,10 @@ systemctl start ohrganize-backup.service          # Sicherung VOR dem Update
 # /opt/ohrganize heraus meldet es „No such file“ und FAILED, obwohl das Archiv
 # in Ordnung ist. Die folgenden Schritte hängen mit && daran, damit nach einem
 # echten FAILED nichts entpackt wird.
-(cd /pfad && sha256sum -c ohrganize-server-<version>.zip.sha256) \
+(cd /pfad && sha256sum -c ohrganize-server-<variante>-<version>.zip.sha256) \
   && cd /opt/ohrganize \
   && rm -rf apps \
-  && unzip -o /pfad/ohrganize-server-<version>.zip -d /opt/ohrganize \
+  && unzip -o /pfad/ohrganize-server-<variante>-<version>.zip -d /opt/ohrganize \
   && npm ci --omit=dev
 # rm -rf apps: Altstand weg (node_modules bleibt), sonst sammeln sich alte
 # Portal-Assets an. npm ci: nur nötig, wenn better-sqlite3 gewechselt hat —
@@ -733,15 +754,22 @@ systemctl list-timers 'ohrganize-backup@*'             # Sicherungspläne
 grep ' musterfirma.ohrganize.com ' /var/log/nginx/ohrganize-wildcard.access.log
 ```
 
-**Update** (Abschnitt 6 sinngemäß, nur über alle Instanzen):
+**Update** (Abschnitt 6 sinngemaess, nur ueber alle Instanzen). Auch hier gilt
+Schritt 0: Variante des Archivs gegen `OHRGANIZE_VARIANT` JEDER Instanz
+pruefen. Laufen auf einem Host mehrere Ausgaben, braucht jede ihr eigenes
+Archiv und ihr eigenes Programmverzeichnis; ein gemeinsames `/opt/ohrganize`
+traegt genau eine Variante.
 
 ```bash
 kunden() { for f in /etc/ohrganize/kunden/*.env; do basename "$f" .env; done; }
+# Schritt 0: Variante des Archivs gegen alle Instanzen abgleichen
+unzip -p /pfad/ohrganize-server-<variante>-<version>.zip VARIANTE.txt
+for k in $(kunden); do grep -H OHRGANIZE_VARIANT "/etc/ohrganize/kunden/$k.env"; done
 
 for k in $(kunden); do systemctl start "ohrganize-backup@$k.service"; done   # Sicherung VOR dem Update
 for k in $(kunden); do systemctl stop  "ohrganize-backend@$k"; done
 # Prüfsumme im Archivverzeichnis prüfen (die .sha256 nennt nur den Dateinamen, Abschnitt 6)
-(cd /pfad && sha256sum -c ohrganize-server-<version>.zip.sha256) && cd /opt/ohrganize && rm -rf apps && unzip -o /pfad/ohrganize-server-<version>.zip -d /opt/ohrganize && npm ci --omit=dev
+(cd /pfad && sha256sum -c ohrganize-server-<variante>-<version>.zip.sha256) && cd /opt/ohrganize && rm -rf apps && unzip -o /pfad/ohrganize-server-<variante>-<version>.zip -d /opt/ohrganize && npm ci --omit=dev
 node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
 cp -a apps/web/dist/. /srv/ohrganize-web/
 for k in $(kunden); do systemctl start "ohrganize-backend@$k"; done
@@ -752,6 +780,34 @@ Die Migrationen laufen je Instanz beim Start, jeweils in einer Transaktion.
 Eine Instanz, die dabei scheitert, hält die anderen nicht auf — deshalb die
 Kontrollschleife am Ende: Ohne sie fällt ein einzelner nicht gestarteter
 Kunde erst auf, wenn er anruft.
+
+**Signatur des Anbieters pruefen.** Ab Fassung 1.1 liegt neben jedem Release
+ein `release.json` (Version, Kanal, Variante, Pruefsummen aller Artefakte)
+und dazu `release.json.sig`. Geprueft wird mit dem Vertrauensanker
+`deploy/ohrganize-release.allowed_signers` aus dem Archiv:
+
+```bash
+cd /pfad                       # Verzeichnis mit release.json, release.json.sig und Archiv
+ssh-keygen -Y verify -f /opt/ohrganize/deploy/ohrganize-release.allowed_signers \
+  -I release@ohrganize -n ohrganize-release -s release.json.sig < release.json
+# Erst danach die Pruefsumme des Archivs gegen release.json vergleichen:
+sha256sum ohrganize-server-*.zip
+grep -A2 '"file"' release.json
+```
+
+`ssh-keygen` liegt auf jedem Linux-Server bei; unter Windows Server kommt es
+mit dem OpenSSH-Client. Der private Schluessel bleibt beim Anbieter und ist
+NICHT der Lizenzschluessel: zwei getrennte Vertrauensdomaenen, damit ein
+verlorener Release-Schluessel keine Lizenzen faelschen kann und umgekehrt.
+Schluesselwechsel: neue Zeile in `allowed_signers`, alte stehen lassen, bis
+kein Release mit dem alten Schluessel mehr im Umlauf ist.
+
+**Kanaele.** Der Kanal ist eine Funktion der Version: `1.2.0` ist `stable`,
+`1.2.0-beta.1` ist `beta`. Die laufende Instanz meldet ihn unter
+`/api/health` als `channel`. Eine Beta gehoert auf einen Testkunden, nie auf
+eine Produktivinstanz; ein Rueckweg von einer Beta auf die vorherige stabile
+Version ist ein Downgrade und damit nur ueber das Backup moeglich (siehe
+oben).
 
 ### 9.7 Stand der Erprobung
 

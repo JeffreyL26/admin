@@ -1,0 +1,26 @@
+# Vertrauensanker fuer die Signatur der Release-Manifeste (release.json).
+#
+# Format: ssh-keygen -Y verify liest eine Zeile je Unterzeichner:
+#   <kennung> namespaces="ohrganize-release" <schluesseltyp> <oeffentlicher schluessel>
+#
+# Pruefen (im Verzeichnis eines Releases, neben release.json):
+#   ssh-keygen -Y verify -f ohrganize-release.allowed_signers \
+#     -I release@ohrganize -n ohrganize-release -s release.json.sig < release.json
+#
+# Der private Schluessel liegt ausschliesslich beim Anbieter (nie im Repo, nie
+# in OneDrive, nie im Mailanhang) und ist bewusst NICHT das Lizenz-
+# schluesselpaar: getrennte Vertrauensdomaenen, getrennte Rotation. Erzeugen:
+#   ssh-keygen -t ed25519 -C release@ohrganize -f ohrganize-release
+# Danach den Inhalt von ohrganize-release.pub als letzte beide Felder unten
+# eintragen (Zeile mit dem Platzhalter ersetzen) und die Datei committen.
+#
+# Schluesselwechsel: neue Zeile ergaenzen, alte Zeile stehen lassen, bis kein
+# Release mit dem alten Schluessel mehr im Umlauf ist. Ein Server ohne
+# passende Zeile haelt eine gueltige Datei fuer unbrauchbar.
+#
+# Noch kein Schluessel erzeugt: Die Datei enthaelt deshalb bisher nur diesen
+# Hinweis. scripts/release.mjs baut ohne --sign-key ein unsigniertes
+# release.json und sagt es deutlich; eine Signatur entsteht erst, wenn der
+# Anbieter den Schluessel angelegt und hier eingetragen hat.
+#
+# release@ohrganize namespaces="ohrganize-release" ssh-ed25519 AAAA...

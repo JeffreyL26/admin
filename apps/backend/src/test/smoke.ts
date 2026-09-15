@@ -12,8 +12,14 @@ process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../server.js');
 const { closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
-const { CLIENT_VERSION_HEADER, SERVER_VERSION_HEADER, MIN_CLIENT_VERSION, isAtLeast } =
-  await import('@ohrganize/shared');
+const {
+  CLIENT_VERSION_HEADER,
+  SERVER_VERSION_HEADER,
+  MIN_CLIENT_VERSION,
+  channelOf,
+  compareVersions,
+  isAtLeast,
+} = await import('@ohrganize/shared');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -43,6 +49,17 @@ check(
   health.json(),
 );
 check('Serverversion als Header', health.headers[SERVER_VERSION_HEADER] !== undefined);
+
+// Kanal ist eine Funktion der Version (packages/shared/src/version.ts). Die
+// Ordnung kennt seit Phase 6 Vorabkennungen; genau daran haengt, welches
+// Release ein Update-Skript als neuer ansieht.
+check('Health nennt den Kanal', health.json().channel === channelOf(health.json().version), health.json().channel);
+check('Vorabversion ist Kanal beta', channelOf('1.1.0-beta.1') === 'beta' && channelOf('1.1.0') === 'stable');
+check('Vorabversion ist aelter als die fertige', compareVersions('1.1.0-beta.1', '1.1.0') < 0);
+check('beta.2 ist neuer als beta.1', compareVersions('1.1.0-beta.2', '1.1.0-beta.1') > 0);
+check('Nummern schlagen die Kennung', compareVersions('1.1.0-beta.1', '1.0.9') > 0);
+check('isAtLeast faellt bei Vorabversion derselben Nummer zu', isAtLeast('1.1.0-beta.1', '1.1.0') === false);
+check('isAtLeast faellt bei unlesbarer Version zu', isAtLeast('kaputt', '1.0.0') === false);
 
 const oldClient = await app.inject({
   method: 'GET',

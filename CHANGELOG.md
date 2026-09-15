@@ -20,6 +20,25 @@ eigenen Abschnitt.
   Installername `oHRganize-Setup-<version>-<variante>.exe`; Sicherungen
   nennen die Variante im MANIFEST. Heute gibt es genau `de-vollversion`.
 
+### Hinzugefuegt (Release und Kanal)
+- Der Kanal ist eine Funktion der Version: `channelOf` in
+  `packages/shared/src/version.ts` (`1.2.0` = stable, `1.2.0-beta.1` = beta),
+  `CHANNELS` und `CHANNEL_LABELS`. `/api/health` meldet `channel`, die
+  Titelleiste zeigt eine Beta als Abzeichen.
+- `npm run release -- --version <v> [--variants a,b] [--no-desktop]
+  [--sign-key <pfad>]`: setzt die Version ueber alle Workspaces, committet und
+  taggt, baut je Variante Bundles, Server-Archiv und Installer, prueft die
+  Bundles mit `check-variant` und schreibt je Variante ein `release.json` mit
+  Pruefsummen aller Artefakte, signiert mit `ssh-keygen -Y sign`
+  (Namensraum `ohrganize-release`, Vertrauensanker
+  `deploy/ohrganize-release.allowed_signers`). Ablage:
+  `release/<version>/<kanal>/<variante>/`. Zum Schluss `npm rebuild
+  better-sqlite3`, weil electron-builder die ABI umbaut.
+- `npm run release:server` kennt `--variant` und `--out`; der Archivname
+  traegt Land und Edition (`ohrganize-server-de-vollversion-1.2.0.zip`), das
+  Archiv enthaelt `VARIANTE.txt` und ein unsigniertes `release.json`, und die
+  LIESMICH beginnt mit dem Schritt "Variante pruefen".
+
 ### Hinzugefuegt (Laender)
 - Land und Region sind eine Datendimension: `packages/shared/src/country.ts`
   haelt Regionen, Sprachkennung, Waehrung und Regionsbegriff je Land; das
@@ -47,6 +66,12 @@ eigenen Abschnitt.
   folgen der Lizenz. Ohne einschraenkende Lizenz ist alles an.
 
 ### Geaendert
+- Die Versionsordnung kennt Vorabkennungen: `1.1.0-beta.1` ist AELTER als
+  `1.1.0`, `beta.2` neuer als `beta.1`. Damit wird `isAtLeast('1.1.0-beta.1',
+  '1.1.0')` falsch; solange eine Beta derselben Nummer im Umlauf sein soll,
+  muss `MIN_CLIENT_VERSION` auf die Beta zeigen.
+- Update-Anleitungen (Linux und Windows) beginnen mit dem Schritt
+  "Variante pruefen" und beschreiben die Signaturpruefung des Release-Manifests.
 - Lizenz v2: Dateien koennen Ausgabe (`edition`, `country`), Funktionen
   (`features`), Vertragsbedingungen (`terms`) und eine signierte
   Ueberschrift (`headline`) tragen. v1-Dateien bleiben gueltig. Werkzeug:

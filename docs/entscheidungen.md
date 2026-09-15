@@ -862,3 +862,40 @@ gehoert zum Build, wie die Edition: Ein Wechsel ist Installer plus Lizenz.
 Abrechnungsformate anderer Laender sind Fachwissen, das der Anbieter
 beisteuert, wenn er das Land verkauft. Erfundene Inhalte waeren schlimmer
 als keine: Sie sehen fertig aus.
+
+## Kanal als Funktion der Version, Release-Manifest mit SSH-Signatur
+
+**Entscheidung:** Der Auslieferungskanal ist kein eigenes Feld, sondern folgt
+aus der Versionsnummer: `1.2.0` ist `stable`, jede Version mit Vorabkennung
+ist `beta`. `scripts/release.mjs` baut eine Version fuer alle gewuenschten
+Varianten, legt sie unter `release/<version>/<kanal>/<variante>/` ab und
+schreibt je Variante ein `release.json` mit Pruefsummen aller Artefakte,
+signiert mit `ssh-keygen -Y sign` im Namensraum `ohrganize-release`. Das
+Server-Archiv traegt die Variante im Namen und enthaelt `VARIANTE.txt`.
+
+**Warum:** Ein Kanal als zusaetzliche Angabe ist eine Angabe, die jemand
+vergessen oder falsch setzen kann, und zwar genau dann, wenn es weh tut: eine
+Beta im stabilen Verzeichnis. Aus der Nummer abgeleitet kann das nicht
+passieren. Die Variante im Archivnamen und in `VARIANTE.txt` schliesst den
+zweiten Weg, auf dem ein Update stillschweigend falsch laufen kann: Wer eine
+Datei in der Hand hat, sieht, wohin sie gehoert, und die Update-Anleitungen
+beginnen mit genau diesem Abgleich gegen `/api/health` und die env-Datei.
+
+**Warum ssh-keygen und nicht das Lizenzschluesselpaar:** Zwei getrennte
+Vertrauensdomaenen. Ein verlorener Release-Schluessel darf keine Lizenzen
+faelschen koennen und umgekehrt; auch die Rotation laeuft getrennt.
+`ssh-keygen -Y sign` braucht kein neues npm-Paket, liegt auf jedem Linux-Server
+und seit Windows 10 beim OpenSSH-Client bei, und die Gegenprobe ist ein
+Einzeiler mit einer Allowed-Signers-Datei, die im Archiv mitreist.
+
+**In Kauf genommen:** Die Ordnung der Versionen aendert sich. Seit
+`compareVersions` Vorabkennungen kennt, ist `1.1.0-beta.1` aelter als `1.1.0`
+und `isAtLeast('1.1.0-beta.1', '1.1.0')` falsch. Das ist semver-richtig, hat
+aber eine Falle: Soll eine Beta derselben Nummer im Umlauf sein, muss
+`MIN_CLIENT_VERSION` auf die Beta zeigen, sonst sperrt der Server genau die
+Arbeitsplaetze aus, die testen sollen. Der Hinweis steht an der Konstante.
+
+**Verworfen, Signatur ueber ein npm-Signaturpaket:** Eine neue Abhaengigkeit
+fuer etwas, das auf beiden Zielplattformen bereits installiert ist, waere eine
+zusaetzliche Lieferkette fuer genau den Schritt, der die Lieferkette absichern
+soll.
