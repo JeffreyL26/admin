@@ -894,11 +894,36 @@ test`, `lizenz ausstellen … --einspielen`, `release erfassen`, `rollout
 
 ## 6. Uebergabe: Stand und verbindliche Vorgaben fuer die Fortsetzung
 
-Stand 15.09.2026, Phasen 0 bis 4 auf `main` gemerged (letzter Merge
-`b318f07`), Version bleibt 1.0.0. Wer hier weitermacht (lokal oder in einer
-Cloud-Sitzung), liest zuerst `CLAUDE.md` (Abschnitte Lizenz, Edition gegen
-Feature, Varianten) und `docs/entscheidungen.md` (die letzten sechs
-Eintraege) und arbeitet dann Phase 5 bis 8 dieses Plans ab.
+**Stand 15.09.2026: Phasen 0 bis 8 sind auf `main` gemerged.** Version bleibt
+1.0.0, `MIN_*` unveraendert, kein Installer gebaut. Was aus den Phasen 5 bis 8
+entstanden ist, steht in `CLAUDE.md` (Abschnitte "Laender als Datendimension",
+Kanal und Release, Betreiberwerkzeuge, Hosting, conspectus), in `CHANGELOG.md`
+unter "Unveroeffentlicht" und je Phase als Eintrag in
+`docs/entscheidungen.md`. Betreiberdoku: `docs/betrieb-anbieter.md`.
+
+**Was bewusst offen geblieben ist** (und beim naechsten Schritt dran waere):
+
+1. **Testserver-Durchstich der Hosting-Haertung.** Symlink je Instanz,
+   Leseisolation, Ressourcengrenzen, `ohrganize-update.sh` und die neuen
+   Unterbefehle sind gebaut und in ihren Einzelteilen geprueft, aber nicht auf
+   einem Debian-Server durchgespielt. Die Pruefliste steht in
+   `deploy/README.md`, Abschnitt 9.7; die Ressourcengrenzen sind bis zur
+   Messung ausdruecklich Startwerte.
+2. **Durchstich von conspectus gegen einen echten Host** (ssh, scp, Rollout
+   samt Ruecknahme): `docs/betrieb-anbieter.md`, Abschnitt 10.
+3. **Release-Signaturschluessel.** `deploy/ohrganize-release.allowed_signers`
+   enthaelt bisher nur die Anleitung; ohne Eintrag entsteht ein unsigniertes
+   `release.json`, und `release.mjs` sagt das deutlich.
+4. **AT- und CH-Inhalte.** Phase 5 hat die Strukturen gelegt (Regionen,
+   Feiertagsregeln, Kataloge, Adapter); gefuellt ist nur DE. Ein leerer
+   Katalog heisst "gibt es hier nicht" und blendet das Feld aus.
+5. **Weitere Varianten und Features.** Das Register kennt genau
+   `de-vollversion`, `FEATURES` ist leer. Beides ist ein Eintrag plus
+   `npm run variants:gen`, kein Codeumbau.
+
+Der Abschnitt darunter ist der urspruengliche Uebergabestand nach Phase 4
+(letzter Merge `b318f07`). Seine Vorgaben gelten weiter fuer alles, was noch
+kommt; die Phasenliste darin ist erledigt.
 
 Vorgaben des Anbieters aus der Umsetzung, die den Plan ergaenzen oder
 uebersteuern:
