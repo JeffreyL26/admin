@@ -21,7 +21,9 @@
     "build:web": "npm run build -w apps/web",
     "dist:win": "npm run build && npm run dist:win -w apps/desktop",
     "release:server": "node scripts/release-server.mjs",
-    "lizenz": "npm run lizenz -w apps/backend --"
+    "lizenz": "npm run lizenz -w apps/backend --",
+    "check:dashes": "node scripts/check-dashes.mjs",
+    "test:holidays": "npm run test:holidays -w apps/backend"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

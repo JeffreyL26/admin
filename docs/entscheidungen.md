@@ -668,3 +668,37 @@ Speicheraufbau als Schnittstelle zu behandeln und einen selbst erzeugten
 Schlüssel hineinzulegen, sagt die Doku es ehrlich: ankündigen, Freitagabend,
 neuen Pin ablesen und ausrollen. Ohne Ausfall geht es nur mit einem selbst
 erzeugten Schlüssel (Firmen-CA, statische Dateien).
+
+## Gedankenstriche: Pruefung auf neue Zeilen statt Aufraeumen des Bestands
+
+**Entscheidung:** `scripts/check-dashes.mjs` prueft im Modus `--base <ref>`
+nur die seit `<ref>` hinzugekommenen Zeilen (plus unversionierte Dateien)
+auf Halbgeviert- und Geviertstrich. Ganze Dateien nur auf ausdruecklichen
+Pfadaufruf. Drei UI-Konventionen bleiben erlaubt: Geviertstrich als Leerwert
+in Zellen, die Klammer aus zwei Geviertstrichen um Platzhalter leerer
+Auswahlfelder, Halbgeviertstrich in Datumsspannen. Kein Opt-out per
+Kommentar.
+
+**Warum:** Der Anbieter will keine Gedankenstriche in Software und Doku,
+raeumt den Bestand aber selbst auf. Ein Vollscan wuerde bei jeder
+angefassten Datei Hunderte Altlasten melden und die Phasenabnahme
+unbrauchbar machen; ein Diff-Scan haelt die Regel "es kommen keine dazu"
+maschinell durch. Die drei Ausnahmen sind app-weit etablierte Konventionen
+(je 15 bis 30 Stellen), deren Umbau die Konsistenz kosten wuerde.
+
+**Verworfen, Kommentar-Opt-out:** Ein `// dashes-ok` haette den Weg des
+geringsten Widerstands geoeffnet; wer eine Fundstelle wirklich braucht,
+erweitert die Ausnahmeliste im Skript und begruendet es dort.
+
+## Feiertags-Fixture vor dem Umbau der Regeln
+
+**Entscheidung:** `apps/backend/src/test/fixtures/holidays-de.json` haelt
+das heutige Ergebnis von `holidaysForYear` fuer 8 Jahre mal 16 Regionen
+fest; `holidaysTest.ts` vergleicht bei jedem `npm test`.
+
+**Warum:** Phase 5 traegt die Regeltabelle in Datenform um (Laender als
+Dimension). Die Jahresweichen (2017 Reformationstag bundesweit, 2018
+Nordlaender, 2019 Frauentag BE und Weltkindertag TH, 2023 Frauentag MV)
+sind genau die Stellen, an denen ein Umbau still falsch werden kann. Die
+Fixture wurde VOR dem Umbau aus dem alten Code erzeugt und ist damit ein
+unabhaengiger Anker, kein Abschreiben der neuen Implementierung.
