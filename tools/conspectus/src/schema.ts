@@ -128,4 +128,6 @@ CREATE INDEX IF NOT EXISTS idx_rollouts_release ON rollouts(release_id);
  */
 export const SPAETERE_SPALTEN: { tabelle: string; spalte: string; typ: string }[] = [
   { tabelle: 'lizenzen', spalte: 'kid', typ: 'TEXT' },
+  // Privater SSH-Schluessel je Host (-i), wenn nicht der Standardschluessel gilt.
+  { tabelle: 'hosts', spalte: 'ssh_schluessel', typ: 'TEXT' },
 ];

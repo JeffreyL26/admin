@@ -2,6 +2,11 @@
  * Zustand EINER Instanz, ohne sie anzufassen.
  *
  *   node apps/backend/dist/status.cjs --data-dir /var/lib/ohrganize/musterfirma [--json]
+ *   node apps/backend/dist/status.cjs --data-dir <pfad> --lizenzdatei <datei> [--json]
+ *
+ * `--lizenzdatei` bewertet eine andere Datei als die im Datenverzeichnis
+ * (Probe VOR dem Einspielen: provision.sh lizenz lehnt eine Datei ab, die
+ * fuer diese Instanz unbrauchbar waere, statt eine gueltige zu ersetzen).
  *
  * Beantwortet die Fragen, die ein Betreiber an eine fremde Installation hat:
  * Welche Variante und Version? Welche Installations-ID (die braucht die
@@ -18,8 +23,10 @@
  * Kein Import von config.ts (siehe toolkit.ts).
  */
 import fs from 'node:fs';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import {
+  LICENSE_FORMAT_VERSION,
   LICENSE_KIND_LABELS,
   LICENSE_STATE_LABELS,
   COUNTRY_LABELS,
@@ -84,9 +91,11 @@ const fromNewer = appliedMigrations.filter((name) => !known.has(name));
 // ---------------------------------------------------------------------------
 const trusted = TRUSTED_LICENSE_KEYS_RAW.map((k) => ({ kid: k.kid, publicKey: publicKeyFrom(k.publicKey) }));
 let loaded: LoadedLicenseInput = { exists: false, payload: null, invalidReason: null };
-if (fs.existsSync(paths.license)) {
+const licenseFile = values['lizenzdatei'] ? path.resolve(values['lizenzdatei']) : paths.license;
+if (values['lizenzdatei'] && !fs.existsSync(licenseFile)) fail(`Lizenzdatei ${licenseFile} existiert nicht.`);
+if (fs.existsSync(licenseFile)) {
   try {
-    loaded = { exists: true, payload: verifyLicenseText(fs.readFileSync(paths.license, 'utf8'), trusted), invalidReason: null };
+    loaded = { exists: true, payload: verifyLicenseText(fs.readFileSync(licenseFile, 'utf8'), trusted), invalidReason: null };
   } catch (err) {
     loaded = { exists: true, payload: null, invalidReason: err instanceof Error ? err.message : String(err) };
   }
@@ -145,6 +154,8 @@ const result = {
     marker: VARIANT_MARKER,
   },
   version: APP_VERSION,
+  /** Hoechste lesbare Lizenzfassung dieses Standes (wie /api/health); conspectus prueft sie vor v2. */
+  license_format: LICENSE_FORMAT_VERSION,
   data_dir: paths.dir,
   installation_id: installation.installation_id,
   installed_at: installation.created_at,

@@ -690,6 +690,30 @@ chmod 0644 /etc/ohrganize/provision.conf
 /opt/ohrganize/deploy/ohrganize-update.sh releases
 ```
 
+**Bestandshost auf das neue Layout bringen.** Ein Host, der die Instanzen
+noch aus dem gemeinsamen `/opt/ohrganize` betreibt (Stand vor der
+Hosting-Haertung), braucht je Instanz zwei Handgriffe, BEVOR die neuen
+Unit-Vorlagen wirken; sonst startet der Dienst nach `daemon-reload` nicht
+mehr, weil `/opt/ohrganize/kunden/<kunde>` fehlt:
+
+```bash
+# 1. Einrichtung wie oben, Release einspielen (ohrganize-update.sh einspielen)
+# 2. je Instanz: Ausgabe in die env-Datei, Symlinks setzen, neu starten
+for k in musterfirma zweite-firma; do
+  grep -q '^OHRGANIZE_VARIANT=' /etc/ohrganize/kunden/$k.env ||
+    printf '\nOHRGANIZE_VARIANT=de-vollversion\n' >> /etc/ohrganize/kunden/$k.env
+  ln -sfn /opt/ohrganize/releases/de-vollversion-1.0.0 /opt/ohrganize/kunden/$k
+  ln -sfn /opt/ohrganize/releases/de-vollversion-1.0.0/apps/web/dist \
+    /srv/ohrganize-web/kunden/$k.ohrganize.com
+done
+systemctl restart 'ohrganize-backend@*'
+ohrganize-provision.sh check
+```
+
+Das alte `/opt/ohrganize/apps` und `node_modules` koennen danach weg. Die
+Tabelle `installation` (Lizenz) entsteht bei diesen Instanzen mit dem
+ersten Start des neuen Releases; die Testphase zaehlt ab da.
+
 ### 9.2 DNS
 
 Ein Wildcard-Eintrag zeigt alle Kundennamen auf den Server:
@@ -899,6 +923,8 @@ Das Portal-Verzeichnis wird nicht mehr kopiert; der Symlink
 ohrganize-provision.sh restore musterfirma /var/backups/ohrganize/musterfirma/ohrganize-20260915-023014
 ```
 
+Von Hand fragt es zur Bestaetigung den Kundenschluessel ab; fuer Skripte
+ohne Terminal (conspectus ueber ssh) gibt es `--ja`.
 Es stoppt die Instanz, verschiebt den jetzigen Stand nach
 `<datenverzeichnis>.alt-<zeit>` (statt ihn zu ueberschreiben), spielt
 Datenbank, `storage/`, `secret.key` und die Lizenzdatei ein, zieht die Rechte
@@ -907,6 +933,15 @@ Sicherung eine NEUERE Lizenz eingespielt, muss sie erneut abgelegt werden
 (`ohrganize-provision.sh lizenz <kunde> <datei>`), denn der Dateiwaechter des
 Servers prueft keine Monotonie, ein alter Stand bringt also still die alte
 Datei zurueck.
+
+**Lizenz einspielen** (`ohrganize-provision.sh lizenz <kunde> <datei>`)
+prueft die Datei ZUERST fuer genau diese Instanz (`status.cjs
+--lizenzdatei`: Signatur, Bindung an die Installations-ID, Ausgabe,
+Laufzeit) und schreibt sie nur, wenn sie brauchbar ist. Eine Datei der
+falschen Ausgabe oder eines anderen Kunden wird mit dem Grund abgewiesen,
+die bisherige Datei bleibt liegen. Sonst haette ein Griff in den falschen
+Mailanhang eine gueltige Lizenz durch eine unbrauchbare ersetzt, und die
+Instanz waere in den Nur-Lese-Betrieb gefallen.
 
 **Pausieren** (Wartung, Vertragspause): `ohrganize-provision.sh pausieren
 <kunde>` haelt Dienst und Sicherungs-Timer an; der Proxy liefert dann die
@@ -974,35 +1009,61 @@ startet, läuft in systemds Startlimit (5 Starts je 10 s) — dann
 `systemctl reset-failed ohrganize-backup@<kunde>`; der tägliche Timer ist
 davon nicht betroffen.
 
-**Noch nicht erprobt: die Hosting-Haertung aus dieser Fassung.** Programm je
-Instanz als Symlink, Leseisolation, Ressourcengrenzen, `ohrganize-update.sh`
-und die neuen Unterbefehle von `ohrganize-provision.sh` sind auf der
-Entwicklungsmaschine gebaut und in ihren Einzelteilen geprueft (Werkzeuge,
-Probelauf, Archivinhalt), aber noch nicht auf einem Debian-Testserver
-durchgespielt. Das Protokoll dieses Laufs gehoert hierher, sobald er
-stattgefunden hat; zu pruefen sind mindestens:
+**Hosting-Haertung, durchgespielt am 15.09.2026** auf demselben
+Debian-13-Testserver (systemd 257, Node 20.19.2) mit dem Release-Archiv
+`ohrganize-server-de-vollversion-1.0.0.zip`, ausgehend von einem
+Bestandshost mit zwei Instanzen auf dem alten gemeinsamen Layout:
 
-1. Zwei Instanzen anlegen, je eine Ausgabe, `status --json` liefert beide mit
-   Variante, Release und Lizenzzustand.
-2. `lizenz <kunde> <datei>` wirkt ohne Neustart (Zustand wechselt von `trial`
-   auf `valid`), und `id`, `pin`, `passwort` laufen als root, ohne
-   root-eigene `-wal`-Dateien im Datenverzeichnis zu hinterlassen
-   (`find /var/lib/ohrganize -user root`).
-3. Isolation: aus der Unit heraus zeigt ein Verzeichnislauf nur die eigene
-   Instanz; `systemd-analyze security` bleibt bei SAFE; Start, Sicherung und
-   Restore laufen weiter (die Wechselwirkung von `TemporaryFileSystem` mit
-   `StateDirectory` und `PrivateUsers=true` ist genau die Stelle, an der es
-   klemmen kann).
-4. Update auf ein Beta-Release mit absichtlich FALSCHER Variante wird
-   verweigert; mit richtiger Variante laeuft es durch.
-5. Rueckweg mit einer absichtlich brechenden Migration (Testbuild): Die
-   Instanz landet wieder auf dem alten Release mit intakter Datenbank, die
-   Markerdatei `.update-fehlgeschlagen` liegt im Datenverzeichnis, und die
-   uebrigen Instanzen laufen weiter.
-6. `restore` je Instanz, `check` ohne Befund.
-7. Ressourcengrenzen nachmessen (`systemd-cgtop`,
-   `systemctl show -p MemoryPeak`) und die Werte samt Datum hier eintragen;
-   die Kommentare in den Units tragen dann "gemessen auf Debian 13 am <Datum>".
+1. Einrichtung nach 9.1 aus dem Archiv, `systemd-analyze verify` ohne
+   Befund. `ohrganize-update.sh einspielen`: Pruefsumme, Ausgabe,
+   `npm ci --omit=dev`, Ladeprobe better-sqlite3 (Fertigpaket fuer Node 20
+   gefunden). Beide Bestandsinstanzen mit dem Rezept aus 9.1 umgezogen;
+   Health meldet Variante, Version, Kanal und `license_format`.
+2. `anlegen` einer dritten Instanz (Port 3102, Symlinks, Timer, Map),
+   `liste`, `status --json` und `status` (Variante, Release, Lizenzzustand,
+   Zaehlungen, Migrationen), `id`, `passwort`, `pin` (Pin aus
+   `fullchain.pem`), alles als root und ohne root-eigene Dateien im
+   Datenverzeichnis.
+3. Isolation: Aus dem Mount-Namensraum des laufenden Dienstes (`nsenter -m`)
+   und aus `systemd-run` mit denselben Direktiven zeigt
+   `ls /var/lib/ohrganize` nur die eigene Instanz. `systemd-analyze security`
+   0.9 SAFE. Start, Sicherung (unter der gehaerteten Sicherungs-Unit) und
+   Restore laufen; `TemporaryFileSystem` und `StateDirectory` vertragen
+   sich.
+4. `lizenz` wirkt ohne Neustart (gleiche MainPID, Zustand `trial` auf
+   `valid`, Audit-Zeile `license.file_changed` mit `user_id NULL`). Eine
+   Datei fremder Ausgabe wird VOR dem Schreiben abgewiesen; die bisherige
+   bleibt liegen.
+5. Falsche Ausgabe: Ein Archiv mit `VARIANTE.txt` = `de-probe` laesst sich
+   einspielen, `umstellen` ueberspringt alle Instanzen ("Keine Instanz
+   dieser Ausgabe"), und `anlegen --variante de-probe` scheitert am
+   Startabgleich des Backends (`OHRGANIZE_VARIANT ist auf "de-probe"
+   gesetzt, dieses Programm ist aber die Variante "de-vollversion"`);
+   `anlegen` nimmt env-Datei, Symlinks, Unit und Map wieder zurueck.
+6. Rueckweg: Release `de-vollversion-1.0.1` als Kopie mit absichtlich
+   abbrechender `cli.cjs`. `umstellen --probelauf` meldet den
+   Migrations-Probelauf ok und stellt nichts um; `umstellen` echt: Sicherung,
+   stop, Symlink, Start scheitert, nach 45 s Symlink zurueck, alte Fassung
+   laeuft, Markerdatei `.update-fehlgeschlagen` liegt, die uebrigen
+   Instanzen liefen durchgehend. Die naechste erfolgreiche Umstellung
+   entfernt den Marker. (Der Zweig "alte Fassung startet nicht, weil die
+   Datenbank schon migriert ist" braucht eine echte neue Migration und ist
+   erst mit dem ersten Release mit Schemaaenderung pruefbar.)
+7. `restore --ja` je Instanz (alter Stand nach `.alt-<zeit>`, Dienst
+   laeuft, Rechte stimmen), `check` meldet als einzige Befunde die alten
+   Sicherungen der Bestandsinstanzen.
+8. Messung (leere Bestaende, 300 Health- und 30 Login-Aufrufe je Instanz):
+   MemoryPeak 60 bis 63 MB je Backend-Instanz bei 11 Tasks, Sicherungslauf
+   20 MB. Die Grenzen (512M/768M, 384M/512M) bleiben als Startwerte stehen;
+   vor dem Senken mit echten Bestaenden messen.
+
+Drei Dinge sind dabei aufgefallen und behoben: `json_feld` in
+`ohrganize-lib.sh` arbeitete zeilenweise und fand im mehrzeiligen JSON von
+`status.cjs` nie ein verschachteltes Feld (`liste` zeigte keinen
+Lizenzzustand, `check` meldete keinen); `check` rechnete mit dem
+Sekundenbruchteil aus `find -printf %T@` und brach ab; `restore` hatte
+keinen Weg ohne Terminal. Dazu die Lizenzprobe vor dem Einspielen (oben)
+und die Markerdatei im Besitz des Dienstbenutzers.
 
 **Nicht** erprobt und beim ersten echten Kunden zu prüfen:
 

@@ -82,16 +82,17 @@ process.env.OHRGANIZE_VARIANT = variantId;
  */
 function runNpm(npmArgs) {
   console.log(`> npm ${npmArgs.join(' ')}`);
-  const cli = process.env.npm_execpath;
   const env = { ...process.env, OHRGANIZE_VARIANT: variantId };
-  const r = cli
-    ? spawnSync(process.execPath, [cli, ...npmArgs], { cwd: root, stdio: 'inherit', env })
-    : spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', npmArgs, {
-        cwd: root,
-        stdio: 'inherit',
-        shell: process.platform === 'win32',
-        env,
-      });
+  // npm-cli.js: ueber npm_execpath (Lauf via `npm run`), sonst neben der
+  // Node-Installation; `npm.cmd` liesse sich unter Windows nicht ohne Shell starten.
+  const nodeDir = path.dirname(process.execPath);
+  const cli =
+    process.env.npm_execpath ??
+    [path.join(nodeDir, 'node_modules/npm/bin/npm-cli.js'), path.join(nodeDir, '../lib/node_modules/npm/bin/npm-cli.js')].find((c) =>
+      fs.existsSync(c),
+    );
+  if (!cli) fail('npm-cli.js nicht gefunden. Bitte ueber "npm run release:server" starten.');
+  const r = spawnSync(process.execPath, [cli, ...npmArgs], { cwd: root, stdio: 'inherit', env });
   if (r.status !== 0) fail(`npm ${npmArgs.join(' ')} endete mit Status ${r.status}`);
 }
 

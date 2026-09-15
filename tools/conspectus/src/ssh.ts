@@ -18,6 +18,8 @@ export interface HostTarget {
   adresse: string;
   ssh_benutzer: string;
   ssh_port: number;
+  /** Privater Schluessel fuer diesen Host (-i); null = Standardschluessel des Aufrufers. */
+  ssh_schluessel?: string | null;
 }
 
 export interface RemoteResult {
@@ -26,17 +28,23 @@ export interface RemoteResult {
   stderr: string;
 }
 
-function baseOptions(): string[] {
-  return [
+function baseOptions(host: HostTarget): string[] {
+  const options = [
     '-o', 'BatchMode=yes',
     '-o', 'StrictHostKeyChecking=accept-new',
     '-o', 'ConnectTimeout=10',
   ];
+  if (host.ssh_schluessel) {
+    // IdentitiesOnly: sonst probiert ssh zuerst die Standardschluessel und
+    // laeuft bei vielen Schluesseln in "Too many authentication failures".
+    options.push('-i', host.ssh_schluessel, '-o', 'IdentitiesOnly=yes');
+  }
+  return options;
 }
 
 /** Befehl auf dem Host ausfuehren. `command` ist ein Array, kein String. */
 export function runRemote(host: HostTarget, command: string[]): RemoteResult {
-  const args = [...baseOptions(), '-p', String(host.ssh_port), `${host.ssh_benutzer}@${host.adresse}`, ...command];
+  const args = [...baseOptions(host), '-p', String(host.ssh_port), `${host.ssh_benutzer}@${host.adresse}`, ...command];
   const res = spawnSync('ssh', args, { encoding: 'utf8' });
   if (res.error) {
     return { code: 127, stdout: '', stderr: `ssh liess sich nicht starten: ${res.error.message}` };
@@ -47,7 +55,7 @@ export function runRemote(host: HostTarget, command: string[]): RemoteResult {
 /** Datei auf den Host kopieren. */
 export function copyToRemote(host: HostTarget, localFile: string, remotePath: string): RemoteResult {
   const args = [
-    ...baseOptions(),
+    ...baseOptions(host),
     '-P', String(host.ssh_port),
     localFile,
     `${host.ssh_benutzer}@${host.adresse}:${remotePath}`,

@@ -30,6 +30,17 @@ import { checkCommand } from './commands/check.js';
 import { htmlCommand, uebersichtCommand } from './commands/uebersicht.js';
 import { csvImportCommand, zahlungCommand } from './commands/csvImport.js';
 
+// `npm run conspectus` startet im Workspace tools/conspectus; Dateipfade in
+// den Argumenten meint der Aufrufer aber relativ zu SEINEM Verzeichnis. npm
+// nennt es in INIT_CWD.
+if (process.env.INIT_CWD && process.env.INIT_CWD !== process.cwd()) {
+  try {
+    process.chdir(process.env.INIT_CWD);
+  } catch {
+    // Verzeichnis nicht mehr erreichbar: dann gilt das Arbeitsverzeichnis von npm.
+  }
+}
+
 const HILFE = `conspectus - Register und Werkzeug des Anbieters
 
   kunde anlegen <id> --name "..." [--kontakt ... --email ... --notiz ...]
@@ -37,6 +48,7 @@ const HILFE = `conspectus - Register und Werkzeug des Anbieters
   kunde liste
 
   host anlegen <id> --adresse <host> [--benutzer root --port 22 --basis-domain ohrganize.com]
+                                     [--schluessel <privater-ssh-schluessel>]
   host liste
 
   instanz anlegen <id> --kunde <kunde> --variante de-vollversion

@@ -180,6 +180,9 @@ BindPaths=/var/lib/ohrganize/%i
 # (der Kernel raeumt auf und bremst), MemoryMax beendet. Nach einem Dauerlauf
 # mit echten Bestaenden justieren; die gemessenen Werte gehoeren in
 # deploy/README.md, Abschnitt 9.7.
+# Gemessen auf Debian 13 am 2026-09-15 (leere Bestaende, 300 Health- und 30
+# Login-Aufrufe): MemoryPeak 60 bis 63 MB je Instanz, 11 Tasks. Die Grenzen
+# lassen damit reichlich Luft; vor dem Senken mit echten Bestaenden messen.
 MemoryHigh=512M
 MemoryMax=768M
 TasksMax=256

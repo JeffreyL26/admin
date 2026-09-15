@@ -358,6 +358,9 @@ instanz_zuruecknehmen() {
     fi
   fi
   date -Iseconds >"$daten/.update-fehlgeschlagen" 2>/dev/null || true
+  # Dem Dienstbenutzer geben: Im Datenverzeichnis soll nichts root gehoeren
+  # (find /var/lib/ohrganize -user root ist Teil der Abnahme).
+  chown "$DIENST_BENUTZER":"$DIENST_BENUTZER" "$daten/.update-fehlgeschlagen" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
