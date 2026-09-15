@@ -369,13 +369,46 @@ das Gegenteil — siehe Abschnitt 8.)
 
 ## 6. Update
 
+**Schritt 0: Variante pruefen, bevor entpackt wird.** Jede Ausgabe
+(Land x Edition) ist ein eigener Build; der Archivname traegt sie
+(`ohrganize-server-de-vollversion-1.2.0.zip`). Ein Archiv der falschen
+Ausgabe ueber eine laufende Instanz entpackt heisst: Der Dienst startet nicht
+(das Backend prueft `OHRGANIZE_VARIANT` gegen die einkompilierte Variante)
+oder die Arbeitsplaetze brechen beim Start ab.
+
+```powershell
+# Was steckt im Archiv? (in ein leeres Verzeichnis entpacken und nachsehen)
+$tmp = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ([guid]::NewGuid()))
+Expand-Archive 'C:\Temp\ohrganize-server-<variante>-<version>.zip' -DestinationPath $tmp -Force
+Get-Content (Join-Path $tmp 'VARIANTE.txt')
+Get-Content (Join-Path $tmp 'release.json')
+Remove-Item $tmp -Recurse -Force
+# Was laeuft gerade?
+(Invoke-RestMethod 'http://127.0.0.1:3001/api/health').variant.id
+# Was steht in der Dienstumgebung?
+nssm get oHRganize AppEnvironmentExtra
+```
+
+Liegt neben dem Archiv ein `release.json` mit `release.json.sig`, wird zuerst
+die Signatur des Anbieters geprueft (OpenSSH-Client, seit Windows 10 dabei;
+sonst ueber "Optionale Features" nachinstallieren):
+
+```powershell
+ssh-keygen -Y verify -f 'C:\Program Files\oHRganize\deploy\ohrganize-release.allowed_signers' `
+  -I release@ohrganize -n ohrganize-release -s release.json.sig < release.json
+```
+
+Der Kanal ist eine Funktion der Version (`1.2.0` = stable,
+`1.2.0-beta.1` = beta); `/api/health` meldet ihn als `channel`. Eine Beta
+gehoert nicht auf ein Produktivsystem.
+
 ```powershell
 nssm stop oHRganize
 Start-ScheduledTask -TaskName 'oHRganize-Sicherung'
 Set-Location 'C:\Program Files\oHRganize'
-(Get-FileHash 'C:\Temp\ohrganize-server-<version>.zip' -Algorithm SHA256).Hash.ToLower()   # gegen .sha256 vergleichen
+(Get-FileHash 'C:\Temp\ohrganize-server-<variante>-<version>.zip' -Algorithm SHA256).Hash.ToLower()   # gegen .sha256 vergleichen
 Remove-Item 'apps' -Recurse -Force                # Altstand weg (node_modules bleibt); sonst sammeln sich alte Portal-Assets an
-Expand-Archive 'C:\Temp\ohrganize-server-<version>.zip' -DestinationPath 'C:\Program Files\oHRganize' -Force
+Expand-Archive 'C:\Temp\ohrganize-server-<variante>-<version>.zip' -DestinationPath 'C:\Program Files\oHRganize' -Force
 npm ci --omit=dev                                 # nur nötig, wenn better-sqlite3 gewechselt hat — schadet nie
 node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
 Remove-Item 'C:\ProgramData\oHRganize\web\*' -Recurse -Force

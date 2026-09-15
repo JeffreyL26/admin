@@ -539,10 +539,30 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   Nur-Lese-Betrieb.** Lizenzen nennen ihren Schlüssel über `kid`; ein Server
   ohne passenden Eintrag hält die Datei für unbrauchbar. Ablauf in
   docs/lizenzierung.md, Abschnitt 3.1.
+- **Kanal ist eine Funktion der Version, kein eigenes Feld.** `channelOf`
+  (`packages/shared/src/version.ts`): `1.2.0` ist `stable`, jede Version mit
+  Vorabkennung ist `beta`; `/api/health` meldet `channel`, die Titelleiste
+  zeigt eine Beta als Abzeichen. **Falle:** `compareVersions` ordnet seither
+  semver-richtig, also ist `1.1.0-beta.1` AELTER als `1.1.0` und
+  `isAtLeast('1.1.0-beta.1', '1.1.0')` falsch. Soll eine Beta derselben
+  Nummer im Umlauf sein, muss `MIN_CLIENT_VERSION` auf die Beta zeigen.
+- **Ein Release baut `npm run release`** (`scripts/release.mjs`): Version
+  ueber alle Workspaces, Commit und Tag, je Variante Build plus
+  `check-variant` plus Server-Archiv plus Installer, dann je Variante ein
+  `release.json` (Version, Kanal, Variante, Artefakte mit sha256,
+  `min_*`, Commit) signiert ueber `ssh-keygen -Y sign -n ohrganize-release`;
+  Vertrauensanker `deploy/ohrganize-release.allowed_signers` (Schluessel
+  getrennt vom Lizenzschluessel, alte Zeilen bleiben bis zum Ende der
+  Rotation). Ablage `release/<version>/<kanal>/<variante>/`; zum Schluss
+  `npm rebuild better-sqlite3`, weil `dist:win` die ABI umbaut.
 - **Serverauslieferung ist das Release-Archiv, nicht das Repo.**
   `npm run release:server` (`scripts/release-server.mjs`) baut Backend und
-  Portal und packt `release/ohrganize-server-<version>.zip`: nur `cli.cjs` und
-  `backup.cjs` (minifiziert, **ohne** `.map` — die enthalten den Quelltext),
+  Portal EINER Variante (`--variant`, sonst `OHRGANIZE_VARIANT`, sonst die
+  Vorgabe des Registers) und packt
+  `release/ohrganize-server-<variante>-<version>.zip` (Ablage ueber `--out`
+  umlenkbar): nur `cli.cjs`, `backup.cjs` und die Betreiberwerkzeuge, sobald
+  der Build sie erzeugt (minifiziert, **ohne** `.map`, die den Quelltext
+  wieder lesbar machten), dazu `VARIANTE.txt` und ein unsigniertes `release.json`,
   `apps/web/dist`, `deploy/`, Betriebsdokumente und ein auf `better-sqlite3`
   gekürztes `package.json`/`package-lock.json` (aus dem Root-Lockfile
   abgeleitet, samt `allowScripts`-Eintrag). Die Pfade spiegeln das Repo, weil
@@ -573,7 +593,8 @@ npm run typecheck      # alle Workspaces
 npm run seed           # Demo-Daten
 npm run build:web      # statisches Portal-Build → apps/web/dist
 npm run dist:win       # kompletter Windows-Installer (NSIS) → apps/desktop/release
-npm run release:server # Server-Release-Archiv (Bundles + Portal + deploy/) → release/
+npm run release -- --version 1.1.0 --variants de-vollversion   # vollstaendiges Release je Variante, signiertes Manifest
+npm run release:server # Server-Release-Archiv einer Variante (--variant, --out) → release/
 npm run lizenz -- …    # Lizenzwerkzeug des Anbieters: keygen | keys | sign | inspect (docs/lizenzierung.md)
 ```
 

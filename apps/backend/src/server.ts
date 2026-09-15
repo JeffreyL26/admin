@@ -5,6 +5,7 @@ import {
   LICENSE_STATE_HEADER,
   MIN_CLIENT_VERSION,
   SERVER_VERSION_HEADER,
+  channelOf,
 } from '@ohrganize/shared';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
@@ -227,6 +228,10 @@ export async function buildServer(): Promise<FastifyInstance> {
     name: 'oHRganize Backend',
     version: APP_VERSION,
     min_client_version: MIN_CLIENT_VERSION,
+    // Kanal ist eine Funktion der Version (1.2.0 = stable, 1.2.0-beta.1 =
+    // beta), kein eigenes Feld: So kann ein Release nicht im falschen Kanal
+    // landen, weil jemand eine Angabe vergessen hat.
+    channel: channelOf(APP_VERSION),
     // Variante dieses Servers: Die Desktop-App bricht bei Abweichung ab, das
     // Update-Skript prueft sie vor dem Entpacken.
     variant: { id: VARIANT.id, country: VARIANT.country, edition: VARIANT.edition, label: VARIANT.label },
