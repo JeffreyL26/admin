@@ -110,9 +110,25 @@ function run(cmd, args, { env = {}, cwd = root, capture = false } = {}) {
  * npm-cli.js; die wird direkt mit node gestartet.
  */
 function npm(args, env = {}) {
-  const cli = process.env.npm_execpath;
-  if (cli) return run(process.execPath, [cli, ...args], { env });
-  return run(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, { env });
+  return run(process.execPath, [npmCli(), ...args], { env });
+}
+
+/**
+ * npm-cli.js finden: ueber npm_execpath (Lauf via `npm run`), sonst neben der
+ * Node-Installation (Windows: <node>/node_modules/npm, Unix:
+ * <node>/../lib/node_modules/npm). Ein direkter Aufruf `node scripts/release.mjs`
+ * unter Windows lief sonst in spawnSync npm.cmd EINVAL.
+ */
+function npmCli() {
+  if (process.env.npm_execpath) return process.env.npm_execpath;
+  const nodeDir = path.dirname(process.execPath);
+  for (const candidate of [
+    path.join(nodeDir, 'node_modules/npm/bin/npm-cli.js'),
+    path.join(nodeDir, '../lib/node_modules/npm/bin/npm-cli.js'),
+  ]) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  fail('npm-cli.js nicht gefunden. Bitte ueber "npm run release -- ..." starten.');
 }
 
 function node(script, args, env = {}) {
