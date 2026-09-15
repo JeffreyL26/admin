@@ -273,6 +273,11 @@ function ThemeCard() {
               }}
               style={{
                 font: 'inherit',
+                // Native <button>-Elemente ohne eigene Farbe rendern mit der
+                // UA-Vorgabe (Schwarz), unabhängig vom Theme. Im Dunkel-Theme
+                // ergibt das schwarze Schrift auf dunklem Kachelgrund, deshalb
+                // hier explizit wie beim Fließtext der Karte.
+                color: 'var(--text-primary)',
                 textAlign: 'left',
                 cursor: 'pointer',
                 padding: 12,
