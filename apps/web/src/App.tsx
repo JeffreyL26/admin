@@ -6,13 +6,9 @@ import { ToastProvider } from './components/Toast';
 import { PortalShell } from './layout/PortalShell';
 import { LoginPage } from './pages/LoginPage';
 import { PasswordChangePage } from './pages/PasswordChangePage';
+import { portalRoutes } from '@variant';
 import { OverviewPage } from './pages/OverviewPage';
-import { RequestsPage } from './pages/RequestsPage';
-import { NewRequestPage } from './pages/NewRequestPage';
-import { SickNotePage } from './pages/SickNotePage';
-import { CalendarPage } from './pages/CalendarPage';
 import { StammdatenPage } from './pages/StammdatenPage';
-import { SalaryPage } from './pages/SalaryPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { OrgPage } from './pages/OrgPage';
 import { ProfilePage } from './pages/ProfilePage';
@@ -87,15 +83,14 @@ const router = createBrowserRouter([
         <PortalShell />
       </RequireAuth>
     ),
-    // Reihenfolge wie in der Seitenleiste (layout/PortalShell.tsx).
+    // Basisseiten jeder Variante; die Seiten optionaler Module (Antraege,
+    // Krankmeldung, Kalender, Gehalt) kommen aus @variant (src/variants/<id>.tsx,
+    // erzeugt aus dem Variantenregister). Reihenfolge der Seitenleiste:
+    // layout/PortalShell.tsx.
     children: [
       { path: '/', element: <OverviewPage /> },
-      { path: '/antraege', element: <RequestsPage /> },
-      { path: '/antraege/neu', element: <NewRequestPage /> },
-      { path: '/krankmeldung', element: <SickNotePage /> },
-      { path: '/kalender', element: <CalendarPage /> },
+      ...portalRoutes,
       { path: '/stammdaten', element: <StammdatenPage /> },
-      { path: '/gehalt', element: <SalaryPage /> },
       { path: '/dokumente', element: <DocumentsPage /> },
       { path: '/organigramm', element: <OrgPage /> },
       { path: '/profil', element: <ProfilePage /> },

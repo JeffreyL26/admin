@@ -413,7 +413,7 @@ zwei getrennten Datenbeständen.
 > (keine Adminrechte), Installer und Skript z. B. auf einem Stick:
 >
 > ```powershell
-> .\setup-workstation.ps1 -ApiBaseUrl 'https://portal.firma.de' -ServerPin 'sha256/…' -Installer '.\oHRganize Setup <Version>.exe'
+> .\setup-workstation.ps1 -ApiBaseUrl 'https://portal.firma.de' -ServerPin 'sha256/…' -Installer '.\oHRganize-Setup-<Version>-<Variante>.exe'
 > ```
 >
 > Es installiert die App still, wenn sie fehlt, schreibt die `config.json`
@@ -425,7 +425,7 @@ zwei getrennten Datenbeständen.
 > `-RemoveLocalData` räumt eine leere Erstanlage weg (Schritt 4 unten). Die
 > Schritte 1–4 sind dasselbe von Hand.
 
-1. Installer ausführen (`oHRganize Setup <Version>.exe` aus
+1. Installer ausführen (`oHRganize-Setup-<Version>-<Variante>.exe` aus
    `apps\desktop\release`). Danach die App **noch nicht öffnen**.
 2. Serveradresse hinterlegen — eine der beiden Quellen genügt:
 

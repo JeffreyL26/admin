@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { hasFeature, pathAllowedByFeatures } from '@ohrganize/shared';
+import { hasFeature, moduleEnabled, pathAllowedByFeatures, type ModuleKey } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { useAuth } from '../auth/AuthContext';
 import { ReadOnlyNotice } from '../components/ReadOnlyNotice';
 import {
@@ -27,10 +28,13 @@ interface NavItem {
   end?: boolean;
   /** Feature-Schluessel, den die Lizenz freischalten muss (packages/shared features.ts). */
   feature?: string;
+  /** Fachmodul der Seite; fehlt es der Variante, gibt es den Eintrag nicht (src/variants). */
+  module?: ModuleKey;
 }
 
 /** Sichtbar mit dieser Feature-Menge? Expliziter Schluessel plus Registry (portalPaths). */
 function navItemAllowed(item: NavItem, features: readonly string[] | null): boolean {
+  if (!moduleEnabled(VARIANT, item.module)) return false;
   if (item.feature && !hasFeature(features, item.feature)) return false;
   return pathAllowedByFeatures(item.to, features, undefined, 'portalPaths');
 }
@@ -55,16 +59,16 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Abwesenheit',
     items: [
-      { to: '/antraege', label: 'Anträge', icon: IconRequests },
-      { to: '/krankmeldung', label: 'Krankmeldung', icon: IconSickNote },
-      { to: '/kalender', label: 'Kalender', icon: IconCalendar },
+      { to: '/antraege', label: 'Anträge', icon: IconRequests, module: 'absences' },
+      { to: '/krankmeldung', label: 'Krankmeldung', icon: IconSickNote, module: 'absences' },
+      { to: '/kalender', label: 'Kalender', icon: IconCalendar, module: 'absences' },
     ],
   },
   {
     title: 'Meine Daten',
     items: [
       { to: '/stammdaten', label: 'Stammdaten', icon: IconIdCard },
-      { to: '/gehalt', label: 'Gehalt', icon: IconSalary },
+      { to: '/gehalt', label: 'Gehalt', icon: IconSalary, module: 'compensation' },
       { to: '/dokumente', label: 'Dokumente', icon: IconDocuments },
     ],
   },

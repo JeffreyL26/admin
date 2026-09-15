@@ -10,9 +10,9 @@
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs --dev && electron . ",
     "typecheck": "tsc --noEmit",
-    "dist:win": "node scripts/reset-native.mjs && electron-builder --win && node scripts/copy-workstation-script.mjs",
-    "dist:mac": "node scripts/reset-native.mjs && electron-builder --mac",
-    "dist:linux": "node scripts/reset-native.mjs && electron-builder --linux"
+    "dist:win": "node scripts/dist.mjs --win",
+    "dist:mac": "node scripts/dist.mjs --mac",
+    "dist:linux": "node scripts/dist.mjs --linux"
   },
   "dependencies": {
     "@ohrganize/shared": "*",

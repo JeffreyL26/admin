@@ -23,7 +23,10 @@
     "release:server": "node scripts/release-server.mjs",
     "lizenz": "npm run lizenz -w apps/backend --",
     "check:dashes": "node scripts/check-dashes.mjs",
-    "test:holidays": "npm run test:holidays -w apps/backend"
+    "test:holidays": "npm run test:holidays -w apps/backend",
+    "variants:gen": "node scripts/variant-wiring.mjs",
+    "variants:check": "node scripts/variant-wiring.mjs --check",
+    "check:variant": "node scripts/check-variant.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

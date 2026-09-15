@@ -25,7 +25,6 @@ import { assertReasonableSpan, requireEmployee } from './lib.js';
 import { meCalendarRoutes } from './calendarRoutes.js';
 import { meDocumentRoutes } from './documentRoutes.js';
 import { meOrgRoutes } from './orgRoutes.js';
-import { meSalaryRoutes } from './salaryRoutes.js';
 import { meChangeRequestRoutes } from './changeRequestRoutes.js';
 
 const isoDate = z
@@ -69,8 +68,9 @@ export const meModule: FastifyPluginAsync = async (app) => {
   // Das Self-Service-Modul ist auf mehrere Routendateien verteilt (Vorbild:
   // modules/employees/routes.ts), damit parallele Arbeit keine Dateikonflikte
   // erzeugt. modules/index.ts registriert nur dieses eine Modul-Plugin, die
-  // Teilpakete hängen sich hier ein.
-  await app.register(meSalaryRoutes);
+  // Teilpakete hängen sich hier ein. Ausnahme: meSalaryRoutes haengt am
+  // Modul compensation und wird deshalb ueber die Variantenverdrahtung
+  // (src/variants/<id>.ts) registriert, nur wenn die Variante es enthaelt.
   await app.register(meOrgRoutes);
   await app.register(meCalendarRoutes);
   await app.register(meDocumentRoutes);

@@ -8,6 +8,18 @@ eigenen Abschnitt.
 
 ## Unveroeffentlicht
 
+### Hinzugefuegt (Varianten)
+- Varianten als getrennte Builds (Land x Edition): Register
+  `packages/shared/src/variants/registry.json` (Editionen frei
+  definierbar, keine feste Liste), erzeugte Verdrahtungsdateien je App
+  (`npm run variants:gen` / `variants:check`), Aliasse `@variant` und
+  `@variant-manifest`, Builds je Variante ueber `OHRGANIZE_VARIANT`,
+  Bundle-Pruefung `npm run check:variant`. Health meldet die Variante, die
+  Desktop-App prueft sie beim Start, das Backend beim Start gegen
+  `OHRGANIZE_VARIANT`, v2-Lizenzen fremder Ausgabe werden abgelehnt.
+  Installername `oHRganize-Setup-<version>-<variante>.exe`; Sicherungen
+  nennen die Variante im MANIFEST. Heute gibt es genau `de-vollversion`.
+
 ### Hinzugefuegt (Feature-Schluessel)
 - Feature-Gate: Funktionen innerhalb eines Builds koennen ueber die Lizenz
   (`features`) freigeschaltet werden. Registry `packages/shared/src/features.ts`

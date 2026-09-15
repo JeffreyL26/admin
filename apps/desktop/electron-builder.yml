@@ -26,6 +26,14 @@ directories:
   output: release
   buildResources: build
 
+# Installername traegt die Variante (Land x Edition), damit ein Arbeitsplatz
+# den Installer der passenden Serverausgabe bekommt; OHRGANIZE_VARIANT setzt
+# scripts/dist.mjs vor dem Aufruf. appId und productName bleiben fuer alle
+# Varianten gleich: Sonst spaltete sich %APPDATA%\oHRganize (config.json,
+# Pin-Speicher, Einzelplatzdaten) je Variante auf, und NSIS aktualisierte
+# nicht mehr in place.
+artifactName: oHRganize-Setup-${version}-${env.OHRGANIZE_VARIANT}.${ext}
+
 files:
   - dist/**
   - package.json

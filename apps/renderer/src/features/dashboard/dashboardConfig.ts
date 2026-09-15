@@ -4,7 +4,8 @@ import {
   CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
   UserPlus, UsersRound, Gauge, FilePenLine, BadgeCheck,
 } from 'lucide-react';
-import { widgetAllowedByFeatures, type AdminArea } from '@ohrganize/shared';
+import { AREA_MODULES, moduleEnabled, widgetAllowedByFeatures, type AdminArea, type ModuleKey } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import type { DashboardStats } from './api';
 
 /**
@@ -51,6 +52,8 @@ export interface StatDef {
    * eine Kachel mit „0“ wäre eine Falschaussage, keine Zugriffsmeldung.
    */
   area: AdminArea;
+  /** Fachmodul, falls es vom Bereich abweicht; sonst aus `area` abgeleitet (AREA_MODULES). */
+  module?: ModuleKey;
   value: (s: DashboardStats) => number | undefined;
   sub?: (s: DashboardStats) => string | undefined;
 }
@@ -167,6 +170,8 @@ export interface WidgetDef {
    * und stünde dann leer da.
    */
   area?: AdminArea;
+  /** Fachmodul, falls es nicht aus `area` folgt (personengebundene Widgets); Widgets fehlender Module gibt es nicht. */
+  module?: ModuleKey;
   /** true = Widget belegt die volle Breite (KPI-Leiste). */
   wide?: boolean;
 }
@@ -191,7 +196,7 @@ export const WIDGET_DEFS: Record<WidgetKey, WidgetDef> = {
   // Führungskräfte ohne HR-Rechte nicht anbietbar, für die es gedacht ist. Das
   // Widget lädt seine Daten selbst und blendet sich für Nicht-Führungskräfte
   // inhaltlich aus, statt gar nicht erst angeboten zu werden.
-  'leadership-team': { title: 'Mein Team', description: 'Bewertungsstand Ihres Zuständigkeitsbereichs', icon: UsersRound },
+  'leadership-team': { title: 'Mein Team', description: 'Bewertungsstand Ihres Zuständigkeitsbereichs', icon: UsersRound, module: 'leadership' },
   'leadership-report': { title: 'Satisfaction-Report', description: 'Bewertungsstand je Führungskraft im Zeitraum', icon: Gauge, area: 'fuehrung' },
   // Kein `area`: Der Lizenzzustand kommt mit Login und /api/auth/me zu jedem
   // Admin-Konto (Auth-Kontext), unabhängig vom Bereich `einstellungen` — das
@@ -219,7 +224,12 @@ export function widgetAllowed(
   allowed: ReadonlySet<AdminArea>,
   features: readonly string[] | null = null,
 ): boolean {
-  const area = WIDGET_DEFS[key].area;
+  const def = WIDGET_DEFS[key];
+  const area = def.area;
+  // Modul der Variante: Widgets eines Moduls, das dieser Build nicht
+  // enthaelt, werden weder angezeigt noch angeboten (auch nicht aus einer
+  // gespeicherten Konfiguration).
+  if (!moduleEnabled(VARIANT, def.module ?? (area ? AREA_MODULES[area] : null))) return false;
   if (!widgetAllowedByFeatures(key, features)) return false;
   return area === undefined || allowed.has(area);
 }
@@ -230,8 +240,10 @@ export function statAllowed(
   allowed: ReadonlySet<AdminArea>,
   features: readonly string[] | null = null,
 ): boolean {
+  const def = STAT_DEFS[key];
+  if (!moduleEnabled(VARIANT, def.module ?? AREA_MODULES[def.area])) return false;
   if (!widgetAllowedByFeatures(key, features)) return false;
-  return allowed.has(STAT_DEFS[key].area);
+  return allowed.has(def.area);
 }
 
 // ---------------------------------------------------------------------------

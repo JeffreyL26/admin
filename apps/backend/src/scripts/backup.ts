@@ -33,6 +33,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
+import { VARIANT, VARIANT_MARKER } from '@variant-manifest';
 import { config } from '../config.js';
 import { getDb, closeDb } from '../db/db.js';
 
@@ -309,6 +310,7 @@ async function main(): Promise<void> {
       'oHRganize — Datensicherung',
       `Erstellt:            ${started.toISOString()}`,
       `Quelle:              ${config.dataDir}`,
+      `Variante:            ${VARIANT.id} (${VARIANT.label}) ${VARIANT_MARKER}`,
       `Rechner:             ${process.env.HOSTNAME ?? process.env.COMPUTERNAME ?? 'unbekannt'}`,
       `Datenbankseiten:     ${result.totalPages}`,
       `Integritätsprüfung:  ${check.integrity}`,
@@ -324,7 +326,7 @@ async function main(): Promise<void> {
         ? `  ${licenseName}  Signierte Lizenzdatei (ohne sie: Nur-Lese-Betrieb nach dem Restore)`
         : `  (keine ${licenseName} vorhanden — Testphase oder noch nicht eingespielt)`,
       '',
-      'Restore (Dienst muss gestoppt sein):',
+      'Restore (Dienst muss gestoppt sein; Programm derselben Variante wie oben einsetzen):',
       ...restoreSteps(),
       '',
       'Achtung: Vorhandene .db-wal/.db-shm des alten Standes NICHT mitkopieren.',

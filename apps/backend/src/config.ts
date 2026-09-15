@@ -2,6 +2,20 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { LICENSE_FILE_NAME } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
+
+// Variantenpruefung beim Start: OHRGANIZE_VARIANT (env-Datei des Betreibers)
+// muss zur einkompilierten Variante passen. Ein falsch gesetzter Symlink im
+// Hosting (Programmverzeichnis einer anderen Ausgabe) faellt so sofort auf,
+// statt still mit fremdem Funktionsumfang zu laufen. Ohne die Variable
+// (Desktop-Embedding, Dev-Betrieb) gilt die einkompilierte Variante.
+const variantEnv = process.env.OHRGANIZE_VARIANT?.trim();
+if (variantEnv && variantEnv !== VARIANT.id) {
+  throw new Error(
+    `OHRGANIZE_VARIANT ist auf "${variantEnv}" gesetzt, dieses Programm ist aber die Variante "${VARIANT.id}" ` +
+      `(${VARIANT.label}). Bitte das Release der richtigen Variante einsetzen oder die env-Datei korrigieren.`,
+  );
+}
 
 // Datenverzeichnis: im Dev-Betrieb ./data neben dem Backend, im Desktop-Betrieb
 // wird OHRGANIZE_DATA_DIR von Electron auf app.getPath('userData') gesetzt.
@@ -206,6 +220,8 @@ const initialAdminPassword = (process.env.OHRGANIZE_INITIAL_ADMIN_PASSWORD ?? ''
 hardenDataPermissions();
 
 export const config = {
+  /** Einkompilierte Variante (Land x Edition), siehe packages/shared/src/variants. */
+  variant: VARIANT,
   dataDir,
   storageDir,
   dbPath,

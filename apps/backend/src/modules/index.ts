@@ -1,24 +1,13 @@
 import type { FastifyInstance } from 'fastify';
-import { employeesModule } from './employees/routes.js';
-import { absencesModule } from './absences/routes.js';
-import { performanceModule } from './performance/routes.js';
-import { compensationModule } from './compensation/routes.js';
-import { communicationModule } from './communication/routes.js';
-import { recruitingModule } from './recruiting/routes.js';
-import { adminModule } from './admin/routes.js';
-import { meModule } from './me/routes.js';
-import { leadershipModule } from './leadership/routes.js';
+import { backendModules } from '@variant';
 
-// Jedes Fachmodul lebt vollständig in seinem eigenen Ordner und wird hier
-// einmalig registriert — diese Datei bleibt nach der Scaffold-Phase stabil.
+// Jedes Fachmodul lebt vollstaendig in seinem eigenen Ordner. Welche Module
+// dieser Build enthaelt, entscheidet die Variante: Der Alias @variant zeigt
+// auf src/variants/<id>.ts (erzeugt aus packages/shared/src/variants/
+// registry.json), und nur die dort importierten Module landen im Bundle.
+// Diese Datei bleibt stabil; neue Module traegt scripts/variant-wiring.mjs ein.
 export async function registerModules(app: FastifyInstance): Promise<void> {
-  await app.register(employeesModule);
-  await app.register(absencesModule);
-  await app.register(performanceModule);
-  await app.register(compensationModule);
-  await app.register(communicationModule);
-  await app.register(recruitingModule);
-  await app.register(adminModule);
-  await app.register(leadershipModule);
-  await app.register(meModule);
+  for (const plugin of backendModules) {
+    await app.register(plugin);
+  }
 }
