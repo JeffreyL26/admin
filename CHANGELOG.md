@@ -20,6 +20,22 @@ eigenen Abschnitt.
   Installername `oHRganize-Setup-<version>-<variante>.exe`; Sicherungen
   nennen die Variante im MANIFEST. Heute gibt es genau `de-vollversion`.
 
+### Hinzugefuegt (conspectus)
+- `tools/conspectus` (neuer Workspace, `npm run conspectus -- --help`):
+  Register des Anbieters ueber Kunden, Hosts, Instanzen, ausgestellte
+  Lizenzen, Releases, Rollouts und Vorgaenge (Zahlungen inbegriffen).
+  Befehle: `kunde`, `host`, `instanz`, `lizenz ausstellen|verlaengern|faellig`,
+  `release erfassen`, `rollout starten`, `status`, `bericht importieren`,
+  `check`, `uebersicht`, `html`, `csv-import`, `zahlung`.
+- Das Register liegt ausserhalb des Repositories
+  (`OHRGANIZE_CONSPECTUS_DIR`, Pflicht); Pfade im Repo und in
+  synchronisierten Ordnern werden abgewiesen. Lizenzen entstehen ueber
+  denselben Baustein wie im schlanken Werkzeug; Ausgabe und
+  Installations-ID kommen aus der Instanz, und eine v2-Datei entsteht nur,
+  wenn die Instanz v2 lesen kann (`license_format` aus dem Bericht).
+- `docs/betrieb-anbieter.md` (neu): Schluessel und Geheimnisse, Lizenzfaelle,
+  Release bauen, Rollout, Einzelkunde, Stoerungen, Restore, Kuendigung.
+
 ### Hinzugefuegt (Hosting und Betreiberwerkzeuge)
 - Drei Werkzeuge im Backend-Bundle: `status.cjs` (Zustand einer Instanz mit
   Installations-ID, Lizenz, Plaetzen, Zaehlungen und ausstehenden

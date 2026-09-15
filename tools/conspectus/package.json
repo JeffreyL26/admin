@@ -1,0 +1,23 @@
+{
+  "name": "@ohrganize/conspectus",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Register und Werkzeug des Anbieters: Kunden, Instanzen, Hosts, Lizenzen, Releases, Rollouts",
+  "scripts": {
+    "conspectus": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx src/test/smoke.ts"
+  },
+  "dependencies": {
+    "@ohrganize/backend": "*",
+    "@ohrganize/shared": "*",
+    "better-sqlite3": "^12.4.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
