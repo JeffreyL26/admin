@@ -18,9 +18,5 @@
 # Release mit dem alten Schluessel mehr im Umlauf ist. Ein Server ohne
 # passende Zeile haelt eine gueltige Datei fuer unbrauchbar.
 #
-# Noch kein Schluessel erzeugt: Die Datei enthaelt deshalb bisher nur diesen
-# Hinweis. scripts/release.mjs baut ohne --sign-key ein unsigniertes
-# release.json und sagt es deutlich; eine Signatur entsteht erst, wenn der
-# Anbieter den Schluessel angelegt und hier eingetragen hat.
-#
-# release@ohrganize namespaces="ohrganize-release" ssh-ed25519 AAAA...
+# Schluessel 1, erzeugt am 2026-09-15 (ohrganize-release im Tresor des Anbieters):
+release@ohrganize namespaces="ohrganize-release" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAID41VTw90rgI/hGYSpAF6XHKI6XO2hS7K/YGD01NdGzs
