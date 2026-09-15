@@ -12,7 +12,7 @@
     "backup": "tsx src/scripts/backup.ts",
     "lizenz": "tsx src/scripts/license-tool.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/test/smoke.ts && tsx src/test/licenseSmoke.ts && tsx src/test/holidaysTest.ts",
+    "test": "tsx src/test/smoke.ts && tsx src/test/licenseStateTest.ts && tsx src/test/licenseSmoke.ts && tsx src/test/holidaysTest.ts",
     "openapi": "node scripts/merge-openapi.mjs",
     "build": "esbuild src/server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:better-sqlite3 --minify --keep-names --legal-comments=none --sourcemap=external --define:process.env.OHRGANIZE_LICENSE_PUBLIC_KEY=undefined --log-level=warning && esbuild src/index.ts --bundle --platform=node --format=cjs --outfile=dist/cli.cjs --external:better-sqlite3 --minify --keep-names --legal-comments=none --sourcemap=external --define:process.env.OHRGANIZE_LICENSE_PUBLIC_KEY=undefined --log-level=warning && esbuild src/scripts/backup.ts --bundle --platform=node --format=cjs --outfile=dist/backup.cjs --external:better-sqlite3 --minify --keep-names --legal-comments=none --sourcemap=external --define:process.env.OHRGANIZE_LICENSE_PUBLIC_KEY=undefined --log-level=warning",
     "test:holidays": "tsx src/test/holidaysTest.ts"

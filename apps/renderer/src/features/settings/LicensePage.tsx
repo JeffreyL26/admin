@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Check, CheckCircle2, Copy, Download, Info, ShieldAlert, Upload,
 } from 'lucide-react';
-import { formatDate, isPerpetualLicense, todayIsoLocal, type LicenseStatus } from '@ohrganize/shared';
+import {
+  LICENSE_CLOCK_WARNING_TEXT, LICENSE_READ_ONLY_DETAIL, formatDate, todayIsoLocal, type LicenseStatus,
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { Badge, Card, EmptyState, PageHeader, Spinner } from '../../components/ui';
@@ -13,8 +15,7 @@ import { useToast } from '../../components/Toast';
 import { downloadAuthenticated } from '../compensation/lib';
 import {
   LICENSE_FILE_MAX_BYTES, LICENSE_KIND_LABELS, LICENSE_QUERY_KEY, LICENSE_STATE_LABELS,
-  addDaysIso, expiredLead, licenseStateTone, remainingLabel, remainingLabelSentence, seatsLabel,
-  validUntilLabel,
+  describeLicense, licenseStateTone, seatsLabel, validUntilLabel,
 } from './license';
 
 /**
@@ -36,26 +37,15 @@ function readAsText(file: File): Promise<string> {
   });
 }
 
-/** Ein Satz zum Zustand, unter dem Badge. */
+/**
+ * Zwei Saetze zum Zustand, unter dem Badge: Ueberschrift und Detail aus
+ * describeLicense (packages/shared). Bei unbrauchbarer Datei steht der Grund
+ * zusaetzlich darunter im roten Hinweis; hier reicht die Nur-Lese-Erklaerung.
+ */
 function statusLine(l: LicenseStatus): string {
-  switch (l.state) {
-    case 'entwicklung':
-      return 'Entwicklungsverzeichnis — es findet keine Lizenzprüfung statt.';
-    case 'valid':
-      if (isPerpetualLicense(l.valid_until)) return 'Unbefristet gültig.';
-      return l.warning
-        ? `Läuft am ${formatDate(l.valid_until)} ab (${remainingLabel(l.days_left)}).`
-        : `Gültig bis ${formatDate(l.valid_until)} (${remainingLabel(l.days_left)}).`;
-    case 'trial':
-      return `${remainingLabelSentence(l.days_left)} (bis ${formatDate(l.valid_until)}) — danach Nur-Lese-Betrieb.`;
-    case 'grace': {
-      const readOnlyFrom = l.grace_until ? formatDate(addDaysIso(l.grace_until, 1)) : '—';
-      return `Abgelaufen am ${formatDate(l.valid_until)}. Ab ${readOnlyFrom} läuft oHRganize im Nur-Lese-Betrieb (${remainingLabel(l.days_left)}).`;
-    }
-    case 'expired':
-      // Bei unbrauchbarer Datei steht der Grund darunter im roten Hinweis.
-      return `${expiredLead(l)} Nur-Lese-Betrieb: Daten können eingesehen und exportiert werden, Änderungen sind nicht möglich.`;
-  }
+  const d = describeLicense(l);
+  const detail = l.state === 'expired' ? LICENSE_READ_ONLY_DETAIL : d.detail;
+  return [d.headline, detail].filter(Boolean).join(' ');
 }
 
 type UploadResult = { ok: true; license: LicenseStatus } | { ok: false; message: string };
@@ -145,7 +135,7 @@ export function LicensePage() {
             <Fact label="Kunde" value={license.customer ?? '—'} />
             <Fact label="Art" value={license.kind ? LICENSE_KIND_LABELS[license.kind] : '—'} />
             <Fact label="Gültig bis" value={validUntilLabel(license)} />
-            <Fact label="Kulanz bis" value={formatDate(license.grace_until)} />
+            <Fact label="Kulanz bis" value={license.perpetual ? 'entfällt' : formatDate(license.grace_until)} />
             <Fact
               label="Plätze"
               value={seatsLabel(license)}
@@ -188,7 +178,7 @@ export function LicensePage() {
               {license.clock_warning && (
                 <div className="hm-notice hm-notice--warning">
                   <AlertTriangle size={16} />
-                  <div>Die Systemuhr des Servers steht vor einem bereits gesehenen Datum — bitte prüfen.</div>
+                  <div>{LICENSE_CLOCK_WARNING_TEXT}</div>
                 </div>
               )}
             </div>

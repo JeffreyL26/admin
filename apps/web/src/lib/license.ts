@@ -1,4 +1,4 @@
-import { LICENSE_ERROR_CODES } from '@ohrganize/shared';
+import { LICENSE_ERROR_CODES, PORTAL_READ_ONLY_TEXT } from '@ohrganize/shared';
 import { ApiRequestError } from '../api/client';
 
 /**
@@ -15,8 +15,7 @@ import { ApiRequestError } from '../api/client';
  * LICENSE_EXPIRED, die auf „Einstellungen → Lizenz“ verweist — einen Ort,
  * den es im Portal nicht gibt.
  */
-export const PORTAL_READ_ONLY_NOTICE =
-  'Das Portal ist derzeit nur zur Ansicht verfügbar. Anträge und Änderungen sind vorübergehend nicht möglich — bitte wenden Sie sich an die Personalabteilung.';
+export const PORTAL_READ_ONLY_NOTICE = PORTAL_READ_ONLY_TEXT;
 
 /**
  * DOM-Id des globalen Hinweises in der Shell. Gesperrte Schaltflächen, neben

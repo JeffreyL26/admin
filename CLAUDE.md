@@ -183,9 +183,12 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
 - **Lizenz: signierte Offline-Datei, Nur-Lese statt Sperre.** Die
   Nutzungsberechtigung ist `<dataDir>/lizenz.ohrganize` (eine Zeile
   `OHRG1.<payload>.<Ed25519-Signatur>`; Format und Prüfung `core/licenseCodec.ts`,
-  Vertrauensanker `core/licenseKeys.ts`, Zustand und Durchsetzung
-  `core/license.ts`, Routen `core/licenseRoutes.ts`; gemeinsamer Vertrag mit den
-  Clients in `packages/shared/src/license.ts`). Kein Rückkanal, keine
+  Vertrauensanker `core/licenseKeys.ts`, reiner Zustandsautomat
+  `core/licenseState.ts`, Cache, Datei und Durchsetzung `core/license.ts`,
+  Routen `core/licenseRoutes.ts`; gemeinsamer Vertrag mit den Clients in
+  `packages/shared/src/license.ts`, ALLE Lizenztexte aus `describeLicense` in
+  `packages/shared/src/licenseText.ts`: Banner, Lizenzseite, Widget, 403-Meldung
+  und Startlog stellen keine eigene Diagnose). Kein Rückkanal, keine
   Fernabschaltung. Zustände `entwicklung` · `trial` (30 Tage ab
   `installation.created_at`) · `valid` (`warning` ab `warn_days`, Vorgabe 30) ·
   `grace` (14 Tage, volle Funktion) · `expired` (**Nur-Lese**: GET/HEAD, Exporte

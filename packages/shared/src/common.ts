@@ -35,6 +35,13 @@ export function todayIsoLocal(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** ISO-Kalendertag plus/minus Tage, ohne Zeitzoneneffekt (Rechnung in UTC-Mitternacht). */
+export function addDaysIso(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 /** ISO-Datum (YYYY-MM-DD) → deutsche Anzeige (TT.MM.JJJJ). */
 export function formatDate(iso: string | null | undefined): string {
   if (iso === null || iso === undefined || iso === '') return '—';

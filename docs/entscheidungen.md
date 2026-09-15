@@ -702,3 +702,30 @@ Nordlaender, 2019 Frauentag BE und Weltkindertag TH, 2023 Frauentag MV)
 sind genau die Stellen, an denen ein Umbau still falsch werden kann. Die
 Fixture wurde VOR dem Umbau aus dem alten Code erzeugt und ist damit ein
 unabhaengiger Anker, kein Abschreiben der neuen Implementierung.
+
+## Lizenztexte aus einer Funktion, Zustandsautomat ohne Seiteneffekte
+
+**Entscheidung:** `describeLicense` in `packages/shared/src/licenseText.ts`
+erzeugt Ueberschrift, Detail, Tonlage und Handlungssatz fuer jeden
+Lizenzzustand; Banner, Lizenzseite, Dashboard-Widget, die 403-Meldung des
+Backends und das Startlog lesen nur noch daraus. Der Zustand selbst
+entsteht in `apps/backend/src/core/licenseState.ts` als reine Funktion
+(`deriveLicenseState`); `core/license.ts` behaelt Cache, Datei und die
+beiden Schreibvorgaenge. Unbefristet ist ein eigener Fall (`perpetual`):
+kein Countdown, keine Kulanz, keine Warnung.
+
+**Warum:** Der Anbieter will Lizenzmodelle frei gestalten (Testlizenz mit
+beliebiger Laufzeit, kostenfrei unbefristet, Abo) und die Texte dazu
+passend ("Ihre Lizenz läuft unbegrenzt und kostenfrei."). Bis hierher
+standen die Saetze dreimal im Code (Renderer, Backend, Banner) und wichen
+bereits voneinander ab; ein viertes Modell haette vier Stellen gebraucht.
+Eine reine Funktion laesst sich tabellengetrieben in Millisekunden pruefen
+(`licenseStateTest.ts`), waehrend der Smoke-Test mit Datenbank und Datei
+Sekunden braucht und nur Stichproben nimmt. Der Zustandsautomat ohne
+Seiteneffekte ist zudem die Voraussetzung fuer Betreiberwerkzeuge, die
+eine Datenbank beschreiben, ohne sie zu veraendern (Phase 7).
+
+**Verworfen, Texte im Backend erzeugen und ausliefern:** Das Backend liefert
+Zahlen und Daten, die Oberflaeche formt Saetze daraus; ein Text im
+API-Vertrag wuerde jede Wortaenderung zu einem Backend-Release machen und
+Portal-Konten Texte zeigen, die nicht fuer sie bestimmt sind.

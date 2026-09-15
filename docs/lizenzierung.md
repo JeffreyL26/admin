@@ -70,7 +70,7 @@ liefert für Monitoring allein `license.read_only`.
 |---|---|---|---|
 | `entwicklung` | `OHRGANIZE_DATA_DIR` ist nicht gesetzt — das Backend läuft gegen `apps/backend/data`, dieselbe Grenze, an der `seed.ts` den Produktivbetrieb erkennt. Keine Prüfung. | ja | nichts |
 | `trial` | Diese Datenbank hat noch nie eine gültige Lizenz gesehen; die **Testphase** läuft **30 Tage** ab `installation.created_at` (bei einem Update einer Bestandsinstallation: ab dem Update). Unbegrenzte Plätze. | ja | Hinweisbanner für Admins; in den letzten 7 Tagen als Warnung |
-| `valid` | Lizenz gültig bis einschließlich `valid_until`. `warning = true` ab `warn_days` vor Ablauf (**Vorgabe 30 Tage**, je Lizenz einstellbar). | ja | Banner ab `warning` |
+| `valid` | Lizenz gültig bis einschließlich `valid_until`. `warning = true` ab `warn_days` vor Ablauf (**Vorgabe 30 Tage**, je Lizenz einstellbar). Unbefristete Lizenzen (`valid_until = 2999-12-31`) melden `perpetual = true`, keinen Countdown (`days_left = null`), keine Kulanz (`grace_until = null`) und nie eine Warnung. | ja | Banner ab `warning`; Testlizenzen (`kind = evaluation`) zeigen eine schmale Infoleiste mit Restlaufzeit |
 | `grace` | `valid_until` überschritten, **Kulanzfrist** läuft (`grace_days`, **Vorgabe 14 Tage**). Voller Funktionsumfang. | ja | rotes Banner, nicht wegklickbar |
 | `expired` | Kulanz vorbei, Testphase vorbei, Datei gelöscht oder unbrauchbar — **Nur-Lese-Betrieb**. | **nein** (403 `LICENSE_EXPIRED`) | rotes Banner; Portal: neutraler Hinweis |
 
@@ -229,7 +229,7 @@ OHRGANIZE_LICENSE_PASSPHRASE='…' npm run lizenz -- sign \
 | `--until`, `--from` | letzter gültiger Tag (einschließlich) und erster Tag (Vorgabe: heute); echte Kalendertage `JJJJ-MM-TT`, `--until` höchstens `2999-12-31` — oder wörtlich `--until unbefristet` (die App zeigt dann „unbefristet“ statt eines Datums; zusammen mit weggelassenem `--seats` die Lizenz für einen Kunden ohne Laufzeit und Platzgrenze) |
 | `--seats` | `max_users`; ohne Angabe unbegrenzt |
 | `--grace`, `--warn` | Kulanz- und Vorwarntage (Vorgaben 14 und 30) |
-| `--kind` | `standard` (Vorgabe) oder `evaluation` — nur Anzeige und Register |
+| `--kind` | `standard` (Vorgabe) oder `evaluation` (in der Oberfläche "Testlizenz"); nur Anzeige und Register. Die Laufzeit einer Testlizenz ist frei: `--until` bestimmt sie, drei Tage sind so möglich wie drei Monate |
 | `--notice` | Freitext, den Admins unter Einstellungen → Lizenz sehen (z. B. Rechnungsbezug); nicht für Portal-Konten |
 | `--out` | Dateiname (Vorgabe: `lizenz-<customer-id>-<until>.ohrganize`) |
 | `--register` | CSV-Register, wird angelegt und fortgeschrieben |
@@ -337,3 +337,27 @@ der Vertragsentwurf abdecken sollte:
 
 Hintergrund der Entscheidungen (Rückkanal, Nur-Lese statt Sperre,
 Wasserzeichen nur als Stolperdraht): `entscheidungen.md`.
+
+## 6. Texte: eine Quelle fuer alle Oberflaechen
+
+Alle Saetze zum Lizenzzustand (Banner, Seite Einstellungen → Lizenz,
+Dashboard-Widget, 403-Meldung des Backends, Startlog) entstehen in
+`packages/shared/src/licenseText.ts` (`describeLicense`). Die Funktion
+liefert Ueberschrift, Detail, Tonlage (`neutral` heisst: kein Banner) und
+den Handlungssatz. Beispiele:
+
+| Lage | Ueberschrift |
+|---|---|
+| Testphase ohne Datei | Testphase bis 15.10.2026, noch 28 Tage. |
+| Testlizenz | Testlizenz bis 20.09.2026, noch 3 Tage. |
+| unbefristet | Ihre Lizenz läuft unbegrenzt. |
+| unbefristet, Abrechnungsart kostenfrei (ab Lizenz v2) | Ihre Lizenz läuft unbegrenzt und kostenfrei. |
+| befristet | Ihre Lizenz gilt bis 31.12.2027 (noch 470 Tage). |
+| Warnfrist | Ihre Lizenz läuft am 29.09.2026 ab (noch 12 Tage). |
+| Kulanz | Ihre Lizenz ist am 12.09.2026 abgelaufen. |
+| Nur-Lese | Ihre Lizenz ist am 01.08.2026 abgelaufen; die Kulanzfrist endete am 15.08.2026. |
+
+Der reine Zustandsautomat steht in `apps/backend/src/core/licenseState.ts`
+(`deriveLicenseState`, ohne Datenbank und Datei); `core/license.ts` haelt
+nur noch Cache, Dateizugriff und die beiden Schreibvorgaenge (`licensed_at`,
+`last_seen_date`). Tabellengetriebener Test: `src/test/licenseStateTest.ts`.
