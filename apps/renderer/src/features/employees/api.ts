@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import type {
   ContractDto,
+  CountryCode,
   DocumentDto,
   EmployeeChangeRequestForHr,
   EmployeeChangeRequestStatus,
@@ -63,6 +64,9 @@ export interface Location {
   street: string | null;
   zip: string | null;
   city: string | null;
+  /** Land des Standorts (Vorgabe: Land der Variante). */
+  country: CountryCode;
+  /** Regionscode dieses Landes; steuert die Feiertagsberechnung. */
   bundesland: string;
   employee_count?: number;
 }

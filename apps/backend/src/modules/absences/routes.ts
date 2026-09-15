@@ -4,16 +4,21 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../core/dates.js';
-import { holidaysForYear, type Bundesland } from '../../core/holidays.js';
+import { holidaysByRegion } from '../../core/holidays.js';
+import type { CountryCode, RegionCode } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import {
   assertBalanceCovers,
   assertSpanWithinLimit,
-  bundeslandForEmployee,
   closureDates,
   computeBalance,
   countAbsenceDays,
   createRequest,
+  companyRegionDefaults,
+  regionForEmployee,
+  regionSelectParams,
+  REGION_JOIN_SQL,
+  REGION_SELECT_SQL,
   type AbsenceTypeRow as TypeRow,
   type BalanceRequestRow,
   type EmployeeRow,
@@ -380,15 +385,17 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     }
     if (q.date_to < q.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
     assertSpanWithinLimit(q.date_from, q.date_to);
-    const land = bundeslandForEmployee(employeeId);
+    const place = regionForEmployee(employeeId);
     const days = countAbsenceDays({
-      land,
+      place,
       dateFrom: q.date_from,
       dateTo: q.date_to,
       halfDayStart: q.half_day_start === '1' || q.half_day_start === 'true',
       halfDayEnd: q.half_day_end === '1' || q.half_day_end === 'true',
     });
-    return { days_counted: days, bundesland: land };
+    // `bundesland` bleibt aus Kompatibilitaet im Vertrag (Desktop und Portal
+    // zeigen es im Antragsformular); `region` und `country` sind die neuen Namen.
+    return { days_counted: days, bundesland: place.region, region: place.region, country: place.country };
   });
 
   app.post('/api/absences/requests', async (req, reply) => {
@@ -519,18 +526,21 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     // Den Rechen-Kontext EINMAL für alle laden statt mehrerer Queries je
     // Person: Die Route rechnet synchron im einzigen Node-Prozess und
     // blockierte sonst bei großer Belegschaft alle parallelen Requests
-    // (im Serverbetrieb auch das Portal). Das Bundesland kommt direkt mit
-    // der Belegschaft — ein zweiter Lauf über dieselbe Tabelle entfällt.
-    const defaultLand = getSetting('defaultBundesland');
+    // (im Serverbetrieb auch das Portal). Land und Region kommen direkt mit
+    // der Belegschaft; ein zweiter Lauf ueber dieselbe Tabelle entfaellt.
+    const defaults = companyRegionDefaults();
     const employees = db()
       .prepare(
-        `SELECT e.*, COALESCE(l.bundesland, ?) AS bundesland
+        `SELECT e.*, ${REGION_SELECT_SQL}
          FROM employees e
-         LEFT JOIN locations l ON l.id = e.location_id
+         ${REGION_JOIN_SQL}
          WHERE e.status = 'aktiv'
          ORDER BY e.last_name, e.first_name`,
       )
-      .all(defaultLand) as (EmployeeRow & { bundesland: Bundesland })[];
+      .all(regionSelectParams(defaults)) as (EmployeeRow & {
+      country: CountryCode;
+      bundesland: RegionCode;
+    })[];
 
     // Gesamtspanne = weiteste Übertrags-Kette (computeBalance geht maximal
     // 5 Jahre zurück); je Person überzählige Zeilen clippen sich dort zu 0.
@@ -557,7 +567,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     const today = todayIso();
     const balances = employees.map((e) => ({
       ...computeBalance(e, y, today, {
-        land: e.bundesland,
+        place: { country: e.country, region: e.bundesland },
         carryoverDeadline,
         closures,
         requests: requestsByEmployee.get(e.id) ?? [],
@@ -639,12 +649,12 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     const calendarDays = (from: string, to: string): number =>
       Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
 
-    const landCache = new Map<number, ReturnType<typeof bundeslandForEmployee>>();
+    const placeCache = new Map<number, ReturnType<typeof regionForEmployee>>();
     return rows.map((row) => {
-      let land = landCache.get(row.employee_id);
-      if (!land) landCache.set(row.employee_id, (land = bundeslandForEmployee(row.employee_id)));
+      let place = placeCache.get(row.employee_id);
+      if (!place) placeCache.set(row.employee_id, (place = regionForEmployee(row.employee_id)));
       const daysAbsent = countAbsenceDays({
-        land,
+        place,
         dateFrom: row.date_from,
         dateTo: row.date_to,
         clipTo: today,
@@ -830,23 +840,24 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       empWhere.push('e.team_id = ?');
       empParams.push(Number(q.team_id));
     }
-    const defaultLand = getSetting('defaultBundesland');
+    const defaults = companyRegionDefaults();
     const employees = db()
       .prepare(
         `SELECT e.id, e.first_name, e.last_name, e.department_id, e.team_id,
-                COALESCE(l.bundesland, ?) AS bundesland
+                ${REGION_SELECT_SQL}
          FROM employees e
-         LEFT JOIN locations l ON l.id = e.location_id
+         ${REGION_JOIN_SQL}
          WHERE ${empWhere.join(' AND ')}
          ORDER BY e.last_name, e.first_name`,
       )
-      .all(defaultLand, ...empParams) as {
+      .all(...regionSelectParams(defaults), ...empParams) as {
       id: number;
       first_name: string;
       last_name: string;
       department_id: number | null;
       team_id: number | null;
-      bundesland: string;
+      country: CountryCode;
+      bundesland: RegionCode;
     }[];
 
     const empIds = employees.map((e) => e.id);
@@ -879,14 +890,13 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
             days_counted: number;
           }[]);
 
-    // Feiertage je vorkommendem Bundesland, beschnitten auf den Zeitraum.
-    const laender = [...new Set([...employees.map((e) => e.bundesland), defaultLand])];
-    const holidays = Object.fromEntries(
-      laender.map((land) => [
-        land,
-        holidaysForYear(year, land as Bundesland).filter((h) => h.date >= from && h.date <= to),
-      ]),
-    );
+    // Feiertage je vorkommender Region, beschnitten auf den Zeitraum. Der
+    // Schluessel ist der Regionscode, weil die Clients ihn ueber das Feld
+    // `bundesland` der Person nachschlagen.
+    const holidays = holidaysByRegion(year, from, to, [
+      ...employees.map((e) => ({ country: e.country, region: e.bundesland })),
+      defaults,
+    ]);
 
     const closures = db()
       .prepare('SELECT * FROM company_closures WHERE date_from <= ? AND date_to >= ? ORDER BY date_from')

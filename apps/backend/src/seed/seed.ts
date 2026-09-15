@@ -24,7 +24,9 @@ import { getDb, closeDb, inTransaction } from '../db/db.js';
 import { migrate } from '../db/migrate.js';
 import { ensureDefaultAdmin } from '../core/auth.js';
 import { storeFile } from '../core/files.js';
-import { holidaysForYear, type Bundesland } from '../core/holidays.js';
+import { holidaysForYear } from '../core/holidays.js';
+import type { CountryCode, RegionCode } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { eachDay, isWeekend } from '../core/dates.js';
 import { periodForDate, shiftPeriod } from '@ohrganize/shared';
 
@@ -169,10 +171,10 @@ function insert(table: string, row: Record<string, unknown>): number {
 }
 
 /** Arbeitstage im Zeitraum (Mo–Fr, ohne Feiertage des Bundeslands, ohne Betriebsruhe). */
-function countDays(from: string, to: string, land: Bundesland, halfStart = false, halfEnd = false): number {
+function countDays(from: string, to: string, place: { country: CountryCode; region: RegionCode }, halfStart = false, halfEnd = false): number {
   const years = new Set(eachDay(from, to).map((d) => d.slice(0, 4)));
   const holidays = new Set(
-    [...years].flatMap((y) => holidaysForYear(Number(y), land).map((h) => h.date)),
+    [...years].flatMap((y) => holidaysForYear(Number(y), place.country, place.region).map((h) => h.date)),
   );
   const closures = new Set(eachDay('2026-12-24', '2026-12-31'));
   const days = eachDay(from, to).filter((d) => !isWeekend(d) && !holidays.has(d) && !closures.has(d));
@@ -465,15 +467,15 @@ inTransaction(() => {
 
   insert('company_closures', { date_from: '2026-12-24', date_to: '2026-12-31', name: 'Betriebsruhe Jahreswechsel' });
 
-  const landOf = (emp: number): Bundesland => {
-    const row = db.prepare('SELECT l.bundesland AS b FROM employees e LEFT JOIN locations l ON l.id = e.location_id WHERE e.id = ?').get(emp) as { b: string | null };
-    return (row.b ?? 'BY') as Bundesland;
+  const placeOf = (emp: number): { country: CountryCode; region: RegionCode } => {
+    const row = db.prepare('SELECT l.country AS c, l.bundesland AS b FROM employees e LEFT JOIN locations l ON l.id = e.location_id WHERE e.id = ?').get(emp) as { c: string | null; b: string | null };
+    return { country: (row.c ?? VARIANT.country) as CountryCode, region: row.b ?? 'BY' };
   };
   const req = (emp: number, type: number, from: string, to: string, status: string, opts: { comment?: string; rejection?: string; halfStart?: boolean } = {}) =>
     insert('absence_requests', {
       employee_id: emp, type_id: type, date_from: from, date_to: to,
       half_day_start: opts.halfStart ? 1 : 0, half_day_end: 0,
-      days_counted: countDays(from, to, landOf(emp), opts.halfStart),
+      days_counted: countDays(from, to, placeOf(emp), opts.halfStart),
       status, comment: opts.comment ?? null, rejection_reason: opts.rejection ?? null,
       decided_by_user_id: status === 'beantragt' ? null : adminId,
       decided_at: status === 'beantragt' ? null : `${TODAY} 09:00:00`,

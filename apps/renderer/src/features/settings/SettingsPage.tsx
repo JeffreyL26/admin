@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, Check, RotateCcw } from 'lucide-react';
-import { BUNDESLAND_LABELS } from '@ohrganize/shared';
 import { api } from '../../api/client';
+import { REGIONS, REGION_TERM } from '../../lib/locale';
 import { Card, Field, PageHeader, Spinner } from '../../components/ui';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
@@ -18,8 +18,16 @@ import { SIDEBAR_DEFAULT_ORDER, resetSidebarOrder, saveSidebarOrder, useSidebarO
  *  (apps/web/src/pages/ProfilePage.tsx). */
 const MIN_PASSWORD_CHARS = 12;
 
+/** Antwort von GET /api/regions: Regionen des Landes der Variante. */
+interface RegionsResponse {
+  country: string;
+  country_label: string;
+  regions: Record<string, string>;
+}
+
 interface Settings {
   companyName: string;
+  /** Regionscode (in DE ein Bundesland); Auswahl kommt aus /api/regions. */
   defaultBundesland: string;
   carryoverDeadline: string;
   surveyMinParticipants: number;
@@ -34,6 +42,15 @@ export function SettingsPage() {
     queryKey: ['settings'],
     queryFn: () => api.get<{ settings: Settings }>('/api/settings'),
   });
+  // Regionen kommen vom Server (Land der Variante), damit die Auswahl nicht
+  // an einer zweiten Liste im Client haengt. Bis die Antwort da ist, dient
+  // der Katalog aus lib/locale als Rueckfall; er stammt aus derselben Quelle.
+  const { data: regionData } = useQuery({
+    queryKey: ['regions'],
+    queryFn: () => api.get<RegionsResponse>('/api/regions'),
+    staleTime: Infinity,
+  });
+  const regions = regionData?.regions ?? REGIONS;
   const [form, setForm] = useState<Settings | null>(null);
   const settings = form ?? data?.settings ?? null;
 
@@ -67,13 +84,16 @@ export function SettingsPage() {
                 onChange={(e) => set({ companyName: e.target.value })}
               />
             </Field>
-            <Field label="Standard-Bundesland" hint="Für Feiertage, wenn kein Standort zugeordnet ist">
+            <Field
+              label={`Standard-${REGION_TERM}`}
+              hint="Für Feiertage, wenn kein Standort zugeordnet ist"
+            >
               <Select
                 className="hm-select"
                 value={settings.defaultBundesland}
                 onChange={(e) => set({ defaultBundesland: e.target.value })}
               >
-                {Object.entries(BUNDESLAND_LABELS).map(([code, label]) => (
+                {Object.entries(regions).map(([code, label]) => (
                   <option key={code} value={code}>
                     {label}
                   </option>

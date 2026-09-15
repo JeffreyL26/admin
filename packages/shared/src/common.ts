@@ -1,3 +1,10 @@
+import {
+  DEFAULT_CURRENCY,
+  DEFAULT_LOCALE,
+  REGIONS,
+  type DeRegionCode,
+} from './country.js';
+
 /** Einheitliches Fehlerschema aller API-Antworten. */
 export interface ApiError {
   error: {
@@ -7,21 +14,31 @@ export interface ApiError {
   };
 }
 
-export type BundeslandCode =
-  | 'BW' | 'BY' | 'BE' | 'BB' | 'HB' | 'HH' | 'HE' | 'MV'
-  | 'NI' | 'NW' | 'RP' | 'SL' | 'SN' | 'ST' | 'SH' | 'TH';
+/**
+ * Bundesländer sind die Regionen des Landes DE. Die eine Quelle ist
+ * `REGIONS.DE` in country.ts; die beiden Namen hier bleiben als Aliasse
+ * erhalten, weil Datenbankspalte (`locations.bundesland`), API-Feld und
+ * mehrere Oberflächen sie so kennen.
+ */
+export type BundeslandCode = DeRegionCode;
+export const BUNDESLAND_LABELS: Record<BundeslandCode, string> = REGIONS.DE;
 
-export const BUNDESLAND_LABELS: Record<BundeslandCode, string> = {
-  BW: 'Baden-Württemberg', BY: 'Bayern', BE: 'Berlin', BB: 'Brandenburg',
-  HB: 'Bremen', HH: 'Hamburg', HE: 'Hessen', MV: 'Mecklenburg-Vorpommern',
-  NI: 'Niedersachsen', NW: 'Nordrhein-Westfalen', RP: 'Rheinland-Pfalz',
-  SL: 'Saarland', SN: 'Sachsen', ST: 'Sachsen-Anhalt', SH: 'Schleswig-Holstein',
-  TH: 'Thüringen',
-};
+/**
+ * Geldbeträge sind überall Integer-Cent; Formatierung ist Client-Sache.
+ * Sprachkennung und Währung kommen aus dem Land der Variante
+ * (`localeFor`/`currencyFor`); ohne Angabe gilt die Vorgabe DE.
+ */
+export function formatMoney(
+  cents: number,
+  locale: string = DEFAULT_LOCALE,
+  currency: string = DEFAULT_CURRENCY,
+): string {
+  return (cents / 100).toLocaleString(locale, { style: 'currency', currency });
+}
 
-/** Geldbeträge sind überall Integer-Cent; Formatierung ist Client-Sache. */
+/** Kurzform für Euro-Beträge in deutscher Schreibweise. */
 export function formatEuro(cents: number): string {
-  return (cents / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+  return formatMoney(cents);
 }
 
 /**

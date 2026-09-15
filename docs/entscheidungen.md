@@ -815,3 +815,50 @@ Daher zwei Aliasse.
 **In Kauf genommen:** Je Release entstehen so viele Installer und Archive
 wie Varianten; `appId` und `productName` bleiben gleich, die Variante
 steht im Dateinamen und in der Startpruefung.
+
+## Laender als Datendimension, Adapter statt fester Formate
+
+**Entscheidung:** Land und Region sind Daten, keine Annahme im Code. Die
+einzige Quelle ist `packages/shared/src/country.ts` (Regionen, Sprachkennung,
+Waehrung, Regionsbegriff); das Land einer Installation ist `VARIANT.country`
+und keine Kundeneinstellung. Die Feiertagsregeln stehen als Regeltabelle je
+Land (`HOLIDAY_RULES`), Beschaeftigungsarten, Steuerklassen und
+Kirchensteuermerkmale als Kataloge je Land, Lohnexport und Bescheinigungen
+als Adapter-Registry. Migration `107_locations_country` ist additiv;
+`locations.bundesland` bleibt und traegt den Regionscode des jeweiligen
+Landes. AT und CH bekommen Strukturen, keine Inhalte.
+
+**Warum:** Der Anbieter will Ausgaben je Land verkaufen, ohne den Code je
+Land zu verzweigen. Bis hierher steckte Deutschland an drei Stellen als
+Bundeslandliste (`holidays.ts`, `common.ts`, `employees/validation.ts`), als
+`'de-DE'` in zwoelf Dateien, als DATEV-Lohnarten mitten in einer Route und
+als Paragraph 108 GewO in einer HTML-Vorlage. Jede dieser Stellen waere bei
+einem zweiten Land einzeln gefunden und einzeln vergessen worden. Als Daten
+ist ein Land ein Eintrag, kein Suchlauf. Ein LEERER Katalog ist dabei die
+ehrliche Aussage "gibt es hier nicht": Steuerklassen sind deutsch, also
+blendet das Formular das Feld in einer anderen Ausgabe aus und die
+Validierung weist einen Wert ab, statt ihn stillschweigend zu speichern.
+
+**Warum die Region in der Antwort doppelt heisst:** Datenbankspalte und
+API-Feld heissen seit der ersten Fassung `bundesland`, und beide Clients
+lesen es so. Ein Umbenennen haette Backend und zwei Oberflaechen in einem
+Schritt umgestellt; stattdessen liefern die Kalender- und Vorschau-Routen
+`bundesland`, `region` und `country` nebeneinander, und die Clients ziehen
+getrennt nach.
+
+**Warum die Feiertagsregeln Jahresfenster tragen:** Vier Aenderungen der
+letzten Jahre (Reformationstag 2017 und 2018, Frauentag 2019 und 2023)
+standen als verschachtelte Bedingungen im Code. In Datenform ist jede
+Fassung eine eigene Zeile mit `from`/`to`; die Fenster ueberschneiden sich
+nicht, also gilt je Jahr genau eine. Die Fixture aus Phase 0 (8 Jahre mal 16
+Regionen, vor dem Umbau erzeugt) hat den Umbau Zeile fuer Zeile abgesichert.
+
+**Verworfen, das Land als Einstellung:** Eine Umschaltung zur Laufzeit
+haette Personalakten mit Steuermerkmalen des alten Landes und Exporte im
+alten Format hinterlassen, ohne dass irgendetwas sie korrigiert. Das Land
+gehoert zum Build, wie die Edition: Ein Wechsel ist Installer plus Lizenz.
+
+**Verworfen, AT und CH mit Inhalten fuellen:** Feiertage, Kataloge und
+Abrechnungsformate anderer Laender sind Fachwissen, das der Anbieter
+beisteuert, wenn er das Land verkauft. Erfundene Inhalte waeren schlimmer
+als keine: Sie sehen fertig aus.

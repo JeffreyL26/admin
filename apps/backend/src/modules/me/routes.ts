@@ -15,7 +15,7 @@ import { audit } from '../../core/audit.js';
 import { addDaysIso, isValidIsoDate, todayIso } from '../../core/dates.js';
 import {
   allowedTypeIdsFor,
-  bundeslandForEmployee,
+  regionForEmployee,
   computeBalance,
   countAbsenceDays,
   createRequest,
@@ -207,15 +207,17 @@ export const meModule: FastifyPluginAsync = async (app) => {
     }
     if (q.date_to < q.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
     assertReasonableSpan(q.date_from, q.date_to);
-    const land = bundeslandForEmployee(emp.id);
+    const place = regionForEmployee(emp.id);
     const days = countAbsenceDays({
-      land,
+      place,
       dateFrom: q.date_from,
       dateTo: q.date_to,
       halfDayStart: q.half_day_start === '1' || q.half_day_start === 'true',
       halfDayEnd: q.half_day_end === '1' || q.half_day_end === 'true',
     });
-    return { days_counted: days, bundesland: land };
+    // `bundesland` bleibt im Vertrag (das Portal zeigt es im Antragsformular);
+    // `region` und `country` sind die landesneutralen Namen.
+    return { days_counted: days, bundesland: place.region, region: place.region, country: place.country };
   });
 
   // ---------------------------------------------------------- Krankmeldungen ---

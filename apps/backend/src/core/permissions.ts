@@ -67,7 +67,7 @@ const SELF_GATED = ['/api/leadership/me'];
  * die nicht ohnehin über einen erlaubten Bereich sichtbar wären — das Dashboard
  * blendet Kacheln fehlender Bereiche selbst aus.
  */
-const ALWAYS_ALLOWED = ['/api/dashboard', '/api/holidays', '/api/bundeslaender'];
+const ALWAYS_ALLOWED = ['/api/dashboard', '/api/holidays', '/api/regions', '/api/bundeslaender'];
 
 export interface PermissionSubject {
   id: number;

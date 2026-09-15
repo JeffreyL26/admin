@@ -316,6 +316,74 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   filtern ueber `moduleEnabled(VARIANT, ...)`; das Portal ueber `module` an
   den NavItems. Test: `src/test/variantSmoke.ts`.
 
+## Laender als Datendimension
+
+- **Das Land kommt aus der Variante, nie aus einer Einstellung.**
+  `VARIANT.country` (ISO-2, heute nur `DE`) entscheidet ueber Regionen,
+  Feiertagsrecht, Kataloge, Formatierung und Exportadapter.
+  `packages/shared/src/country.ts` ist die EINZIGE Quelle: `COUNTRY_CODES`,
+  `COUNTRY_LABELS`, `REGIONS` (DE = die 16 Bundeslaender, AT und CH bewusst
+  leer), `REGION_TERMS` (Bundesland bzw. Kanton), `regionCodesFor`,
+  `regionsFor`, `isRegionOf`, `regionLabel`, `LOCALES`, `CURRENCIES`,
+  `localeFor`, `currencyFor`. `BundeslandCode` und `BUNDESLAND_LABELS` in
+  `common.ts` sind nur noch Aliasse auf `REGIONS.DE`.
+  **Ein leerer Regionskatalog heisst "gibt es hier nicht":** `isRegionOf`
+  laesst dann nur den Leerwert zu, und die Formulare blenden das Feld aus.
+- **Region gegen Bundesland.** Datenbankspalte (`locations.bundesland`) und
+  die bestehenden Antwortfelder heissen weiterhin `bundesland`; neue Felder
+  heissen `region` und `country`. Die Kalender-APIs
+  (`/api/absences/calendar`, `/api/me/calendar`) und die beiden
+  Vorschauen (`/api/absences/preview`, `/api/me/leave-preview`) liefern
+  beides, damit die Clients getrennt umgestellt werden koennen. Der
+  `holidays`-Schluessel bleibt der Regionscode.
+- **Land und Region einer Person** liefert ausschliesslich
+  `regionForEmployee(employeeId)` (`modules/absences/service.ts`): Standort
+  (`locations.country`/`locations.bundesland`), sonst `companyRegionDefaults()`
+  (Land der Variante plus `defaultBundesland`). Sammelabfragen nutzen
+  `REGION_SELECT_SQL` + `REGION_JOIN_SQL` + `regionSelectParams()` statt
+  eigener COALESCE-Ausdruecke; die drei Duplikate von frueher sind damit weg.
+- **Feiertage sind Daten, kein Code:** `HOLIDAY_RULES` in
+  `core/holidays.ts` haelt je Land eine Regelliste (`date` | `easter` |
+  `compute`, `regions`, Jahresfenster `from`/`to`).
+  `holidaysForYear(year, country, region)` und
+  `isHoliday(date, country, region)`; der Cache-Schluessel traegt das Land.
+  Regressionsanker ist `src/test/fixtures/holidays-de.json` (8 Jahre mal 16
+  Regionen, VOR dem Umbau erzeugt), geprueft von `src/test/holidaysTest.ts`.
+  Eine leere Regelliste (AT, CH) ergibt ein Jahr ohne Feiertage.
+- **Kataloge je Land** in `packages/shared/src/employees.ts`:
+  `EMPLOYEE_TYPES_BY_COUNTRY`, `TAX_CLASSES_BY_COUNTRY`,
+  `CHURCH_TAX_BY_COUNTRY` mit den Accessoren `employeeTypesFor`,
+  `taxClassesFor`, `churchTaxOptionsFor` und `employeeTypeRulesFor`.
+  Letztere streicht Pflichtfelder, fuer die das Land keinen Katalog hat
+  (ohne Steuerklassen waere `tax_class` unerfuellbar). Backend
+  (`modules/employees/validation.ts`) und Formular
+  (`renderer/.../employeeForm.tsx`) lesen NUR ueber die Accessoren.
+- **Adapter statt fester Formate:** Lohnexport
+  (`modules/compensation/payrollExport/`, Registry `PAYROLL_EXPORTERS`,
+  heute `lodas` fuer DE) und Bescheinigungen
+  (`modules/compensation/certificates/`, `CERTIFICATE_TEMPLATES` je Land,
+  heute `de.ts`). Die Route `/export.datev` bleibt und schlaegt `lodas`
+  nach; ein Land ohne Vorlage antwortet mit 501 statt mit deutschen
+  Paragraphen.
+- **Auswahllisten ueber die API:** `GET /api/regions[?country=]` liefert
+  `{ country, country_label, regions }`; `GET /api/bundeslaender` bleibt als
+  Alias. Beide stehen in `ALWAYS_ALLOWED` (`core/permissions.ts`), sonst
+  saehe jede Rolle ohne `einstellungen` ein leeres Auswahlfeld.
+  `defaultBundesland` wird gegen `isRegionOf(VARIANT.country, ...)` geprueft.
+- **Formatierung:** `formatMoney(cents, locale, currency)` in `common.ts`,
+  `formatEuro` ist die Huelle dafuer. Die Clients halten
+  `apps/renderer/src/lib/locale.ts` und `apps/web/src/lib/locale.ts` mit
+  `COUNTRY`, `LOCALE`, `CURRENCY`, `REGIONS`, `REGION_TERM`,
+  `REGION_CODES`, `DEFAULT_REGION`. Neue oder angefasste Dateien nehmen
+  `LOCALE` statt der Zeichenkette `'de-DE'`; die restlichen Fundstellen
+  werden beim naechsten Anfassen umgestellt. `lang="de"` bleibt (UI-Sprache
+  in allen drei Laendern Deutsch).
+- **Schema bleibt variantenunabhaengig:** Migration `107_locations_country`
+  ist additiv (`locations.country` mit Vorgabe `DE`,
+  `employees.private_country`) und laeuft in jeder Variante.
+  `private_country` ist bewusst NICHT in `EMPLOYEE_SELF_EDITABLE_FIELDS`:
+  Ein Landeswechsel gehoert zur Meldung und damit in die Personalabteilung.
+
 ## Konventionen
 
 - **Sprache:** UI-Texte Deutsch, Code-Bezeichner Englisch. API-Fehlermeldungen

@@ -5,7 +5,9 @@
  */
 import { getDb, inTransaction } from '../../db/db.js';
 import { eachDay, isWeekend, todayIso } from '../../core/dates.js';
-import { isHoliday, type Bundesland } from '../../core/holidays.js';
+import { isHoliday } from '../../core/holidays.js';
+import { VARIANT } from '@variant-manifest';
+import type { CountryCode, RegionCode } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import { AppError, badRequest, conflict, forbidden } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
@@ -23,16 +25,55 @@ export interface EmployeeRow {
   team_id: number | null;
 }
 
-/** Bundesland eines Mitarbeitenden: Standort, sonst Firmenstandard. */
-export function bundeslandForEmployee(employeeId: number): Bundesland {
+/**
+ * Land und Region, nach denen die Feiertage einer Person gerechnet werden.
+ * Land und Region kommen aus dem Standort; ohne Standort gelten die
+ * Firmenvorgaben (Land der Variante, `defaultBundesland`).
+ */
+export interface EmployeeRegion {
+  country: CountryCode;
+  region: RegionCode;
+}
+
+/**
+ * Firmenvorgabe: Das Land ist der Build (VARIANT), keine Kundeneinstellung;
+ * die Region kommt aus den Einstellungen.
+ */
+export function companyRegionDefaults(): EmployeeRegion {
+  return { country: VARIANT.country, region: getSetting('defaultBundesland') };
+}
+
+/**
+ * Spaltenausdruck fuer Sammelabfragen, die Land und Region je Person
+ * mitladen (Kalender, Saldo-Uebersicht). Er verlangt den Join
+ * REGION_JOIN_SQL und die beiden Bind-Parameter aus regionSelectParams()
+ * AN ERSTER STELLE der Parameterliste.
+ *
+ * Der Spaltenalias heisst weiterhin `bundesland`, weil die Kalender-APIs ihn
+ * so ausliefern und Desktop wie Portal ihn so lesen; die Antworten tragen
+ * `region` zusaetzlich.
+ */
+export const REGION_SELECT_SQL =
+  'COALESCE(l.country, ?) AS country, COALESCE(l.bundesland, ?) AS bundesland';
+export const REGION_JOIN_SQL = 'LEFT JOIN locations l ON l.id = e.location_id';
+
+export function regionSelectParams(defaults = companyRegionDefaults()): [string, string] {
+  return [defaults.country, defaults.region];
+}
+
+/** Land und Region eines Mitarbeitenden: Standort, sonst Firmenvorgabe. */
+export function regionForEmployee(employeeId: number): EmployeeRegion {
   const row = getDb()
     .prepare(
-      `SELECT l.bundesland FROM employees e
-       LEFT JOIN locations l ON l.id = e.location_id
+      `SELECT ${REGION_SELECT_SQL} FROM employees e
+       ${REGION_JOIN_SQL}
        WHERE e.id = ?`,
     )
-    .get(employeeId) as { bundesland: string | null } | undefined;
-  return (row?.bundesland ?? getSetting('defaultBundesland')) as Bundesland;
+    .get([...regionSelectParams(), employeeId]) as
+    | { country: string; bundesland: string }
+    | undefined;
+  if (!row) return companyRegionDefaults();
+  return { country: row.country as CountryCode, region: row.bundesland };
 }
 
 /** Alle Betriebsruhetage (als ISO-Datums-Set) im Zeitraum from..to. */
@@ -50,7 +91,8 @@ export function closureDates(from: string, to: string): Set<string> {
 }
 
 export interface CountOptions {
-  land: Bundesland;
+  /** Land und Region der Person (regionForEmployee). */
+  place: EmployeeRegion;
   dateFrom: string;
   dateTo: string;
   halfDayStart?: boolean;
@@ -76,7 +118,7 @@ export function countAbsenceDays(opts: CountOptions): number {
   for (const d of eachDay(from, to)) {
     if (isWeekend(d)) continue;
     if (closures.has(d)) continue;
-    if (isHoliday(d, opts.land)) continue;
+    if (isHoliday(d, opts.place.country, opts.place.region)) continue;
     counted.add(d);
   }
   let total = counted.size;
@@ -107,7 +149,7 @@ export interface BalanceRequestRow {
  * Clipping als 0. Einzel-Aufrufe lassen den Kontext einfach weg.
  */
 export interface BalanceContext {
-  land?: Bundesland;
+  place?: EmployeeRegion;
   /** Verfallsstichtag "MM-TT" (getSetting('carryoverDeadline')). */
   carryoverDeadline?: string;
   closures?: Set<string>;
@@ -148,7 +190,7 @@ export function computeBalance(
 ): BalanceResult {
   const db = getDb();
   const annual = emp.annual_leave_days ?? 0;
-  const land = ctx?.land ?? bundeslandForEmployee(emp.id);
+  const place = ctx?.place ?? regionForEmployee(emp.id);
   const deadlineMmDd = ctx?.carryoverDeadline ?? getSetting('carryoverDeadline');
 
   const hireYear = emp.hire_date ? Number(emp.hire_date.slice(0, 4)) : null;
@@ -173,7 +215,7 @@ export function computeBalance(
 
   const days = (r: BalanceRequestRow, clipFrom: string, clipTo: string) =>
     countAbsenceDays({
-      land,
+      place,
       dateFrom: r.date_from,
       dateTo: r.date_to,
       halfDayStart: r.half_day_start === 1,
@@ -388,7 +430,7 @@ export function assertBalanceCovers(
   type: AbsenceTypeRow,
   span: { date_from: string; date_to: string; half_day_start?: boolean; half_day_end?: boolean },
   excludeRequestId?: number,
-  pre?: { land?: Bundesland; closures?: Set<string> },
+  pre?: { place?: EmployeeRegion; closures?: Set<string> },
 ): void {
   if (type.affects_balance !== 1 || type.category === 'krankheit') return;
   const db = getDb();
@@ -406,7 +448,7 @@ export function assertBalanceCovers(
   // Betriebsruhe und Anträge sind ein Superset über alle geprüften Jahre samt
   // maximaler Übertrags-Kette (computeBalance geht höchstens 5 Jahre zurück);
   // überzählige Tage/Zeilen clippen sich dort zu 0.
-  const land = pre?.land ?? bundeslandForEmployee(employeeId);
+  const place = pre?.place ?? regionForEmployee(employeeId);
   const chainFrom = `${fromYear - 5}-01-01`;
   const chainTo = `${toYear}-12-31`;
   const chainClosures = closureDates(chainFrom, chainTo);
@@ -422,7 +464,7 @@ export function assertBalanceCovers(
     requestParams.push(excludeRequestId);
   }
   const ctx: BalanceContext = {
-    land,
+    place,
     carryoverDeadline: getSetting('carryoverDeadline'),
     closures: chainClosures,
     requests: db.prepare(requestSql).all(requestParams) as BalanceRequestRow[],
@@ -433,7 +475,7 @@ export function assertBalanceCovers(
 
   for (let y = fromYear; y <= toYear; y++) {
     const requested = countAbsenceDays({
-      land,
+      place,
       dateFrom: span.date_from,
       dateTo: span.date_to,
       halfDayStart: span.half_day_start,
@@ -542,10 +584,10 @@ export function createRequest(
     }
     const overlapped = sick ? overlapping : [];
 
-    const land = bundeslandForEmployee(body.employee_id);
+    const place = regionForEmployee(body.employee_id);
     const closures = closureDates(body.date_from, body.date_to);
     const days = countAbsenceDays({
-      land,
+      place,
       dateFrom: body.date_from,
       dateTo: body.date_to,
       halfDayStart: body.half_day_start,
@@ -581,7 +623,7 @@ export function createRequest(
     // geplant zählt.
     const autoApprove = type.requires_approval === 0;
     if (autoApprove && !body.override_balance) {
-      assertBalanceCovers(body.employee_id, type, body, undefined, { land, closures });
+      assertBalanceCovers(body.employee_id, type, body, undefined, { place, closures });
     }
 
     const userId = (req.user as { id?: number } | undefined)?.id ?? null;

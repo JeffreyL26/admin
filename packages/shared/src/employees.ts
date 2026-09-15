@@ -1,4 +1,5 @@
 // Typen des Moduls Personalverwaltung & Stammdaten.
+import { type CountryCode } from './country.js';
 
 export type EmployeeType =
   | 'vollzeit'
@@ -27,13 +28,66 @@ export const EMPLOYEE_STATUS_LABELS: Record<EmployeeStatus, string> = {
 };
 
 export const TAX_CLASSES = ['I', 'II', 'III', 'IV', 'V', 'VI'] as const;
+export type TaxClass = (typeof TAX_CLASSES)[number];
 
 export const CHURCH_TAX_OPTIONS = ['keine', 'ev', 'rk'] as const;
-export const CHURCH_TAX_LABELS: Record<(typeof CHURCH_TAX_OPTIONS)[number], string> = {
+export type ChurchTax = (typeof CHURCH_TAX_OPTIONS)[number];
+export const CHURCH_TAX_LABELS: Record<ChurchTax, string> = {
   keine: 'Keine',
   ev: 'Evangelisch',
   rk: 'Römisch-katholisch',
 };
+
+// ---------------------------------------------------------------------------
+// Kataloge je Land
+// ---------------------------------------------------------------------------
+//
+// Das Datenbankschema ist variantenunabhängig: Dieselben Spalten gibt es in
+// jedem Land, gefüllt werden sie aus dem Katalog des Landes. Ein LEERER
+// Katalog heisst "gibt es in diesem Land nicht": Das Formular blendet das
+// Feld aus und die Validierung weist einen Wert ab. Steuerklasse und
+// Kirchensteuer sind deutsche Begriffe; AT und CH bekommen ihre Kataloge,
+// wenn der Anbieter das Land verkauft.
+
+/** Alle Beschäftigungsarten, die das Schema kennt (CHECK in Migration 100). */
+export const EMPLOYEE_TYPES = Object.keys(EMPLOYEE_TYPE_LABELS) as EmployeeType[];
+
+/**
+ * Beschäftigungsarten je Land. AT und CH tragen vorerst denselben Katalog:
+ * Ohne Art liesse sich kein Profil anlegen, der Katalog darf also nicht leer
+ * sein. Die landesspezifischen Arten legt der Anbieter fest.
+ */
+export const EMPLOYEE_TYPES_BY_COUNTRY: Record<CountryCode, readonly EmployeeType[]> = {
+  DE: EMPLOYEE_TYPES,
+  AT: EMPLOYEE_TYPES,
+  CH: EMPLOYEE_TYPES,
+};
+
+export function employeeTypesFor(country: CountryCode): readonly EmployeeType[] {
+  return EMPLOYEE_TYPES_BY_COUNTRY[country];
+}
+
+/** Steuerklassen je Land. Nur DE kennt sie. */
+export const TAX_CLASSES_BY_COUNTRY: Record<CountryCode, readonly TaxClass[]> = {
+  DE: TAX_CLASSES,
+  AT: [],
+  CH: [],
+};
+
+export function taxClassesFor(country: CountryCode): readonly TaxClass[] {
+  return TAX_CLASSES_BY_COUNTRY[country];
+}
+
+/** Kirchensteuermerkmale je Land. Nur DE kennt sie in dieser Form. */
+export const CHURCH_TAX_BY_COUNTRY: Record<CountryCode, readonly ChurchTax[]> = {
+  DE: CHURCH_TAX_OPTIONS,
+  AT: [],
+  CH: [],
+};
+
+export function churchTaxOptionsFor(country: CountryCode): readonly ChurchTax[] {
+  return CHURCH_TAX_BY_COUNTRY[country];
+}
 
 /**
  * Typabhängige Pflichtfeld-Regeln (EINE Quelle für Backend-Validierung und
@@ -102,6 +156,31 @@ export const EMPLOYEE_RULE_FIELD_LABELS: Record<EmployeeRuleField, string> = {
   hire_date: 'Eintrittsdatum',
   exit_date: 'Austrittsdatum',
 };
+
+/**
+ * Pflichtfeld-Regeln des Landes. Grundlage sind die deutschen Regeln oben;
+ * für ein Land ohne den passenden Katalog fällt die Pflicht weg (ohne
+ * Steuerklassen lässt sich `tax_class` nicht ausfüllen, die Regel wäre
+ * unerfüllbar und jedes Anlegen schüge fehl). Das Ergebnis wird je Land
+ * einmal gebaut und danach wiederverwendet.
+ */
+const rulesByCountry = new Map<CountryCode, Record<EmployeeType, EmployeeTypeRule>>();
+
+export function employeeTypeRulesFor(country: CountryCode): Record<EmployeeType, EmployeeTypeRule> {
+  const cached = rulesByCountry.get(country);
+  if (cached) return cached;
+  const hasTaxClasses = taxClassesFor(country).length > 0;
+  const built = Object.fromEntries(
+    (Object.entries(EMPLOYEE_TYPE_RULES) as [EmployeeType, EmployeeTypeRule][]).map(
+      ([type, rule]) => [
+        type,
+        hasTaxClasses ? rule : { ...rule, required: rule.required.filter((f) => f !== 'tax_class') },
+      ],
+    ),
+  ) as Record<EmployeeType, EmployeeTypeRule>;
+  rulesByCountry.set(country, built);
+  return built;
+}
 
 // ---------------------------------------------------------------------------
 // Verträge
