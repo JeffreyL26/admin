@@ -5,7 +5,8 @@
   "description": "oHRganize — HR-Verwaltungssoftware für den deutschsprachigen Markt",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "tools/*"
   ],
   "scripts": {
     "dev:backend": "npm run dev -w apps/backend",
@@ -23,6 +24,7 @@
     "release": "node scripts/release.mjs",
     "release:server": "node scripts/release-server.mjs",
     "lizenz": "npm run lizenz -w apps/backend --",
+    "conspectus": "npm run conspectus -w tools/conspectus --",
     "check:dashes": "node scripts/check-dashes.mjs",
     "test:holidays": "npm run test:holidays -w apps/backend",
     "variants:gen": "node scripts/variant-wiring.mjs",

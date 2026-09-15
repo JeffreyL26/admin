@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@variant": [
+        "../../apps/backend/src/variants/default.ts"
+      ],
+      "@variant-manifest": [
+        "../../apps/backend/src/variants/default.manifest.ts"
+      ]
+    }
+  },
+  "include": [
+    "src"
+  ]
+}

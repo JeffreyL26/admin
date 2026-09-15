@@ -960,3 +960,54 @@ durchgespielt. Die Wechselwirkung von `TemporaryFileSystem` mit
 `StateDirectory` und `PrivateUsers=true` ist die Stelle, an der es klemmen
 kann; `deploy/README.md` 9.7 fuehrt die Pruefliste dafuer, und die
 Ressourcengrenzen sind bis zur Messung ausdruecklich Startwerte.
+
+## conspectus: ein Register beim Anbieter, aber keine zweite Umstelllogik
+
+**Entscheidung:** Das Werkzeug des Anbieters (`tools/conspectus`) fuehrt ein
+SQLite-Register ueber Kunden, Hosts, Instanzen, ausgestellte Lizenzen,
+Releases, Rollouts und Vorgaenge. Es stellt Lizenzen ueber denselben
+Baustein aus wie das schlanke Werkzeug (`core/licenseIssue.ts`) und rollt
+aus, indem es Archiv und Manifest auf den Host kopiert und dort
+`ohrganize-update.sh` aufruft. Das Register liegt ausserhalb des
+Repositories, und der Pfad ist Pflicht.
+
+**Warum ueberhaupt ein Register:** Drei Angaben entscheiden ueber eine
+brauchbare Lizenz, und alle drei stehen woanders: die Installations-ID (in
+der Datenbank des Kunden), die Ausgabe (im Build) und die Faehigkeit, v2 zu
+lesen (im laufenden Server). Wer sie abtippt, tippt sie irgendwann falsch,
+und der Fehler faellt erst beim Kunden auf: Eine an die falsche Installation
+gebundene Datei ist dort sofort unbrauchbar. Mit Register werden sie
+nachgeschlagen.
+
+**Warum keine Umstelllogik in conspectus:** Der Rollout muesste dieselben
+Faelle behandeln wie `ohrganize-update.sh` (Ausgabe pruefen, Probelauf,
+Sicherung, Ruecknahme) und waere die naechste Stelle, die auseinanderlaeuft.
+Deshalb bleibt sie auf dem Host, und conspectus ist Transport plus Protokoll.
+Dasselbe Argument wie bei der Lizenzpruefung, die Werkzeug und Server sich
+teilen.
+
+**Warum der Pfad Pflicht ist und geprueft wird:** Im Register stehen
+Kundennamen, Hostadressen und Lizenznummern. Eine Vorgabe im
+Heimatverzeichnis waere bequem und genau deshalb falsch: Niemand wuesste mehr,
+wo die Datei liegt und ob sie gesichert wird. Ein Pfad im Repository waere
+eine Unachtsamkeit von einem Commit entfernt, einer in OneDrive eine von der
+halb synchronisierten WAL-Datei. Beides weist das Werkzeug ab, statt darauf
+zu vertrauen.
+
+**Warum v2 an der Faehigkeit haengt, nicht an der Version:** Es gibt keine
+Mindestserverversion (die Version bleibt bis zum Abschluss aller Phasen
+1.0.0). Health und Lizenzbericht melden stattdessen `license_format`;
+conspectus verweigert eine v2-Datei, solange fuer die Instanz nicht belegt
+ist, dass sie sie liest. Eine v2-Datei auf einem v1-Server bedeutete
+Nur-Lese-Betrieb beim Kunden, und zwar ohne dass jemand es merkt, bis er
+schreiben will.
+
+**Verworfen, Zahlungen als eigene Tabelle:** Ein Vorgang ist alles, was zu
+einem Kunden datiert festgehalten wird (Angebot, Lizenz, Rechnung, Zahlung,
+Stoerung, Kuendigung). Eine eigene Zahlungstabelle haette die Haelfte der
+Spalten doppelt und die Chronik eines Kunden auf zwei Abfragen verteilt.
+
+**Verworfen, ssh ueber Shell-Strings:** In den Argumenten stehen
+Kundenschluessel und Pfade aus dem Register. Ein Semikolon darin waere in
+einem Shell-String ein zweiter Befehl auf einem fremden Server. Alle Aufrufe
+laufen deshalb ueber Argument-Arrays mit `BatchMode=yes`.

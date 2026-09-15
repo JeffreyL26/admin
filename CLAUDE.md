@@ -600,6 +600,22 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   Deshalb liegt `migrateDatabase` in `db/migrateDatabase.ts` ohne `db.js`.
   `apps/backend/scripts/build.mjs` baut die drei Einstiege automatisch,
   sobald sie existieren; `release-server.mjs` nimmt sie ins Archiv.
+- **conspectus ist das Register des ANBIETERS** (`tools/conspectus`, eigener
+  Workspace, `npm run conspectus -- --help`). Es kennt Kunden, Hosts,
+  Instanzen, ausgestellte Lizenzen, Releases und Rollouts und stellt Lizenzen
+  ueber denselben Baustein aus wie `npm run lizenz`
+  (`core/licenseIssue.ts`). Drei Regeln, die es von einem Notizzettel
+  unterscheiden: Das Register liegt AUSSERHALB des Repositories
+  (`OHRGANIZE_CONSPECTUS_DIR` ist Pflicht, Pfade im Repo und in
+  synchronisierten Ordnern werden abgewiesen); Ausgabe und Installations-ID
+  einer Lizenz werden aus der Instanz NACHGESCHLAGEN statt eingetippt; und
+  eine v2-Datei entsteht nur, wenn die Instanz v2 LESEN kann (`license_format`
+  aus dem Bericht, nicht die Versionsnummer, denn eine Mindestserverversion
+  gibt es nicht). Die Umstelllogik eines Rollouts steht NICHT hier, sondern in
+  `deploy/ohrganize-update.sh` auf dem Host; conspectus schickt hin, ruft auf
+  und schreibt mit. Betreiberdoku: `docs/betrieb-anbieter.md`,
+  Test: `tools/conspectus/src/test/smoke.ts` (Wegwerf-Register in `os.tmpdir()`,
+  eigenes Schluesselpaar, laeuft bei `npm test` mit).
 - **Hosting: Programm je Instanz als Symlink.**
   `/opt/ohrganize/releases/<variante>-<version>` ist das entpackte Archiv,
   `/opt/ohrganize/kunden/<kunde>` und
@@ -634,6 +650,7 @@ npm run dist:win       # kompletter Windows-Installer (NSIS) → apps/desktop/re
 npm run release -- --version 1.1.0 --variants de-vollversion   # vollstaendiges Release je Variante, signiertes Manifest
 npm run release:server # Server-Release-Archiv einer Variante (--variant, --out) → release/
 npm run lizenz -- …    # Lizenzwerkzeug des Anbieters: keygen | keys | sign | inspect (docs/lizenzierung.md)
+npm run conspectus -- …  # Register des Anbieters: kunde | host | instanz | lizenz | release | rollout | check (docs/betrieb-anbieter.md)
 ```
 
 Login bei Frischinstallation: `admin@ohrganize.de` mit einem **zufällig
