@@ -479,7 +479,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     user: req.user,
     permissions: permissionsFor(req.user.admin_role_id),
     license: licenseForRole(req.user.role),
-    portal: portalAccessFor(req.user.employee_id ?? null),
+    portal: portalAccessFor(req.user.employee_id),
   }));
 
   app.put('/api/auth/password', { preHandler: throttlePasswordChange }, async (req) => {

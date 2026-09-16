@@ -18,7 +18,14 @@ const HR_TIP = (
 export function VisibilityHint() {
   return (
     <Tooltip content={HR_TIP}>
-      <span className="hm-info-icon" tabIndex={0} aria-label="Erklärung zur Sichtbarkeit">
+      <span
+        className="hm-info-icon"
+        tabIndex={0}
+        aria-label="Erklärung zur Sichtbarkeit"
+        // Sitzt in einem <label>: Ohne preventDefault reichte der Browser den
+        // Klick als Aktivierung an das Auswahlfeld weiter und klappte es auf.
+        onClick={(e) => e.preventDefault()}
+      >
         <Info size={14} aria-hidden="true" />
       </span>
     </Tooltip>
@@ -55,7 +62,7 @@ export function useSetDocumentVisibility() {
   });
 }
 
-/** Umschalter in der Aktionsspalte; nur für zugeordnete, aktuelle Dokumente sinnvoll. */
+/** Umschalter in der Aktionsspalte; nur für zugeordnete Dokumente sinnvoll. Wirkt auf alle Versionen. */
 export function VisibilityToggle({ doc }: { doc: DocumentRow }) {
   const set = useSetDocumentVisibility();
   if (doc.employee_id === null) return null;
@@ -69,6 +76,7 @@ export function VisibilityToggle({ doc }: { doc: DocumentRow }) {
           <span className="hm-tooltip__line">
             {toHr ? DOCUMENT_VISIBILITY_HR_HINT : 'Die zugeordnete Person sieht das Dokument wieder unter Dokumente im Portal.'}
           </span>
+          <span className="hm-tooltip__line">Gilt für alle Versionen des Dokuments.</span>
         </>
       }
     >

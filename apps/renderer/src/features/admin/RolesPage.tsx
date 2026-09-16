@@ -5,6 +5,7 @@ import { formatDate, type Role, type RoleMember } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
+import { Tooltip } from '../../components/Tooltip';
 import { useEmployees, type EmployeeLite } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 
@@ -194,25 +195,27 @@ export function RolesPage() {
                         >
                           {r.active === 1 ? 'Deaktivieren' : 'Aktivieren'}
                         </button>
-                        <button
-                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Rolle bearbeiten"
-                          aria-label={`Rolle ${r.name} bearbeiten`}
-                          onClick={() => {
-                            setEditRole(r);
-                            setDialogOpen(true);
-                          }}
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Rolle löschen"
-                          aria-label={`Rolle ${r.name} löschen`}
-                          onClick={() => setConfirmDelete(r)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <Tooltip content="Rolle bearbeiten">
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            aria-label={`Rolle ${r.name} bearbeiten`}
+                            onClick={() => {
+                              setEditRole(r);
+                              setDialogOpen(true);
+                            }}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Rolle löschen">
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            aria-label={`Rolle ${r.name} löschen`}
+                            onClick={() => setConfirmDelete(r)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </td>
                   </tr>

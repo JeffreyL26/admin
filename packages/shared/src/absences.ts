@@ -193,3 +193,10 @@ export interface CalendarConflict {
   team_size: number;
   ratio: number;
 }
+
+/**
+ * Schrift der Artbezeichnung im Kalenderbalken — identisch in Desktop-App
+ * (.hm-cal__bar-label) und Portal (.pt-cal__bar-label); die Clients messen
+ * damit, ob ein Balken breit genug für seinen Schriftzug ist.
+ */
+export const ABSENCE_BAR_LABEL_FONT = "650 11px 'Inter Variable', 'Segoe UI', system-ui, sans-serif";

@@ -11,9 +11,15 @@
  * durch die besuchten Monate blättert. Ohne (oder mit unbrauchbaren)
  * Parametern zeigt die Seite den laufenden Monat, ohne die URL zu beschreiben.
  */
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Navigate, useSearchParams } from 'react-router-dom';
-import type { MeCalendarEmployee, MeCalendarEntry, OrgTreeNode } from '@ohrganize/shared';
+import {
+  ABSENCE_BAR_LABEL_FONT,
+  readableTextColor,
+  type MeCalendarEmployee,
+  type MeCalendarEntry,
+  type OrgTreeNode,
+} from '@ohrganize/shared';
 import { useMyCalendar, useMyOrgTree, useMyProfile } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
@@ -53,17 +59,6 @@ const DAY_COL_PX = 34;
 const MIN_YEAR = 2000;
 const MAX_YEAR = 2100;
 
-/**
- * Platz unter der Matrix: die Legende (Karte plus Abstand) soll ohne Scrollen
- * sichtbar bleiben; Seitenrand und Fußzeile dürfen darunter liegen — die
- * Tagesleiste bleibt auch dann im Bild, weil die Matrix dafür nicht weit genug
- * nach oben wandert.
- */
-const BELOW_GRID_RESERVE = 140;
-
-/** Schrift der Balkenbeschriftung — identisch zur Desktop-App (.pt-cal__bar-label). */
-const BAR_LABEL_FONT = "650 11px 'Inter Variable', 'Segoe UI', system-ui, sans-serif";
-
 let measureCtx: CanvasRenderingContext2D | null = null;
 const textWidthCache = new Map<string, number>();
 
@@ -74,27 +69,13 @@ function measureLabelWidth(text: string): number {
   if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
   let width: number;
   if (measureCtx) {
-    measureCtx.font = BAR_LABEL_FONT;
+    measureCtx.font = ABSENCE_BAR_LABEL_FONT;
     width = measureCtx.measureText(text).width;
   } else {
     width = text.length * 7;
   }
   textWidthCache.set(text, width);
   return width;
-}
-
-/** Schwarz oder Weiß, je nachdem, was auf der Artfarbe lesbar bleibt (wie in der Desktop-App). */
-function readableTextColor(hex: string): string {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  if (!m) return '#fff';
-  const toLinear = (v: number) => {
-    const c = v / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  const [r, g, b] = [m[1], m[2], m[3]].map((h) => toLinear(parseInt(h!, 16)));
-  const luminance = 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-  const contrastWithWhite = 1.05 / (luminance + 0.05);
-  return contrastWithWhite >= 3.4 ? '#fff' : 'rgba(0, 0, 0, 0.82)';
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +238,9 @@ function CalendarView() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounced(search);
   const [department, setDepartment] = useState('alle');
+  // Die Legende soll unter der in sich scrollenden Matrix sichtbar bleiben;
+  // Seitenrand und Fußzeile dürfen darunter liegen.
+  const legendRef = useRef<HTMLDivElement>(null);
 
   /** Monatswechsel legt einen History-Eintrag an — der Zurück-Knopf blättert. */
   const goToMonth = (nextYear: number, nextMonth: number) => {
@@ -509,12 +493,13 @@ function CalendarView() {
             closureDays={closureDays}
             holidaysByLand={holidaysByLand}
             holidayNames={holidayNames}
+            keepRef={legendRef}
           />
         )}
       </Card>
 
       {legend.length > 0 && (
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 16 }} ref={legendRef}>
           <Card title="Legende">
             <div className="pt-cal__legend">
               {legend.map((item) => (
@@ -563,6 +548,7 @@ const CalendarGrid = memo(function CalendarGrid({
   closureDays,
   holidaysByLand,
   holidayNames,
+  keepRef,
 }: {
   rows: CalendarRow[];
   days: string[];
@@ -572,10 +558,11 @@ const CalendarGrid = memo(function CalendarGrid({
   closureDays: Set<string>;
   holidaysByLand: Map<string, Map<string, string>>;
   holidayNames: Map<string, Set<string>>;
+  keepRef: RefObject<HTMLElement>;
 }) {
   // Die Matrix scrollt in sich, damit die Tagesleiste beim Scrollen stehen bleibt.
   const scrollRef = useRef<HTMLDivElement>(null);
-  const maxHeight = useFillViewport(scrollRef, BELOW_GRID_RESERVE);
+  const maxHeight = useFillViewport(scrollRef, { keep: keepRef });
 
   // Spaltenbreite messen (alle Tagesspalten sind gleich breit): entscheidet,
   // ob ein Balken breit genug für seine Artbezeichnung ist.
@@ -775,9 +762,9 @@ const DayCell = memo(function DayCell({
               const label = labelOf(mark.entry);
               const barWidthPx = mark.span !== undefined ? mark.span * dayWidth - 16 : 0;
               const showLabel = mark.span !== undefined && barWidthPx >= measureLabelWidth(label) / 2;
-              // Der Balken selbst ist bei halbem Starttag nur eine halbe Zelle
+              // Der Balken selbst ist an einem halben Tag nur eine halbe Zelle
               // breit — die Beschriftung rechnet deshalb in Balkenbreiten.
-              const barUnits = mark.half === 'start' ? 0.5 : 1;
+              const barUnits = mark.half ? 0.5 : 1;
               return (
                 <span
                   key={`${mark.entry.request_id}`}

@@ -50,6 +50,42 @@ function getDocumentOr404(id: number): Record<string, unknown> {
   return row;
 }
 
+/**
+ * Alle Versionen derselben Kette (Vorgänger über supersedes_id und Nachfolger).
+ * Die Sichtbarkeit gilt je Dokument, nicht je Version: Das Portal listet auch
+ * abgelöste Versionen, eine allein umgestellte aktuelle Version ließe die
+ * älteren weiter sichtbar.
+ */
+function versionChainIds(id: number): number[] {
+  const db = getDb();
+  const up = db.prepare('SELECT supersedes_id FROM documents WHERE id = ?');
+  const down = db.prepare('SELECT id FROM documents WHERE supersedes_id = ?');
+  const ids = new Set<number>([id]);
+  let cursor = (up.get(id) as { supersedes_id: number | null } | undefined)?.supersedes_id ?? null;
+  while (cursor !== null && !ids.has(cursor)) {
+    ids.add(cursor);
+    cursor = (up.get(cursor) as { supersedes_id: number | null } | undefined)?.supersedes_id ?? null;
+  }
+  const queue = [...ids];
+  while (queue.length > 0) {
+    for (const row of down.all(queue.pop()) as { id: number }[]) {
+      if (!ids.has(row.id)) {
+        ids.add(row.id);
+        queue.push(row.id);
+      }
+    }
+  }
+  return [...ids];
+}
+
+function setChainVisibility(anyId: number, visibility: 'portal' | 'hr'): number[] {
+  const ids = versionChainIds(anyId);
+  getDb()
+    .prepare(`UPDATE documents SET visibility = ? WHERE id IN (${ids.map(() => '?').join(', ')})`)
+    .run(visibility, ...ids);
+  return ids;
+}
+
 export async function documentRoutes(app: FastifyInstance): Promise<void> {
   // Liste mit FTS5-Volltextsuche über Titel/Notiz/Kategorie/Dateiname/Mitarbeitername.
   app.get('/api/documents', async (req) => {
@@ -129,12 +165,16 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
         body.visibility,
       );
     const id = Number(info.lastInsertRowid);
+    // Eine neue Version trägt ihre Sichtbarkeit in die ganze Kette — sonst
+    // bliebe die abgelöste Fassung im Portal sichtbar, während die neue HR-intern ist.
+    const chain = body.supersedes_id ? setChainVisibility(id, body.visibility) : [id];
     audit(req, 'create', 'document', id, {
       title: body.title,
       category: body.category,
       employee_id: body.employee_id ?? null,
       version,
       visibility: body.visibility,
+      ...(chain.length > 1 ? { visibility_chain: chain } : {}),
     });
     reply.status(201);
     return { document: getDocumentOr404(id) };
@@ -163,9 +203,11 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     if (patch.file_id !== undefined && patch.file_id !== oldFileId) {
       fileDeleted = deleteFileIfUnreferenced(oldFileId);
     }
+    const chain = patch.visibility !== undefined ? setChainVisibility(id, patch.visibility) : [id];
     audit(req, 'update', 'document', id, {
       changed: patch,
       ...(fileDeleted ? { replaced_file_id: oldFileId, file_deleted: true } : {}),
+      ...(chain.length > 1 ? { visibility_chain: chain } : {}),
     });
     return { document: getDocumentOr404(id) };
   });

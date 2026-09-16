@@ -19,7 +19,9 @@ import { useFocusRow } from '../../lib/focusRow';
 import { useFillViewport } from '../../lib/fillViewport';
 import { ChevronLeft, ChevronRight, CalendarX2, Palette, RotateCcw } from 'lucide-react';
 import {
+  ABSENCE_BAR_LABEL_FONT,
   formatDate,
+  readableTextColor,
   ABSENCE_STATUS_LABELS,
   type AbsenceType,
   type CalendarEmployee,
@@ -75,11 +77,6 @@ function pendingPattern(color: string): string {
   return `repeating-linear-gradient(135deg, ${color} 0 4px, color-mix(in srgb, ${color} 22%, transparent) 4px 9px)`;
 }
 
-const BAR_LABEL_FONT = "650 11px 'Inter Variable', 'Segoe UI', system-ui, sans-serif";
-
-/** Platz unter dem Kalender: Legende (mit Abstand) plus unterer Seitenrand. */
-const BELOW_GRID_RESERVE = 112;
-
 let measureCtx: CanvasRenderingContext2D | null = null;
 const textWidthCache = new Map<string, number>();
 
@@ -91,29 +88,13 @@ function measureLabelWidth(text: string): number {
   if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
   let width: number;
   if (measureCtx) {
-    measureCtx.font = BAR_LABEL_FONT;
+    measureCtx.font = ABSENCE_BAR_LABEL_FONT;
     width = measureCtx.measureText(text).width;
   } else {
     width = text.length * 7; // Canvas nicht verfügbar (Test-DOM) — grobe Schätzung.
   }
   textWidthCache.set(text, width);
   return width;
-}
-
-/** Schwarz oder Weiß als Textfarbe — je nachdem, was auf der Artfarbe die WCAG-
- * Mindestkontraste einhält. Die Palette reicht von kräftigem Blau bis zu hellem
- * Gold; ein pauschal weißer Schriftzug wäre auf den helleren Tönen kaum lesbar. */
-function readableTextColor(hex: string): string {
-  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
-  if (!m) return '#fff';
-  const toLinear = (v: number) => {
-    const c = v / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  const [r, g, b] = [m[1], m[2], m[3]].map((h) => toLinear(parseInt(h, 16)));
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  const contrastWithWhite = 1.05 / (luminance + 0.05);
-  return contrastWithWhite >= 3.4 ? '#fff' : 'rgba(0, 0, 0, 0.82)';
 }
 
 export function CalendarPage() {
@@ -127,6 +108,8 @@ export function CalendarPage() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [departmentId, setDepartmentId] = useState<number | null>(null);
   const [teamId, setTeamId] = useState<number | null>(null);
+  // Die Legende soll unter dem in sich scrollenden Kalender sichtbar bleiben.
+  const legendRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading } = useCalendar(year, view === 'monat' ? month : null, departmentId, teamId);
   const { data: types } = useAbsenceTypes();
@@ -259,12 +242,12 @@ export function CalendarPage() {
           />
         </Card>
       ) : view === 'monat' ? (
-        <MonthGrid data={displayData} focusId={focusId} />
+        <MonthGrid data={displayData} focusId={focusId} keepRef={legendRef} />
       ) : (
-        <YearGrid data={displayData} year={year} focusId={focusId} />
+        <YearGrid data={displayData} year={year} focusId={focusId} keepRef={legendRef} />
       )}
 
-      <Legend types={displayTypes} onEditColors={() => setColorEditorOpen(true)} />
+      <Legend ref={legendRef} types={displayTypes} onEditColors={() => setColorEditorOpen(true)} />
       <ColorEditor
         open={colorEditorOpen}
         onClose={() => setColorEditorOpen(false)}
@@ -277,10 +260,13 @@ export function CalendarPage() {
   );
 }
 
-function Legend({ types, onEditColors }: { types?: LegendType[]; onEditColors: () => void }) {
+const Legend = React.forwardRef<HTMLDivElement, { types?: LegendType[]; onEditColors: () => void }>(function Legend(
+  { types, onEditColors },
+  ref,
+) {
   const sample = (types ?? []).find((t) => t.active === 1)?.color ?? 'var(--gray-400)';
   return (
-    <div className="hm-cal-legend">
+    <div className="hm-cal-legend" ref={ref}>
       {(types ?? [])
         .filter((t) => t.active === 1)
         .map((t) => (
@@ -320,7 +306,7 @@ function Legend({ types, onEditColors }: { types?: LegendType[]; onEditColors: (
       </button>
     </div>
   );
-}
+});
 
 /** Lokaler Farbwähler je Abwesenheitsart — Standardfarbe (Verwaltung) bleibt
  * unangetastet, die Abweichung liegt nur auf diesem Gerät. Zeigt die aktiven
@@ -404,7 +390,15 @@ function ColorEditor({
   );
 }
 
-function MonthGrid({ data, focusId }: { data: CalendarData; focusId: number | null }) {
+function MonthGrid({
+  data,
+  focusId,
+  keepRef,
+}: {
+  data: CalendarData;
+  focusId: number | null;
+  keepRef: React.RefObject<HTMLElement>;
+}) {
   const days = useMemo(() => eachDayLocal(data.range.from, data.range.to), [data.range]);
   const today = todayIso();
   const todayIndex = days.indexOf(today);
@@ -448,7 +442,7 @@ function MonthGrid({ data, focusId }: { data: CalendarData; focusId: number | nu
 
   // Der Kalender scrollt in sich, damit die Tagesleiste beim Scrollen stehen bleibt.
   const wrapRef = useRef<HTMLDivElement>(null);
-  const maxHeight = useFillViewport(wrapRef, BELOW_GRID_RESERVE);
+  const maxHeight = useFillViewport(wrapRef, { keep: keepRef });
 
   return (
     <Card flush>
@@ -696,7 +690,17 @@ type YearCell = { count: number; types: { name: string; color: string; days: num
  * gezählt wie überall sonst (days_counted): ohne Wochenenden, Feiertage des
  * jeweiligen Bundeslands und Betriebsruhe, sonst widerspricht die Summenspalte
  * den Salden und der Antragsliste. */
-function YearGrid({ data, year, focusId }: { data: CalendarData; year: number; focusId: number | null }) {
+function YearGrid({
+  data,
+  year,
+  focusId,
+  keepRef,
+}: {
+  data: CalendarData;
+  year: number;
+  focusId: number | null;
+  keepRef: React.RefObject<HTMLElement>;
+}) {
   const closureDays = useMemo(() => {
     const set = new Set<string>();
     for (const c of data.closures) {
@@ -756,7 +760,7 @@ function YearGrid({ data, year, focusId }: { data: CalendarData; year: number; f
   }, [data, year, closureDays, holidaysByLand]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
-  const maxHeight = useFillViewport(wrapRef, BELOW_GRID_RESERVE);
+  const maxHeight = useFillViewport(wrapRef, { keep: keepRef });
 
   return (
     <Card flush>

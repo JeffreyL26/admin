@@ -460,7 +460,7 @@ function DocumentsTab({ employeeId }: { employeeId: number }) {
                   <td>{formatDate(d.created_at.slice(0, 10))}</td>
                   <td>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      {!d.is_superseded && <VisibilityToggle doc={d} />}
+                      <VisibilityToggle doc={d} />
                       <Tooltip content="Herunterladen">
                         <button
                           className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"

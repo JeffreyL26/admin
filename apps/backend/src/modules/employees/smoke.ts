@@ -11,7 +11,7 @@ process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganiz
 process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../../server.js');
-const { closeDb } = await import('../../db/db.js');
+const { getDb, closeDb } = await import('../../db/db.js');
 const { firstAdminLogin } = await import('../../test/adminSession.js');
 
 let failures = 0;
@@ -436,6 +436,67 @@ check(
   'Abgelöste Version standardmäßig ausgeblendet',
   !currentOnly.json().documents.some((d: { id: number }) => d.id === docId),
 );
+
+// Sichtbarkeit: Vorgabe 'portal'; ein Teil-Update ohne das Feld lässt sie in
+// Ruhe; ein Wechsel gilt für die ganze Versionskette (das Portal listet auch
+// abgelöste Versionen).
+const doc2Id = doc2.json().document.id as number;
+const visibilityOf = (id: number) =>
+  (getDb().prepare('SELECT visibility FROM documents WHERE id = ?').get(id) as { visibility: string }).visibility;
+check('Dokument ohne Angabe ist im Portal sichtbar', doc2.json().document.visibility === 'portal');
+const titleOnly = await app.inject({
+  method: 'PATCH',
+  url: `/api/documents/${doc2Id}`,
+  headers: auth,
+  payload: { title: 'Arbeitsvertrag 2024 (v2)' },
+});
+check(
+  'PATCH nur Titel lässt die Sichtbarkeit unangetastet',
+  titleOnly.statusCode === 200 && titleOnly.json().document.visibility === 'portal',
+  titleOnly.json(),
+);
+const toHr = await app.inject({
+  method: 'PATCH',
+  url: `/api/documents/${doc2Id}`,
+  headers: auth,
+  payload: { visibility: 'hr' },
+});
+check(
+  'PATCH visibility=hr stellt aktuelle UND abgelöste Version um',
+  toHr.statusCode === 200 && toHr.json().document.visibility === 'hr' && visibilityOf(docId) === 'hr',
+  { v2: toHr.json().document.visibility, v1: visibilityOf(docId) },
+);
+const upload3 = await app.inject({
+  method: 'POST',
+  url: '/api/files',
+  headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
+  payload: filePart('Arbeitsvertrag_Musterfrau_v3.pdf', '%PDF-1.4 dummy3'),
+});
+const doc3 = await app.inject({
+  method: 'POST',
+  url: '/api/documents',
+  headers: auth,
+  payload: {
+    employee_id: empId,
+    file_id: upload3.json().file.id,
+    category: 'vertrag',
+    title: 'Arbeitsvertrag 2025',
+    supersedes_id: doc2Id,
+    visibility: 'portal',
+  },
+});
+check(
+  'Neue Version mit visibility=portal zieht die Vorgänger nach',
+  doc3.statusCode === 201 && visibilityOf(doc2Id) === 'portal' && visibilityOf(docId) === 'portal',
+  { v3: doc3.json().document?.visibility, v2: visibilityOf(doc2Id), v1: visibilityOf(docId) },
+);
+const badVisibility = await app.inject({
+  method: 'PATCH',
+  url: `/api/documents/${doc2Id}`,
+  headers: auth,
+  payload: { visibility: 'geheim' },
+});
+check('Ungültige Sichtbarkeit → 400', badVisibility.statusCode === 400);
 
 const badDoc = await app.inject({
   method: 'POST',

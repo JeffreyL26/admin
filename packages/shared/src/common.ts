@@ -83,3 +83,23 @@ export function formatDateTime(sqliteUtc: string | null | undefined): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/**
+ * Schwarz oder Weiß als Textfarbe auf einer Hex-Fläche — je nachdem, was die
+ * WCAG-Mindestkontraste einhält. Beide Kalender (Desktop und Portal) setzen
+ * damit die Artbezeichnung in die Balken; die Palette reicht von kräftigem
+ * Blau bis zu hellem Gold, ein pauschal weißer Schriftzug wäre auf den
+ * helleren Tönen kaum lesbar.
+ */
+export function readableTextColor(hex: string): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return '#fff';
+  const toLinear = (v: number) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => toLinear(parseInt(h!, 16))) as [number, number, number];
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const contrastWithWhite = 1.05 / (luminance + 0.05);
+  return contrastWithWhite >= 3.4 ? '#fff' : 'rgba(0, 0, 0, 0.82)';
+}

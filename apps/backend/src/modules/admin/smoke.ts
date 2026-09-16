@@ -145,6 +145,42 @@ check('Prozess löschen → 204', delProc.statusCode === 204);
 const delTpl = await del(`/api/admin/templates/${tplId}`);
 check('Vorlage löschen → 204', delTpl.statusCode === 204);
 
+// ---------- Fachrollen: Kalenderrecht ----------
+const roleDefault = await post('/api/admin/roles', { name: 'Außendienst' });
+check(
+  'Rolle ohne Angabe → can_view_calendar = 1',
+  roleDefault.statusCode === 201 && roleDefault.json().role.can_view_calendar === 1,
+  roleDefault.json(),
+);
+const roleNoCal = await post('/api/admin/roles', { name: 'Aushilfe', can_view_calendar: false });
+check(
+  'Rolle mit can_view_calendar=false → 0',
+  roleNoCal.statusCode === 201 && roleNoCal.json().role.can_view_calendar === 0,
+  roleNoCal.json(),
+);
+const roleId = roleDefault.json().role.id as number;
+const onlyCal = await patch(`/api/admin/roles/${roleId}`, { can_view_calendar: false });
+check(
+  'PATCH nur can_view_calendar → 200 und gespeichert',
+  onlyCal.statusCode === 200 && onlyCal.json().role.can_view_calendar === 0 && onlyCal.json().role.name === 'Außendienst',
+  onlyCal.json(),
+);
+const nameOnly = await patch(`/api/admin/roles/${roleId}`, { name: 'Außendienst Nord' });
+check(
+  'PATCH nur Name lässt das Kalenderrecht unangetastet',
+  nameOnly.statusCode === 200 && nameOnly.json().role.can_view_calendar === 0,
+  nameOnly.json(),
+);
+const emptyPatch = await patch(`/api/admin/roles/${roleId}`, {});
+check('Leerer PATCH → 400', emptyPatch.statusCode === 400);
+const listed = await get('/api/admin/roles');
+check(
+  'Rollenliste trägt can_view_calendar',
+  (listed.json().roles as { id: number; can_view_calendar: number }[]).find((r) => r.id === roleId)?.can_view_calendar === 0,
+);
+await del(`/api/admin/roles/${roleId}`);
+await del(`/api/admin/roles/${roleNoCal.json().role.id}`);
+
 await app.close();
 closeDb();
 try {
