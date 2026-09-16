@@ -742,6 +742,30 @@ db.prepare('DELETE FROM absence_type_roles WHERE type_id = ?').run(blockable.id)
 const restoredTypes = (await empGet('/api/me/leave-types')).json().types as { id: number }[];
 check('Ohne Regeln ist die Liste wieder vollständig', restoredTypes.length === baseTypes.length, restoredTypes.length);
 
+// ------------------------------------------- Kalenderrecht der Fachrolle ---
+// Anna trägt nur "Vollzeit". Nimmt die Rolle das Kalenderrecht, fällt der
+// Kalender weg (403) und /api/auth/me meldet es; eine zweite Rolle, die es
+// erlaubt, gibt ihn wieder frei.
+const meBefore = await empGet('/api/auth/me');
+check('auth/me: Portal-Konto meldet portal.calendar = true', meBefore.json().portal?.calendar === true, meBefore.json().portal);
+db.prepare('UPDATE roles SET can_view_calendar = 0 WHERE id = ?').run(roleVollzeit.id);
+const calDenied = await empGet('/api/me/calendar?year=2026&month=4');
+const meDenied = await empGet('/api/auth/me');
+check(
+  'Rolle ohne Kalenderrecht: GET /api/me/calendar → 403, auth/me portal.calendar = false',
+  calDenied.statusCode === 403 && meDenied.json().portal?.calendar === false,
+  { status: calDenied.statusCode, portal: meDenied.json().portal },
+);
+db.prepare('INSERT INTO employee_roles (employee_id, role_id) VALUES (1, ?)').run(roleMinijob.id);
+const calAllowedAgain = await empGet('/api/me/calendar?year=2026&month=4');
+check(
+  'Zweite Rolle mit Kalenderrecht gibt den Kalender wieder frei',
+  calAllowedAgain.statusCode === 200,
+  calAllowedAgain.statusCode,
+);
+db.prepare('DELETE FROM employee_roles WHERE employee_id = 1 AND role_id = ?').run(roleMinijob.id);
+db.prepare('UPDATE roles SET can_view_calendar = 1 WHERE id = ?').run(roleVollzeit.id);
+
 // D4: Krankmeldungen dürfen nie blockiert werden.
 const krankheitType = db
   .prepare("SELECT id FROM absence_types WHERE category = 'krankheit' ORDER BY id LIMIT 1")

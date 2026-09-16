@@ -30,12 +30,19 @@ interface NavItem {
   feature?: string;
   /** Fachmodul der Seite; fehlt es der Variante, gibt es den Eintrag nicht (src/variants). */
   module?: ModuleKey;
+  /** Zusätzlich an ein Rollenrecht der Person gebunden (useAuth). */
+  requires?: 'calendar';
 }
 
-/** Sichtbar mit dieser Feature-Menge? Expliziter Schluessel plus Registry (portalPaths). */
-function navItemAllowed(item: NavItem, features: readonly string[] | null): boolean {
+/** Sichtbar mit dieser Feature-Menge und diesen Rollenrechten? */
+function navItemAllowed(
+  item: NavItem,
+  features: readonly string[] | null,
+  access: { calendar: boolean },
+): boolean {
   if (!moduleEnabled(VARIANT, item.module)) return false;
   if (item.feature && !hasFeature(features, item.feature)) return false;
+  if (item.requires && !access[item.requires]) return false;
   return pathAllowedByFeatures(item.to, features, undefined, 'portalPaths');
 }
 
@@ -61,7 +68,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/antraege', label: 'Anträge', icon: IconRequests, module: 'absences' },
       { to: '/krankmeldung', label: 'Krankmeldung', icon: IconSickNote, module: 'absences' },
-      { to: '/kalender', label: 'Kalender', icon: IconCalendar, module: 'absences' },
+      { to: '/kalender', label: 'Kalender', icon: IconCalendar, module: 'absences', requires: 'calendar' },
     ],
   },
   {
@@ -100,7 +107,7 @@ function Wordmark() {
 }
 
 export function PortalShell() {
-  const { user, logout, features } = useAuth();
+  const { user, logout, features, canViewCalendar } = useAuth();
   const location = useLocation();
   // Nur unter 900px relevant: darüber liegt die Leiste ohnehin fest im Layout
   // und CSS blendet Overlay, Topbar und Schließen-Knopf aus.
@@ -169,7 +176,9 @@ export function PortalShell() {
 
         <nav className="portal-nav" aria-label="Hauptnavigation">
           {NAV_SECTIONS.map((section, i) => {
-            const items = section.items.filter((item) => navItemAllowed(item, features));
+            const items = section.items.filter((item) =>
+              navItemAllowed(item, features, { calendar: canViewCalendar }),
+            );
             if (items.length === 0) return null;
             return (
             <div key={section.title ?? `section-${i}`}>

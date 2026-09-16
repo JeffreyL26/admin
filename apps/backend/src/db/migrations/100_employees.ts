@@ -322,4 +322,14 @@ export const employeesMigrations: Migration[] = [
         CHECK (visibility IN ('portal','hr'));
     `,
   },
+  {
+    // Fachrolle entscheidet, ob ihre Mitglieder den firmenweiten
+    // Abwesenheitskalender im Portal sehen (Vorgabe: ja). Durchsetzung in
+    // core/portalAccess.ts: sichtbar, solange mindestens eine zugewiesene
+    // Rolle es erlaubt oder die Person gar keine Rolle hat.
+    name: '109_roles_calendar',
+    sql: `
+      ALTER TABLE roles ADD COLUMN can_view_calendar INTEGER NOT NULL DEFAULT 1;
+    `,
+  },
 ];

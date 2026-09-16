@@ -17,6 +17,8 @@ export interface Role {
   name: string;
   description: string | null;
   active: number; // SQLite-Bool (0/1)
+  /** Mitglieder sehen den firmenweiten Abwesenheitskalender im Portal (0/1, Vorgabe 1). */
+  can_view_calendar: number;
   created_at: string;
   /** Angereichert in GET /api/admin/roles. */
   member_count?: number;

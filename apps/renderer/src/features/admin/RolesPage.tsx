@@ -145,7 +145,7 @@ export function RolesPage() {
               <thead>
                 <tr>
                   <th>Rolle</th>
-                  <th style={{ width: 110 }}>Status</th>
+                  <th style={{ width: 200 }}>Status</th>
                   <th style={{ width: 130 }}>Mitglieder</th>
                   <th style={{ width: 120 }}>Angelegt</th>
                   <th style={{ width: 260 }} />
@@ -161,11 +161,14 @@ export function RolesPage() {
                       </div>
                     </td>
                     <td>
-                      {r.active === 1 ? (
-                        <Badge tone="green">Aktiv</Badge>
-                      ) : (
-                        <Badge tone="neutral">Inaktiv</Badge>
-                      )}
+                      <span className="row row--wrap" style={{ gap: 6 }}>
+                        {r.active === 1 ? (
+                          <Badge tone="green">Aktiv</Badge>
+                        ) : (
+                          <Badge tone="neutral">Inaktiv</Badge>
+                        )}
+                        {r.can_view_calendar === 0 && <Badge tone="yellow">Ohne Kalender</Badge>}
+                      </span>
                     </td>
                     <td>
                       {r.member_count ?? 0}{' '}
@@ -265,12 +268,14 @@ function RoleDialog({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [active, setActive] = useState(true);
+  const [canViewCalendar, setCanViewCalendar] = useState(true);
 
   useEffect(() => {
     if (!open) return;
     setName(role?.name ?? '');
     setDescription(role?.description ?? '');
     setActive(role ? role.active === 1 : true);
+    setCanViewCalendar(role ? role.can_view_calendar === 1 : true);
   }, [open, role]);
 
   const save = useMutation({
@@ -279,6 +284,7 @@ function RoleDialog({
         name: name.trim(),
         description: description.trim() || null,
         active,
+        can_view_calendar: canViewCalendar,
       };
       return role
         ? api.patch(`/api/admin/roles/${role.id}`, body)
@@ -345,6 +351,20 @@ function RoleDialog({
           <p style={{ margin: '6px 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
             Inaktive Rollen bleiben mitsamt ihren Zuweisungen erhalten und werden bei der
             Rollenvergabe nur nicht mehr angeboten.
+          </p>
+        </div>
+        <div className="span-2">
+          <label className="hm-checkbox">
+            <input
+              type="checkbox"
+              checked={canViewCalendar}
+              onChange={(e) => setCanViewCalendar(e.target.checked)}
+            />
+            <span>Abwesenheitskalender im Portal sichtbar</span>
+          </label>
+          <p style={{ margin: '6px 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            Mitglieder dieser Rolle sehen im Mitarbeitenden-Portal den firmenweiten Kalender. Hat
+            eine Person mehrere Rollen, genügt eine, die es erlaubt; ohne Rolle bleibt er sichtbar.
           </p>
         </div>
       </div>

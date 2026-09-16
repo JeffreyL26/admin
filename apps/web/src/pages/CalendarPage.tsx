@@ -12,9 +12,10 @@
  * Parametern zeigt die Seite den laufenden Monat, ohne die URL zu beschreiben.
  */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import type { MeCalendarEmployee, MeCalendarEntry, OrgTreeNode } from '@ohrganize/shared';
 import { useMyCalendar, useMyOrgTree, useMyProfile } from '../api/hooks';
+import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
 import { Tooltip } from '../components/Tooltip';
 import { formatDate, todayIso } from '../lib/format';
@@ -228,7 +229,18 @@ function readMonthParams(params: URLSearchParams): { year: number; month: number
 // Seite
 // ---------------------------------------------------------------------------
 
+/**
+ * Rollenrecht (roles.can_view_calendar): Ohne Freigabe zurück zur Übersicht,
+ * damit die Seite nicht über die URL erreichbar bleibt; der Server antwortet
+ * dann ohnehin mit 403.
+ */
 export function CalendarPage() {
+  const { canViewCalendar } = useAuth();
+  if (!canViewCalendar) return <Navigate to="/" replace />;
+  return <CalendarView />;
+}
+
+function CalendarView() {
   const [params, setParams] = useSearchParams();
   const today = todayIso();
   const currentYear = Number(today.slice(0, 4));

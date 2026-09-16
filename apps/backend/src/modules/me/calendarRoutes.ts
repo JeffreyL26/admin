@@ -17,8 +17,9 @@ import type {
   RegionCode,
 } from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
-import { badRequest, parse } from '../../core/errors.js';
+import { badRequest, forbidden, parse } from '../../core/errors.js';
 import { holidaysByRegion } from '../../core/holidays.js';
+import { canViewPortalCalendar } from '../../core/portalAccess.js';
 import { getSetting } from '../../core/settings.js';
 import {
   companyRegionDefaults,
@@ -67,6 +68,11 @@ export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/me/calendar', async (req) => {
     // Erste Zeile jeder Self-Service-Route: eigenes Profil oder 403.
     const self = requireEmployee(req);
+    // Fachrolle ohne Kalenderrecht: Das Portal blendet den Menüpunkt aus, die
+    // Sperre gilt aber hier — sonst wäre sie über die URL zu umgehen.
+    if (!canViewPortalCalendar(self.id)) {
+      throw forbidden('Der Abwesenheitskalender ist für Ihre Rolle nicht freigegeben.');
+    }
 
     const q = req.query as { year?: string; month?: string };
     // Anders als im HR-Kalender ist der Monat Pflicht: diese Route liefert ALLE

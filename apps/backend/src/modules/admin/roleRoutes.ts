@@ -9,12 +9,15 @@ const roleBodySchema = z.object({
   name: z.string().trim().min(1, 'Name ist erforderlich').max(80),
   description: z.string().trim().max(2000).nullable().optional(),
   active: z.boolean().optional(),
+  /** Mitglieder sehen den Abwesenheitskalender im Portal (Vorgabe: ja). */
+  can_view_calendar: z.boolean().optional(),
 });
 
 const rolePatchSchema = z.object({
   name: z.string().trim().min(1, 'Name ist erforderlich').max(80).optional(),
   description: z.string().trim().max(2000).nullable().optional(),
   active: z.boolean().optional(),
+  can_view_calendar: z.boolean().optional(),
 });
 
 const employeeRolesSchema = z.object({
@@ -70,10 +73,15 @@ export async function roleRoutes(app: FastifyInstance): Promise<void> {
     const body = parse(roleBodySchema, req.body);
     assertNameFree(body.name);
     const result = db()
-      .prepare('INSERT INTO roles (name, description, active) VALUES (?, ?, ?)')
-      .run(body.name, body.description ?? null, body.active === false ? 0 : 1);
+      .prepare('INSERT INTO roles (name, description, active, can_view_calendar) VALUES (?, ?, ?, ?)')
+      .run(
+        body.name,
+        body.description ?? null,
+        body.active === false ? 0 : 1,
+        body.can_view_calendar === false ? 0 : 1,
+      );
     const id = Number(result.lastInsertRowid);
-    audit(req, 'create', 'role', id, { name: body.name });
+    audit(req, 'create', 'role', id, { name: body.name, can_view_calendar: body.can_view_calendar !== false });
     reply.status(201);
     return { role: getRoleOr404(id) };
   });
@@ -82,16 +90,22 @@ export async function roleRoutes(app: FastifyInstance): Promise<void> {
     const id = Number((req.params as { id: string }).id);
     const existing = getRoleOr404(id);
     const patch = parse(rolePatchSchema, req.body);
-    if (patch.name === undefined && patch.description === undefined && patch.active === undefined) {
+    if (
+      patch.name === undefined &&
+      patch.description === undefined &&
+      patch.active === undefined &&
+      patch.can_view_calendar === undefined
+    ) {
       throw badRequest('Keine Änderungen übergeben');
     }
     if (patch.name !== undefined) assertNameFree(patch.name, id);
     db()
-      .prepare('UPDATE roles SET name = ?, description = ?, active = ? WHERE id = ?')
+      .prepare('UPDATE roles SET name = ?, description = ?, active = ?, can_view_calendar = ? WHERE id = ?')
       .run(
         patch.name ?? existing.name,
         patch.description !== undefined ? patch.description : existing.description,
         patch.active !== undefined ? (patch.active ? 1 : 0) : existing.active,
+        patch.can_view_calendar !== undefined ? (patch.can_view_calendar ? 1 : 0) : existing.can_view_calendar,
         id,
       );
     audit(req, 'update', 'role', id, { changed: patch });

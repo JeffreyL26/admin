@@ -10,6 +10,7 @@ import { permissionsFor } from './permissions.js';
 import { audit } from './audit.js';
 import { getSetting } from './settings.js';
 import { licenseForRole } from './license.js';
+import { portalAccessFor } from './portalAccess.js';
 
 /** Rollen: 'admin' = HR-Administration (Desktop), 'mitarbeiter' = Web-Portal. */
 export interface AuthUser {
@@ -467,6 +468,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         user,
         permissions: permissionsFor(user.admin_role_id),
         license: licenseForRole(user.role),
+        // Portal-Konten: was die Fachrollen im Portal freigeben (Anzeigehilfe;
+        // die Durchsetzung sitzt in den /api/me-Routen).
+        portal: portalAccessFor(user.employee_id),
       };
     },
   );
@@ -475,6 +479,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     user: req.user,
     permissions: permissionsFor(req.user.admin_role_id),
     license: licenseForRole(req.user.role),
+    portal: portalAccessFor(req.user.employee_id ?? null),
   }));
 
   app.put('/api/auth/password', { preHandler: throttlePasswordChange }, async (req) => {

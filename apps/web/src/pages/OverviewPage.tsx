@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import type { AbsenceRequest, MeCalendarEmployee } from '@ohrganize/shared';
 import { useMyBalance, useMyCalendar, useMyProfile, useMyRequests } from '../api/hooks';
+import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
 import { formatDate, formatDays, formatLongDate, formatRange, greeting, todayIso } from '../lib/format';
 
@@ -279,6 +280,7 @@ function AwayThisWeekCard() {
 }
 
 export function OverviewPage() {
+  const { canViewCalendar } = useAuth();
   const { data: profile, isLoading: profileLoading } = useMyProfile();
   const { data: requests, isLoading: requestsLoading, error: requestsError } = useMyRequests();
 
@@ -398,7 +400,8 @@ export function OverviewPage() {
             )}
           </Card>
 
-          <AwayThisWeekCard />
+          {/* Nur mit Kalenderrecht der Fachrolle — das Widget liest denselben Kalender. */}
+          {canViewCalendar && <AwayThisWeekCard />}
         </div>
       </div>
     </div>

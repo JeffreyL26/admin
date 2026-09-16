@@ -21,6 +21,8 @@ const NO_PROFILE_MESSAGE =
 interface SessionResponse {
   user: AuthUserDto;
   license?: LicenseStatusPublic;
+  /** Was die Fachrollen im Portal freigeben (fehlt bei älterem Backend ⇒ alles sichtbar). */
+  portal?: { calendar: boolean };
 }
 
 interface AuthState {
@@ -41,6 +43,12 @@ interface AuthState {
    */
   features: string[] | null;
   hasFeature: (key: string) => boolean;
+  /**
+   * Firmenweiter Abwesenheitskalender laut Fachrolle (roles.can_view_calendar).
+   * Anzeigehilfe für Navigation und Route; das Backend weist
+   * GET /api/me/calendar ohne Recht mit 403 ab.
+   */
+  canViewCalendar: boolean;
   login: (email: string, password: string) => Promise<void>;
   /**
    * Passwort setzen. MUSS über den Kontext laufen und nicht direkt über
@@ -59,6 +67,7 @@ const AuthContext = createContext<AuthState>({
   readOnly: false,
   features: null,
   hasFeature: () => true,
+  canViewCalendar: true,
   login: async () => {},
   changePassword: async () => {},
   logout: () => {},
@@ -73,12 +82,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Schreibzugriffe ohnehin selbst ab, und der Client folgt dann dem 403.
   const [readOnly, setReadOnly] = useState(false);
   const [features, setFeatures] = useState<string[] | null>(null);
+  const [canViewCalendar, setCanViewCalendar] = useState(true);
   const queryClient = useQueryClient();
 
   const adoptSession = useCallback((res: SessionResponse) => {
     setUser(res.user);
     setReadOnly(res.license?.read_only === true);
     setFeatures(res.license?.features ?? null);
+    setCanViewCalendar(res.portal?.calendar !== false);
   }, []);
   const hasFeatureFn = useCallback((key: string) => hasFeature(features, key), [features]);
 
@@ -133,7 +144,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, readOnly, features, hasFeature: hasFeatureFn, login, changePassword, logout }}
+      value={{
+        user,
+        loading,
+        readOnly,
+        features,
+        hasFeature: hasFeatureFn,
+        canViewCalendar,
+        login,
+        changePassword,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>
