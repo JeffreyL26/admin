@@ -44,7 +44,7 @@ export function TemplatesPage() {
     <>
       <PageHeader
         title="HR-Vorlagen"
-        subtitle="Zentrales Dokumentverzeichnis der Abteilung — Vorlagen für Schreiben, Verträge und Formulare."
+        subtitle="Zentrales Dokumentverzeichnis: Vorlagen für Schreiben, Verträge, Formulare und alles, was Sie wünschen."
         actions={
           <button
             className="hm-btn hm-btn--primary"
@@ -96,7 +96,7 @@ export function TemplatesPage() {
             hint={
               search || category
                 ? 'Passen Sie Suchbegriff oder Kategorie-Filter an.'
-                : 'Laden Sie die erste Vorlage hoch — z. B. ein Musterschreiben oder eine Vertragsvorlage.'
+                : 'Laden Sie die erste Vorlage hoch, z. B. ein Musterschreiben oder eine Vertragsvorlage.'
             }
           />
         ) : (

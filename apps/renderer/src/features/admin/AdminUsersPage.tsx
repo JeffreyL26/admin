@@ -144,9 +144,8 @@ function AccountsTab() {
           }}
         >
           <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', flex: 1 }}>
-            Ohne zugewiesene Rolle hat ein Konto <strong>Vollzugriff</strong>. Das ist Absicht, damit
-            sich eine frische Installation und neu angelegte Konten nicht selbst aussperren — die
-            Einschränkung ist die bewusste Entscheidung.
+            Ohne zugewiesene Rolle hat ein Konto <strong>Vollzugriff</strong>. Dies ist dazu da, damit
+            sich eine frische Installation und neu angelegte Konten nicht selbst aussperren.
           </p>
           <button
             className="hm-btn hm-btn--primary"
@@ -317,10 +316,8 @@ function AccountsTab() {
         >
           <ShieldAlert size={14} style={{ flex: 'none', marginTop: 1 }} />
           <span>
-            Passwörter werden nie eingegeben, sondern vom Server erzeugt und genau einmal angezeigt.
-            Die eigene Rolle lässt sich hier nicht ändern und das eigene Konto nicht löschen. Sonst
-            wäre jede Einschränkung mit einem Klick aufgehoben. Ebenso bleibt immer mindestens ein
-            Konto mit Benutzerverwaltung übrig.
+            Die eigene Rolle lässt sich hier nicht ändern und das eigene Konto nicht löschen. Ebenso
+            bleibt immer mindestens ein Konto mit Benutzerverwaltung übrig.
           </span>
         </div>
       </Card>
@@ -428,7 +425,7 @@ function LinkProfileDialog({ account, onClose }: { account: AdminAccount; onClos
           Konto <strong>{account.name}</strong> ({account.email}).{' '}
           {portal
             ? 'Das Portal zeigt ausschließlich die Daten des verknüpften Profils.'
-            : 'Mit verknüpftem Profil kann das Konto zusätzlich im Portal anmelden und — nach Freischaltung unter Führung → Einrichtung — sein Team unter „Mein Team“ bewerten.'}
+            : 'Mit verknüpftem Profil kann das Konto zusätzlich im Portal anmelden und (nach Freischaltung unter Führung → Einrichtung sein Team unter „Mein Team“) bewerten.'}
         </p>
         <Field label="Personalprofil" required={portal}>
           <EmployeeSelect
@@ -678,7 +675,7 @@ function InitialPasswordDialog({
       >
         <ShieldAlert size={16} style={{ flex: 'none', marginTop: 2 }} />
         <span>
-          Dieses Passwort wird <strong>nur jetzt</strong> angezeigt — oHRganize speichert es nicht im
+          Dieses Passwort wird <strong>nur jetzt</strong> angezeigt. oHRganize speichert es nicht im
           Klartext. Geben Sie es der Person über einen anderen Kanal als die E-Mail-Adresse weiter.
           Beim ersten Login muss sie ein eigenes Passwort vergeben. Ist es verloren, setzen Sie es
           einfach erneut zurück.
@@ -924,7 +921,7 @@ function RoleDialog({
           <ShieldAlert size={16} style={{ flex: 'none', marginTop: 2 }} />
           <span>
             Das ist <strong>Ihre eigene Rolle</strong>. Sie können Rechte hier nur zurücknehmen,
-            nicht erweitern, und die Benutzerverwaltung muss auf „Bearbeiten“ bleiben — sonst
+            nicht erweitern, und die Benutzerverwaltung muss auf „Bearbeiten“ bleiben. Ansonsten
             könnten Sie die Änderung nicht rückgängig machen.
           </span>
         </div>

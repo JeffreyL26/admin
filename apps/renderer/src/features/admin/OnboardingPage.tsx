@@ -116,14 +116,14 @@ export function OnboardingPage() {
           <EmptyState
             icon={<UserPlus size={40} />}
             title={statusTab === 'laufend' ? 'Aktuell keine laufenden Prozesse' : 'Keine abgeschlossenen Prozesse'}
-            hint="Starten Sie ein On- oder Offboarding über den Button oben rechts — die Checkliste wird automatisch angelegt."
+            hint="Starten Sie ein On- oder Offboarding über den Button oben rechts. Die Checkliste wird automatisch angelegt und kann ergänzt werden."
           />
         ) : (
           <div className="hm-table-wrap">
             <table className="hm-table">
               <thead>
                 <tr>
-                  <th>Mitarbeiter:in</th>
+                  <th>Person</th>
                   <th>Art</th>
                   <th>Stichtag</th>
                   <th>Checkliste</th>
@@ -218,7 +218,7 @@ function CreateProcessDialog({ open, onClose }: { open: boolean; onClose: () => 
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] });
-      toast.success('Prozess gestartet — Checkliste wurde angelegt');
+      toast.success('Prozess gestartet und Checkliste angelegt');
       onClose();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -245,7 +245,7 @@ function CreateProcessDialog({ open, onClose }: { open: boolean; onClose: () => 
       }
     >
       <div className="hm-form-grid">
-        <Field label="Mitarbeiter:in" required span2>
+        <Field label="Person" required span2>
           <EmployeeSelect value={employeeId} onChange={setEmployeeId} />
         </Field>
         <Field label="Art" required>

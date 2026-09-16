@@ -457,8 +457,8 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           .get(employeeId) as { email: string } | undefined;
         if (linked) {
           throw conflict(
-            `Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft. Je Profil gibt es genau ein Konto — ` +
-              'für einen Desktop-Zugang das bestehende Konto löschen und ein Konto der HR-Administration mit diesem Profil anlegen (es ist zugleich portalfähig).',
+            `Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft. Je Profil gibt es genau ein Konto. ` +
+              'Für einen Desktop-Zugang müssen Sie das bestehende Konto löschen und ein Konto der HR-Administration mit diesem Profil anlegen (es ist zugleich portalfähig).',
           );
         }
       }
@@ -605,8 +605,8 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           .get([employeeId, id]) as { email: string } | undefined;
         if (linked) {
           throw conflict(
-            `Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft. Je Profil gibt es genau ein Konto — ` +
-              'für einen Desktop-Zugang das bestehende Konto löschen und ein Konto der HR-Administration mit diesem Profil anlegen (es ist zugleich portalfähig).',
+            `Dieses Personalprofil ist bereits mit „${linked.email}“ verknüpft. Je Profil gibt es genau ein Konto. ` +
+              'Für einen Desktop-Zugang müssen Sie das bestehende Konto löschen und ein Konto der HR-Administration mit diesem Profil anlegen (es ist zugleich portalfähig).',
           );
         }
       }
