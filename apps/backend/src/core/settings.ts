@@ -15,6 +15,13 @@ export interface CompanySettings {
   carryoverDeadline: string;
   /** Mindestteilnehmerzahl, bevor Umfrageergebnisse angezeigt werden. */
   surveyMinParticipants: number;
+  /**
+   * Zeigt der Portal-Kalender Krankheiten ANDERER Mitarbeitender (Kategorie
+   * `krankheit`)? Sie erscheinen dort ohnehin nur maskiert als „Abwesend“
+   * (portal_visibility, Migration 202); aus bleibt ein Krankheitszeitraum
+   * anderer ganz weg. Eigene Krankmeldungen sieht die Person immer.
+   */
+  portalShowOthersSickness: boolean;
   datevBeraterNr: string;
   datevMandantenNr: string;
 }
@@ -24,6 +31,7 @@ const defaults: CompanySettings = {
   defaultBundesland: 'BY',
   carryoverDeadline: '03-31',
   surveyMinParticipants: 5,
+  portalShowOthersSickness: true,
   datevBeraterNr: '1000001',
   datevMandantenNr: '10001',
 };

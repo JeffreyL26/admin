@@ -128,7 +128,7 @@ function ChangeRequestDialog({
 
   return (
     <Modal
-      title="Gehaltsänderung beantragen"
+      title="Gehaltsänderungsanfrage dokumentieren"
       open={open}
       onClose={onClose}
       footer={
@@ -471,7 +471,7 @@ function EmployeeDetail({
               <Plus size={16} /> Komponente
             </button>
             <button className="hm-btn hm-btn--primary" onClick={() => setRequestDialog(true)}>
-              Änderung beantragen
+              Änderungsanfrage dokumentieren
             </button>
           </>
         }
@@ -632,7 +632,7 @@ export function SalariesPage() {
         subtitle="Aktuelle Vergütung aller Mitarbeitenden mit Änderungs-Workflow"
         actions={
           <button className="hm-btn hm-btn--primary" onClick={() => setRequestDialog(true)}>
-            <Plus size={16} /> Änderung beantragen
+            <Plus size={16} /> Änderungsanfrage dokumentieren
           </button>
         }
       />

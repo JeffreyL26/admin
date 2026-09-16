@@ -141,7 +141,9 @@ function OrgChartView({
   // Zentrieren, Zoomknöpfe); beim Ziehen und Rad-Zoom soll nichts nachziehen.
   const [smooth, setSmooth] = useState(false);
   const [panning, setPanning] = useState(false);
-  const [pending, setPending] = useState<{ center?: number; fit?: boolean; ensure?: number } | null>(null);
+  const [pending, setPending] = useState<{ center?: number; fit?: boolean; ensure?: number; fitIds?: number[] } | null>(
+    null,
+  );
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ px: number; py: number; ox: number; oy: number; moved: boolean } | null>(null);
   // Nach dem Ziehen darf der ausgelöste Klick keine Karte auswählen.
@@ -179,6 +181,35 @@ function OrgChartView({
   );
   const fitRef = useRef(fit);
   fitRef.current = fit;
+
+  /**
+   * Passt die Ansicht auf eine Kartenmenge ein (Abteilungsfilter): Der
+   * umschließende Kasten der Karten kommt mittig ins Bild, so groß wie
+   * möglich, aber nie über 100 %. Karten außerhalb bleiben gedimmt am Rand.
+   */
+  const fitTo = useCallback(
+    (ids: ReadonlySet<number>, panelOpen: boolean) => {
+      const el = canvasRef.current;
+      if (!el) return;
+      const placed = layout.nodes.filter((n) => ids.has(n.node.person.id));
+      if (placed.length === 0) return;
+      const minX = Math.min(...placed.map((p) => p.x));
+      const maxX = Math.max(...placed.map((p) => p.x + CARD_W));
+      const minY = Math.min(...placed.map((p) => p.y));
+      const maxY = Math.max(...placed.map((p) => p.y + CARD_H));
+      const boxW = maxX - minX;
+      const boxH = maxY - minY;
+      const width = el.clientWidth - (panelOpen ? PANEL_W + 24 : 0);
+      const k = clampZoom(Math.min(1, (width - FIT_PAD) / boxW, (el.clientHeight - FIT_PAD) / boxH));
+      setSmooth(true);
+      setView({
+        k,
+        x: width / 2 - (minX + boxW / 2) * k,
+        y: el.clientHeight / 2 - (minY + boxH / 2) * k,
+      });
+    },
+    [layout],
+  );
 
   /** Schiebt die Ansicht gerade so weit, dass die Karte frei sichtbar ist (auch neben der Detailspalte). */
   const ensureVisible = useCallback(
@@ -277,10 +308,11 @@ function OrgChartView({
   useEffect(() => {
     if (!pending) return;
     if (pending.fit) fit(true, true);
+    if (pending.fitIds) fitTo(new Set(pending.fitIds), selectedId !== null);
     if (pending.center !== undefined && layout.byId.has(pending.center)) centerOn(pending.center, true);
     if (pending.ensure !== undefined) ensureVisible(pending.ensure, selectedId !== null);
     setPending(null);
-  }, [pending, layout, fit, centerOn, ensureVisible, selectedId]);
+  }, [pending, layout, fit, fitTo, centerOn, ensureVisible, selectedId]);
 
   // ------------------------------------------------------------ Aktionen --
   const reveal = useCallback(
@@ -339,13 +371,41 @@ function OrgChartView({
     setPending({ fit: true });
   };
 
+  /**
+   * Abteilungsfilter setzen: alle anderen dimmen, die Mitglieder aufklappen
+   * (ein zugeklappter Zweig zeigte sie sonst gar nicht) und die Ansicht auf
+   * genau diese Karten einpassen. Ohne Filter wieder alles einpassen.
+   */
+  const applyDepartmentFilter = useCallback(
+    (key: DepartmentFilter) => {
+      setDepartmentFilter(key);
+      if (key === null) {
+        touched.current = false;
+        setPending({ fit: true });
+        return;
+      }
+      const members = data.people.filter((p) =>
+        key === 'none' ? p.department_id === null : p.department_id === key,
+      );
+      const nodes = members.map((p) => model.byId.get(p.id)).filter((n): n is OrgNode => n !== undefined);
+      if (focusNode && nodes.some((n) => !isWithin(n, focusNode))) setFocusId(null);
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        for (const node of nodes) for (const ancestor of ancestorsOf(node)) next.add(ancestor.person.id);
+        return next;
+      });
+      touched.current = true;
+      setPending({ fitIds: members.map((p) => p.id) });
+    },
+    [data, model, focusNode],
+  );
+
   useEffect(() => {
     if (initialPersonId !== null && model.byId.has(initialPersonId)) reveal(initialPersonId);
     // Einstieg aus der Struktur: Abteilung als Filter setzen (alle anderen
-    // gedimmt) und alles aufklappen, damit ihre Personen auch sichtbar sind.
+    // gedimmt) und die Ansicht auf ihre Personen einpassen.
     if (initialDepartmentId !== null && model.toneByDepartment.has(initialDepartmentId)) {
-      setDepartmentFilter(initialDepartmentId);
-      expandAll();
+      applyDepartmentFilter(initialDepartmentId);
     }
     // Nur beim ersten Anzeigen: Der Parameter beschreibt den Einstieg, nicht
     // jeden späteren Datenstand.
@@ -477,7 +537,7 @@ function OrgChartView({
                   className={`orgc__chip${active ? ' is-active' : ''}`}
                   style={toneStyle(item.tone)}
                   aria-pressed={active}
-                  onClick={() => setDepartmentFilter(active ? null : item.key)}
+                  onClick={() => applyDepartmentFilter(active ? null : item.key)}
                 >
                   <span className="orgc-dot" aria-hidden="true" />
                   {item.name}

@@ -200,18 +200,43 @@ export const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
 // Dokumente
 // ---------------------------------------------------------------------------
 
-export type DocumentCategory = 'vertrag' | 'zeugnis' | 'zertifikat' | 'bescheinigung' | 'sonstiges';
+export type DocumentCategory = 'vertrag' | 'zeugnis' | 'zertifikat' | 'bescheinigung' | 'abmahnung' | 'sonstiges';
+
+export const DOCUMENT_CATEGORIES = [
+  'vertrag',
+  'zeugnis',
+  'zertifikat',
+  'bescheinigung',
+  'abmahnung',
+  'sonstiges',
+] as const satisfies readonly DocumentCategory[];
 
 export const DOCUMENT_CATEGORY_LABELS: Record<DocumentCategory, string> = {
   vertrag: 'Vertrag',
   zeugnis: 'Zeugnis',
   zertifikat: 'Zertifikat',
   bescheinigung: 'Bescheinigung',
+  abmahnung: 'Abmahnung',
   sonstiges: 'Sonstiges',
 };
 
 /** Herkunft eines Dokuments: von der HR abgelegt oder aus dem Portal hochgeladen. */
 export type DocumentSource = 'hr' | 'portal';
+
+/**
+ * Sichtbarkeit eines zugeordneten Dokuments: `portal` = die Person sieht es
+ * unter Dokumente im Portal, `hr` = nur die Personalabteilung (Ablage und
+ * Protokoll, etwa eine Abmahnung). Das Portal filtert serverseitig.
+ */
+export type DocumentVisibility = 'portal' | 'hr';
+
+export const DOCUMENT_VISIBILITY_LABELS: Record<DocumentVisibility, string> = {
+  portal: 'Im Portal sichtbar',
+  hr: 'HR-intern',
+};
+
+export const DOCUMENT_VISIBILITY_HR_HINT =
+  'Die zugeordnete Person kann dieses Dokument nicht im Portal aufgelistet sehen. Es dient zu internen HR-Zwecken.';
 
 // ---------------------------------------------------------------------------
 // API-Formen (snake_case wie in der DB)
@@ -290,6 +315,7 @@ export interface DocumentDto {
   version: number;
   supersedes_id: number | null;
   source: DocumentSource;
+  visibility: DocumentVisibility;
   /** Hochladendes Konto — bei Bestand und HR-Uploads ohne Zuordnung null. */
   uploaded_by_user_id: number | null;
   created_at: string;

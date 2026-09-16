@@ -120,6 +120,20 @@
 .hm-field__label .req {
   color: var(--danger);
 }
+/* Info-Zeichen neben einer Beschriftung oder einem Badge: Tooltip-Anker, kein Knopf. */
+.hm-info-icon {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -2px;
+  margin-left: 5px;
+  color: var(--text-muted);
+  cursor: help;
+  border-radius: 50%;
+}
+.hm-info-icon:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
 .hm-field__hint {
   font-size: var(--text-xs);
   color: var(--text-muted);

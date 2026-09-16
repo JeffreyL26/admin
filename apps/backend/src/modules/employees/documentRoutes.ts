@@ -4,11 +4,11 @@ import { getDb } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, notFound, parse } from '../../core/errors.js';
 import { deleteFileIfUnreferenced } from '../../core/files.js';
-import { documentBodySchema, documentPatchSchema } from './validation.js';
+import { documentBodySchema, documentCategorySchema, documentPatchSchema } from './validation.js';
 
 const listQuerySchema = z.object({
   search: z.string().trim().optional(),
-  category: z.enum(['vertrag', 'zeugnis', 'zertifikat', 'bescheinigung', 'sonstiges']).optional(),
+  category: documentCategorySchema.optional(),
   employee_id: z.coerce.number().int().positive().optional(),
   /** true = auch von neueren Versionen abgelöste Dokumente ausliefern. */
   include_superseded: z.coerce.boolean().optional(),
@@ -113,8 +113,8 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     }
     const info = db
       .prepare(
-        `INSERT INTO documents (employee_id, file_id, category, title, note, expiry_date, reminder_days, version, supersedes_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO documents (employee_id, file_id, category, title, note, expiry_date, reminder_days, version, supersedes_id, visibility)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         body.employee_id ?? null,
@@ -126,6 +126,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
         body.reminder_days,
         version,
         body.supersedes_id ?? null,
+        body.visibility,
       );
     const id = Number(info.lastInsertRowid);
     audit(req, 'create', 'document', id, {
@@ -133,6 +134,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       category: body.category,
       employee_id: body.employee_id ?? null,
       version,
+      visibility: body.visibility,
     });
     reply.status(201);
     return { document: getDocumentOr404(id) };
@@ -146,7 +148,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     if (!existing) throw notFound('Dokument nicht gefunden');
     const patch = parse(documentPatchSchema, req.body);
     const cols = (
-      ['employee_id', 'file_id', 'category', 'title', 'note', 'expiry_date', 'reminder_days'] as const
+      ['employee_id', 'file_id', 'category', 'title', 'note', 'expiry_date', 'reminder_days', 'visibility'] as const
     ).filter((c) => patch[c] !== undefined);
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
     getDb()

@@ -194,13 +194,13 @@ paths:
       summary: Dokumente auflisten (FTS5-Volltextsuche über Metadaten, Kategorie-/Mitarbeiterfilter)
       parameters:
         - { name: search, in: query, schema: { type: string } }
-        - { name: category, in: query, schema: { type: string, enum: [vertrag, zeugnis, zertifikat, bescheinigung, sonstiges] } }
+        - { name: category, in: query, schema: { type: string, enum: [vertrag, zeugnis, zertifikat, bescheinigung, abmahnung, sonstiges] } }
         - { name: employee_id, in: query, schema: { type: integer } }
         - { name: include_superseded, in: query, schema: { type: boolean } }
       responses:
         "200": { description: "{ documents: [...] }" }
     post:
-      summary: Dokument-Metadaten anlegen (Datei zuvor über POST /api/files hochladen; Versionierung via supersedes_id)
+      summary: Dokument-Metadaten anlegen (Datei zuvor über POST /api/files hochladen; Versionierung via supersedes_id; visibility portal|hr — hr bleibt im Portal unsichtbar)
       responses:
         "201": { description: Dokument }
   /api/documents/expiring:

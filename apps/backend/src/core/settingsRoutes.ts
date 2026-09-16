@@ -42,6 +42,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
           .optional(),
         carryoverDeadline: z.string().regex(/^\d{2}-\d{2}$/).optional(),
         surveyMinParticipants: z.number().int().min(2).optional(),
+        portalShowOthersSickness: z.boolean().optional(),
         datevBeraterNr: z.string().optional(),
         datevMandantenNr: z.string().optional(),
       }),

@@ -312,4 +312,14 @@ export const employeesMigrations: Migration[] = [
       ALTER TABLE employees ADD COLUMN private_country TEXT;
     `,
   },
+  {
+    // Sichtbarkeit je Dokument: 'portal' zeigt es der zugeordneten Person im
+    // Portal, 'hr' hält es HR-intern (Ablage und Protokoll, etwa eine
+    // Abmahnung). Bestand bleibt sichtbar, so wie er bisher ausgeliefert wurde.
+    name: '108_documents_visibility',
+    sql: `
+      ALTER TABLE documents ADD COLUMN visibility TEXT NOT NULL DEFAULT 'portal'
+        CHECK (visibility IN ('portal','hr'));
+    `,
+  },
 ];

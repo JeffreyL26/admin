@@ -15,8 +15,10 @@ import {
 import { ApiRequestError, api, downloadFile } from '../../api/client';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
+import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useContracts, useDocuments, useEmployee, usePhotoUrl, type DocumentRow, type EmployeeRow } from './api';
+import { VisibilityBadge, VisibilityToggle } from './documentVisibility';
 import {
   EmploymentFields,
   FinanceFields,
@@ -433,7 +435,7 @@ function DocumentsTab({ employeeId }: { employeeId: number }) {
                 <th>Version</th>
                 <th>Ablauf</th>
                 <th>Hochgeladen</th>
-                <th style={{ width: 120 }} />
+                <th style={{ width: 150 }} />
               </tr>
             </thead>
             <tbody>
@@ -444,7 +446,10 @@ function DocumentsTab({ employeeId }: { employeeId: number }) {
                     <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{d.original_name}</div>
                   </td>
                   <td>
-                    <Badge tone="neutral">{DOCUMENT_CATEGORY_LABELS[d.category]}</Badge>
+                    <span className="row" style={{ gap: 6 }}>
+                      <Badge tone="neutral">{DOCUMENT_CATEGORY_LABELS[d.category]}</Badge>
+                      <VisibilityBadge visibility={d.visibility} />
+                    </span>
                   </td>
                   <td>
                     v{d.version} {d.is_superseded ? <Badge tone="neutral">abgelöst</Badge> : null}
@@ -455,24 +460,29 @@ function DocumentsTab({ employeeId }: { employeeId: number }) {
                   <td>{formatDate(d.created_at.slice(0, 10))}</td>
                   <td>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <button
-                        className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                        title="Herunterladen"
-                        onClick={() => downloadFile(d.file_id)}
-                      >
-                        <Download size={15} />
-                      </button>
-                      {!d.is_superseded && (
+                      {!d.is_superseded && <VisibilityToggle doc={d} />}
+                      <Tooltip content="Herunterladen">
                         <button
                           className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Neue Version hochladen"
-                          onClick={() => {
-                            setNewVersionOf(d);
-                            setUploadOpen(true);
-                          }}
+                          aria-label="Herunterladen"
+                          onClick={() => downloadFile(d.file_id)}
                         >
-                          <FilePlus2 size={15} />
+                          <Download size={15} />
                         </button>
+                      </Tooltip>
+                      {!d.is_superseded && (
+                        <Tooltip content="Neue Version hochladen">
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            aria-label="Neue Version hochladen"
+                            onClick={() => {
+                              setNewVersionOf(d);
+                              setUploadOpen(true);
+                            }}
+                          >
+                            <FilePlus2 size={15} />
+                          </button>
+                        </Tooltip>
                       )}
                     </div>
                   </td>

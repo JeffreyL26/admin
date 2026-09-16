@@ -16,6 +16,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useFocusRow } from '../../lib/focusRow';
+import { useFillViewport } from '../../lib/fillViewport';
 import { ChevronLeft, ChevronRight, CalendarX2, Palette, RotateCcw } from 'lucide-react';
 import {
   formatDate,
@@ -75,6 +76,9 @@ function pendingPattern(color: string): string {
 }
 
 const BAR_LABEL_FONT = "650 11px 'Inter Variable', 'Segoe UI', system-ui, sans-serif";
+
+/** Platz unter dem Kalender: Legende (mit Abstand) plus unterer Seitenrand. */
+const BELOW_GRID_RESERVE = 112;
 
 let measureCtx: CanvasRenderingContext2D | null = null;
 const textWidthCache = new Map<string, number>();
@@ -442,9 +446,13 @@ function MonthGrid({ data, focusId }: { data: CalendarData; focusId: number | nu
     return () => observer.disconnect();
   }, [days.length]);
 
+  // Der Kalender scrollt in sich, damit die Tagesleiste beim Scrollen stehen bleibt.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const maxHeight = useFillViewport(wrapRef, BELOW_GRID_RESERVE);
+
   return (
     <Card flush>
-      <div className="hm-table-wrap">
+      <div className="hm-table-wrap" ref={wrapRef} style={{ maxHeight }}>
         <div className="hm-cal" style={{ minWidth: 220 + days.length * 34 }}>
           {/* Kopfzeile */}
           <div className="hm-cal__row hm-cal__row--head" style={{ gridTemplateColumns: `220px 1fr` }}>
@@ -747,9 +755,12 @@ function YearGrid({ data, year, focusId }: { data: CalendarData; year: number; f
     });
   }, [data, year, closureDays, holidaysByLand]);
 
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const maxHeight = useFillViewport(wrapRef, BELOW_GRID_RESERVE);
+
   return (
     <Card flush>
-      <div className="hm-table-wrap">
+      <div className="hm-table-wrap" ref={wrapRef} style={{ maxHeight }}>
         <table className="hm-table">
           <thead>
             <tr>

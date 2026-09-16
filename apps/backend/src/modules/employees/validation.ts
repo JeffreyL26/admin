@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   COUNTRY_CODES,
   COUNTRY_LABELS,
+  DOCUMENT_CATEGORIES,
   EMPLOYEE_RULE_FIELD_LABELS,
   churchTaxOptionsFor,
   employeeTypeRulesFor,
@@ -230,15 +231,18 @@ export function assertLocationRegion(country: CountryCode, bundesland: string): 
 // Dokumente
 // ---------------------------------------------------------------------------
 
+export const documentCategorySchema = z.enum(DOCUMENT_CATEGORIES);
+
 export const documentBodySchema = z.object({
   employee_id: z.number().int().positive().nullish(),
   file_id: z.number().int().positive(),
-  category: z.enum(['vertrag', 'zeugnis', 'zertifikat', 'bescheinigung', 'sonstiges']),
+  category: documentCategorySchema,
   title: z.string().trim().min(1, 'Titel ist Pflicht').max(300),
   note: nullableString,
   expiry_date: isoDate.nullish(),
   reminder_days: z.number().int().min(0).max(730).default(30),
   supersedes_id: z.number().int().positive().nullish(),
+  visibility: z.enum(['portal', 'hr']).default('portal'),
 });
 
 export const documentPatchSchema = documentBodySchema.omit({ supersedes_id: true }).partial();

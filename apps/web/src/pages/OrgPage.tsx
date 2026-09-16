@@ -75,7 +75,8 @@ type Gesture =
   | { kind: 'pan'; px: number; py: number; ox: number; oy: number; moved: boolean }
   | { kind: 'pinch'; distance: number; mx: number; my: number; view: View };
 
-type DepartmentFilter = number | 'none' | null;
+/** Abteilung, „Ohne Abteilung“, die eigene Karte („Ich“) oder kein Filter. */
+type DepartmentFilter = number | 'none' | 'self' | null;
 
 function toneStyle(tone: number): CSSProperties {
   return { '--orgc-accent': tone > 0 ? `var(--org-${tone})` : 'var(--gray-400)' } as CSSProperties;
@@ -139,7 +140,9 @@ function OrgChartView({ data }: { data: MeOrgChartResponse }) {
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
   const [smooth, setSmooth] = useState(false);
   const [panning, setPanning] = useState(false);
-  const [pending, setPending] = useState<{ center?: number; fit?: boolean; ensure?: number } | null>(null);
+  const [pending, setPending] = useState<{ center?: number; fit?: boolean; ensure?: number; fitIds?: number[] } | null>(
+    null,
+  );
   const canvasRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -173,6 +176,33 @@ function OrgChartView({ data }: { data: MeOrgChartResponse }) {
   );
   const fitRef = useRef(fit);
   fitRef.current = fit;
+
+  /**
+   * Passt die Ansicht auf eine Kartenmenge ein (Abteilungsfilter, „Ich“): Der
+   * umschließende Kasten kommt mittig ins Bild, so groß wie möglich, nie über
+   * 100 %. Eine offene Detailspalte (rechts oder unten) bleibt frei.
+   */
+  const fitTo = useCallback(
+    (ids: ReadonlySet<number>, panelOpen: boolean) => {
+      const el = canvasRef.current;
+      if (!el) return;
+      const placed = layout.nodes.filter((n) => ids.has(n.node.person.id));
+      if (placed.length === 0) return;
+      const minX = Math.min(...placed.map((p) => p.x));
+      const maxX = Math.max(...placed.map((p) => p.x + CARD_W));
+      const minY = Math.min(...placed.map((p) => p.y));
+      const maxY = Math.max(...placed.map((p) => p.y + CARD_H));
+      const boxW = maxX - minX;
+      const boxH = maxY - minY;
+      const beside = panelOpen && panelBeside(el);
+      const width = el.clientWidth - (beside ? PANEL_W + 20 : 0);
+      const height = el.clientHeight - (panelOpen && !beside ? el.clientHeight * 0.45 : 0);
+      const k = clampZoom(Math.min(1, (width - FIT_PAD) / boxW, (height - FIT_PAD) / boxH));
+      setSmooth(true);
+      setView({ k, x: width / 2 - (minX + boxW / 2) * k, y: height / 2 - (minY + boxH / 2) * k });
+    },
+    [layout],
+  );
 
   const centerOn = useCallback(
     (id: number, panelOpen: boolean) => {
@@ -271,10 +301,11 @@ function OrgChartView({ data }: { data: MeOrgChartResponse }) {
   useEffect(() => {
     if (!pending) return;
     if (pending.fit) fit(true, true);
+    if (pending.fitIds) fitTo(new Set(pending.fitIds), selectedId !== null);
     if (pending.center !== undefined && layout.byId.has(pending.center)) centerOn(pending.center, selectedId !== null);
     if (pending.ensure !== undefined) ensureVisible(pending.ensure, selectedId !== null);
     setPending(null);
-  }, [pending, layout, fit, centerOn, ensureVisible, selectedId]);
+  }, [pending, layout, fit, fitTo, centerOn, ensureVisible, selectedId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -370,6 +401,36 @@ function OrgChartView({ data }: { data: MeOrgChartResponse }) {
     setPending({ ensure: id });
   }, []);
 
+  /**
+   * Filter setzen: alle anderen dimmen, die Betroffenen aufklappen (ein
+   * zugeklappter Zweig zeigte sie sonst gar nicht) und die Ansicht auf genau
+   * diese Karten einpassen — bei „Ich“ auf die eigene. Ohne Filter wieder alles.
+   */
+  const applyFilter = useCallback(
+    (key: DepartmentFilter) => {
+      setDepartmentFilter(key);
+      if (key === null) {
+        touched.current = false;
+        setPending({ fit: true });
+        return;
+      }
+      const members =
+        key === 'self'
+          ? data.people.filter((p) => p.id === data.self_id)
+          : data.people.filter((p) => (key === 'none' ? p.department_id === null : p.department_id === key));
+      const nodes = members.map((p) => model.byId.get(p.id)).filter((n): n is Node => n !== undefined);
+      if (focusNode && nodes.some((n) => !orgIsWithin(n, focusNode))) setFocusId(null);
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        for (const node of nodes) for (const ancestor of orgAncestorsOf(node)) next.add(ancestor.person.id);
+        return next;
+      });
+      touched.current = true;
+      setPending({ fitIds: members.map((p) => p.id) });
+    },
+    [data, model, focusNode],
+  );
+
   // ---------------------------------------------------------- Ableitungen --
   const hoverNode = hoverId !== null ? (model.byId.get(hoverId) ?? null) : null;
   const activeNode = hoverNode ?? selectedNode;
@@ -402,6 +463,7 @@ function OrgChartView({ data }: { data: MeOrgChartResponse }) {
   const isDimmed = (person: Person): boolean => {
     if (trimmed && !hitIds.has(person.id)) return true;
     if (departmentFilter === null) return false;
+    if (departmentFilter === 'self') return person.id !== data.self_id;
     return departmentFilter === 'none' ? person.department_id !== null : person.department_id !== departmentFilter;
   };
 
@@ -448,7 +510,18 @@ function OrgChartView({ data }: { data: MeOrgChartResponse }) {
               </div>
             )}
           </div>
-          <div className="pt-orgc__legend" aria-label="Abteilungen">
+          <div className="pt-orgc__legend" aria-label="Filter">
+            {self && (
+              <button
+                type="button"
+                className={`pt-orgc__chip pt-orgc__chip--self${departmentFilter === 'self' ? ' is-active' : ''}`}
+                aria-pressed={departmentFilter === 'self'}
+                onClick={() => applyFilter(departmentFilter === 'self' ? null : 'self')}
+              >
+                <IconLocate />
+                Ich
+              </button>
+            )}
             {legend.map((item) => {
               const active = departmentFilter === item.key;
               return (
@@ -458,7 +531,7 @@ function OrgChartView({ data }: { data: MeOrgChartResponse }) {
                   className={`pt-orgc__chip${active ? ' is-active' : ''}`}
                   style={toneStyle(item.tone)}
                   aria-pressed={active}
-                  onClick={() => setDepartmentFilter(active ? null : item.key)}
+                  onClick={() => applyFilter(active ? null : item.key)}
                 >
                   <span className="pt-orgc-dot" aria-hidden="true" />
                   {item.name}

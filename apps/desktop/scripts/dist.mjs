@@ -46,4 +46,4 @@ if (!fs.existsSync(electronBuilder)) {
 }
 run(electronBuilder, [target]);
 if (target === '--win') run(path.join(root, 'scripts/copy-workstation-script.mjs'), []);
-console.log(`Installer gebaut fuer Variante ${variantId} (apps/desktop/release).`);
+console.log(`Installer gebaut für Variante ${variantId} (apps/desktop/release).`);

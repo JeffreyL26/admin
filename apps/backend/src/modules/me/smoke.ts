@@ -479,6 +479,35 @@ check(
     .every((a) => a.type_name === 'Urlaub'),
 );
 
+// Einstellung portalShowOthersSickness: Krankheiten ANDERER verschwinden ganz,
+// die eigene bleibt (maskiert) sichtbar.
+const krankTypeId = (db.prepare("SELECT id FROM absence_types WHERE name = 'Krankheit'").get() as { id: number }).id;
+const ownSickId = Number(
+  insertRequest.run(1, krankTypeId, '2026-04-20', '2026-04-21', 2, 'genehmigt').lastInsertRowid,
+);
+const benSickId = Number(
+  insertRequest.run(2, krankTypeId, '2026-04-22', '2026-04-23', 2, 'genehmigt').lastInsertRowid,
+);
+const sickIds = (res: { json(): unknown }) =>
+  ((res.json() as { employees: { absences: { request_id: number }[] }[] }).employees)
+    .flatMap((e) => e.absences)
+    .map((a) => a.request_id);
+const sickShown = await empGet('/api/me/calendar?year=2026&month=4');
+check(
+  'Kalender: Krankheiten anderer standardmäßig (maskiert) sichtbar',
+  sickIds(sickShown).includes(ownSickId) && sickIds(sickShown).includes(benSickId),
+  sickIds(sickShown),
+);
+db.prepare("INSERT INTO app_settings (key, value) VALUES ('portalShowOthersSickness', 'false')").run();
+const sickHidden = await empGet('/api/me/calendar?year=2026&month=4');
+check(
+  'Kalender: Einstellung aus → Krankheit anderer fehlt, eigene bleibt',
+  sickIds(sickHidden).includes(ownSickId) && !sickIds(sickHidden).includes(benSickId),
+  sickIds(sickHidden),
+);
+db.prepare("DELETE FROM app_settings WHERE key = 'portalShowOthersSickness'").run();
+db.prepare('DELETE FROM absence_requests WHERE id IN (?, ?)').run(ownSickId, benSickId);
+
 // ---------------------------------------------------------------- Dokumente ---
 // Je ein von der HR abgelegtes Dokument für Anna und für Ben.
 const insertFile = db.prepare(
@@ -491,17 +520,32 @@ const annaFileId = Number(insertFile.run('Arbeitsvertrag_Adler.pdf', 'smoke-anna
 const annaDocId = Number(insertDoc.run(1, annaFileId, 'vertrag', 'Arbeitsvertrag Anna Adler').lastInsertRowid);
 const benFileId = Number(insertFile.run('Zeugnis_Berg.pdf', 'smoke-ben.pdf').lastInsertRowid);
 const benDocId = Number(insertDoc.run(2, benFileId, 'zeugnis', 'Arbeitszeugnis Ben Berg').lastInsertRowid);
+// HR-internes Dokument (Abmahnung) für Anna: zugeordnet, aber im Portal unsichtbar.
+const annaHrFileId = Number(insertFile.run('Abmahnung_Adler.pdf', 'smoke-anna-hr.pdf').lastInsertRowid);
+const annaHrDocId = Number(
+  db
+    .prepare(
+      "INSERT INTO documents (employee_id, file_id, category, title, source, visibility) VALUES (?, ?, 'abmahnung', ?, 'hr', 'hr')",
+    )
+    .run(1, annaHrFileId, 'Abmahnung Anna Adler').lastInsertRowid,
+);
 
 const docList = await empGet('/api/me/documents');
 const docs = docList.json().documents as { id: number; title: string; source: string }[];
 check(
-  'Dokumente: eigene inkl. HR-Ablage, keine fremden, ohne download_url',
+  'Dokumente: eigene inkl. HR-Ablage, keine fremden, keine HR-internen, ohne download_url',
   docList.statusCode === 200 &&
     docs.length === 1 &&
     docs[0]!.id === annaDocId &&
     docs[0]!.source === 'hr' &&
     !hasKeyDeep(docList.json(), 'download_url'),
   docs,
+);
+const hrOnlyDownload = await empPost(`/api/me/documents/${annaHrDocId}/download`);
+check(
+  'Download eines eigenen HR-INTERNEN Dokuments → 404 (Sichtbarkeit greift auch beim Download)',
+  hrOnlyDownload.statusCode === 404,
+  hrOnlyDownload.json(),
 );
 
 const ownDownload = await empPost(`/api/me/documents/${annaDocId}/download`);

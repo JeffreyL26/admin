@@ -34,7 +34,7 @@ export function ThemeCard() {
         ))}
       </div>
       <p className="pt-field__hint" style={{ marginTop: 12 }}>
-        Gilt für dieses Gerät. Die Desktop-App der HR-Administration kennt dieselben Farbschemata.
+        Gilt für dieses Gerät.
       </p>
     </Card>
   );

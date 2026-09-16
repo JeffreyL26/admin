@@ -65,6 +65,7 @@ export function Field({
   hint,
   children,
   span2,
+  labelAddon,
 }: {
   label: string;
   required?: boolean;
@@ -72,11 +73,14 @@ export function Field({
   hint?: string;
   children: React.ReactNode;
   span2?: boolean;
+  /** Kleines Element rechts neben der Beschriftung, z. B. ein Info-Zeichen mit Tooltip. */
+  labelAddon?: React.ReactNode;
 }) {
   return (
     <label className={`hm-field${span2 ? ' span-2' : ''}`}>
       <span className="hm-field__label">
         {label} {required && <span className="req">*</span>}
+        {labelAddon}
       </span>
       {children}
       {hint && !error && <span className="hm-field__hint">{hint}</span>}

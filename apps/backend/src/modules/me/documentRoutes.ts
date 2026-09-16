@@ -152,10 +152,15 @@ function translateMultipartError(err: unknown): unknown {
 export const meDocumentRoutes: FastifyPluginAsync = async (app) => {
   // --------------------------------------------------------------- Liste ---
   // Eine einzige Abfrage mit JOIN auf files (kein N+1 je Dokument).
+  // HR-interne Dokumente (visibility = 'hr', etwa eine Abmahnung) bleiben der
+  // Person verborgen — in Liste UND Download, sonst wäre die Liste nur Kosmetik.
   app.get('/api/me/documents', async (req) => {
     const emp = requireEmployee(req);
     const documents = getDb()
-      .prepare(`${ME_DOC_SELECT} WHERE d.employee_id = ? ORDER BY d.created_at DESC, d.id DESC`)
+      .prepare(
+        `${ME_DOC_SELECT} WHERE d.employee_id = ? AND d.visibility = 'portal'
+         ORDER BY d.created_at DESC, d.id DESC`,
+      )
       .all(emp.id) as MeDocument[];
     return { documents };
   });
@@ -276,10 +281,10 @@ export const meDocumentRoutes: FastifyPluginAsync = async (app) => {
     // file_id und Ablaufzeit, es steckt KEINE Nutzerprüfung in der Signatur.
     // Die URL ist damit praktisch ein Bearer-Token auf diese Datei.
     const row = getDb()
-      .prepare('SELECT file_id FROM documents WHERE id = ? AND employee_id = ?')
+      .prepare("SELECT file_id FROM documents WHERE id = ? AND employee_id = ? AND visibility = 'portal'")
       .get([id, emp.id]) as { file_id: number } | undefined;
     // Bewusst 404 statt 403: ein 403 würde verraten, dass es das fremde
-    // Dokument gibt.
+    // (oder HR-interne) Dokument gibt.
     if (!row) throw notFound('Dokument nicht gefunden');
     // Der signierte Link darf in keinem Cache landen (Browser, Proxy) —
     // wer ihn hat, kommt bis zum Ablauf ohne Anmeldung an die Datei.

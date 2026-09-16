@@ -6,9 +6,11 @@ import { DOCUMENT_CATEGORY_LABELS, formatDate } from '@ohrganize/shared';
 import { api, downloadFile } from '../../api/client';
 import { Badge, Card, EmptyState, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
+import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useDocuments, useExpiringDocuments, type DocumentRow } from './api';
 import { DocumentUploadModal } from './DocumentUploadModal';
+import { VisibilityBadge, VisibilityToggle } from './documentVisibility';
 import { expiryBadge } from './EmployeeDetailPage';
 import { Select } from '../../components/Select';
 import { backToState } from '../../lib/backTo';
@@ -151,7 +153,7 @@ export function DocumentsPage() {
                   <th>Version</th>
                   <th>Ablauf</th>
                   <th>Hochgeladen</th>
-                  <th style={{ width: 140 }} />
+                  <th style={{ width: 176 }} />
                 </tr>
               </thead>
               <tbody>
@@ -166,7 +168,10 @@ export function DocumentsPage() {
                     </td>
                     <td>{documentOwner(d)}</td>
                     <td>
-                      <Badge tone="blue">{DOCUMENT_CATEGORY_LABELS[d.category]}</Badge>
+                      <span className="row" style={{ gap: 6 }}>
+                        <Badge tone="blue">{DOCUMENT_CATEGORY_LABELS[d.category]}</Badge>
+                        <VisibilityBadge visibility={d.visibility} />
+                      </span>
                     </td>
                     <td>v{d.version}</td>
                     <td>
@@ -175,30 +180,37 @@ export function DocumentsPage() {
                     <td>{formatDate(d.created_at.slice(0, 10))}</td>
                     <td>
                       <div className="row" style={{ justifyContent: 'flex-end' }}>
-                        <button
-                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Herunterladen"
-                          onClick={() => downloadFile(d.file_id)}
-                        >
-                          <Download size={15} />
-                        </button>
-                        <button
-                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Neue Version hochladen"
-                          onClick={() => {
-                            setNewVersionOf(d);
-                            setUploadOpen(true);
-                          }}
-                        >
-                          <FilePlus2 size={15} />
-                        </button>
-                        <button
-                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Löschen"
-                          onClick={() => setConfirmDelete(d)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <VisibilityToggle doc={d} />
+                        <Tooltip content="Herunterladen">
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            aria-label="Herunterladen"
+                            onClick={() => downloadFile(d.file_id)}
+                          >
+                            <Download size={15} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Neue Version hochladen">
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            aria-label="Neue Version hochladen"
+                            onClick={() => {
+                              setNewVersionOf(d);
+                              setUploadOpen(true);
+                            }}
+                          >
+                            <FilePlus2 size={15} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content="Löschen">
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            aria-label="Löschen"
+                            onClick={() => setConfirmDelete(d)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </td>
                   </tr>

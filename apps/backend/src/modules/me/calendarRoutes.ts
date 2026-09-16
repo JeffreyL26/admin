@@ -19,6 +19,7 @@ import type {
 import { getDb } from '../../db/db.js';
 import { badRequest, parse } from '../../core/errors.js';
 import { holidaysByRegion } from '../../core/holidays.js';
+import { getSetting } from '../../core/settings.js';
 import {
   companyRegionDefaults,
   regionSelectParams,
@@ -65,7 +66,7 @@ export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/me/calendar', async (req) => {
     // Erste Zeile jeder Self-Service-Route: eigenes Profil oder 403.
-    requireEmployee(req);
+    const self = requireEmployee(req);
 
     const q = req.query as { year?: string; month?: string };
     // Anders als im HR-Kalender ist der Monat Pflicht: diese Route liefert ALLE
@@ -103,6 +104,9 @@ export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
     // Die Maskierung passiert in SQL: Name, Farbe und ID der Art verlassen die
     // Datenbank bei `portal_visibility = 'neutral'` gar nicht erst, damit es
     // keinen Weg gibt, auf dem der Klarname doch nach draußen gelangt.
+    // Einstellung `portalShowOthersSickness = false`: Krankheiten anderer
+    // Personen bleiben zusätzlich ganz weg (die eigenen nicht).
+    const hideOthersSickness = !getSetting('portalShowOthersSickness');
     const absences = db()
       .prepare(
         `SELECT r.id AS request_id, r.employee_id,
@@ -115,9 +119,10 @@ export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
          JOIN employees e ON e.id = r.employee_id
          WHERE r.status = 'genehmigt' AND e.status = 'aktiv'
            AND r.date_from <= ? AND r.date_to >= ?
+           ${hideOthersSickness ? "AND NOT (t.category = 'krankheit' AND r.employee_id <> ?)" : ''}
          ORDER BY r.date_from, r.id`,
       )
-      .all([NEUTRAL_TYPE_NAME, NEUTRAL_COLOR, to, from]) as CalendarAbsenceRow[];
+      .all([NEUTRAL_TYPE_NAME, NEUTRAL_COLOR, to, from, ...(hideOthersSickness ? [self.id] : [])]) as CalendarAbsenceRow[];
 
     // Zuordnung im Speicher statt N+1-Abfragen.
     const byEmployee = new Map<number, MeCalendarEntry[]>();

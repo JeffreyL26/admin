@@ -30,6 +30,16 @@
         "$env:OHRGANIZE_DATA_DIR=\"C:/Users/jeffr/AppData/Local/Temp/ohrganize-lizenz-demo\"; $env:OHRGANIZE_INITIAL_ADMIN_PASSWORD=\"Demo-Kennwort-2026!\"; npm run dev"
       ],
       "port": 5173
+    },
+    {
+      "name": "portal-exe",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "$ids = (Get-Process oHRganize -ErrorAction Stop).Id; $p = (Get-NetTCPConnection -State Listen | Where-Object { $ids -contains $_.OwningProcess } | Select-Object -First 1).LocalPort; if (-not $p) { throw 'oHRganize.exe lauscht auf keinem Port' }; Write-Host \"Portal gegen eingebettetes Backend http://127.0.0.1:$p\"; $env:VITE_API_BASE = \"http://127.0.0.1:$p\"; npm run dev -w apps/web"
+      ],
+      "port": 5174
     }
   ]
 }

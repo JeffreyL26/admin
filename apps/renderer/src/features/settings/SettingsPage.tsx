@@ -31,6 +31,8 @@ interface Settings {
   defaultBundesland: string;
   carryoverDeadline: string;
   surveyMinParticipants: number;
+  /** Portal-Kalender: Krankheiten anderer (maskiert als „Abwesend“) anzeigen. */
+  portalShowOthersSickness: boolean;
   datevBeraterNr: string;
   datevMandantenNr: string;
 }
@@ -120,6 +122,22 @@ export function SettingsPage() {
                 onChange={(e) => set({ surveyMinParticipants: Number(e.target.value) })}
               />
             </Field>
+            <div className="hm-field span-2">
+              <span className="hm-field__label">Mitarbeitenden-Portal</span>
+              <label className="hm-checkbox">
+                <input
+                  type="checkbox"
+                  checked={settings.portalShowOthersSickness}
+                  onChange={(e) => set({ portalShowOthersSickness: e.target.checked })}
+                />
+                Krankheiten anderer Mitarbeitender im Abwesenheitskalender des Portals anzeigen
+              </label>
+              <span className="hm-field__hint">
+                Krankheiten erscheinen dort nie mit Namen der Art, sondern nur als „Abwesend“. Ausgeschaltet
+                bleiben Krankheitszeiträume anderer im Portal ganz verborgen; die eigene Krankmeldung sieht
+                jede Person weiterhin.
+              </span>
+            </div>
             <Field label="DATEV-Beraternummer">
               <input
                 className="hm-input"

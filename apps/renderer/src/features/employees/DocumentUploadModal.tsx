@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { DOCUMENT_CATEGORY_LABELS, type DocumentCategory } from '@ohrganize/shared';
+import {
+  DOCUMENT_CATEGORY_LABELS,
+  DOCUMENT_VISIBILITY_LABELS,
+  type DocumentCategory,
+  type DocumentVisibility,
+} from '@ohrganize/shared';
 import { api, uploadFile } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';
@@ -9,6 +14,7 @@ import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import type { DocumentRow } from './api';
 import { Select } from '../../components/Select';
+import { VisibilityHint } from './documentVisibility';
 
 /**
  * Upload-Dialog: erst Datei über POST /api/files (Core), danach Metadaten.
@@ -30,6 +36,7 @@ export function DocumentUploadModal({
   const [file, setFile] = useState<File | null>(null);
   const [employeeId, setEmployeeId] = useState<number | null>(fixedEmployeeId ?? null);
   const [category, setCategory] = useState<DocumentCategory>(supersedes?.category ?? 'sonstiges');
+  const [visibility, setVisibility] = useState<DocumentVisibility>(supersedes?.visibility ?? 'portal');
   const [title, setTitle] = useState(supersedes?.title ?? '');
   const [note, setNote] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
@@ -40,12 +47,20 @@ export function DocumentUploadModal({
       setFile(null);
       setEmployeeId(fixedEmployeeId ?? supersedes?.employee_id ?? null);
       setCategory(supersedes?.category ?? 'sonstiges');
+      setVisibility(supersedes?.visibility ?? 'portal');
       setTitle(supersedes?.title ?? '');
       setNote('');
       setExpiryDate(supersedes?.expiry_date ?? '');
       setReminderDays(String(supersedes?.reminder_days ?? 30));
     }
   }, [open, fixedEmployeeId, supersedes]);
+
+  // Eine Abmahnung gehört nicht ins Portal der betroffenen Person: Beim Wechsel
+  // auf diese Kategorie springt die Sichtbarkeit auf HR-intern, bleibt aber änderbar.
+  const pickCategory = (next: DocumentCategory) => {
+    setCategory(next);
+    if (next === 'abmahnung') setVisibility('hr');
+  };
 
   const save = useMutation({
     mutationFn: async () => {
@@ -60,6 +75,8 @@ export function DocumentUploadModal({
         expiry_date: expiryDate || null,
         reminder_days: Number(reminderDays) || 30,
         supersedes_id: supersedes?.id ?? null,
+        // Ohne Zuordnung gibt es niemanden, dem das Dokument verborgen bliebe.
+        visibility: employeeId === null ? 'portal' : visibility,
       });
     },
     onSuccess: () => {
@@ -101,7 +118,7 @@ export function DocumentUploadModal({
           <Select
             className="hm-select"
             value={category}
-            onChange={(e) => setCategory(e.target.value as DocumentCategory)}
+            onChange={(e) => pickCategory(e.target.value as DocumentCategory)}
           >
             {Object.entries(DOCUMENT_CATEGORY_LABELS).map(([v, l]) => (
               <option key={v} value={v}>
@@ -119,6 +136,21 @@ export function DocumentUploadModal({
             emptyLabel="— allgemein —"
           />
         </Field>
+        {employeeId !== null && (
+          <Field label="Sichtbarkeit" span2 labelAddon={<VisibilityHint />}>
+            <Select
+              className="hm-select"
+              value={visibility}
+              onChange={(e) => setVisibility(e.target.value as DocumentVisibility)}
+            >
+              {Object.entries(DOCUMENT_VISIBILITY_LABELS).map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label="Ablaufdatum" hint="Leer = läuft nicht ab">
           <input className="hm-input" type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
         </Field>

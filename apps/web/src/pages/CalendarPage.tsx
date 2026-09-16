@@ -11,12 +11,14 @@
  * durch die besuchten Monate blättert. Ohne (oder mit unbrauchbaren)
  * Parametern zeigt die Seite den laufenden Monat, ohne die URL zu beschreiben.
  */
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { MeCalendarEmployee, MeCalendarEntry, OrgTreeNode } from '@ohrganize/shared';
 import { useMyCalendar, useMyOrgTree, useMyProfile } from '../api/hooks';
 import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
+import { Tooltip } from '../components/Tooltip';
 import { formatDate, todayIso } from '../lib/format';
+import { useFillViewport } from '../lib/fillViewport';
 import { Select } from '../components/Select';
 
 const MONTH_NAMES = [
@@ -49,6 +51,50 @@ const DAY_COL_PX = 34;
 /** Grenzen des Backends (calendarRoutes.ts) — außerhalb antwortet es mit 400. */
 const MIN_YEAR = 2000;
 const MAX_YEAR = 2100;
+
+/**
+ * Platz unter der Matrix: die Legende (Karte plus Abstand) soll ohne Scrollen
+ * sichtbar bleiben; Seitenrand und Fußzeile dürfen darunter liegen — die
+ * Tagesleiste bleibt auch dann im Bild, weil die Matrix dafür nicht weit genug
+ * nach oben wandert.
+ */
+const BELOW_GRID_RESERVE = 140;
+
+/** Schrift der Balkenbeschriftung — identisch zur Desktop-App (.pt-cal__bar-label). */
+const BAR_LABEL_FONT = "650 11px 'Inter Variable', 'Segoe UI', system-ui, sans-serif";
+
+let measureCtx: CanvasRenderingContext2D | null = null;
+const textWidthCache = new Map<string, number>();
+
+/** Pixelbreite eines Labels im Balken-Font — gecacht, es gibt nur eine Handvoll Arten. */
+function measureLabelWidth(text: string): number {
+  const cached = textWidthCache.get(text);
+  if (cached !== undefined) return cached;
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+  let width: number;
+  if (measureCtx) {
+    measureCtx.font = BAR_LABEL_FONT;
+    width = measureCtx.measureText(text).width;
+  } else {
+    width = text.length * 7;
+  }
+  textWidthCache.set(text, width);
+  return width;
+}
+
+/** Schwarz oder Weiß, je nachdem, was auf der Artfarbe lesbar bleibt (wie in der Desktop-App). */
+function readableTextColor(hex: string): string {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return '#fff';
+  const toLinear = (v: number) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const [r, g, b] = [m[1], m[2], m[3]].map((h) => toLinear(parseInt(h!, 16)));
+  const luminance = 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+  const contrastWithWhite = 1.05 / (luminance + 0.05);
+  return contrastWithWhite >= 3.4 ? '#fff' : 'rgba(0, 0, 0, 0.82)';
+}
 
 // ---------------------------------------------------------------------------
 // Datumshilfen. Alle Rechnungen laufen über UTC-Mitternacht, damit die
@@ -128,6 +174,12 @@ interface DayMark {
   entry: MeCalendarEntry;
   /** Halber Tag am Anfang bzw. Ende des Zeitraums, sonst null. */
   half: 'start' | 'end' | null;
+  /**
+   * Nur am ersten sichtbaren Tag des Zeitraums gesetzt: Länge des sichtbaren
+   * Balkens in Tagesspalten (halbe Tage abgezogen). Dort sitzt die Beschriftung
+   * und ragt über die Folgezellen.
+   */
+  span?: number;
 }
 
 interface CalendarRow {
@@ -251,7 +303,12 @@ export function CalendarPage() {
         // Zeiträume ragen über den Monat hinaus — auf das Fenster beschneiden.
         const from = entry.date_from < data.range.from ? data.range.from : entry.date_from;
         const to = entry.date_to > data.range.to ? data.range.to : entry.date_to;
-        for (const day of eachDay(from, to)) {
+        const segment = eachDay(from, to);
+        const span =
+          segment.length -
+          (from === entry.date_from && entry.half_day_start === 1 ? 0.5 : 0) -
+          (to === entry.date_to && entry.half_day_end === 1 ? 0.5 : 0);
+        for (const day of segment) {
           const half: DayMark['half'] =
             entry.half_day_start === 1 && day === entry.date_from
               ? 'start'
@@ -259,7 +316,7 @@ export function CalendarPage() {
                 ? 'end'
                 : null;
           const list = byDay.get(day) ?? [];
-          list.push({ entry, half });
+          list.push(day === from ? { entry, half, span } : { entry, half });
           byDay.set(day, list);
         }
       }
@@ -318,9 +375,7 @@ export function CalendarPage() {
       <header className="portal-page-header row row--between">
         <div>
           <h1 className="portal-title">Abwesenheitskalender</h1>
-          <p className="portal-subtitle">
-            Wer ist wann abwesend — der Monatsüberblick über das ganze Unternehmen.
-          </p>
+          <p className="portal-subtitle">Wer ist wann abwesend?</p>
         </div>
         <div className="pt-cal__nav">
           <button
@@ -506,10 +561,35 @@ const CalendarGrid = memo(function CalendarGrid({
   holidaysByLand: Map<string, Map<string, string>>;
   holidayNames: Map<string, Set<string>>;
 }) {
+  // Die Matrix scrollt in sich, damit die Tagesleiste beim Scrollen stehen bleibt.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const maxHeight = useFillViewport(scrollRef, BELOW_GRID_RESERVE);
+
+  // Spaltenbreite messen (alle Tagesspalten sind gleich breit): entscheidet,
+  // ob ein Balken breit genug für seine Artbezeichnung ist.
+  const firstDayRef = useRef<HTMLTableCellElement>(null);
+  const [dayWidth, setDayWidth] = useState(DAY_COL_PX);
+  useEffect(() => {
+    const el = firstDayRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const update = () => setDayWidth(el.getBoundingClientRect().width || DAY_COL_PX);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [days.length]);
+
   return (
     // Der Scroll gehört in diesen Container: die Seite selbst darf auf
     // Smartphone-Breite niemals horizontal wandern.
-    <div className="pt-cal__scroll" tabIndex={0} role="group" aria-label="Kalendertabelle, horizontal scrollbar">
+    <div
+      ref={scrollRef}
+      className="pt-cal__scroll"
+      style={{ maxHeight }}
+      tabIndex={0}
+      role="group"
+      aria-label="Kalendertabelle, scrollbar"
+    >
       <table className="pt-cal" style={{ minWidth: NAME_COL_PX + days.length * DAY_COL_PX }}>
         <caption className="pt-cal__sr">
           Abwesenheiten im {monthLabel}. Zeilen sind Mitarbeitende, Spalten die Tage des Monats.
@@ -519,27 +599,45 @@ const CalendarGrid = memo(function CalendarGrid({
             <th scope="col" className="pt-cal__name">
               Mitarbeiter:in
             </th>
-            {days.map((day) => {
+            {days.map((day, i) => {
               const weekend = isWeekend(day);
               const holidays = holidayNames.get(day);
-              const titleParts = [formatDate(day)];
-              if (holidays) titleParts.push(`Feiertag: ${[...holidays].join(', ')}`);
-              if (closureDays.has(day)) titleParts.push('Betriebsruhe');
+              const closure = closureDays.has(day);
+              // Tooltip nur, wenn er etwas sagt, was die Kopfzeile nicht zeigt.
+              const notes: string[] = [];
+              if (holidays) notes.push(`Feiertag: ${[...holidays].join(', ')}`);
+              if (closure) notes.push('Betriebsruhe');
               return (
-                <th
+                <Tooltip
                   key={day}
-                  scope="col"
-                  className={`pt-cal__head-day${weekend ? ' pt-cal__head-day--weekend' : ''}`}
-                  title={titleParts.join(' · ')}
+                  placement="bottom"
+                  content={
+                    notes.length > 0 ? (
+                      <>
+                        <span className="pt-tooltip__title">{formatDate(day)}</span>
+                        {notes.map((n) => (
+                          <span key={n} className="pt-tooltip__line">
+                            {n}
+                          </span>
+                        ))}
+                      </>
+                    ) : null
+                  }
                 >
-                  <span className="pt-cal__wd" aria-hidden="true">
-                    {WEEKDAY_SHORT[weekdayOf(day)]}
-                  </span>
-                  <span className={day === today ? 'pt-cal__dnum pt-cal__dnum--today' : 'pt-cal__dnum'}>
-                    {Number(day.slice(8, 10))}
-                  </span>
-                  <span className="pt-cal__sr">{formatDate(day)}</span>
-                </th>
+                  <th
+                    ref={i === 0 ? firstDayRef : undefined}
+                    scope="col"
+                    className={`pt-cal__head-day${weekend ? ' pt-cal__head-day--weekend' : ''}`}
+                  >
+                    <span className="pt-cal__wd" aria-hidden="true">
+                      {WEEKDAY_SHORT[weekdayOf(day)]}
+                    </span>
+                    <span className={day === today ? 'pt-cal__dnum pt-cal__dnum--today' : 'pt-cal__dnum'}>
+                      {Number(day.slice(8, 10))}
+                    </span>
+                    <span className="pt-cal__sr">{formatDate(day)}</span>
+                  </th>
+                </Tooltip>
               );
             })}
           </tr>
@@ -567,6 +665,7 @@ const CalendarGrid = memo(function CalendarGrid({
                     marks={byDay.get(day)}
                     holidayName={holidays?.get(day)}
                     closure={closureDays.has(day)}
+                    dayWidth={dayWidth}
                   />
                 ))}
               </tr>
@@ -587,12 +686,14 @@ const DayCell = memo(function DayCell({
   marks,
   holidayName,
   closure,
+  dayWidth,
 }: {
   day: string;
   today: string;
   marks?: DayMark[];
   holidayName?: string;
   closure: boolean;
+  dayWidth: number;
 }) {
   const weekend = isWeekend(day);
   // Die Balken laufen bewusst ÜBER Wochenenden, Feiertage und Betriebsruhe
@@ -607,48 +708,89 @@ const DayCell = memo(function DayCell({
   else if (weekend) classes.push('pt-cal__cell--weekend');
   if (day === today) classes.push('pt-cal__cell--today');
 
-  const titleParts = [formatDate(day)];
-  if (holidayName) titleParts.push(`Feiertag: ${holidayName}`);
-  if (closure) titleParts.push('Betriebsruhe');
-  const srParts: string[] = [];
-  if (holidayName) srParts.push(`Feiertag: ${holidayName}`);
-  if (closure) srParts.push('Betriebsruhe');
+  // Tooltip nur auf besonderen Tagen und Balken — ein Tooltip auf jeder leeren
+  // Zelle würde beim Überstreichen der Zeile nur flackern.
+  const notes: string[] = [];
+  if (holidayName) notes.push(`Feiertag: ${holidayName}`);
+  if (closure) notes.push('Betriebsruhe');
+  const srParts: string[] = [...notes];
   for (const mark of visible) {
-    const label = labelOf(mark.entry);
-    const range =
-      mark.entry.date_from === mark.entry.date_to
-        ? formatDate(mark.entry.date_from)
-        : `${formatDate(mark.entry.date_from)} bis ${formatDate(mark.entry.date_to)}`;
-    const half = mark.half ? ', halber Tag' : '';
-    titleParts.push(`${label} (${range})${half}`);
-    srParts.push(`${label}${half}`);
+    srParts.push(`${labelOf(mark.entry)}${mark.half ? ', halber Tag' : ''}`);
   }
+  const tip =
+    notes.length > 0 || visible.length > 0 ? (
+      <>
+        <span className="pt-tooltip__title">{formatDate(day)}</span>
+        {notes.map((n) => (
+          <span key={n} className="pt-tooltip__line">
+            {n}
+          </span>
+        ))}
+        {visible.map((mark) => {
+          const details = [
+            mark.entry.date_from === mark.entry.date_to
+              ? formatDate(mark.entry.date_from)
+              : `${formatDate(mark.entry.date_from)} – ${formatDate(mark.entry.date_to)}`,
+          ];
+          if (mark.entry.half_day_start === 1) details.push('erster Tag halb');
+          if (mark.entry.half_day_end === 1) details.push('letzter Tag halb');
+          return (
+            <span key={mark.entry.request_id} className="pt-tooltip__line">
+              {labelOf(mark.entry)} · {details.join(' · ')}
+            </span>
+          );
+        })}
+      </>
+    ) : null;
 
   return (
-    <td className={classes.join(' ')} title={titleParts.join(' · ')}>
-      {visible.length > 0 && (
-        <span className="pt-cal__marks">
-          {visible.map((mark) => {
-            // Runde Enden nur am echten Anfang/Ende des Zeitraums — ein am
-            // Monatsrand beschnittener Balken endet flach („geht weiter").
-            const roundLeft = day === mark.entry.date_from;
-            const roundRight = day === mark.entry.date_to;
-            const classes = ['pt-cal__bar'];
-            if (roundLeft) classes.push('pt-cal__bar--start');
-            if (roundRight) classes.push('pt-cal__bar--end');
-            if (mark.half) classes.push(`pt-cal__bar--half-${mark.half}`);
-            return (
-              <span
-                key={`${mark.entry.request_id}`}
-                className={classes.join(' ')}
-                style={{ background: mark.entry.color }}
-              />
-            );
-          })}
-        </span>
-      )}
-      {srParts.length > 0 && <span className="pt-cal__sr">{srParts.join(', ')}</span>}
-    </td>
+    <Tooltip content={tip}>
+      <td className={classes.join(' ')}>
+        {visible.length > 0 && (
+          <span className="pt-cal__marks">
+            {visible.map((mark) => {
+              // Runde Enden nur am echten Anfang/Ende des Zeitraums — ein am
+              // Monatsrand beschnittener Balken endet flach („geht weiter").
+              const roundLeft = day === mark.entry.date_from;
+              const roundRight = day === mark.entry.date_to;
+              const classes = ['pt-cal__bar'];
+              if (roundLeft) classes.push('pt-cal__bar--start');
+              if (roundRight) classes.push('pt-cal__bar--end');
+              if (mark.half) classes.push(`pt-cal__bar--half-${mark.half}`);
+              // Beschriftung nur am ersten sichtbaren Tag und nur, wenn
+              // mindestens die halbe Wortlänge Platz hat (wie in der Desktop-
+              // App); darunter bleibt der Balken textlos statt Buchstabensalat.
+              const label = labelOf(mark.entry);
+              const barWidthPx = mark.span !== undefined ? mark.span * dayWidth - 16 : 0;
+              const showLabel = mark.span !== undefined && barWidthPx >= measureLabelWidth(label) / 2;
+              // Der Balken selbst ist bei halbem Starttag nur eine halbe Zelle
+              // breit — die Beschriftung rechnet deshalb in Balkenbreiten.
+              const barUnits = mark.half === 'start' ? 0.5 : 1;
+              return (
+                <span
+                  key={`${mark.entry.request_id}`}
+                  className={classes.join(' ')}
+                  style={{ background: mark.entry.color }}
+                >
+                  {showLabel && (
+                    <span
+                      className="pt-cal__bar-label"
+                      style={{
+                        width: `calc(${((mark.span as number) / barUnits) * 100}% - 4px)`,
+                        color: readableTextColor(mark.entry.color),
+                      }}
+                    >
+                      {label}
+                    </span>
+                  )}
+                </span>
+              );
+            })}
+          </span>
+        )}
+        {srParts.length > 0 && <span className="pt-cal__sr">{srParts.join(', ')}</span>}
+      </td>
+    </Tooltip>
   );
 });
 

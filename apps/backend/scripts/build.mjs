@@ -70,4 +70,4 @@ for (const [entry, out] of ENTRIES) {
 }
 
 fs.writeFileSync(path.join(root, 'dist/VARIANTE.txt'), `${variant}\n`);
-console.log(`Backend-Bundles gebaut fuer Variante ${variant}.`);
+console.log(`Backend-Bundles gebaut für Variante ${variant}.`);
