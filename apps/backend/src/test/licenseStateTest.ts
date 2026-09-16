@@ -160,7 +160,7 @@ const cases: Case[] = [
     expect: { state: 'expired', read_only: true, days_left: 0, grace_until: '2026-08-15' },
     text: {
       headline: 'Ihre Lizenz ist am 01.08.2026 abgelaufen; die Kulanzfrist endete am 15.08.2026.',
-      detail: 'Nur-Lese-Betrieb: Daten können eingesehen und exportiert werden, Änderungen sind nicht möglich.',
+      detail: 'Read-Only: Daten können eingesehen und exportiert werden, Änderungen sind nicht möglich.',
       tone: 'danger',
     },
   },
@@ -269,7 +269,7 @@ const msg = licenseMessage({
   license_id: expiredCore.payload?.license_id ?? null,
   kind: expiredCore.payload?.kind ?? null,
 });
-check('Nur-Lese-Meldung: Ursache, Erklärung, Handlung', /abgelaufen.*Nur-Lese-Betrieb.*Einstellungen → Lizenz/.test(msg), msg);
+check('Nur-Lese-Meldung: Ursache, Erklärung, Handlung', /abgelaufen.*Read-Only.*Einstellungen → Lizenz/.test(msg), msg);
 
 // addDaysIso ist die gemeinsame Tagesarithmetik
 check('addDaysIso über Monatsgrenze', addDaysIso('2026-01-31', 1) === '2026-02-01');

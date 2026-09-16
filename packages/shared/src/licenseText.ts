@@ -71,7 +71,7 @@ export const LICENSE_ACTION_TEXT =
 
 /** Nur-Lese-Betrieb in einem Satz (Detail bei expired). */
 export const LICENSE_READ_ONLY_DETAIL =
-  'Nur-Lese-Betrieb: Daten können eingesehen und exportiert werden, Änderungen sind nicht möglich.';
+  'Read-Only: Daten können eingesehen und exportiert werden, Änderungen sind nicht möglich.';
 
 /** Neutraler Text fuer Portal-Konten: Vertragsdaten gehen Mitarbeitende nichts an. */
 export const PORTAL_READ_ONLY_TEXT =

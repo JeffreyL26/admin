@@ -108,7 +108,7 @@ export function LicensePage() {
       <>
         <PageHeader title="Lizenz" />
         <Card>
-          <EmptyState title="Lizenzzustand nicht verfügbar" hint="Das Backend hat keinen Lizenzzustand geliefert." />
+          <EmptyState title="Lizenzzustand nicht verfügbar" hint="Das Backend hat keinen Lizenzzustand geliefert. Kontaktieren Sie uns gerne bei Fragen zu Ihrer Lizenz." />
         </Card>
       </>
     );
@@ -116,7 +116,7 @@ export function LicensePage() {
 
   return (
     <>
-      <PageHeader title="Lizenz" subtitle="Nutzungsberechtigung dieser Installation — Zustand, Vertragsdaten, Lizenzdatei." />
+      <PageHeader title="Lizenz" subtitle="Alles rund um Nutzungsberechtigung: Zustand, Vertragsdaten, Lizenzdatei." />
       <div className="stack" style={{ maxWidth: 760 }}>
         <Card title="Zustand">
           <div className="row" style={{ gap: 12, alignItems: 'flex-start', marginBottom: 18 }}>
@@ -142,7 +142,9 @@ export function LicensePage() {
             />
             <Fact label="Vertrag" value={license.terms ? termsLabel(license.terms).replace(/\.$/, '') : '—'} />
             <Fact label="Gültig bis" value={validUntilLabel(license)} />
-            <Fact label="Kulanz bis" value={license.perpetual ? 'entfällt' : formatDate(license.grace_until)} />
+            {license.license_id && (
+              <Fact label="Kulanz bis" value={license.perpetual ? 'entfällt' : formatDate(license.grace_until)} />
+            )}
             <Fact
               label="Plätze"
               value={seatsLabel(license)}
@@ -218,8 +220,7 @@ export function LicensePage() {
 
         <Card title="Lizenz einspielen">
           <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
-            Die Lizenzdatei stellt der Anbieter aus. Nach dem Einspielen gilt sie sofort — auch im
-            Nur-Lese-Betrieb.
+            Die Lizenzdatei stellt oHRganize aus. Nach dem Einspielen gilt sie sofort.
           </p>
           <FilePicker
             file={file}
@@ -233,8 +234,8 @@ export function LicensePage() {
                 setResult({
                   ok: false,
                   message:
-                    `„${f.name}“ ist keine Lizenzdatei (zu groß: ${Math.round(f.size / 1024)} KB — ` +
-                    'eine Lizenzdatei hat wenige hundert Byte).',
+                    `„${f.name}“ ist keine Lizenzdatei (zu groß: ${Math.round(f.size / 1024)} KB. ` +
+                    'Die Lizenzdatei hat wenige hundert Byte).',
                 });
                 return;
               }
@@ -244,7 +245,7 @@ export function LicensePage() {
             accept=".ohrganize,.txt"
             disabled={!mayEdit}
             busy={upload.isPending}
-            hint="Datei lizenz.ohrganize des Anbieters (oder als .txt)"
+            hint="Datei lizenz.ohrganize (oder als .txt)"
           />
           {result && (
             <div
@@ -255,7 +256,7 @@ export function LicensePage() {
               <div>
                 {result.ok ? (
                   <>
-                    Lizenz eingespielt — Zustand jetzt <b>{LICENSE_STATE_LABELS[result.license.state]}</b>
+                    Lizenz eingespielt: Zustand jetzt <b>{LICENSE_STATE_LABELS[result.license.state]}</b>
                     {result.license.valid_until ? <>, gültig bis {validUntilLabel(result.license)}</> : null}.
                   </>
                 ) : (
@@ -280,8 +281,8 @@ export function LicensePage() {
 
         <Card title="Lizenzbericht">
           <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
-            Kennungen und Platzzahl dieser Installation als JSON-Datei — zum Beilegen bei einer
-            Bestellung oder Verlängerung. Enthält keine Personendaten.
+            Kennungen und Platzzahl dieser Installation als JSON-Datei. Bitte legen Sie diese bei
+            Nachfragen oder bei einer Bestellung/Verlängerung bei. Enthält keine Personendaten.
           </p>
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button className="hm-btn hm-btn--secondary" disabled={downloading} onClick={downloadReport}>
