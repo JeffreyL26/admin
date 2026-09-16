@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
@@ -61,16 +61,50 @@ export function AbsenceChartWidget({ data }: { data: DashboardData }) {
   );
 }
 
+type DepartmentRow = NonNullable<DashboardData['byDepartment']>[number];
+
+/** Balken wie Beschriftung führen ins Organigramm mit dieser Abteilung als Filter (wie in Organisation → Struktur). */
 export function DepartmentChartWidget({ data }: { data: DashboardData }) {
+  const navigate = useNavigate();
   if (!data.byDepartment) return <Restricted />;
+  const rows = data.byDepartment;
+  const open = (row: DepartmentRow | undefined) => {
+    if (row?.department_id != null) navigate(`/personal/organisation?tab=organigramm&abteilung=${row.department_id}`);
+  };
+  const tick = ({ x, y, payload }: { x: number; y: number; payload: { value: string; index: number } }) => {
+    const row = rows[payload.index];
+    const clickable = row?.department_id != null;
+    return (
+      <text
+        x={x}
+        y={y}
+        dy={4}
+        textAnchor="end"
+        fontSize={12}
+        fill="currentColor"
+        style={{ cursor: clickable ? 'pointer' : undefined }}
+        onClick={() => open(row)}
+      >
+        {payload.value}
+      </text>
+    );
+  };
   return (
-    <div style={{ height: Math.max(160, data.byDepartment.length * 34) }}>
+    <div style={{ height: Math.max(160, rows.length * 34) }}>
       <ResponsiveContainer>
-        <BarChart data={data.byDepartment} layout="vertical" margin={{ top: 0, right: 24, left: 30, bottom: 0 }}>
+        <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 24, left: 30, bottom: 0 }}>
           <XAxis type="number" hide />
-          <YAxis type="category" dataKey="department" width={110} tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
+          <YAxis type="category" dataKey="department" width={110} tickLine={false} axisLine={false} tick={tick} />
           <Tooltip cursor={{ fill: 'var(--blue-50)' }} />
-          <Bar dataKey="count" name="Anzahl" fill="var(--brand-navy)" radius={[0, 4, 4, 0]} barSize={16} />
+          <Bar
+            dataKey="count"
+            name="Anzahl"
+            fill="var(--brand-navy)"
+            radius={[0, 4, 4, 0]}
+            barSize={16}
+            style={{ cursor: 'pointer' }}
+            onClick={(entry: unknown) => open((entry as { payload?: DepartmentRow }).payload)}
+          />
         </BarChart>
       </ResponsiveContainer>
     </div>

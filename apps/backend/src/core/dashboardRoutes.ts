@@ -72,10 +72,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
       byDepartment = db
         .prepare(
-          `SELECT COALESCE(d.name, 'Ohne Abteilung') AS department, COUNT(*) AS count
+          `SELECT d.id AS department_id, COALESCE(d.name, 'Ohne Abteilung') AS department, COUNT(*) AS count
            FROM employees e LEFT JOIN departments d ON d.id = e.department_id
            WHERE e.status = 'aktiv'
-           GROUP BY d.name ORDER BY count DESC`,
+           GROUP BY d.id, d.name ORDER BY count DESC`,
         )
         .all();
 

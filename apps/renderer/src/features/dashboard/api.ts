@@ -28,7 +28,7 @@ export interface DashboardData {
   allowed_areas: AdminArea[];
   stats: DashboardStats;
   absentToday?: { id: number; first_name: string; last_name: string; type_name: string; color: string; date_to: string }[];
-  byDepartment?: { department: string; count: number }[];
+  byDepartment?: { department_id: number | null; department: string; count: number }[];
   absenceDaysByMonth?: { month: string; days: number }[];
   upcomingMeetings?: { id: number; kind: FeedbackMeetingKind; scheduled_date: string; first_name: string; last_name: string }[];
   upcomingBirthdays?: { id: number; first_name: string; last_name: string; birth_date: string; next_birthday: string }[];
