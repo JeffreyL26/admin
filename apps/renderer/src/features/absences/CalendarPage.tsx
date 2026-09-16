@@ -14,7 +14,7 @@
  *   rechte Hälfte, letzter Tag: vormittags → linke Hälfte).
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useFocusRow } from '../../lib/focusRow';
 import { ChevronLeft, ChevronRight, CalendarX2, Palette, RotateCcw } from 'lucide-react';
 import {
@@ -533,6 +533,10 @@ function EmployeeRow({
   const from = days[0];
   const to = days[n - 1];
   const dayIndex = (d: string) => days.indexOf(d);
+  const navigate = useNavigate();
+  // Beantragte Anträge stehen im Reiter „Offene Anträge“, alle anderen unter „Alle“.
+  const openRequest = (a: CalendarAbsenceEntry) =>
+    navigate(`/abwesenheit/antraege?tab=${a.status === 'beantragt' ? 'offen' : 'alle'}&antrag=${a.request_id}`);
 
   // Sichtbare Abwesenheiten als Pillen: Position/Breite in Prozent der Timeline.
   const bars = emp.absences
@@ -647,6 +651,14 @@ function EmployeeRow({
                 left: `${(start / n) * 100}%`,
                 width: `${((end - start) / n) * 100}%`,
                 background: a.status === 'beantragt' ? pendingPattern(a.color) : a.color,
+                cursor: 'pointer',
+              }}
+              role="link"
+              tabIndex={0}
+              aria-label={`Antrag ${a.type_name} von ${emp.first_name} ${emp.last_name} öffnen`}
+              onClick={() => openRequest(a)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') openRequest(a);
               }}
             >
               {showLabel &&

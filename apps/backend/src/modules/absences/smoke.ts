@@ -219,30 +219,37 @@ check('Saldo: Anspruch 30 (volles Jahr)', b.entitlement === 30, b);
 check('Saldo: genommen+verplant = 7 (nur saldowirksam, ohne abgelehnt/storniert)', b.taken + b.planned === 7, b);
 check('Saldo: Rest konsistent', b.remaining === b.entitlement + b.carryover - b.taken - b.planned, b);
 
-// Aufschlüsselung (Personalakte): Herleitung plus je Antrag genommen/verplant,
-// deren Spaltensummen exakt die Kacheln ergeben.
-type BreakdownRow = { status: string; days: number; taken: number; planned: number };
-const bd = b.breakdown as
-  | { annual_leave_days: number; counted_months: number; carryover_raw: number; requests: BreakdownRow[] }
-  | undefined;
-check('Saldo: Aufschlüsselung mit Herleitung (30 Tage, 12 Monate)', !!bd && bd.annual_leave_days === 30 && bd.counted_months === 12, bd);
+// Aufschlüsselung (Personalakte): Zeitabschnitte "genommen" (bis heute) und
+// "verplant" (ab morgen bzw. beantragt), deren Tagessummen exakt die Kacheln ergeben.
+type Segment = { status: string; kind: 'taken' | 'planned'; date_from: string; date_to: string; days: number };
+const bd = b.breakdown as { taken_until: string | null; segments: Segment[] } | undefined;
 check(
-  'Saldo: Aufschlüsselung nennt nur genehmigte/beantragte Anträge (2)',
-  !!bd && bd.requests.length === 2 && bd.requests.every((r) => r.status === 'genehmigt' || r.status === 'beantragt'),
+  'Saldo: Aufschlüsselung nennt nur genehmigte/beantragte Abschnitte',
+  !!bd && bd.segments.length > 0 && bd.segments.every((s) => s.status === 'genehmigt' || s.status === 'beantragt'),
   bd,
 );
 check(
-  'Saldo: Spaltensummen der Aufschlüsselung = Kacheln',
+  'Saldo: Tagessummen der Abschnitte = Kacheln',
   !!bd &&
-    bd.requests.reduce((s, r) => s + r.taken, 0) === b.taken &&
-    bd.requests.reduce((s, r) => s + r.planned, 0) === b.planned,
+    bd.segments.filter((s) => s.kind === 'taken').reduce((sum, s) => sum + s.days, 0) === b.taken &&
+    bd.segments.filter((s) => s.kind === 'planned').reduce((sum, s) => sum + s.days, 0) === b.planned,
   bd,
 );
-check('Saldo: je Antrag genommen + verplant = Tage im Jahr', !!bd && bd.requests.every((r) => r.taken + r.planned === r.days), bd);
+check(
+  'Saldo: genommene Abschnitte enden spätestens am Stichtag, verplante beginnen danach',
+  !!bd &&
+    bd.segments.every((s) =>
+      s.kind === 'taken'
+        ? bd.taken_until !== null && s.date_to <= bd.taken_until
+        : s.status === 'beantragt' || bd.taken_until === null || s.date_from > bd.taken_until,
+    ),
+  bd,
+);
+check('Saldo: Abschnitte liegen im Jahr und sind sortiert', !!bd && bd.segments.every((s, i) => s.date_from >= '2026-01-01' && s.date_to <= '2026-12-31' && (i === 0 || bd.segments[i - 1].date_from <= s.date_from)), bd);
 
 const balClara = await get('/api/absences/balance/3/2026');
 check('Saldo: Eintritt 01.07. → 6/12 von 24 = 12', balClara.json().balance.entitlement === 12, balClara.json());
-check('Saldo: anteiliger Anspruch in der Aufschlüsselung (6 Monate)', balClara.json().balance.breakdown?.counted_months === 6, balClara.json());
+check('Saldo: Aufschlüsselung ohne Anträge ist leer', balClara.json().balance.breakdown?.segments.length === 0, balClara.json());
 
 const balances = await get('/api/absences/balances/2026');
 check('Saldenübersicht: 3 aktive MA', balances.json().balances.length === 3, balances.json());

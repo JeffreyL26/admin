@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { backToState } from '../../lib/backTo';
 import { Mail, Phone, Settings, BookUser, MapPin } from 'lucide-react';
 import {
   DIRECTORY_FIELD_KEYS,
@@ -207,7 +208,11 @@ export function DirectoryPage() {
                 key={e.id}
                 className="hm-card hm-card--clickable"
                 title="Personalakte öffnen"
-                onClick={() => navigate(`/personal/mitarbeitende/${e.id}`)}
+                onClick={() =>
+                  navigate(`/personal/mitarbeitende/${e.id}`, {
+                    state: backToState('/kommunikation/verzeichnis', 'Zurück zum Verzeichnis'),
+                  })
+                }
               >
                 <div className="hm-card__body" style={{ padding: 16 }}>
                   <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>

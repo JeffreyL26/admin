@@ -8,6 +8,7 @@ import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs, type BadgeTo
 import { Modal, ConfirmDialog } from '../../components/Modal';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
+import { useFocusRow } from '../../lib/focusRow';
 import { useAuth } from '../../auth/AuthContext';
 import {
   balanceExceededQuestion,
@@ -40,8 +41,14 @@ function useIsOwnRequest() {
 }
 
 export function RequestsPage() {
+  // Einstieg aus dem Kalender: ?tab=offen|alle&antrag=<id> öffnet den Reiter
+  // und springt zu genau diesem Antrag.
   const [params, setParams] = useSearchParams();
-  const [tab, setTab] = useState<'offen' | 'alle' | 'salden'>('offen');
+  const requestedTab = params.get('tab');
+  const [tab, setTab] = useState<'offen' | 'alle' | 'salden'>(
+    requestedTab === 'alle' || requestedTab === 'salden' ? requestedTab : 'offen',
+  );
+  const focusId = useFocusRow('antrag');
   const dialogOpen = params.get('neu') === '1';
   const openDialog = () => setParams({ neu: '1' });
   const closeDialog = () => setParams({});
@@ -67,8 +74,8 @@ export function RequestsPage() {
         onChange={(k) => setTab(k as typeof tab)}
       />
       <div style={{ marginTop: 16 }}>
-        {tab === 'offen' && <OpenRequestsTab />}
-        {tab === 'alle' && <AllRequestsTab />}
+        {tab === 'offen' && <OpenRequestsTab focusId={focusId} />}
+        {tab === 'alle' && <AllRequestsTab focusId={focusId} />}
         {tab === 'salden' && <BalancesTab />}
       </div>
       <RequestDialog open={dialogOpen} onClose={closeDialog} />
@@ -117,9 +124,11 @@ function useRequestActions(
 function RequestRows({
   requests,
   actions,
+  focusId,
 }: {
   requests: AbsenceRequest[];
   actions: (r: AbsenceRequest) => React.ReactNode;
+  focusId: number | null;
 }) {
   return (
     <div className="hm-table-wrap">
@@ -137,7 +146,7 @@ function RequestRows({
         </thead>
         <tbody>
           {requests.map((r) => (
-            <tr key={r.id}>
+            <tr key={r.id} data-focus-id={r.id} className={r.id === focusId ? 'hm-row--focus' : undefined}>
               <td>
                 <Link className="hm-text-link" to={`/personal/mitarbeitende/${r.employee_id}`}>
                   {r.last_name}, {r.first_name}
@@ -250,7 +259,7 @@ function RejectDialog({
   );
 }
 
-function OpenRequestsTab() {
+function OpenRequestsTab({ focusId }: { focusId: number | null }) {
   const { data: requests, isLoading } = useAbsenceRequests({ status: 'beantragt' });
   const [balanceWarning, setBalanceWarning] = useState<(BalanceExceededDetails & { id: number }) | null>(null);
   const { approve, reject, cancel } = useRequestActions(setBalanceWarning);
@@ -292,6 +301,7 @@ function OpenRequestsTab() {
           )}
           <RequestRows
             requests={list}
+            focusId={focusId}
             actions={(r) =>
               isOwnRequest(r) ? (
                 <>
@@ -362,7 +372,7 @@ function OpenRequestsTab() {
   );
 }
 
-function AllRequestsTab() {
+function AllRequestsTab({ focusId }: { focusId: number | null }) {
   const { data: types } = useAbsenceTypes();
   const [status, setStatus] = useState('');
   const [typeId, setTypeId] = useState<number | null>(null);
@@ -426,6 +436,7 @@ function AllRequestsTab() {
         ) : (
           <RequestRows
             requests={requests}
+            focusId={focusId}
             actions={(r) =>
               r.status === 'beantragt' || r.status === 'genehmigt' ? (
                 <button className="hm-btn hm-btn--sm hm-btn--ghost" onClick={() => setCancelling(r)}>

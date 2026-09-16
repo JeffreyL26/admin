@@ -165,29 +165,26 @@ export interface BalanceContext {
   breakdown?: boolean;
 }
 
-export interface BalanceBreakdownRequest {
-  id: number;
+/**
+ * Ein Zeitabschnitt eines saldowirksamen Antrags: der bis heute genommene Teil
+ * und der ab morgen verplante Teil sind ZWEI Abschnitte desselben Antrags,
+ * beantragte Antraege ein einziger verplanter. Auf das Jahr geclippt.
+ */
+export interface BalanceBreakdownSegment {
+  request_id: number;
   type_name: string;
   type_color: string;
   status: string;
+  kind: 'taken' | 'planned';
   date_from: string;
   date_to: string;
-  /** Tage dieses Antrags im Jahr (jahresuebergreifende Antraege anteilig). */
   days: number;
-  taken: number;
-  planned: number;
 }
 
 export interface BalanceBreakdown {
-  annual_leave_days: number;
-  /** Volle Beschaeftigungsmonate im Jahr; 12 = ganzes Jahr, sonst gezwoelftelt. */
-  counted_months: number;
-  /** Rest des Vorjahres vor der Verfallsregel. */
-  carryover_raw: number;
-  carryover_deadline: string;
   /** Letzter Tag, bis zu dem "genommen" zaehlt; null, wenn das Jahr noch nicht begonnen hat. */
   taken_until: string | null;
-  requests: BalanceBreakdownRequest[];
+  segments: BalanceBreakdownSegment[];
 }
 
 export interface BalanceResult {
@@ -285,7 +282,6 @@ export function computeBalance(
 
   // Übertrags-Kette vom Startjahr bis zum Zieljahr aufbauen.
   let carry = 0; // Übertrag NACH Verfallsregel, der im Jahr y nutzbar ist
-  let carryRaw = 0; // Rest des Vorjahres VOR der Verfallsregel (nur Aufschlüsselung)
   let carryoverExpired = false;
   for (let y = startYear + 1; y <= year; y++) {
     const prevRemaining = entitlementFor(y - 1) + carry - takenAllIn(y - 1);
@@ -298,7 +294,6 @@ export function computeBalance(
     } else {
       carry = raw;
     }
-    if (y === year) carryRaw = raw;
   }
 
   const entitlement = entitlementFor(year);
@@ -317,35 +312,38 @@ export function computeBalance(
 
   let breakdown: BalanceBreakdown | undefined;
   if (ctx?.breakdown) {
-    // Dieselben Ausschnitte wie oben je Antrag, damit die Summen der Liste
-    // exakt den Kacheln entsprechen.
+    // Dieselben Ausschnitte wie oben, nur je Antrag als Zeitabschnitt: Die
+    // Tagessummen der Abschnitte ergeben exakt die Kacheln.
     const futureFrom = takenClipTo === null ? yearStart : nextDay(takenClipTo);
-    breakdown = {
-      annual_leave_days: annual,
-      counted_months: countedMonths(year),
-      carryover_raw: roundHalf(carryRaw),
-      carryover_deadline: `${year}-${deadlineMmDd}`,
-      taken_until: takenClipTo,
-      requests: rows
-        .filter((r) => r.date_from <= yearEnd && r.date_to >= yearStart)
-        .map((r) => {
-          const inYear = days(r, yearStart, yearEnd);
-          const takenPart =
-            r.status === 'genehmigt' && takenClipTo !== null ? days(r, yearStart, takenClipTo) : 0;
-          const plannedPart = r.status === 'genehmigt' ? days(r, futureFrom, yearEnd) : inYear;
-          return {
-            id: r.id ?? 0,
-            type_name: r.type_name ?? '',
-            type_color: r.type_color ?? '',
-            status: r.status,
-            date_from: r.date_from,
-            date_to: r.date_to,
-            days: inYear,
-            taken: takenPart,
-            planned: plannedPart,
-          };
-        }),
+    const segments: BalanceBreakdownSegment[] = [];
+    const push = (r: BalanceRequestRow, kind: 'taken' | 'planned', clipFrom: string, clipTo: string) => {
+      const from = r.date_from > clipFrom ? r.date_from : clipFrom;
+      const to = r.date_to < clipTo ? r.date_to : clipTo;
+      if (from > to) return;
+      const counted = days(r, clipFrom, clipTo);
+      if (counted <= 0) return;
+      segments.push({
+        request_id: r.id ?? 0,
+        type_name: r.type_name ?? '',
+        type_color: r.type_color ?? '',
+        status: r.status,
+        kind,
+        date_from: from,
+        date_to: to,
+        days: counted,
+      });
     };
+    for (const r of rows) {
+      if (r.date_from > yearEnd || r.date_to < yearStart) continue;
+      if (r.status === 'genehmigt') {
+        if (takenClipTo !== null) push(r, 'taken', yearStart, takenClipTo);
+        push(r, 'planned', futureFrom, yearEnd);
+      } else {
+        push(r, 'planned', yearStart, yearEnd);
+      }
+    }
+    segments.sort((a, b) => a.date_from.localeCompare(b.date_from));
+    breakdown = { taken_until: takenClipTo, segments };
   }
 
   return {

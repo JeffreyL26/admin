@@ -125,104 +125,58 @@ export function EmployeeAbsenceTab({ employeeId }: { employeeId: number }) {
   );
 }
 
-const days = (n: number) => n.toLocaleString('de-DE');
+const days = (n: number) => `${n.toLocaleString('de-DE')} ${n === 1 ? 'Tag' : 'Tage'}`;
 
 /**
- * Herleitung der vier Kacheln: Anspruch und Übertrag als Rechenweg, dann je
- * saldowirksamem Antrag der Anteil an „genommen“ (bis heute) und „verplant“
- * (ab morgen sowie alles Beantragte). Die Spaltensummen sind die Kacheln.
+ * Wann was genommen bzw. verplant ist: die Zeitabschnitte hinter den Kacheln.
+ * Ein genehmigter Antrag, der über heute hinausläuft, steht mit seinem
+ * bisherigen Teil unter „Genommen“ und dem Rest unter „Verplant“.
  */
 function BalanceBreakdown({ balance, breakdown }: { balance: AbsenceBalance; breakdown: AbsenceBalanceBreakdown }) {
   const { year } = balance;
-  const prorated = breakdown.counted_months < 12;
-  const expired = breakdown.carryover_raw - balance.carryover;
-  const takenLabel = breakdown.taken_until ? `Genommen bis ${formatDate(breakdown.taken_until)}` : 'Genommen';
+  const taken = breakdown.segments.filter((s) => s.kind === 'taken');
+  const planned = breakdown.segments.filter((s) => s.kind === 'planned');
   const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 'var(--text-sm)' };
+
+  const section = (title: string, sum: number, items: typeof taken, empty: string) => (
+    <div style={{ padding: '12px 16px' }}>
+      <div className="row row--between" style={{ marginBottom: 8 }}>
+        <span style={{ fontWeight: 650 }}>{title}</span>
+        <span className="num" style={{ fontWeight: 650 }}>{days(sum)}</span>
+      </div>
+      {items.length === 0 ? (
+        <div style={muted}>{empty}</div>
+      ) : (
+        <div className="stack" style={{ gap: 6 }}>
+          {items.map((s) => (
+            <div key={`${s.request_id}-${s.kind}`} className="row row--between" style={{ fontSize: 'var(--text-sm)' }}>
+              <span className="row" style={{ gap: 8 }}>
+                <span className="hm-badge" style={{ background: `${s.type_color}22`, color: s.type_color }}>
+                  {s.type_name}
+                </span>
+                <span>
+                  {formatDate(s.date_from)} – {formatDate(s.date_to)}
+                </span>
+                {s.status === 'beantragt' && <Badge tone={STATUS_TONES.beantragt}>{ABSENCE_STATUS_LABELS.beantragt}</Badge>}
+              </span>
+              <span className="num">{days(s.days)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <Card title={`Aufschlüsselung ${year}`} flush>
-      <div className="stack" style={{ gap: 6, padding: '12px 16px', fontSize: 'var(--text-sm)' }}>
-        <div className="row row--between">
-          <span>
-            Jahresanspruch laut Personalakte
-            {prorated && (
-              <span style={muted}> · {breakdown.counted_months} von 12 Monaten beschäftigt, anteilig</span>
-            )}
-          </span>
-          <span className="num" style={{ fontWeight: 650 }}>
-            {prorated
-              ? `${days(breakdown.annual_leave_days)} × ${breakdown.counted_months}/12 = ${days(balance.entitlement)}`
-              : days(balance.entitlement)}
-          </span>
-        </div>
-        <div className="row row--between">
-          <span>
-            Übertrag aus {year - 1}
-            {expired > 0 && (
-              <span style={muted}>
-                {' '}· {days(expired)} Tage am {formatDate(breakdown.carryover_deadline)} verfallen
-              </span>
-            )}
-          </span>
-          <span className="num" style={{ fontWeight: 650 }}>+ {days(balance.carryover)}</span>
-        </div>
-      </div>
-
-      {breakdown.requests.length === 0 ? (
-        <div style={{ ...muted, padding: '0 16px 14px' }}>Keine saldowirksamen Anträge in {year}.</div>
-      ) : (
-        <div className="hm-table-wrap">
-          <table className="hm-table">
-            <thead>
-              <tr>
-                <th>Antrag</th>
-                <th>Zeitraum</th>
-                <th className="num">Tage {year}</th>
-                <th className="num">{takenLabel}</th>
-                <th className="num">Verplant</th>
-              </tr>
-            </thead>
-            <tbody>
-              {breakdown.requests.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    <span className="row" style={{ gap: 8 }}>
-                      <span className="hm-badge" style={{ background: `${r.type_color}22`, color: r.type_color }}>
-                        {r.type_name}
-                      </span>
-                      <Badge tone={STATUS_TONES[r.status]}>{ABSENCE_STATUS_LABELS[r.status]}</Badge>
-                    </span>
-                  </td>
-                  <td>
-                    {formatDate(r.date_from)} – {formatDate(r.date_to)}
-                  </td>
-                  <td className="num">{days(r.days)}</td>
-                  <td className="num">{r.taken > 0 ? days(r.taken) : <span style={muted}>—</span>}</td>
-                  <td className="num">{r.planned > 0 ? days(r.planned) : <span style={muted}>—</span>}</td>
-                </tr>
-              ))}
-              <tr style={{ fontWeight: 650 }}>
-                <td colSpan={3}>Summe</td>
-                <td className="num">{days(balance.taken)}</td>
-                <td className="num">{days(balance.planned)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      {section(
+        breakdown.taken_until ? `Genommen bis ${formatDate(breakdown.taken_until)}` : 'Genommen',
+        balance.taken,
+        taken,
+        'Bisher nichts genommen.',
       )}
-
-      <div
-        className="row row--between"
-        style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 'var(--text-sm)' }}
-      >
-        <span style={muted}>
-          Rest = Anspruch + Übertrag − genommen − verplant
-        </span>
-        <span className="num" style={{ fontWeight: 650 }}>
-          {days(balance.entitlement)} + {days(balance.carryover)} − {days(balance.taken)} − {days(balance.planned)} ={' '}
-          {days(balance.remaining)}
-        </span>
-      </div>
+      <div style={{ borderTop: '1px solid var(--border)' }} />
+      {section('Verplant', balance.planned, planned, 'Nichts verplant oder beantragt.')}
     </Card>
   );
 }

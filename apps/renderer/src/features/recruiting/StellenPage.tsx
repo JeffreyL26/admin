@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { Briefcase, Plus, Pencil, Trash2, Users, MapPin } from 'lucide-react';
 import {
@@ -167,6 +168,7 @@ function PostingEditor({
 }
 
 export function StellenPage() {
+  const navigate = useNavigate();
   const toast = useToast();
   const invalidate = useInvalidate();
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -233,7 +235,7 @@ export function StellenPage() {
       <div className="grid-stats" style={{ marginBottom: 16 }}>
         <StatCard label="Offene Stellen" value={openCount} icon={<Briefcase size={15} />} />
         <StatCard label="Zu besetzende Plätze" value={totalSeats} icon={<Users size={15} />} />
-        <StatCard label="Aktive Bewerbungen" value={totalApplications} icon={<Users size={15} />} />
+        <StatCard label="Aktive Bewerbungen" value={totalApplications} icon={<Users size={15} />} onClick={() => navigate('/recruiting/bewerber')} />
       </div>
 
       <div className="row" style={{ gap: 8, marginBottom: 16 }}>
