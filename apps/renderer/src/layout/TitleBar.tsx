@@ -10,7 +10,7 @@ import { Modal } from '../components/Modal';
 import logo from '../assets/logo.png';
 
 const isMac = window.ohrganize?.platform === 'darwin';
-const DOCS_URL = 'https://ohrganize.de/docs';
+const DOCS_URL = 'https://www.ohrganize.com/docs';
 
 /**
  * Eigene, zur UI passende Titelleiste — ersetzt das native Windows-Menü.
