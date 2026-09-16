@@ -14,6 +14,8 @@
  *   rechte Hälfte, letzter Tag: vormittags → linke Hälfte).
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useFocusRow } from '../../lib/focusRow';
 import { ChevronLeft, ChevronRight, CalendarX2, Palette, RotateCcw } from 'lucide-react';
 import {
   formatDate,
@@ -112,7 +114,11 @@ function readableTextColor(hex: string): string {
 
 export function CalendarPage() {
   const now = new Date();
-  const [view, setView] = useState<'monat' | 'jahr'>('monat');
+  // Einstieg vom Dashboard: ?tab=jahr öffnet die Jahresansicht, ?person=<id>
+  // springt zur Zeile dieser Person.
+  const [params] = useSearchParams();
+  const focusId = useFocusRow('person');
+  const [view, setView] = useState<'monat' | 'jahr'>(params.get('tab') === 'jahr' ? 'jahr' : 'monat');
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [departmentId, setDepartmentId] = useState<number | null>(null);
@@ -249,9 +255,9 @@ export function CalendarPage() {
           />
         </Card>
       ) : view === 'monat' ? (
-        <MonthGrid data={displayData} />
+        <MonthGrid data={displayData} focusId={focusId} />
       ) : (
-        <YearGrid data={displayData} year={year} />
+        <YearGrid data={displayData} year={year} focusId={focusId} />
       )}
 
       <Legend types={displayTypes} onEditColors={() => setColorEditorOpen(true)} />
@@ -394,7 +400,7 @@ function ColorEditor({
   );
 }
 
-function MonthGrid({ data }: { data: CalendarData }) {
+function MonthGrid({ data, focusId }: { data: CalendarData; focusId: number | null }) {
   const days = useMemo(() => eachDayLocal(data.range.from, data.range.to), [data.range]);
   const today = todayIso();
   const todayIndex = days.indexOf(today);
@@ -495,6 +501,7 @@ function MonthGrid({ data }: { data: CalendarData }) {
               closureDays={closureDays}
               conflictByDayTeam={conflictByDayTeam}
               dayWidth={dayWidth}
+              focused={emp.id === focusId}
             />
           ))}
         </div>
@@ -511,6 +518,7 @@ function EmployeeRow({
   closureDays,
   conflictByDayTeam,
   dayWidth,
+  focused,
 }: {
   emp: CalendarEmployee;
   days: string[];
@@ -519,6 +527,7 @@ function EmployeeRow({
   closureDays: Set<string>;
   conflictByDayTeam: Set<string>;
   dayWidth: number;
+  focused: boolean;
 }) {
   const n = days.length;
   const from = days[0];
@@ -562,12 +571,16 @@ function EmployeeRow({
   };
 
   return (
-    <div className="hm-cal__row" style={{ gridTemplateColumns: `220px 1fr` }}>
+    <div
+      className={'hm-cal__row' + (focused ? ' hm-row--focus' : '')}
+      style={{ gridTemplateColumns: `220px 1fr` }}
+      data-focus-id={emp.id}
+    >
       <div className="hm-cal__name">
         <Avatar name={`${emp.first_name} ${emp.last_name}`} size={28} />
-        <span className="hm-cal__name-text">
+        <Link className="hm-text-link hm-cal__name-text" to={`/personal/mitarbeitende/${emp.id}`}>
           {emp.last_name}, {emp.first_name}
-        </span>
+        </Link>
       </div>
       <div className="hm-cal__timeline">
         <div className="hm-cal__days" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>
@@ -663,7 +676,7 @@ type YearCell = { count: number; types: { name: string; color: string; days: num
  * gezählt wie überall sonst (days_counted): ohne Wochenenden, Feiertage des
  * jeweiligen Bundeslands und Betriebsruhe, sonst widerspricht die Summenspalte
  * den Salden und der Antragsliste. */
-function YearGrid({ data, year }: { data: CalendarData; year: number }) {
+function YearGrid({ data, year, focusId }: { data: CalendarData; year: number; focusId: number | null }) {
   const closureDays = useMemo(() => {
     const set = new Set<string>();
     for (const c of data.closures) {
@@ -740,11 +753,17 @@ function YearGrid({ data, year }: { data: CalendarData; year: number }) {
           <tbody>
             {rows.map(({ emp, perMonth, total }) => {
               return (
-                <tr key={emp.id}>
+                <tr
+                  key={emp.id}
+                  className={emp.id === focusId ? 'hm-row--focus' : undefined}
+                  data-focus-id={emp.id}
+                >
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <span className="row" style={{ gap: 10 }}>
                       <Avatar name={`${emp.first_name} ${emp.last_name}`} size={24} />
-                      {emp.last_name}, {emp.first_name}
+                      <Link className="hm-text-link" to={`/personal/mitarbeitende/${emp.id}`}>
+                        {emp.last_name}, {emp.first_name}
+                      </Link>
                     </span>
                   </td>
                   {perMonth.map((cell, i) => (

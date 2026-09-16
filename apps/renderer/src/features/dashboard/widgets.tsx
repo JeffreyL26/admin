@@ -43,7 +43,11 @@ export function AbsenceChartWidget({ data }: { data: DashboardData }) {
     Tage: m.days,
   }));
   return (
-    <div style={{ height: 210 }}>
+    <Link
+      to="/abwesenheit/kalender?tab=jahr"
+      aria-label="Zur Jahresansicht des Abwesenheitskalenders"
+      style={{ display: 'block', height: 210, color: 'inherit', textDecoration: 'none' }}
+    >
       <ResponsiveContainer>
         <BarChart data={monthData} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-200)" vertical={false} />
@@ -53,7 +57,7 @@ export function AbsenceChartWidget({ data }: { data: DashboardData }) {
           <Bar dataKey="Tage" fill="var(--brand-primary)" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
-    </div>
+    </Link>
   );
 }
 
@@ -84,8 +88,12 @@ export function AbsentTodayWidget({ data }: { data: DashboardData }) {
       <table className="hm-table">
         <tbody>
           {data.absentToday.map((a) => (
-            <tr key={a.id}>
-              <td style={{ fontWeight: 550 }}>{a.first_name} {a.last_name}</td>
+            <tr key={`${a.id}-${a.date_to}`}>
+              <td style={{ fontWeight: 550 }}>
+                <Link className="hm-text-link" to={`/abwesenheit/kalender?person=${a.id}`}>
+                  {a.first_name} {a.last_name}
+                </Link>
+              </td>
               <td>
                 <span className="hm-badge" style={{ background: `${a.color}22`, color: a.color }}>
                   {a.type_name}
@@ -314,7 +322,9 @@ export function BirthdaysWidget({ data }: { data: DashboardData }) {
     <div className="stack" style={{ gap: 10 }}>
       {data.upcomingBirthdays.map((b) => (
         <div key={b.id} className="row row--between">
-          <span>{b.first_name} {b.last_name}</span>
+          <Link className="hm-text-link" to={`/personal/mitarbeitende/${b.id}`}>
+            {b.first_name} {b.last_name}
+          </Link>
           <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
             {formatDate(b.next_birthday)}
           </span>

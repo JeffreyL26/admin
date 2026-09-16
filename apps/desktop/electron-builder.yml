@@ -1,6 +1,6 @@
 appId: de.ohrganize.app
 productName: oHRganize
-copyright: © 2026 oHRganize
+copyright: © 2026 jba-team
 
 # Muss der tatsächlich installierten Electron-Version entsprechen: durch das
 # npm-Workspace-Hoisting liegt electron im Root-node_modules und electron-builder

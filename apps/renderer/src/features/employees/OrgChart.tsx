@@ -81,7 +81,13 @@ function toneOf(model: OrgModel, person: OrgChartPerson): number {
   return person.department_id !== null ? (model.toneByDepartment.get(person.department_id) ?? 0) : 0;
 }
 
-export function PeopleOrgChart({ initialPersonId }: { initialPersonId: number | null }) {
+export function PeopleOrgChart({
+  initialPersonId,
+  initialDepartmentId = null,
+}: {
+  initialPersonId: number | null;
+  initialDepartmentId?: number | null;
+}) {
   const { data, isLoading } = useOrgChart();
   if (isLoading || !data) {
     return (
@@ -101,10 +107,18 @@ export function PeopleOrgChart({ initialPersonId }: { initialPersonId: number | 
       </Card>
     );
   }
-  return <OrgChartView data={data} initialPersonId={initialPersonId} />;
+  return <OrgChartView data={data} initialPersonId={initialPersonId} initialDepartmentId={initialDepartmentId} />;
 }
 
-function OrgChartView({ data, initialPersonId }: { data: OrgChartResponse; initialPersonId: number | null }) {
+function OrgChartView({
+  data,
+  initialPersonId,
+  initialDepartmentId,
+}: {
+  data: OrgChartResponse;
+  initialPersonId: number | null;
+  initialDepartmentId: number | null;
+}) {
   const navigate = useNavigate();
   const toast = useToast();
   const model = useMemo(() => buildOrgModel(data), [data]);
@@ -327,6 +341,12 @@ function OrgChartView({ data, initialPersonId }: { data: OrgChartResponse; initi
 
   useEffect(() => {
     if (initialPersonId !== null && model.byId.has(initialPersonId)) reveal(initialPersonId);
+    // Einstieg aus der Struktur: Abteilung als Filter setzen (alle anderen
+    // gedimmt) und alles aufklappen, damit ihre Personen auch sichtbar sind.
+    if (initialDepartmentId !== null && model.toneByDepartment.has(initialDepartmentId)) {
+      setDepartmentFilter(initialDepartmentId);
+      expandAll();
+    }
     // Nur beim ersten Anzeigen: Der Parameter beschreibt den Einstieg, nicht
     // jeden späteren Datenstand.
     // eslint-disable-next-line react-hooks/exhaustive-deps

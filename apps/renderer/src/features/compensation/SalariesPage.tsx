@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, History, Plus, ScrollText, Wallet, X } from 'lucide-react';
 import {
@@ -14,6 +15,7 @@ import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import { useBackTo } from '../../lib/backTo';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { parseEuroInput } from './lib';
 import { Select } from '../../components/Select';
@@ -410,7 +412,15 @@ function PendingRequests() {
   );
 }
 
-function EmployeeDetail({ employeeId, onBack }: { employeeId: number; onBack: () => void }) {
+function EmployeeDetail({
+  employeeId,
+  onBack,
+  backLabel,
+}: {
+  employeeId: number;
+  onBack: () => void;
+  backLabel: string;
+}) {
   const [componentDialog, setComponentDialog] = useState(false);
   const [requestDialog, setRequestDialog] = useState(false);
 
@@ -455,7 +465,7 @@ function EmployeeDetail({ employeeId, onBack }: { employeeId: number; onBack: ()
         actions={
           <>
             <button className="hm-btn hm-btn--secondary" onClick={onBack}>
-              <ArrowLeft size={16} /> Zurück zur Übersicht
+              <ArrowLeft size={16} /> {backLabel}
             </button>
             <button className="hm-btn hm-btn--secondary" onClick={() => setComponentDialog(true)}>
               <Plus size={16} /> Komponente
@@ -589,7 +599,15 @@ function EmployeeDetail({ employeeId, onBack }: { employeeId: number; onBack: ()
 }
 
 export function SalariesPage() {
-  const [selected, setSelected] = useState<number | null>(null);
+  // Die gewählte Person steht in der URL (?person=<id>): So springt die
+  // Personalakte direkt auf ihre Vergütung, und der Browser-Zurück-Knopf
+  // landet wieder in der Übersicht.
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const backTo = useBackTo();
+  const personParam = Number(params.get('person'));
+  const selected = Number.isInteger(personParam) && personParam > 0 ? personParam : null;
+  const setSelected = (id: number | null) => setParams(id === null ? {} : { person: String(id) });
   const [requestDialog, setRequestDialog] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ['compensation', 'salaries'],
@@ -598,7 +616,13 @@ export function SalariesPage() {
   });
 
   if (selected !== null) {
-    return <EmployeeDetail employeeId={selected} onBack={() => setSelected(null)} />;
+    return (
+      <EmployeeDetail
+        employeeId={selected}
+        onBack={() => (backTo ? navigate(backTo.path) : setSelected(null))}
+        backLabel={backTo?.label ?? 'Zurück zur Übersicht'}
+      />
+    );
   }
 
   return (

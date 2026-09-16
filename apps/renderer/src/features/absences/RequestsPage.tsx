@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalendarPlus, Check, Inbox, X } from 'lucide-react';
 import { formatDate, ABSENCE_STATUS_LABELS, type AbsenceRequest, type AbsenceRequestStatus } from '@ohrganize/shared';
@@ -139,7 +139,9 @@ function RequestRows({
           {requests.map((r) => (
             <tr key={r.id}>
               <td>
-                {r.last_name}, {r.first_name}
+                <Link className="hm-text-link" to={`/personal/mitarbeitende/${r.employee_id}`}>
+                  {r.last_name}, {r.first_name}
+                </Link>
               </td>
               <td>
                 <span className="row" style={{ gap: 7 }}>
@@ -491,7 +493,9 @@ function BalancesTab() {
               {data.balances.map((b) => (
                 <tr key={b.employee_id}>
                   <td>
-                    {b.last_name}, {b.first_name}
+                    <Link className="hm-text-link" to={`/personal/mitarbeitende/${b.employee_id}`}>
+                      {b.last_name}, {b.first_name}
+                    </Link>
                   </td>
                   <td className="num">{b.entitlement.toLocaleString('de-DE')}</td>
                   <td className="num">{b.carryover.toLocaleString('de-DE')}</td>

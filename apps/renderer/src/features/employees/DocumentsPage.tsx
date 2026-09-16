@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, FilePlus2, FolderOpen, Plus, Search, Trash2 } from 'lucide-react';
 import { DOCUMENT_CATEGORY_LABELS, formatDate } from '@ohrganize/shared';
@@ -10,8 +11,25 @@ import { useDocuments, useExpiringDocuments, type DocumentRow } from './api';
 import { DocumentUploadModal } from './DocumentUploadModal';
 import { expiryBadge } from './EmployeeDetailPage';
 import { Select } from '../../components/Select';
+import { backToState } from '../../lib/backTo';
+import { useFocusRow } from '../../lib/focusRow';
+
+/** Zugeordnete Person als Absprung in die Personalakte; „Zurück“ dort landet wieder bei diesem Dokument. */
+function documentOwner(d: DocumentRow) {
+  if (d.employee_id === null) return <Badge tone="neutral">Allgemein</Badge>;
+  return (
+    <Link
+      className="hm-text-link"
+      to={`/personal/mitarbeitende/${d.employee_id}`}
+      state={backToState(`/personal/dokumente?dokument=${d.id}`, 'Zurück zu den Dokumenten')}
+    >
+      {d.employee_name}
+    </Link>
+  );
+}
 
 export function DocumentsPage() {
+  const focusId = useFocusRow('dokument');
   const toast = useToast();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
@@ -68,7 +86,7 @@ export function DocumentsPage() {
                 <div className="row">
                   <span style={{ fontWeight: 600 }}>{d.title}</span>
                   <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                    {d.employee_name ?? 'Allgemein'} · {DOCUMENT_CATEGORY_LABELS[d.category]}
+                    {d.employee_id === null ? 'Allgemein' : documentOwner(d)} · {DOCUMENT_CATEGORY_LABELS[d.category]}
                   </span>
                   {expiryBadge(d)}
                 </div>
@@ -138,7 +156,7 @@ export function DocumentsPage() {
               </thead>
               <tbody>
                 {documents!.map((d) => (
-                  <tr key={d.id}>
+                  <tr key={d.id} data-focus-id={d.id} className={d.id === focusId ? 'hm-row--focus' : undefined}>
                     <td>
                       <div style={{ fontWeight: 600 }}>{d.title}</div>
                       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
@@ -146,7 +164,7 @@ export function DocumentsPage() {
                         {d.note ? ` · ${d.note}` : ''}
                       </div>
                     </td>
-                    <td>{d.employee_name ?? <Badge tone="neutral">Allgemein</Badge>}</td>
+                    <td>{documentOwner(d)}</td>
                     <td>
                       <Badge tone="blue">{DOCUMENT_CATEGORY_LABELS[d.category]}</Badge>
                     </td>

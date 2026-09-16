@@ -219,11 +219,37 @@ check('Saldo: Anspruch 30 (volles Jahr)', b.entitlement === 30, b);
 check('Saldo: genommen+verplant = 7 (nur saldowirksam, ohne abgelehnt/storniert)', b.taken + b.planned === 7, b);
 check('Saldo: Rest konsistent', b.remaining === b.entitlement + b.carryover - b.taken - b.planned, b);
 
+// Aufschlüsselung (Personalakte): Herleitung plus je Antrag genommen/verplant,
+// deren Spaltensummen exakt die Kacheln ergeben.
+type BreakdownRow = { status: string; days: number; taken: number; planned: number };
+const bd = b.breakdown as
+  | { annual_leave_days: number; counted_months: number; carryover_raw: number; requests: BreakdownRow[] }
+  | undefined;
+check('Saldo: Aufschlüsselung mit Herleitung (30 Tage, 12 Monate)', !!bd && bd.annual_leave_days === 30 && bd.counted_months === 12, bd);
+check(
+  'Saldo: Aufschlüsselung nennt nur genehmigte/beantragte Anträge (2)',
+  !!bd && bd.requests.length === 2 && bd.requests.every((r) => r.status === 'genehmigt' || r.status === 'beantragt'),
+  bd,
+);
+check(
+  'Saldo: Spaltensummen der Aufschlüsselung = Kacheln',
+  !!bd &&
+    bd.requests.reduce((s, r) => s + r.taken, 0) === b.taken &&
+    bd.requests.reduce((s, r) => s + r.planned, 0) === b.planned,
+  bd,
+);
+check('Saldo: je Antrag genommen + verplant = Tage im Jahr', !!bd && bd.requests.every((r) => r.taken + r.planned === r.days), bd);
+
 const balClara = await get('/api/absences/balance/3/2026');
 check('Saldo: Eintritt 01.07. → 6/12 von 24 = 12', balClara.json().balance.entitlement === 12, balClara.json());
+check('Saldo: anteiliger Anspruch in der Aufschlüsselung (6 Monate)', balClara.json().balance.breakdown?.counted_months === 6, balClara.json());
 
 const balances = await get('/api/absences/balances/2026');
 check('Saldenübersicht: 3 aktive MA', balances.json().balances.length === 3, balances.json());
+check(
+  'Saldenübersicht ohne Aufschlüsselung',
+  balances.json().balances.every((x: { breakdown?: unknown }) => x.breakdown === undefined),
+);
 
 // ---------------------------------------------------------- Krankmeldungen ---
 const sick1 = await post('/api/absences/sick-notes', {

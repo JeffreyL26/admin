@@ -163,7 +163,7 @@ function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontWeight: 700, fontSize: 'var(--text-lg)' }}>oHRganize</div>
           <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-            HR-Verwaltung für den deutschsprachigen Markt
+            HR-Verwaltung, wie Sie es brauchen
           </div>
         </div>
         <div className="row" style={{ gap: 8 }}>
@@ -175,7 +175,7 @@ function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
           <span className="hm-badge hm-badge--neutral" title={VARIANT.id}>{VARIANT.label}</span>
         </div>
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', margin: 0 }}>
-          © {new Date().getFullYear()} oHRganize
+          © {new Date().getFullYear()} jba-team
         </p>
       </div>
     </Modal>

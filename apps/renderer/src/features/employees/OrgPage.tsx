@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Building2, Check, Download, MapPin, Maximize2, Network, Pencil, Plus, Trash2,
   Users, X, ZoomIn, ZoomOut,
@@ -21,13 +21,20 @@ type DragPayload = { kind: 'department' | 'team'; id: number };
 const TABS = ['struktur', 'organigramm', 'standorte'];
 
 export function OrgPage() {
-  // Einstieg aus der Personalakte: ?tab=organigramm&person=<id> öffnet das
-  // Organigramm mit dieser Person ausgewählt und zentriert.
-  const [params] = useSearchParams();
+  // Der Reiter steht in der URL: ?tab=organigramm&person=<id> (aus der
+  // Personalakte) öffnet das Organigramm mit dieser Person ausgewählt und
+  // zentriert, ?tab=organigramm&abteilung=<id> (aus der Struktur) mit dieser
+  // Abteilung als Filter. Ein Reiterwechsel von Hand lässt beides fallen.
+  const [params, setParams] = useSearchParams();
   const requestedTab = params.get('tab');
-  const [tab, setTab] = useState(requestedTab && TABS.includes(requestedTab) ? requestedTab : 'struktur');
-  const personParam = Number(params.get('person'));
-  const initialPersonId = Number.isInteger(personParam) && personParam > 0 ? personParam : null;
+  const tab = requestedTab && TABS.includes(requestedTab) ? requestedTab : 'struktur';
+  const setTab = (next: string) => setParams(next === 'struktur' ? {} : { tab: next }, { replace: true });
+  const idParam = (name: string) => {
+    const id = Number(params.get(name));
+    return Number.isInteger(id) && id > 0 ? id : null;
+  };
+  const initialPersonId = idParam('person');
+  const initialDepartmentId = idParam('abteilung');
   return (
     <>
       <PageHeader
@@ -45,7 +52,9 @@ export function OrgPage() {
       />
       <div style={{ marginTop: 16 }}>
         {tab === 'struktur' && <StructureTab />}
-        {tab === 'organigramm' && <OrgChartTab initialPersonId={initialPersonId} />}
+        {tab === 'organigramm' && (
+          <OrgChartTab initialPersonId={initialPersonId} initialDepartmentId={initialDepartmentId} />
+        )}
         {tab === 'standorte' && <LocationsTab />}
       </div>
     </>
@@ -321,7 +330,14 @@ function DepartmentNode({
             onCancel={() => setRenaming(false)}
           />
         ) : (
-          <span style={{ fontWeight: 600 }}>{node.name}</span>
+          <Link
+            className="hm-text-link"
+            style={{ fontWeight: 600 }}
+            to={`/personal/organisation?tab=organigramm&abteilung=${node.id}`}
+            draggable={false}
+          >
+            {node.name}
+          </Link>
         )}
         <Badge tone="blue">
           <Users size={12} /> {node.total_employee_count}
@@ -512,7 +528,13 @@ function TeamNode({
  * der Abteilungsbaum als Blick auf die Aufbauorganisation (Leitung, Kopfzahl,
  * Teams je Abteilung), passend zum Struktur-Tab daneben.
  */
-function OrgChartTab({ initialPersonId }: { initialPersonId: number | null }) {
+function OrgChartTab({
+  initialPersonId,
+  initialDepartmentId,
+}: {
+  initialPersonId: number | null;
+  initialDepartmentId: number | null;
+}) {
   const [mode, setMode] = useState('personen');
   return (
     <div className="stack" style={{ gap: 12 }}>
@@ -531,7 +553,11 @@ function OrgChartTab({ initialPersonId }: { initialPersonId: number | null }) {
             : 'Abteilungen mit Leitung, Kopfzahl und Teams.'}
         </span>
       </div>
-      {mode === 'personen' ? <PeopleOrgChart initialPersonId={initialPersonId} /> : <DepartmentChart />}
+      {mode === 'personen' ? (
+        <PeopleOrgChart initialPersonId={initialPersonId} initialDepartmentId={initialDepartmentId} />
+      ) : (
+        <DepartmentChart />
+      )}
     </div>
   );
 }

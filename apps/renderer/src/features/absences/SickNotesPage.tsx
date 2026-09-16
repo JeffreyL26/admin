@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
 import { formatDate, todayIsoLocal, SICK_PAY_LIMIT_DAYS, type SickNote } from '@ohrganize/shared';
@@ -10,6 +11,17 @@ import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { useMissingSickNotes, useSickNotes } from './api';
 import { Select } from '../../components/Select';
+
+/** Name mit Absprung in die Personalakte; Krankmeldungen ohne Profil-ID (Altbestand) bleiben Text. */
+function personName(note: SickNote) {
+  const label = `${note.last_name}, ${note.first_name}`;
+  if (note.employee_id === undefined) return label;
+  return (
+    <Link className="hm-text-link" to={`/personal/mitarbeitende/${note.employee_id}`}>
+      {label}
+    </Link>
+  );
+}
 
 /** AU-Status: fehlt / fristgerecht / verspätet / überfällig. */
 function certificateBadge(note: SickNote) {
@@ -83,9 +95,7 @@ export function SickNotesPage() {
               <div className="stack" style={{ gap: 8 }}>
                 {[...exceeded.values()].map((n) => (
                   <div key={n.id} className="row row--between">
-                    <span style={{ fontWeight: 600 }}>
-                      {n.last_name}, {n.first_name}
-                    </span>
+                    <span style={{ fontWeight: 600 }}>{personName(n)}</span>
                     <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                       {n.sick_pay_days_used} von {SICK_PAY_LIMIT_DAYS} Kalendertagen — Übergang ins
                       Krankengeld prüfen
@@ -119,7 +129,7 @@ export function SickNotesPage() {
                   {missing.map((n) => (
                     <tr key={n.id}>
                       <td>
-                        {n.last_name}, {n.first_name}
+                        {personName(n)}
                         {n.child_sick === 1 && (
                           <span style={{ marginLeft: 8 }}>
                             <Badge tone="blue">Kind krank</Badge>
@@ -187,9 +197,7 @@ export function SickNotesPage() {
                 <tbody>
                   {notes.map((n) => (
                     <tr key={n.id}>
-                      <td>
-                        {n.last_name}, {n.first_name}
-                      </td>
+                      <td>{personName(n)}</td>
                       <td>
                         {formatDate(n.date_from)} – {formatDate(n.date_to)}
                       </td>

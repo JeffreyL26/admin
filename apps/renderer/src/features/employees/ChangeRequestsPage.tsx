@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Check, Inbox, X } from 'lucide-react';
 import {
   EMPLOYEE_CHANGE_REQUEST_STATUS_LABELS,
@@ -15,6 +16,8 @@ import { Select } from '../../components/Select';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
+import { backToState } from '../../lib/backTo';
+import { useFocusRow } from '../../lib/focusRow';
 import { useDecideChangeRequest, useEmployeeChangeRequests } from './api';
 
 /**
@@ -53,11 +56,18 @@ const MUTED_LINE: React.CSSProperties = {
 // Bausteine
 // ---------------------------------------------------------------------------
 
-function EmployeeCell({ request }: { request: EmployeeChangeRequestForHr }) {
+/** Name führt in die Personalakte; „Zurück“ dort landet wieder bei genau diesem Antrag. */
+function EmployeeCell({ request, tab }: { request: EmployeeChangeRequestForHr; tab: string }) {
   return (
     <>
       <div style={{ fontWeight: 600 }}>
-        {request.last_name}, {request.first_name}
+        <Link
+          className="hm-text-link"
+          to={`/personal/mitarbeitende/${request.employee_id}`}
+          state={backToState(`/personal/aenderungsantraege?tab=${tab}&antrag=${request.id}`, 'Zurück zum Änderungsantrag')}
+        >
+          {request.last_name}, {request.first_name}
+        </Link>
       </div>
       <div style={MUTED_LINE}>{request.personnel_number ?? 'ohne Personalnummer'}</div>
     </>
@@ -254,7 +264,9 @@ function DecisionDialog({ target, onClose }: { target: DecisionTarget | null; on
 // Tab „Offen“
 // ---------------------------------------------------------------------------
 
-function OpenTab({ onDecide }: { onDecide: (target: DecisionTarget) => void }) {
+type TabProps = { onDecide: (target: DecisionTarget) => void; focusId: number | null };
+
+function OpenTab({ onDecide, focusId }: TabProps) {
   const { data, isLoading } = useEmployeeChangeRequests({ status: 'beantragt' });
   const isOwnProfile = useIsOwnProfile();
   const requests = data?.requests ?? [];
@@ -282,9 +294,9 @@ function OpenTab({ onDecide }: { onDecide: (target: DecisionTarget) => void }) {
             </thead>
             <tbody>
               {requests.map((r) => (
-                <tr key={r.id}>
+                <tr key={r.id} data-focus-id={r.id} className={r.id === focusId ? 'hm-row--focus' : undefined}>
                   <td>
-                    <EmployeeCell request={r} />
+                    <EmployeeCell request={r} tab="offen" />
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.created_at)}</td>
                   <td style={{ minWidth: 260 }}>
@@ -308,7 +320,7 @@ function OpenTab({ onDecide }: { onDecide: (target: DecisionTarget) => void }) {
 // Tab „Alle“
 // ---------------------------------------------------------------------------
 
-function AllTab({ onDecide }: { onDecide: (target: DecisionTarget) => void }) {
+function AllTab({ onDecide, focusId }: TabProps) {
   const [status, setStatus] = useState<'' | EmployeeChangeRequestStatus>('');
   const [employeeId, setEmployeeId] = useState<number | null>(null);
   const { data, isLoading } = useEmployeeChangeRequests({
@@ -364,9 +376,9 @@ function AllTab({ onDecide }: { onDecide: (target: DecisionTarget) => void }) {
               </thead>
               <tbody>
                 {requests.map((r) => (
-                  <tr key={r.id}>
+                  <tr key={r.id} data-focus-id={r.id} className={r.id === focusId ? 'hm-row--focus' : undefined}>
                     <td>
-                      <EmployeeCell request={r} />
+                      <EmployeeCell request={r} tab="alle" />
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.created_at)}</td>
                     <td style={{ minWidth: 240 }}>
@@ -414,7 +426,11 @@ function AllTab({ onDecide }: { onDecide: (target: DecisionTarget) => void }) {
 // ---------------------------------------------------------------------------
 
 export function ChangeRequestsPage() {
-  const [tab, setTab] = useState<'offen' | 'alle'>('offen');
+  // Rücksprung aus der Personalakte: ?tab=…&antrag=<id> öffnet denselben Reiter
+  // und springt zu genau diesem Antrag.
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<'offen' | 'alle'>(params.get('tab') === 'alle' ? 'alle' : 'offen');
+  const focusId = useFocusRow('antrag');
   const [target, setTarget] = useState<DecisionTarget | null>(null);
   // Derselbe Query-Key wie im Tab „Offen“ — react-query liefert beiden dieselbe
   // Antwort, die Zahl im Reiter kostet also keine zweite Abfrage.
@@ -436,7 +452,11 @@ export function ChangeRequestsPage() {
         onChange={(k) => setTab(k as typeof tab)}
       />
       <div style={{ marginTop: 16 }}>
-        {tab === 'offen' ? <OpenTab onDecide={setTarget} /> : <AllTab onDecide={setTarget} />}
+        {tab === 'offen' ? (
+          <OpenTab onDecide={setTarget} focusId={focusId} />
+        ) : (
+          <AllTab onDecide={setTarget} focusId={focusId} />
+        )}
       </div>
       <DecisionDialog target={target} onClose={() => setTarget(null)} />
     </>

@@ -8,12 +8,14 @@ import {
   formatEuro,
   SALARY_COMPONENT_LABELS,
   type AbsenceBalance,
+  type AbsenceBalanceBreakdown,
   type AbsenceRequest,
   type SalaryComponentKind,
 } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Spinner, StatCard } from '../../components/ui';
 import { Select } from '../../components/Select';
+import { backToState } from '../../lib/backTo';
 
 /**
  * Modulübergreifende Tabs der Personalakte: Abwesenheit und Vergütung werden
@@ -74,6 +76,8 @@ export function EmployeeAbsenceTab({ employeeId }: { employeeId: number }) {
         <StatCard label="Rest" value={balance ? balance.remaining : '—'} />
       </div>
 
+      {balance?.breakdown && <BalanceBreakdown balance={balance} breakdown={balance.breakdown} />}
+
       <Card title="Abwesenheiten" flush>
         {isLoading ? (
           <Spinner center />
@@ -121,6 +125,108 @@ export function EmployeeAbsenceTab({ employeeId }: { employeeId: number }) {
   );
 }
 
+const days = (n: number) => n.toLocaleString('de-DE');
+
+/**
+ * Herleitung der vier Kacheln: Anspruch und Übertrag als Rechenweg, dann je
+ * saldowirksamem Antrag der Anteil an „genommen“ (bis heute) und „verplant“
+ * (ab morgen sowie alles Beantragte). Die Spaltensummen sind die Kacheln.
+ */
+function BalanceBreakdown({ balance, breakdown }: { balance: AbsenceBalance; breakdown: AbsenceBalanceBreakdown }) {
+  const { year } = balance;
+  const prorated = breakdown.counted_months < 12;
+  const expired = breakdown.carryover_raw - balance.carryover;
+  const takenLabel = breakdown.taken_until ? `Genommen bis ${formatDate(breakdown.taken_until)}` : 'Genommen';
+  const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 'var(--text-sm)' };
+
+  return (
+    <Card title={`Aufschlüsselung ${year}`} flush>
+      <div className="stack" style={{ gap: 6, padding: '12px 16px', fontSize: 'var(--text-sm)' }}>
+        <div className="row row--between">
+          <span>
+            Jahresanspruch laut Personalakte
+            {prorated && (
+              <span style={muted}> · {breakdown.counted_months} von 12 Monaten beschäftigt, anteilig</span>
+            )}
+          </span>
+          <span className="num" style={{ fontWeight: 650 }}>
+            {prorated
+              ? `${days(breakdown.annual_leave_days)} × ${breakdown.counted_months}/12 = ${days(balance.entitlement)}`
+              : days(balance.entitlement)}
+          </span>
+        </div>
+        <div className="row row--between">
+          <span>
+            Übertrag aus {year - 1}
+            {expired > 0 && (
+              <span style={muted}>
+                {' '}· {days(expired)} Tage am {formatDate(breakdown.carryover_deadline)} verfallen
+              </span>
+            )}
+          </span>
+          <span className="num" style={{ fontWeight: 650 }}>+ {days(balance.carryover)}</span>
+        </div>
+      </div>
+
+      {breakdown.requests.length === 0 ? (
+        <div style={{ ...muted, padding: '0 16px 14px' }}>Keine saldowirksamen Anträge in {year}.</div>
+      ) : (
+        <div className="hm-table-wrap">
+          <table className="hm-table">
+            <thead>
+              <tr>
+                <th>Antrag</th>
+                <th>Zeitraum</th>
+                <th className="num">Tage {year}</th>
+                <th className="num">{takenLabel}</th>
+                <th className="num">Verplant</th>
+              </tr>
+            </thead>
+            <tbody>
+              {breakdown.requests.map((r) => (
+                <tr key={r.id}>
+                  <td>
+                    <span className="row" style={{ gap: 8 }}>
+                      <span className="hm-badge" style={{ background: `${r.type_color}22`, color: r.type_color }}>
+                        {r.type_name}
+                      </span>
+                      <Badge tone={STATUS_TONES[r.status]}>{ABSENCE_STATUS_LABELS[r.status]}</Badge>
+                    </span>
+                  </td>
+                  <td>
+                    {formatDate(r.date_from)} – {formatDate(r.date_to)}
+                  </td>
+                  <td className="num">{days(r.days)}</td>
+                  <td className="num">{r.taken > 0 ? days(r.taken) : <span style={muted}>—</span>}</td>
+                  <td className="num">{r.planned > 0 ? days(r.planned) : <span style={muted}>—</span>}</td>
+                </tr>
+              ))}
+              <tr style={{ fontWeight: 650 }}>
+                <td colSpan={3}>Summe</td>
+                <td className="num">{days(balance.taken)}</td>
+                <td className="num">{days(balance.planned)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div
+        className="row row--between"
+        style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', fontSize: 'var(--text-sm)' }}
+      >
+        <span style={muted}>
+          Rest = Anspruch + Übertrag − genommen − verplant
+        </span>
+        <span className="num" style={{ fontWeight: 650 }}>
+          {days(balance.entitlement)} + {days(balance.carryover)} − {days(balance.taken)} − {days(balance.planned)} ={' '}
+          {days(balance.remaining)}
+        </span>
+      </div>
+    </Card>
+  );
+}
+
 interface SalaryInfo {
   monthly_gross_cents: number;
   components: {
@@ -133,7 +239,7 @@ interface SalaryInfo {
   }[];
 }
 
-export function EmployeeCompensationTab({ employeeId }: { employeeId: number }) {
+export function EmployeeCompensationTab({ employeeId, employeeName }: { employeeId: number; employeeName: string }) {
   const navigate = useNavigate();
   const { data: salary, isLoading } = useQuery({
     queryKey: ['compensation', 'salary', employeeId],
@@ -144,6 +250,13 @@ export function EmployeeCompensationTab({ employeeId }: { employeeId: number }) 
 
   if (isLoading) return <Spinner center />;
 
+  // Absprung in die Vergütungsseite DIESER Person; von dort führt „Zurück“
+  // wieder in diesen Tab statt in die Gehälterübersicht.
+  const openSalary = () =>
+    navigate(`/verguetung/gehaelter?person=${employeeId}`, {
+      state: backToState(`/personal/mitarbeitende/${employeeId}?tab=verguetung`, `Zurück zu ${employeeName}`),
+    });
+
   return (
     <div className="stack">
       <div className="row row--between">
@@ -151,6 +264,7 @@ export function EmployeeCompensationTab({ employeeId }: { employeeId: number }) 
           label="Aktuelles Monatsbrutto"
           value={salary ? formatEuro(salary.monthly_gross_cents) : '—'}
           icon={<Wallet size={15} />}
+          onClick={openSalary}
         />
         <button
           className="hm-btn hm-btn--secondary hm-btn--sm"

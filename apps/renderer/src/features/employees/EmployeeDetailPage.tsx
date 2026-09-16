@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle, ArrowLeft, Download, FileClock, FilePlus2, FileText, Network, Pencil, Plus, Trash2, Users,
 } from 'lucide-react';
@@ -29,13 +29,24 @@ import { ContractModal } from './ContractModal';
 import { DocumentUploadModal } from './DocumentUploadModal';
 import { EmployeeAbsenceTab, EmployeeCompensationTab } from './CrossModuleTabs';
 import { TYPE_TONES } from './EmployeeListPage';
+import { backToState, useBackTo } from '../../lib/backTo';
+
+const DETAIL_TABS = ['stammdaten', 'vertrag', 'dokumente', 'organisation', 'abwesenheit', 'verguetung'];
 
 export function EmployeeDetailPage() {
   const { id } = useParams();
   const employeeId = Number(id);
   const navigate = useNavigate();
   const { data, isLoading } = useEmployee(employeeId);
-  const [tab, setTab] = useState('stammdaten');
+  // Der Tab steht in der URL (?tab=…), damit ein Rücksprung von einer anderen
+  // Seite wieder im selben Tab landet, nicht auf den Stammdaten.
+  const [params, setParams] = useSearchParams();
+  const location = useLocation();
+  const requested = params.get('tab');
+  const tab = requested && DETAIL_TABS.includes(requested) ? requested : 'stammdaten';
+  const setTab = (next: string) =>
+    setParams(next === 'stammdaten' ? {} : { tab: next }, { replace: true, state: location.state });
+  const backTo = useBackTo();
   const photo = usePhotoUrl(data?.employee.photo_file_id);
 
   if (isLoading || !data) return <Spinner center />;
@@ -47,9 +58,15 @@ export function EmployeeDetailPage() {
         title={`${e.first_name} ${e.last_name}`}
         subtitle={[e.job_title, e.department_name, e.location_name].filter(Boolean).join(' · ') || 'Personalakte'}
         actions={
-          <button className="hm-btn hm-btn--secondary" onClick={() => navigate('/personal/mitarbeitende')}>
-            <ArrowLeft size={16} /> Zur Übersicht
-          </button>
+          backTo ? (
+            <button className="hm-btn hm-btn--secondary" onClick={() => navigate(backTo.path)}>
+              <ArrowLeft size={16} /> {backTo.label}
+            </button>
+          ) : (
+            <button className="hm-btn hm-btn--secondary" onClick={() => navigate('/personal/mitarbeitende')}>
+              <ArrowLeft size={16} /> Zur Übersicht
+            </button>
+          )
         }
       />
       <div className="row" style={{ marginBottom: 16 }}>
@@ -84,7 +101,9 @@ export function EmployeeDetailPage() {
         {tab === 'dokumente' && <DocumentsTab employeeId={employeeId} />}
         {tab === 'organisation' && <OrgTab employee={e} reportingLine={data.reporting_line} />}
         {tab === 'abwesenheit' && <EmployeeAbsenceTab employeeId={employeeId} />}
-        {tab === 'verguetung' && <EmployeeCompensationTab employeeId={employeeId} />}
+        {tab === 'verguetung' && (
+          <EmployeeCompensationTab employeeId={employeeId} employeeName={`${e.first_name} ${e.last_name}`} />
+        )}
       </div>
     </>
   );
@@ -535,7 +554,14 @@ function OrgTab({
                 <Avatar name={m.name} size={30} />
                 <button
                   className="hm-btn hm-btn--ghost hm-btn--sm"
-                  onClick={() => navigate(`/personal/mitarbeitende/${m.id}`)}
+                  onClick={() =>
+                    navigate(`/personal/mitarbeitende/${m.id}`, {
+                      state: backToState(
+                        `/personal/mitarbeitende/${employee.id}?tab=organisation`,
+                        `Zurück zu ${employee.first_name} ${employee.last_name}`,
+                      ),
+                    })
+                  }
                 >
                   <span style={{ fontWeight: 600 }}>{m.name}</span>
                   <span style={{ color: 'var(--text-muted)' }}>{m.job_title ?? ''}</span>

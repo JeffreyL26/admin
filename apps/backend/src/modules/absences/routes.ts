@@ -517,7 +517,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     if (!emp) throw notFound('Mitarbeiter:in nicht gefunden');
     const y = Number(year);
     if (!Number.isInteger(y) || y < 2000 || y > 2100) throw badRequest('Ungültiges Jahr');
-    return { balance: computeBalance(emp, y) };
+    return { balance: computeBalance(emp, y, todayIso(), { breakdown: true }) };
   });
 
   app.get('/api/absences/balances/:year', async (req) => {

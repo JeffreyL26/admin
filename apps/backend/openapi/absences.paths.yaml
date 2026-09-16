@@ -116,7 +116,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
   /api/absences/balance/{employeeId}/{year}:
     get:
-      summary: Urlaubssaldo (Anspruch anteilig gezwölftelt, Übertrag mit Verfallsstichtag, genommen, verplant, Rest)
+      summary: Urlaubssaldo (Anspruch anteilig gezwölftelt, Übertrag mit Verfallsstichtag, genommen, verplant, Rest) samt Aufschlüsselung je Antrag
       parameters:
         - { name: employeeId, in: path, required: true, schema: { type: integer } }
         - { name: year, in: path, required: true, schema: { type: integer } }

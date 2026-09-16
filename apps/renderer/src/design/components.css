@@ -237,6 +237,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Link, der wie Fliesstext aussieht (Namen, Abteilungen) und nur beim Ueberfahren unterstreicht. */
+.hm-text-link {
+  color: inherit;
+  text-decoration: none;
+}
+.hm-text-link:hover {
+  text-decoration: underline;
+}
+
 /* ---------- Badges ---------- */
 .hm-badge {
   display: inline-flex;
@@ -883,6 +892,17 @@
 }
 .hm-cal__row:not(.hm-cal__row--head):hover {
   background: var(--table-hover);
+}
+/* Angesprungene Zeile (lib/focusRow.ts): kurz hervorheben, dann ausblenden.
+   Gilt für Kalenderzeilen wie für Tabellenzeilen. */
+.hm-row--focus,
+.hm-row--focus .hm-cal__name,
+.hm-table tbody tr.hm-row--focus td {
+  animation: hm-row-focus 3s ease-out;
+}
+@keyframes hm-row-focus {
+  0%, 50% { background-color: var(--blue-100); }
+  100% { background-color: transparent; }
 }
 .hm-cal__row--head {
   position: sticky;

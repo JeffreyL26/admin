@@ -90,6 +90,33 @@ export interface AbsenceRequest {
   decided_by_name?: string | null;
 }
 
+/** Ein saldowirksamer Antrag des Jahres mit seinem Anteil an "genommen" und "verplant". */
+export interface AbsenceBalanceBreakdownRequest {
+  id: number;
+  type_name: string;
+  type_color: string;
+  status: AbsenceRequestStatus;
+  date_from: string;
+  date_to: string;
+  /** Tage dieses Antrags im Jahr (jahresübergreifende Anträge anteilig). */
+  days: number;
+  taken: number;
+  planned: number;
+}
+
+/** Herleitung der Saldo-Kacheln; liefert nur GET /api/absences/balance/:employeeId/:year. */
+export interface AbsenceBalanceBreakdown {
+  annual_leave_days: number;
+  /** Volle Beschäftigungsmonate im Jahr; 12 = ganzes Jahr, sonst gezwölftelt. */
+  counted_months: number;
+  /** Rest des Vorjahres vor der Verfallsregel. */
+  carryover_raw: number;
+  carryover_deadline: string;
+  /** Letzter Tag, bis zu dem "genommen" zählt; null, wenn das Jahr noch nicht begonnen hat. */
+  taken_until: string | null;
+  requests: AbsenceBalanceBreakdownRequest[];
+}
+
 export interface AbsenceBalance {
   employee_id: number;
   year: number;
@@ -101,6 +128,7 @@ export interface AbsenceBalance {
   remaining: number;
   first_name?: string;
   last_name?: string;
+  breakdown?: AbsenceBalanceBreakdown;
 }
 
 export interface SickNote {

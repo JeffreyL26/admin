@@ -138,6 +138,10 @@ export interface BalanceRequestRow {
   half_day_start: number;
   half_day_end: number;
   status: string;
+  /** Nur fuer die Aufschluesselung (ctx.breakdown) noetig. */
+  id?: number;
+  type_name?: string;
+  type_color?: string;
 }
 
 /**
@@ -154,6 +158,36 @@ export interface BalanceContext {
   carryoverDeadline?: string;
   closures?: Set<string>;
   requests?: BalanceRequestRow[];
+  /**
+   * Aufschluesselung der Kacheln mitliefern (Personalakte). Verlangt Zeilen
+   * mit id, type_name und type_color; die eigene Abfrage liefert sie.
+   */
+  breakdown?: boolean;
+}
+
+export interface BalanceBreakdownRequest {
+  id: number;
+  type_name: string;
+  type_color: string;
+  status: string;
+  date_from: string;
+  date_to: string;
+  /** Tage dieses Antrags im Jahr (jahresuebergreifende Antraege anteilig). */
+  days: number;
+  taken: number;
+  planned: number;
+}
+
+export interface BalanceBreakdown {
+  annual_leave_days: number;
+  /** Volle Beschaeftigungsmonate im Jahr; 12 = ganzes Jahr, sonst gezwoelftelt. */
+  counted_months: number;
+  /** Rest des Vorjahres vor der Verfallsregel. */
+  carryover_raw: number;
+  carryover_deadline: string;
+  /** Letzter Tag, bis zu dem "genommen" zaehlt; null, wenn das Jahr noch nicht begonnen hat. */
+  taken_until: string | null;
+  requests: BalanceBreakdownRequest[];
 }
 
 export interface BalanceResult {
@@ -165,6 +199,7 @@ export interface BalanceResult {
   taken: number;
   planned: number;
   remaining: number;
+  breakdown?: BalanceBreakdown;
 }
 
 /**
@@ -204,12 +239,14 @@ export function computeBalance(
     ctx?.requests ??
     (db
       .prepare(
-        `SELECT r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status
+        `SELECT r.id, r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status,
+                t.name AS type_name, t.color AS type_color
          FROM absence_requests r
          JOIN absence_types t ON t.id = r.type_id
          WHERE r.employee_id = ? AND t.affects_balance = 1
            AND r.status IN ('genehmigt', 'beantragt')
-           AND r.date_from <= ? AND r.date_to >= ?`,
+           AND r.date_from <= ? AND r.date_to >= ?
+         ORDER BY r.date_from`,
       )
       .all([emp.id, spanTo, spanFrom]) as BalanceRequestRow[]);
 
@@ -225,8 +262,7 @@ export function computeBalance(
       closures,
     });
 
-  const entitlementFor = (y: number): number => {
-    if (annual <= 0) return 0;
+  const countedMonths = (y: number): number => {
     let months = 0;
     for (let m = 1; m <= 12; m++) {
       const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
@@ -236,8 +272,10 @@ export function computeBalance(
       const notExited = !emp.exit_date || emp.exit_date >= monthEnd;
       if (hired && notExited) months++;
     }
-    return roundHalf((annual * months) / 12);
+    return months;
   };
+  const entitlementFor = (y: number): number =>
+    annual <= 0 ? 0 : roundHalf((annual * countedMonths(y)) / 12);
 
   const approved = rows.filter((r) => r.status === 'genehmigt');
   const takenAllIn = (y: number) =>
@@ -247,6 +285,7 @@ export function computeBalance(
 
   // Übertrags-Kette vom Startjahr bis zum Zieljahr aufbauen.
   let carry = 0; // Übertrag NACH Verfallsregel, der im Jahr y nutzbar ist
+  let carryRaw = 0; // Rest des Vorjahres VOR der Verfallsregel (nur Aufschlüsselung)
   let carryoverExpired = false;
   for (let y = startYear + 1; y <= year; y++) {
     const prevRemaining = entitlementFor(y - 1) + carry - takenAllIn(y - 1);
@@ -259,6 +298,7 @@ export function computeBalance(
     } else {
       carry = raw;
     }
+    if (y === year) carryRaw = raw;
   }
 
   const entitlement = entitlementFor(year);
@@ -275,6 +315,39 @@ export function computeBalance(
     .reduce((sum, r) => sum + days(r, yearStart, yearEnd), 0);
   const planned = approvedFuture + requested;
 
+  let breakdown: BalanceBreakdown | undefined;
+  if (ctx?.breakdown) {
+    // Dieselben Ausschnitte wie oben je Antrag, damit die Summen der Liste
+    // exakt den Kacheln entsprechen.
+    const futureFrom = takenClipTo === null ? yearStart : nextDay(takenClipTo);
+    breakdown = {
+      annual_leave_days: annual,
+      counted_months: countedMonths(year),
+      carryover_raw: roundHalf(carryRaw),
+      carryover_deadline: `${year}-${deadlineMmDd}`,
+      taken_until: takenClipTo,
+      requests: rows
+        .filter((r) => r.date_from <= yearEnd && r.date_to >= yearStart)
+        .map((r) => {
+          const inYear = days(r, yearStart, yearEnd);
+          const takenPart =
+            r.status === 'genehmigt' && takenClipTo !== null ? days(r, yearStart, takenClipTo) : 0;
+          const plannedPart = r.status === 'genehmigt' ? days(r, futureFrom, yearEnd) : inYear;
+          return {
+            id: r.id ?? 0,
+            type_name: r.type_name ?? '',
+            type_color: r.type_color ?? '',
+            status: r.status,
+            date_from: r.date_from,
+            date_to: r.date_to,
+            days: inYear,
+            taken: takenPart,
+            planned: plannedPart,
+          };
+        }),
+    };
+  }
+
   return {
     employee_id: emp.id,
     year,
@@ -284,6 +357,7 @@ export function computeBalance(
     taken: roundHalf(taken),
     planned: roundHalf(planned),
     remaining: roundHalf(entitlement + carry - taken - planned),
+    ...(breakdown ? { breakdown } : {}),
   };
 }
 

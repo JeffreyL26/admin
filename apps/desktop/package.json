@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "productName": "oHRganize",
-  "description": "oHRganize — HR-Verwaltung für den deutschsprachigen Markt",
+  "description": "oHRganize: HR-Verwaltung, wie Sie es brauchen",
   "author": "oHRganize",
   "main": "dist/main.cjs",
   "scripts": {

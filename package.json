@@ -2,7 +2,7 @@
   "name": "ohrganize",
   "version": "1.0.0",
   "private": true,
-  "description": "oHRganize — HR-Verwaltungssoftware für den deutschsprachigen Markt",
+  "description": "oHRganize: HR-Verwaltung, wie Sie es brauchen",
   "workspaces": [
     "packages/*",
     "apps/*",
