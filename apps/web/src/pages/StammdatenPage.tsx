@@ -215,7 +215,7 @@ export function StammdatenPage() {
         <h1 className="portal-title">Stammdaten ändern</h1>
         <p className="portal-subtitle">
           Ihre Personalabteilung prüft jede Änderung. Bis zur Freigabe bleibt der bisherige Stand in
-          Ihrer Personalakte — den Bearbeitungsstand sehen Sie unten auf dieser Seite.
+          Ihrer Personalakte. Den Bearbeitungsstand sehen Sie unten auf dieser Seite.
         </p>
       </header>
 
