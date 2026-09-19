@@ -138,6 +138,17 @@ async function main(): Promise<void> {
   check('Version im Register', nachBericht.version === '1.0.0', nachBericht.version);
   check('Platzzahl im Register', nachBericht.aktive_profile === 27, nachBericht.aktive_profile);
 
+  // --- Bericht als Datei, wie ein Windows-Server sie liefert -----------------
+  // `node status.cjs --json > bericht.json` in Windows PowerShell 5.1 schreibt
+  // UTF-16 LE mit BOM; readFileSync(..., 'utf8') gaebe daraus kein JSON.
+  const { berichtCommand } = await import('../commands/status.js');
+  const berichtDatei = path.join(dir, 'bericht-utf16.json');
+  const einzel = JSON.stringify({ ...bericht[0].instanz, version: '1.1.0' });
+  fs.writeFileSync(berichtDatei, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(einzel, 'utf16le')]));
+  berichtCommand('importieren', parseArgs([berichtDatei, '--instanz', 'musterfirma']));
+  const nachDatei = db.prepare('SELECT version FROM instanzen WHERE id = ?').get('musterfirma') as { version: string | null };
+  check('Bericht aus UTF-16-Datei uebernommen', nachDatei.version === '1.1.0', nachDatei.version);
+
   // --- Lizenz ausstellen ----------------------------------------------------
   const { lizenzCommand } = await import('../commands/lizenz.js');
   lizenzCommand(

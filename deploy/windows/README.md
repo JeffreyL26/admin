@@ -746,6 +746,18 @@ eingespielt ist.
   Beim Start steht eine Warnzeile in `backend.log`, sobald etwas
   Aufmerksamkeit verdient (Testphase, nahender Ablauf, Nur-Lese-Betrieb,
   verstellte Uhr) — der schnellste Blick ohne Token.
+- **Bericht für den Anbieter** ohne Anmeldung, aus einer
+  Administrator-PowerShell (das Datenverzeichnis ist für andere Konten
+  gesperrt; der Bericht enthält Installations-ID, Version, Lizenzzustand
+  und Zählungen, keine Personendaten):
+
+  ```powershell
+  node 'C:\Program Files\oHRganize\apps\backend\dist\status.cjs' --data-dir 'C:\ProgramData\oHRganize\data' --json > C:\Temp\bericht.json
+  ```
+
+  Die Datei geht an den Anbieter; er liest sie mit
+  `conspectus bericht importieren` ein (PowerShell schreibt sie mit BOM
+  bzw. UTF-16, das ist dort vorgesehen).
 - **Sicherung:** `backup.cjs` sichert die Datei automatisch mit; beim
   Restore (Abschnitt 5) und beim Umzug (Abschnitt 8) gehört sie ins
   Datenverzeichnis zurück.

@@ -8,6 +8,13 @@ eigenen Abschnitt.
 
 ## Unveroeffentlicht
 
+### Windows-Einzelkunde (19.09.2026)
+- conspectus: `bericht importieren` und `csv-import` lesen Dateien mit
+  UTF-16- oder UTF-8-BOM (so schreibt Windows PowerShell 5.1 bei
+  `node status.cjs --json > bericht.json`); bisher "kein gueltiges JSON".
+- `setup-server.ps1` nennt den Lizenzzustand in Worten: "unbefristet" statt
+  2999-12-31, "Plaetze unbegrenzt" statt einer leeren Stelle.
+
 ### conspectus-Durchstich (15.09.2026)
 - Release-Signaturschluessel erzeugt und in `deploy/ohrganize-release.allowed_signers`
   eingetragen; `scripts/release.mjs` signiert damit, `ohrganize-update.sh`

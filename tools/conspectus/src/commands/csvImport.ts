@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import type { Args } from '../args.js';
 import { ConspectusError, openRegister } from '../db.js';
+import { readTextFile } from '../textfile.js';
 import { assertKey } from './kunde.js';
 
 /** Sehr kleiner CSV-Leser: Semikolon, Anfuehrungszeichen, doppelte darin. */
@@ -76,7 +77,7 @@ export function csvImportCommand(was: string, args: Args): void {
   const datei = args.positional[0] ?? args.values.datei;
   if (!datei) throw new ConspectusError(`Aufruf: conspectus csv-import ${was} <datei.csv>`);
   if (!fs.existsSync(datei)) throw new ConspectusError(`${datei} existiert nicht.`);
-  const rows = parseCsv(fs.readFileSync(datei, 'utf8'));
+  const rows = parseCsv(readTextFile(datei));
   if (rows.length < 2) throw new ConspectusError('Die Datei hat keine Datenzeilen (Kopfzeile erwartet).');
   const idx = spalten(rows[0]);
 

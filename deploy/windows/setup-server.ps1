@@ -162,13 +162,23 @@ function Get-LicenseViaInitialLogin {
   }
 }
 
+# Eine Zeile zum Lizenzzustand aus der Login-Antwort. Unbefristete Lizenzen
+# melden perpetual (der Sentinel 2999-12-31 bleibt intern), max_users null
+# heisst ohne Platzgrenze.
+function Get-LicenseSummary {
+  param($Lic)
+  $bis = if ($Lic.perpetual -eq $true) { 'unbefristet' } elseif ($Lic.valid_until) { "bis $($Lic.valid_until)" } else { 'ohne Ablaufdatum' }
+  $plaetze = if ($null -eq $Lic.max_users) { 'unbegrenzt' } else { $Lic.max_users }
+  return ("Zustand: {0}, {1}, Plaetze {2}" -f $Lic.state, $bis, $plaetze)
+}
+
 if ($OnlyLicense) {
   Assert-Admin
   if ($LicenseFile -eq '') { Fail '-OnlyLicense braucht -LicenseFile <pfad>.' }
   Step 'Lizenzdatei einspielen'
   Install-License -Path $LicenseFile
   $lic = Get-LicenseViaInitialLogin
-  if ($lic) { Ok ("Zustand: {0}, gueltig bis {1}, Plaetze {2}" -f $lic.state, $lic.valid_until, $lic.max_users) }
+  if ($lic) { Ok (Get-LicenseSummary $lic) }
   else { Warn 'Zustand nicht abfragbar (Initialpasswort schon gewechselt) - in der App unter Einstellungen -> Lizenz pruefen.' }
   return
 }
@@ -447,7 +457,7 @@ if ($serviceOn) {
   $lic = Get-LicenseViaInitialLogin
   if ($lic) {
     Write-Host ("     Installations-ID: {0}" -f $lic.installation_id)
-    Write-Host ("     Lizenz: {0}{1}" -f $lic.state, $(if ($lic.valid_until) { " (bis $($lic.valid_until))" } else { '' }))
+    Write-Host ("     Lizenz: {0}" -f (Get-LicenseSummary $lic))
     if ($lic.state -eq 'trial') {
       Write-Host '     -> Lizenz beim Anbieter mit dieser ID ausstellen lassen und mit'
       Write-Host "        .\deploy\windows\setup-server.ps1 -OnlyLicense -LicenseFile <datei>  einspielen (oder in der App: Einstellungen -> Lizenz)."

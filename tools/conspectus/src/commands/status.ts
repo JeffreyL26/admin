@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import type { Args } from '../args.js';
 import { ConspectusError, openRegister } from '../db.js';
 import { runRemote, type HostTarget } from '../ssh.js';
+import { readTextFile } from '../textfile.js';
 import { hostMuss } from './host.js';
 import { berichtUebernehmen, instanzMuss } from './instanz.js';
 
@@ -92,7 +93,9 @@ export function berichtCommand(sub: string, args: Args): void {
   if (!fs.existsSync(datei)) throw new ConspectusError(`${datei} existiert nicht.`);
   let json: unknown;
   try {
-    json = JSON.parse(fs.readFileSync(datei, 'utf8'));
+    // readTextFile statt readFileSync(..., 'utf8'): Von einem Windows-Server
+    // kommt die Datei per `> bericht.json` als UTF-16 oder UTF-8 mit BOM.
+    json = JSON.parse(readTextFile(datei));
   } catch (err) {
     throw new ConspectusError(`${datei} ist kein gueltiges JSON: ${(err as Error).message}`);
   }
