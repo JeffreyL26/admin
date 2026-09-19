@@ -6,7 +6,7 @@ Das Format folgt "Keep a Changelog"; die Versionsnummer folgt Semver
 Version, die mit `scripts/release.mjs` gebaut wird, braucht hier einen
 eigenen Abschnitt.
 
-## Unveroeffentlicht
+## 1.1.0 (2026-09-19)
 
 ### Windows-Einzelkunde (19.09.2026)
 - conspectus: `bericht importieren` und `csv-import` lesen Dateien mit
