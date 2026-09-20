@@ -13,6 +13,7 @@ apps/desktop    Electron: Main-Prozess startet das Backend-Bundle in-process
 apps/web        Mitarbeitenden-Portal: React 18 + Vite, BrowserRouter, Port 5174
                 (Details + Deploy hinter eigener Domain: docs/web-portal.md)
 packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängigkeiten)
+packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-face-CSS), kein Code
 ```
 
 - **Backend ist die einzige Sicherheitsgrenze.** Jede Route läuft durch den
@@ -415,6 +416,21 @@ packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängig
   und anordenbar; Registry + localStorage-Persistenz (`ohrganize.dashboard`) in
   `renderer/src/features/dashboard/dashboardConfig.ts`. Neue Module registrieren
   ihre Dashboard-Widgets dort (Default-Sichtbarkeit bewusst kuratiert klein).
+- **Schrift:** Creato Display (Hausschrift der Website) aus dem Workspace-Paket
+  `packages/fonts`; beide Clients importieren `@ohrganize/fonts/creato-display.css`
+  in `main.tsx`, die Familie steht in `--font-sans` beider tokens.css. Drei
+  Stellen können die Variable nicht lesen und nennen die Familie deshalb
+  selbst (bei einem Wechsel mitziehen): der SVG-Export in
+  `features/employees/OrgChart.tsx`, das Inline-SVG in `OrgPage.tsx` und
+  `ABSENCE_BAR_LABEL_FONT` in `packages/shared/src/absences.ts` (Canvas-Textmaß
+  für die Kalenderbalken, muss `.hm-cal__bar-label`/`.pt-cal__bar-label`
+  spiegeln). Die Familie ist statisch (7 Schnitte, kein SemiBold); die
+  Oberfläche nutzt weiterhin Zwischengewichte (550, 600, 650 usw.), und die
+  `font-weight`-BEREICHE in der Stildatei entscheiden, welcher Schnitt sie
+  trägt (bis 479 Regular, 480 bis 599 Medium, 600 bis 749 Bold). Gewichte im
+  Code deshalb NICHT auf 500/700 „normalisieren“: Die Stufen der Oberfläche
+  hängen an den Bereichen. Keine Tabellenziffern in der Familie,
+  `tabular-nums` bleibt wirkungslos. Hintergrund: docs/entscheidungen.md.
 - **Themes:** Vier Farbschemata (Hell/Dunkel/Rosé/Silber) leben ausschließlich
   als CSS-Variablen-Blöcke in `design/tokens.css` (`:root[data-theme='…']`),
   Umschaltung über `design/theme.ts` (localStorage `ohrganize.theme`). Neue

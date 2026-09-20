@@ -184,7 +184,7 @@ portal.firma.de {
 		#   script-src 'self'        genau eine Modul-Datei, kein Inline-Skript
 		#   style-src 'unsafe-inline' React setzt Stile zur Laufzeit; betrifft
 		#                            nur Stile, Skripte bleiben streng
-		#   font-src 'self'          Inter liegt als woff2 im Build, keine
+		#   font-src 'self'          Creato Display liegt als woff2 im Build, keine
 		#                            externe Schriftquelle
 		#   connect-src 'self'       API läuft same-origin über diesen Proxy
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"

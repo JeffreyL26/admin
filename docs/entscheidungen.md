@@ -1011,3 +1011,48 @@ Spalten doppelt und die Chronik eines Kunden auf zwei Abfragen verteilt.
 Kundenschluessel und Pfade aus dem Register. Ein Semikolon darin waere in
 einem Shell-String ein zweiter Befehl auf einem fremden Server. Alle Aufrufe
 laufen deshalb ueber Argument-Arrays mit `BatchMode=yes`.
+
+## Creato Display statt Inter: Gewichtsbereiche in @font-face statt Umbau der Oberflaeche
+
+**Entscheidung:** Desktop-App und Portal verwenden Creato Display, die
+Hausschrift der Website, als einzige Familie. Die 14 Schnitte liegen als
+WOFF2 im Workspace-Paket `packages/fonts` (SIL OFL, Lizenztext daneben);
+beide Clients importieren `@ohrganize/fonts/creato-display.css` an der
+Stelle, an der vorher `@fontsource-variable/inter` stand. Kein Gewichtswert,
+keine Groesse und kein Abstand im Code wurde angefasst. Welche Zwischenstufe
+welchen Schnitt traegt, legen `font-weight`-Bereiche in den
+`@font-face`-Regeln fest: bis 479 Regular, 480 bis 599 Medium, 600 bis 749
+Bold, darueber ExtraBold und Black.
+
+**Warum Bereiche statt Normalisierung:** Die Oberflaeche nutzt rund 250
+Stellen mit Zwischengewichten der Variable-Font (550, 560, 580 fuer Buttons
+und Feldbeschriftungen, 600 fuer Badges und Namen, 620 bis 650 fuer
+Tabellenkoepfe und Ueberschriften). Ohne Bereiche faellt nach der
+CSS-Gewichtsauswahl alles ab 550 auf Bold; Buttons waeren so fett wie
+Ueberschriften, die Stufen der Oberflaeche weg. Die Werte auf 500/700
+umzuschreiben haette dieselbe Frage an jeder Stelle einzeln beantwortet und
+kuenftigen Code nicht gebunden. Die Grenze bei 600 folgt der Messung der
+Stammstaerke (fontTools, Buchstabe l): Creato Bold liegt bei 129 Promille
+des Gevierts, Inter 600 bei 127, Inter 700 bei 146. Creato Bold ist also
+Inter SemiBold, und 600 gehoert zu Bold; 550 bis 580 (117 bis 123) liegen
+naeher an Creato Medium (106). Die Grenze Regular/Medium liegt bei 480 statt
+in der Mitte, weil das einzige 460 (`.lead-fact__note`) als bewusst
+leichtere Note in einem 580-Element steht; bei 450 fielen beide auf Medium
+und der Unterschied waere nur noch Farbe.
+
+**In Kauf genommen:** Die Familie hat keine Tabellenziffern (`tnum` fehlt,
+die 1 ist 345 Einheiten breit, die 0 621); `tabular-nums` in Zahlenspalten
+bleibt wirkungslos, Betraege stehen nicht mehr buendig. Ihr Zeichenvorrat
+(245 Glyphen) deckt Deutsch vollstaendig ab, aber keine Pfeile (U+2192 steht
+71-mal in den Clients) und einige osteuropaeische Buchstaben (c mit Akut, s
+mit Akut, z mit Punkt, g mit Breve, s mit Cedille, c mit Hatschek); diese
+Zeichen kommen aus der Systemschrift (Windows: Segoe UI). Bewusst NICHT
+umgestellt: die Bescheinigungsvorlage im Backend (eigenstaendige HTML-Datei
+ohne Zugriff auf die Schriftdateien), die Wartungsseite unter `deploy/` und
+der conspectus-Bericht.
+
+**Verworfen, Schrift veraendern:** Ein abgeleiteter Schnitt mit
+gleichbreiten Ziffern waere technisch moeglich, ist aber eine Modified
+Version im Sinne der OFL und duerfte den reservierten Namen nicht tragen.
+Die Website faehrt mit denselben Dateien; ein zweiter Name fuer dieselbe
+Schrift waere Verwirrung ohne Nutzen.

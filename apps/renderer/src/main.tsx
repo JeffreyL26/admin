@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import '@fontsource-variable/inter';
+import '@ohrganize/fonts/creato-display.css';
 import './design/tokens.css';
 import './design/base.css';
 import './design/components.css';

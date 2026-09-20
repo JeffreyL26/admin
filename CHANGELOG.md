@@ -6,6 +6,20 @@ Das Format folgt "Keep a Changelog"; die Versionsnummer folgt Semver
 Version, die mit `scripts/release.mjs` gebaut wird, braucht hier einen
 eigenen Abschnitt.
 
+## Unveroeffentlicht
+
+### Schrift (20.09.2026)
+- Desktop-App und Portal verwenden Creato Display, die Hausschrift der
+  Website, statt Inter Variable. Die Schnitte liegen im Workspace-Paket
+  `packages/fonts` (`@ohrganize/fonts/creato-display.css`, WOFF2, SIL OFL);
+  `@fontsource-variable/inter` entfaellt. Gewichte, Groessen und Abstaende
+  im Code bleiben unveraendert; welche Zwischenstufe welchen Schnitt traegt,
+  legen die `font-weight`-Bereiche in der Stildatei fest (bis 479 Regular,
+  480-599 Medium, 600-749 Bold). Bekannte Eigenschaften der Familie:
+  keine Tabellenziffern (Zahlenspalten stehen nicht mehr buendig) und ohne
+  Pfeile sowie einige osteuropaeische Buchstaben (Rueckfall auf die
+  Systemschrift, unter Windows Segoe UI).
+
 ## 1.1.0 (2026-09-19)
 
 ### Windows-Einzelkunde (19.09.2026)

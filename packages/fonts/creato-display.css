@@ -1,0 +1,127 @@
+/* Creato Display, die Hausschrift von oHRganize (wie auf ohrganize.com).
+   Statische Familie mit sieben Schnitten (Thin, Light, Regular, Medium, Bold,
+   ExtraBold, Black) je aufrecht und kursiv, SIL Open Font License
+   (creato-display/OFL.txt).
+
+   Die Oberfläche wurde für eine Variable-Font entworfen und nutzt
+   Zwischengewichte (460, 550, 560, 580, 600, 620, 640, 650). Die
+   font-weight-BEREICHE unten legen fest, welcher Schnitt sie trägt, ohne dass
+   ein einziger Gewichtswert im Code angefasst werden muss. Die Grenzen sind
+   so gelegt, dass die drei Stufen der Oberfläche erhalten bleiben und die
+   gemessene Stammstärke der bisherigen Schrift möglichst getroffen wird:
+
+     1 bis 249      Thin
+     250 bis 349    Light
+     350 bis 479    Regular    Fließtext (400) und die eine leichtere Note (460)
+     480 bis 599    Medium     Buttons, Feldbeschriftungen, Navigation (500 bis 580)
+     600 bis 749    Bold       Badges, Namen, Tabellenköpfe, Überschriften,
+                               Kennzahlen (600 bis 700); Creato Bold entspricht in
+                               der Stammstärke Inter 600, nicht Inter 700
+     750 bis 849    ExtraBold  im Code nicht verwendet
+     850 bis 1000   Black      `bolder` (UA-Stil von <strong>/<b>) in einem
+                               Elternelement ab 550 ergibt 900 und landet hier
+
+   Ohne die Bereiche fiele alles ab 550 auf Bold (die CSS-Gewichtsauswahl
+   sucht oberhalb von 500 zuerst nach oben), und Buttons wären so fett wie
+   Überschriften. Beide Clients binden diese Datei über
+   `@ohrganize/fonts/creato-display.css` ein; die Token `--font-sans` in den
+   beiden tokens.css nennen die Familie. */
+
+@font-face {
+  font-family: 'Creato Display';
+  font-style: normal;
+  font-weight: 1 249;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-Thin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: italic;
+  font-weight: 1 249;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-ThinItalic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: normal;
+  font-weight: 250 349;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-Light.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: italic;
+  font-weight: 250 349;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-LightItalic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: normal;
+  font-weight: 350 479;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: italic;
+  font-weight: 350 479;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-RegularItalic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: normal;
+  font-weight: 480 599;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: italic;
+  font-weight: 480 599;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-MediumItalic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: normal;
+  font-weight: 600 749;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: italic;
+  font-weight: 600 749;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-BoldItalic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: normal;
+  font-weight: 750 849;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-ExtraBold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: italic;
+  font-weight: 750 849;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-ExtraBoldItalic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: normal;
+  font-weight: 850 1000;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-Black.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Creato Display';
+  font-style: italic;
+  font-weight: 850 1000;
+  font-display: swap;
+  src: url('./creato-display/CreatoDisplay-BlackItalic.woff2') format('woff2');
+}

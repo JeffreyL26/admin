@@ -179,7 +179,7 @@ serverseitig erzeugtem Erstpasswort (siehe `docs/inbetriebnahme.md`).
 - API-Basis: `VITE_API_BASE`, sonst im Dev `http://127.0.0.1:3001`, im
   Prod-Build **same-origin** (`''`) — gedacht für den Reverse-Proxy-Deploy unten.
   Token liegt unter `localStorage['ohrganize.portal.token']`.
-- Gestaltung: Farbwelt, Typografie (Inter Variable, gleiche Größenskala),
+- Gestaltung: Farbwelt, Typografie (Creato Display, gleiche Größenskala),
   Radien, Schatten und Komponenten-Rezepte (Karten, Gradient-Primärbuttons,
   Tabellenköpfe, Badges) wie die Desktop-App — beide Clients sollen als ein
   Produkt wirken. Alle vier Farbschemata (Hell/Dunkel/Rosé/Silber) sind

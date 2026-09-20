@@ -1,0 +1,9 @@
+{
+  "name": "@ohrganize/fonts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Schriftdateien der oHRganize-Clients (Desktop-Renderer und Web-Portal).",
+  "exports": {
+    "./creato-display.css": "./creato-display.css"
+  }
+}
