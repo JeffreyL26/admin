@@ -66,6 +66,7 @@ npm run dist:win       # → apps/desktop/release/oHRganize-Setup-<version>-<var
 | `apps/renderer` | React-Oberfläche (Vite) |
 | `apps/desktop` | Electron-Hülle, natives Menü, Installer-Konfiguration |
 | `packages/shared` | Gemeinsame Typen/Konstanten |
+| `packages/fonts` | Schriftdateien der Clients (Creato Display, WOFF2 + @font-face-CSS) |
 | `docs/` | Architekturentscheidungen inkl. verworfener Ansätze |
 
 Die API-Spezifikation liegt unter `apps/backend/openapi/` — Endpunkte des
