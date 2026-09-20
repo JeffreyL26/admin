@@ -8,6 +8,10 @@ eigenen Abschnitt.
 
 ## Unveroeffentlicht
 
+Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
+die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
+Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
+
 ### Schrift (20.09.2026)
 - Desktop-App und Portal verwenden Creato Display, die Hausschrift der
   Website, statt Inter Variable. Die Schnitte liegen im Workspace-Paket
@@ -22,8 +26,6 @@ eigenen Abschnitt.
   Familie an allen Stellen mit Tabellenziffern (Zahlenspalten, Kennzahlen,
   Urlaubskonto), weil Creato Display keine Tabellenziffern hat. Pfeile kamen
   schon bisher aus der Systemschrift und tun es weiterhin.
-
-## 1.1.0 (2026-09-19)
 
 ### Windows-Einzelkunde (19.09.2026)
 - conspectus: `bericht importieren` und `csv-import` lesen Dateien mit
