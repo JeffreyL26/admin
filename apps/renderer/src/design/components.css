@@ -250,6 +250,10 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+/* Nur Zellen: Der Tabellenkopf bleibt einheitlich in der Hausschrift. */
+.hm-table td.num {
+  font-family: var(--font-numeric);
+}
 
 /* Link, der wie Fliesstext aussieht (Namen, Abteilungen) und nur beim Ueberfahren unterstreicht. */
 .hm-text-link {
@@ -713,6 +717,7 @@
   font-weight: 700;
   letter-spacing: -0.025em;
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
   line-height: 1.15;
 }
 .hm-stat__sub {
@@ -1298,6 +1303,7 @@ button.lead-card:focus-visible .lead-card__cta svg {
   font-size: var(--text-sm);
   font-weight: 620;
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
   color: var(--text-primary);
 }
 .lead-track__value--partial {
@@ -1560,6 +1566,7 @@ button.lead-star:disabled {
   color: var(--text-secondary);
   cursor: pointer;
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 .lead-points__btn:hover:not(:disabled) {
@@ -1613,6 +1620,7 @@ button.lead-star:disabled {
   text-align: center;
   font-weight: 620;
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
 }
 
 /* ---------- Report ---------- */
@@ -1690,6 +1698,7 @@ button.lead-star:disabled {
   font-size: var(--text-sm);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
 }
 .lead-history__comment {
   white-space: pre-wrap;
@@ -2022,6 +2031,7 @@ button.lead-star:disabled {
   font-size: var(--text-sm);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
 }
 .lead-report-row__chart {
   display: flex;
@@ -2033,6 +2043,7 @@ button.lead-star:disabled {
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
 }
 @media (max-width: 720px) {
   .lead-report-row {
@@ -2118,6 +2129,7 @@ button.lead-star:disabled {
 }
 .lead-breakdown__number {
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
   color: var(--text-secondary);
   white-space: nowrap;
 }

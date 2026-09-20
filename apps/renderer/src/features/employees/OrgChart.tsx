@@ -1064,7 +1064,7 @@ function buildSvg(layout: OrgLayout, model: OrgModel): string {
   const width = layout.width + pad * 2;
   const height = layout.height + pad * 2;
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="'Creato Display', 'Segoe UI', system-ui, sans-serif">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="'Creato Display', 'Plus Jakarta Sans Variable', 'Segoe UI', system-ui, sans-serif">` +
     `<rect width="100%" height="100%" fill="${colors.canvas}"/>` +
     `<g transform="translate(${pad}, ${pad})">${parts.join('')}</g></svg>`
   );

@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import '@ohrganize/fonts/creato-display.css';
+import '@fontsource-variable/plus-jakarta-sans';
 import './design/tokens.css';
 import './design/base.css';
 import './design/components.css';

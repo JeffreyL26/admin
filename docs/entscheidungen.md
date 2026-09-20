@@ -1040,16 +1040,24 @@ in der Mitte, weil das einzige 460 (`.lead-fact__note`) als bewusst
 leichtere Note in einem 580-Element steht; bei 450 fielen beide auf Medium
 und der Unterschied waere nur noch Farbe.
 
-**In Kauf genommen:** Die Familie hat keine Tabellenziffern (`tnum` fehlt,
-die 1 ist 345 Einheiten breit, die 0 621); `tabular-nums` in Zahlenspalten
-bleibt wirkungslos, Betraege stehen nicht mehr buendig. Ihr Zeichenvorrat
-(245 Glyphen) deckt Deutsch vollstaendig ab, aber keine Pfeile (U+2192 steht
-71-mal in den Clients) und einige osteuropaeische Buchstaben (c mit Akut, s
-mit Akut, z mit Punkt, g mit Breve, s mit Cedille, c mit Hatschek); diese
-Zeichen kommen aus der Systemschrift (Windows: Segoe UI). Bewusst NICHT
-umgestellt: die Bescheinigungsvorlage im Backend (eigenstaendige HTML-Datei
-ohne Zugriff auf die Schriftdateien), die Wartungsseite unter `deploy/` und
-der conspectus-Bericht.
+**Zweitschrift Plus Jakarta Sans fuer das, was Creato nicht kann:** Die
+Familie hat keine Tabellenziffern (`tnum` fehlt, die 1 ist 345 Einheiten
+breit, die 0 621), und ihr Zeichenvorrat (245 Glyphen) deckt Deutsch
+vollstaendig ab, aber einige osteuropaeische Buchstaben nicht (c mit Akut, s
+mit Akut, z mit Punkt, g mit Breve, s mit Cedille, c mit Hatschek). Inter
+hatte beides. Die Website paart Creato Display deshalb mit Plus Jakarta Sans
+Variable (`@fontsource-variable/plus-jakarta-sans`), und die Clients tun
+dasselbe an genau zwei Stellen: als erste Rueckfallschrift in `--font-sans`
+(je Zeichen, die Buchstaben kommen aus Jakarta statt aus Segoe UI) und als
+Familie `--font-numeric` an jeder Stelle mit `font-variant-numeric:
+tabular-nums` (13 Selektoren plus die Personalnummer der Mitarbeiterliste).
+Das sind exakt die Stellen, an denen die Zahlen mit Inter buendig standen;
+alle anderen Zahlen waren auch mit Inter proportional. Pfeile (U+2192, 71
+Stellen) fehlen in den Fontsource-Subsets von Inter und Jakarta gleichermassen
+und kamen schon immer aus der Systemschrift. Bewusst NICHT umgestellt: die
+Bescheinigungsvorlage im Backend (eigenstaendige HTML-Datei ohne Zugriff auf
+die Schriftdateien), die Wartungsseite unter `deploy/` und der
+conspectus-Bericht.
 
 **Verworfen, Schrift veraendern:** Ein abgeleiteter Schnitt mit
 gleichbreiten Ziffern waere technisch moeglich, ist aber eine Modified

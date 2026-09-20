@@ -199,4 +199,4 @@ export interface CalendarConflict {
  * (.hm-cal__bar-label) und Portal (.pt-cal__bar-label); die Clients messen
  * damit, ob ein Balken breit genug für seinen Schriftzug ist.
  */
-export const ABSENCE_BAR_LABEL_FONT = "650 11px 'Creato Display', 'Segoe UI', system-ui, sans-serif";
+export const ABSENCE_BAR_LABEL_FONT = "650 11px 'Creato Display', 'Plus Jakarta Sans Variable', 'Segoe UI', system-ui, sans-serif";

@@ -70,7 +70,10 @@
   --text-on-dark: #f4f7fc;
 
   /* Typografie — identisch zur Desktop-App */
-  --font-sans: 'Creato Display', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-sans: 'Creato Display', 'Plus Jakarta Sans Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Zahlen mit Tabellenziffern: Creato Display hat keine (kein tnum), Plus Jakarta
+     Sans schon. Nur an Stellen mit font-variant-numeric: tabular-nums setzen. */
+  --font-numeric: 'Plus Jakarta Sans Variable', 'Segoe UI', system-ui, -apple-system, sans-serif;
   --text-xs: 0.75rem;
   --text-sm: 0.8125rem;
   --text-base: 0.9375rem;

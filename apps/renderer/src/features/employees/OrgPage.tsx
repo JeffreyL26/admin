@@ -781,7 +781,7 @@ function DepartmentChart() {
           ref={svgRef}
           width="100%"
           height="100%"
-          style={{ fontFamily: "'Creato Display', 'Segoe UI', system-ui, sans-serif", display: 'block' }}
+          style={{ fontFamily: "'Creato Display', 'Plus Jakarta Sans Variable', 'Segoe UI', system-ui, sans-serif", display: 'block' }}
         >
           <defs>
             <filter id="org-shadow" x="-30%" y="-30%" width="160%" height="160%">

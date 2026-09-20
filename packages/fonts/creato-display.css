@@ -25,7 +25,9 @@
    sucht oberhalb von 500 zuerst nach oben), und Buttons wären so fett wie
    Überschriften. Beide Clients binden diese Datei über
    `@ohrganize/fonts/creato-display.css` ein; die Token `--font-sans` in den
-   beiden tokens.css nennen die Familie. */
+   beiden tokens.css nennen die Familie, dahinter Plus Jakarta Sans Variable
+   als Rueckfall (fehlende Buchstaben) und ueber `--font-numeric` fuer
+   Tabellenziffern, die Creato nicht hat. */
 
 @font-face {
   font-family: 'Creato Display';

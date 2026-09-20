@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
     "@ohrganize/fonts": "*",
     "@ohrganize/shared": "*",
     "@tanstack/react-query": "^5.64.1",

@@ -15,10 +15,13 @@ eigenen Abschnitt.
   `@fontsource-variable/inter` entfaellt. Gewichte, Groessen und Abstaende
   im Code bleiben unveraendert; welche Zwischenstufe welchen Schnitt traegt,
   legen die `font-weight`-Bereiche in der Stildatei fest (bis 479 Regular,
-  480-599 Medium, 600-749 Bold). Bekannte Eigenschaften der Familie:
-  keine Tabellenziffern (Zahlenspalten stehen nicht mehr buendig) und ohne
-  Pfeile sowie einige osteuropaeische Buchstaben (Rueckfall auf die
-  Systemschrift, unter Windows Segoe UI).
+  480-599 Medium, 600-749 Bold).
+- Zweitschrift Plus Jakarta Sans Variable (wie auf der Website): erste
+  Rueckfallschrift fuer Zeichen, die Creato Display nicht hat (einige
+  osteuropaeische Buchstaben), und ueber das Token `--font-numeric` die
+  Familie an allen Stellen mit Tabellenziffern (Zahlenspalten, Kennzahlen,
+  Urlaubskonto), weil Creato Display keine Tabellenziffern hat. Pfeile kamen
+  schon bisher aus der Systemschrift und tun es weiterhin.
 
 ## 1.1.0 (2026-09-19)
 

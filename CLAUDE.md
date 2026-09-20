@@ -424,13 +424,18 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `features/employees/OrgChart.tsx`, das Inline-SVG in `OrgPage.tsx` und
   `ABSENCE_BAR_LABEL_FONT` in `packages/shared/src/absences.ts` (Canvas-Textmaß
   für die Kalenderbalken, muss `.hm-cal__bar-label`/`.pt-cal__bar-label`
-  spiegeln). Die Familie ist statisch (7 Schnitte, kein SemiBold); die
+  spiegeln). Zweitschrift ist Plus Jakarta Sans Variable
+  (`@fontsource-variable/plus-jakarta-sans`, wie auf der Website): erste
+  Rückfallschrift in `--font-sans` für Zeichen, die Creato nicht hat, und
+  über `--font-numeric` die Familie an JEDER Stelle mit
+  `font-variant-numeric: tabular-nums` (Creato hat keine Tabellenziffern,
+  Jakarta schon). Wer `tabular-nums` setzt, setzt auch
+  `font-family: var(--font-numeric)`. Die Familie ist statisch (7 Schnitte, kein SemiBold); die
   Oberfläche nutzt weiterhin Zwischengewichte (550, 600, 650 usw.), und die
   `font-weight`-BEREICHE in der Stildatei entscheiden, welcher Schnitt sie
   trägt (bis 479 Regular, 480 bis 599 Medium, 600 bis 749 Bold). Gewichte im
   Code deshalb NICHT auf 500/700 „normalisieren“: Die Stufen der Oberfläche
-  hängen an den Bereichen. Keine Tabellenziffern in der Familie,
-  `tabular-nums` bleibt wirkungslos. Hintergrund: docs/entscheidungen.md.
+  hängen an den Bereichen. Hintergrund: docs/entscheidungen.md.
 - **Themes:** Vier Farbschemata (Hell/Dunkel/Rosé/Silber) leben ausschließlich
   als CSS-Variablen-Blöcke in `design/tokens.css` (`:root[data-theme='…']`),
   Umschaltung über `design/theme.ts` (localStorage `ohrganize.theme`). Neue

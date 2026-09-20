@@ -226,7 +226,7 @@ export function EmployeeListPage() {
         );
       case 'personnel_number':
         return e.personnel_number ? (
-          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{e.personnel_number}</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-numeric)' }}>{e.personnel_number}</span>
         ) : (
           <span style={{ color: 'var(--text-muted)' }}>—</span>
         );
