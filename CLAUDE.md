@@ -68,7 +68,15 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   den eigenen Antrag mit 403 ab (Vergleich `req.user.employee_id` gegen
   `absence_requests.employee_id`). `cancel` bleibt erlaubt (Rückzug, kein
   Entscheid), ebenso die Auto-Genehmigung bei `requires_approval = 0` — die
-  genehmigt technisch immer „selbst". **Achtung Einzelbetrieb:** Eine
+  genehmigt technisch immer „selbst". Die HR-Erfassung kennt zusaetzlich
+  `approve: true` (nachtraegliche Erfassung: vergessener Antrag, Person ohne
+  Portalzugang) und genehmigt dann sofort; geprueft in `createRequest`, die
+  eigene Abwesenheit wird auch dort mit 403 abgewiesen (gemeinsamer Helfer
+  `assertNotOwnEmployee`, auch von `assertNotOwnRequest` genutzt). Beide
+  Listen liefern `created_by_name`/`created_by_proxy` (`CREATED_BY_PROXY_SQL`:
+  anlegendes Konto gehoert nicht der betroffenen Person), damit Portal und
+  Desktop zeigen, dass die HR stellvertretend erfasst hat; ein Admin, der im
+  Portal fuer sich selbst beantragt, zaehlt nicht als stellvertretend. **Achtung Einzelbetrieb:** Eine
   Frischinstallation hat nur `admin@ohrganize.de`; dessen eigener Antrag ist dann
   von niemandem entscheidbar. Ein zweites Admin-Konto ist Voraussetzung.
 - **Stammdaten ändern Mitarbeitende nie selbst** (Migration

@@ -12,8 +12,10 @@ import {
   assertSpanWithinLimit,
   closureDates,
   computeBalance,
+  assertNotOwnEmployee,
   countAbsenceDays,
   createRequest,
+  CREATED_BY_PROXY_SQL,
   companyRegionDefaults,
   regionForEmployee,
   regionSelectParams,
@@ -84,9 +86,10 @@ const requestBodySchema = z.object({
   half_day_start: z.boolean().optional(),
   half_day_end: z.boolean().optional(),
   comment: z.string().trim().max(2000).optional(),
-  // Nur die HR darf die Saldoprüfung übersteuern; das Portal-Schema
-  // (me/routes.ts) kennt das Feld bewusst nicht.
+  // Nur die HR darf die Saldoprüfung übersteuern und direkt genehmigen; das
+  // Portal-Schema (me/routes.ts) kennt beide Felder bewusst nicht.
   override_balance: z.boolean().optional(),
+  approve: z.boolean().optional(),
 });
 
 /** Body ist optional — bestehende Clients schicken keinen. */
@@ -136,20 +139,21 @@ interface RequestRow {
  * gewollt, ein Schlupfloch gäbe es sonst immer.
  */
 function assertNotOwnRequest(req: FastifyRequest, row: RequestRow): void {
-  const actorEmployeeId = (req.user as { employee_id?: number | null }).employee_id ?? null;
-  if (actorEmployeeId !== null && actorEmployeeId === row.employee_id) {
-    throw forbidden(
-      'Eigene Abwesenheitsanträge dürfen nicht selbst entschieden werden. Bitte lassen Sie den Antrag von einer anderen Person der HR-Administration prüfen.',
-    );
-  }
+  assertNotOwnEmployee(
+    req,
+    row.employee_id,
+    'Eigene Abwesenheitsanträge dürfen nicht selbst entschieden werden. Bitte lassen Sie den Antrag von einer anderen Person der HR-Administration prüfen.',
+  );
 }
 
 const REQUEST_SELECT = `
   SELECT r.*, e.first_name, e.last_name,
-         t.name AS type_name, t.color AS type_color, t.category AS type_category
+         t.name AS type_name, t.color AS type_color, t.category AS type_category,
+         c.name AS created_by_name, ${CREATED_BY_PROXY_SQL}
   FROM absence_requests r
   JOIN employees e ON e.id = r.employee_id
-  JOIN absence_types t ON t.id = r.type_id`;
+  JOIN absence_types t ON t.id = r.type_id
+  LEFT JOIN users c ON c.id = r.created_by_user_id`;
 
 export const absencesModule: FastifyPluginAsync = async (app) => {
   const db = () => getDb();

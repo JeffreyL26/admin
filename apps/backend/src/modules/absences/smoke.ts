@@ -131,6 +131,53 @@ check(
   r1.json(),
 );
 const r1Id = r1.json().request.id as number;
+check(
+  'HR-Erfassung traegt die anlegende Person (created_by_proxy 1)',
+  r1.json().request.created_by_proxy === 1 && typeof r1.json().request.created_by_name === 'string',
+  r1.json().request,
+);
+
+// Nachtraegliche Erfassung: approve genehmigt sofort, aber nie die eigene Abwesenheit.
+const direct = await post('/api/absences/requests', {
+  employee_id: 2,
+  type_id: urlaubType.id,
+  date_from: '2026-03-02',
+  date_to: '2026-03-03',
+  approve: true,
+});
+check(
+  'Erfassung mit approve → 201, sofort genehmigt, decided_by gesetzt',
+  direct.statusCode === 201 &&
+    direct.json().request.status === 'genehmigt' &&
+    direct.json().request.decided_by_user_id !== null &&
+    direct.json().request.decided_at !== null,
+  direct.json(),
+);
+const adminUser = db.prepare("SELECT id FROM users WHERE email = 'admin@ohrganize.de'").get() as { id: number };
+db.prepare('UPDATE users SET employee_id = 3 WHERE id = ?').run(adminUser.id);
+const ownDirect = await post('/api/absences/requests', {
+  employee_id: 3,
+  type_id: urlaubType.id,
+  date_from: '2026-08-03',
+  date_to: '2026-08-04',
+  approve: true,
+});
+check('approve fuer die eigene Abwesenheit → 403', ownDirect.statusCode === 403, ownDirect.json());
+const ownPending = await post('/api/absences/requests', {
+  employee_id: 3,
+  type_id: urlaubType.id,
+  date_from: '2026-08-03',
+  date_to: '2026-08-04',
+});
+check('eigene Abwesenheit ohne approve → 201 beantragt', ownPending.statusCode === 201 && ownPending.json().request.status === 'beantragt', ownPending.json());
+check('eigene Erfassung gilt nicht als stellvertretend (created_by_proxy 0)', ownPending.json().request.created_by_proxy === 0, ownPending.json().request);
+db.prepare('UPDATE users SET employee_id = NULL WHERE id = ?').run(adminUser.id);
+// Aufraeumen, damit die Salden- und Ueberschneidungspruefungen weiter unten
+// von einer leeren Ausgangslage ausgehen koennen.
+for (const id of [direct.json().request.id, ownPending.json().request.id] as number[]) {
+  const cancelled = await post(`/api/absences/requests/${id}/cancel`);
+  check(`Testantrag ${id} storniert`, cancelled.statusCode === 200 && cancelled.json().request.status === 'storniert', cancelled.json());
+}
 
 const badRange = await post('/api/absences/requests', {
   employee_id: 1,

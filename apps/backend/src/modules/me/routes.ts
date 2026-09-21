@@ -19,6 +19,7 @@ import {
   computeBalance,
   countAbsenceDays,
   createRequest,
+  CREATED_BY_PROXY_SQL,
   type AbsenceTypeRow,
 } from '../absences/service.js';
 import { assertReasonableSpan, requireEmployee } from './lib.js';
@@ -50,10 +51,11 @@ const sickNoteBodySchema = z.object({
 /** Eigene Anträge, angereichert um Art und Namen der entscheidenden Person. */
 const MY_REQUEST_SELECT = `
   SELECT r.*, t.name AS type_name, t.color AS type_color, t.category AS type_category,
-         u.name AS decided_by_name
+         u.name AS decided_by_name, c.name AS created_by_name, ${CREATED_BY_PROXY_SQL}
   FROM absence_requests r
   JOIN absence_types t ON t.id = r.type_id
-  LEFT JOIN users u ON u.id = r.decided_by_user_id`;
+  LEFT JOIN users u ON u.id = r.decided_by_user_id
+  LEFT JOIN users c ON c.id = r.created_by_user_id`;
 
 const MY_SICK_SELECT = `
   SELECT s.id, s.absence_request_id, s.certificate_file_id, s.certificate_due_date,

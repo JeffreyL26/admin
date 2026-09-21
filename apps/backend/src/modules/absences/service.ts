@@ -583,14 +583,39 @@ export interface CreateRequestBody {
    * Übersteuerung landet im Audit-Detail.
    */
   override_balance?: boolean;
+  /**
+   * Erfasst und genehmigt in einem Schritt (nachträgliche Erfassung durch die
+   * HR: vergessener Antrag, Person ohne Portalzugang). Nur die HR-Erfassung
+   * reicht das Feld durch; das Vier-Augen-Prinzip gilt wie beim Genehmigen,
+   * die eigene Abwesenheit bleibt ausgenommen.
+   */
+  approve?: boolean;
 }
 
 /**
  * Legt einen Antrag an (gemeinsam für HR-Erfassung, Krankmeldungen und den
  * Self-Service des Web-Portals): Überlappungsprüfung, Tageszählung,
  * Jahres-Obergrenze der Art, Saldoprüfung (nur bei Auto-Genehmigung, s. u.),
- * Auto-Genehmigung bei Arten ohne Genehmigungspflicht.
+ * Auto-Genehmigung bei Arten ohne Genehmigungspflicht oder auf Wunsch der HR.
  */
+/**
+ * Vier-Augen-Prinzip: Wer selbst die betroffene Person ist, entscheidet nicht
+ * über die eigene Abwesenheit. Ein Konto ohne Personalprofil ist nie betroffen.
+ */
+export function assertNotOwnEmployee(
+  req: Parameters<typeof audit>[0],
+  employeeId: number,
+  message: string,
+): void {
+  const actorEmployeeId = (req.user as { employee_id?: number | null } | undefined)?.employee_id ?? null;
+  if (actorEmployeeId !== null && actorEmployeeId === employeeId) throw forbidden(message);
+}
+
+/** Herkunft eines Antrags: 1, wenn das anlegende Konto nicht der betroffenen Person gehoert. */
+export const CREATED_BY_PROXY_SQL = `
+  CASE WHEN c.id IS NOT NULL AND (c.employee_id IS NULL OR c.employee_id != r.employee_id) THEN 1 ELSE 0 END
+    AS created_by_proxy`;
+
 export function createRequest(
   req: Parameters<typeof audit>[0],
   body: CreateRequestBody,
@@ -693,12 +718,18 @@ export function createRequest(
     // Griffe sie schon hier, könnte niemand mit einem offenen Antrag einen
     // Alternativ-Zeitraum einreichen, weil 'beantragt' im Saldo bereits als
     // geplant zählt.
-    const autoApprove = type.requires_approval === 0;
+    const userId = (req.user as { id?: number } | undefined)?.id ?? null;
+    if (body.approve) {
+      assertNotOwnEmployee(
+        req,
+        body.employee_id,
+        'Eigene Abwesenheiten dürfen nicht selbst genehmigt werden. Erfassen Sie den Antrag ohne Genehmigung und lassen Sie ihn von einer anderen Person der HR-Administration prüfen.',
+      );
+    }
+    const autoApprove = type.requires_approval === 0 || body.approve === true;
     if (autoApprove && !body.override_balance) {
       assertBalanceCovers(body.employee_id, type, body, undefined, { place, closures });
     }
-
-    const userId = (req.user as { id?: number } | undefined)?.id ?? null;
     const result = db
       .prepare(
         `INSERT INTO absence_requests
@@ -728,6 +759,7 @@ export function createRequest(
       days_counted: days,
       status: autoApprove ? 'genehmigt' : 'beantragt',
       ...(body.override_balance ? { override_balance: true } : {}),
+      ...(body.approve ? { approved_on_create: true } : {}),
       ...(overlapped.length > 0
         ? {
             overlapped_requests: overlapped.map((o) => ({

@@ -22,7 +22,10 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [halfStart, setHalfStart] = useState(false);
   const [halfEnd, setHalfEnd] = useState(false);
   const [comment, setComment] = useState('');
+  const [approve, setApprove] = useState(false);
   const [balanceWarning, setBalanceWarning] = useState<BalanceExceededDetails | null>(null);
+  const selectedType = activeTypes.find((t) => t.id === typeId) ?? null;
+  const needsApproval = selectedType ? selectedType.requires_approval === 1 : true;
 
   const sameDay = dateFrom !== '' && dateFrom === dateTo;
   // Bei einem eintägigen Zeitraum sind "erster" und "letzter" Tag derselbe —
@@ -41,6 +44,7 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
     setHalfStart(false);
     setHalfEnd(false);
     setComment('');
+    setApprove(false);
     setBalanceWarning(null);
   };
 
@@ -55,12 +59,13 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
         half_day_end: effectiveHalfEnd,
         comment: comment.trim() || undefined,
         ...(overrideBalance ? { override_balance: true } : {}),
+        ...(approve && needsApproval ? { approve: true } : {}),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['absences'] });
       // Der Dialog ist auch vom Dashboard aus erreichbar (Schnelleintrag).
       qc.invalidateQueries({ queryKey: ['dashboard'] });
-      toast.success('Antrag wurde erfasst');
+      toast.success(approve || !needsApproval ? 'Abwesenheit wurde erfasst und genehmigt' : 'Antrag wurde erfasst');
       reset();
       onClose();
     },
@@ -93,7 +98,7 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
             disabled={!valid || create.isPending}
             onClick={() => create.mutate(false)}
           >
-            Antrag erfassen
+            {approve && needsApproval ? 'Erfassen und genehmigen' : 'Antrag erfassen'}
           </button>
         </>
       }
@@ -140,6 +145,25 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
           />
           Letzter Tag nur halb
         </label>
+        <Field
+          label="Nachträgliche Erfassung"
+          span2
+          hint={
+            needsApproval
+              ? 'Für vergessene Anträge oder Personen ohne Portalzugang: Die Abwesenheit gilt sofort als genehmigt. Die eigene Abwesenheit bleibt ausgenommen (Vier-Augen-Prinzip).'
+              : 'Diese Art ist nicht genehmigungspflichtig und wird ohnehin sofort genehmigt.'
+          }
+        >
+          <label className="hm-checkbox">
+            <input
+              type="checkbox"
+              checked={approve && needsApproval}
+              disabled={!needsApproval}
+              onChange={(e) => setApprove(e.target.checked)}
+            />
+            Direkt genehmigen
+          </label>
+        </Field>
         <Field label="Kommentar" span2>
           <textarea className="hm-textarea" value={comment} onChange={(e) => setComment(e.target.value)} rows={2} />
         </Field>

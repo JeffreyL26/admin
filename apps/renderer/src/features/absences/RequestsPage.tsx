@@ -180,6 +180,11 @@ function RequestRows({
                     {r.rejection_reason}
                   </div>
                 )}
+                {r.created_by_proxy === 1 && (
+                  <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 3 }}>
+                    erfasst durch {r.created_by_name ?? 'HR-Administration'}
+                  </div>
+                )}
               </td>
               <td style={{ maxWidth: 220, color: 'var(--text-secondary)' }}>{r.comment ?? '—'}</td>
               <td>

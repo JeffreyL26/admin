@@ -88,6 +88,14 @@ export interface AbsenceRequest {
   type_category?: AbsenceCategory;
   /** Nur Self-Service (/api/me/leave-requests): Name der entscheidenden Person. */
   decided_by_name?: string | null;
+  /**
+   * Anlegende Person in Listen-Antworten. `created_by_proxy` 1 heisst: das
+   * anlegende Konto gehoert nicht der betroffenen Person, die HR hat also
+   * stellvertretend erfasst (ein Admin mit eigenem Profil, der fuer sich
+   * selbst beantragt, zaehlt nicht als stellvertretend).
+   */
+  created_by_name?: string | null;
+  created_by_proxy?: number;
 }
 
 /**

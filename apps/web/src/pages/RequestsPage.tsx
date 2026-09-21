@@ -174,6 +174,12 @@ export function RequestsPage() {
                           {r.comment}
                         </span>
                       )}
+                      {r.created_by_proxy === 1 && (
+                        <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 'var(--text-xs)', marginTop: 3 }}>
+                          Erfasst durch die Personalabteilung
+                          {r.created_by_name ? ` (${r.created_by_name})` : ''}
+                        </span>
+                      )}
                     </td>
                     <td className="num">{formatDays(r.days_counted)}</td>
                     <td>

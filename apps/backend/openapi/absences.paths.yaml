@@ -49,9 +49,31 @@ paths:
       responses:
         "200": { description: Antragsliste (mit Mitarbeiter- und Art-Daten) }
     post:
-      summary: Antrag stellvertretend erfassen (Auto-Genehmigung bei Arten ohne Genehmigungspflicht)
+      summary: Antrag stellvertretend erfassen (Auto-Genehmigung bei Arten ohne Genehmigungspflicht oder mit approve)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, type_id, date_from, date_to]
+              properties:
+                employee_id: { type: integer }
+                type_id: { type: integer }
+                date_from: { type: string, format: date }
+                date_to: { type: string, format: date }
+                half_day_start: { type: boolean }
+                half_day_end: { type: boolean }
+                comment: { type: string, maxLength: 2000 }
+                override_balance: { type: boolean, description: Saldopruefung uebersteuern (nur HR) }
+                approve: { type: boolean, description: Nachtraegliche Erfassung, sofort genehmigt (nur HR, nie fuer die eigene Abwesenheit) }
       responses:
         "201": { description: Antrag angelegt, days_counted berechnet }
+        "403":
+          description: approve fuer die eigene Abwesenheit (Vier-Augen-Prinzip)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
         "400":
           description: Ungültiger Zeitraum oder keine zählbaren Arbeitstage
           content:

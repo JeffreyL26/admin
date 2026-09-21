@@ -12,6 +12,17 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Nachtraegliche Erfassung von Abwesenheiten (21.09.2026)
+- Die HR-Erfassung (Abwesenheit → Antraege → Neuer Antrag, auch vom
+  Dashboard) kann mit "Direkt genehmigen" erfassen und genehmigen in einem
+  Schritt (`approve: true`), fuer vergessene Antraege und Personen ohne
+  Portalzugang. Das Vier-Augen-Prinzip bleibt: die eigene Abwesenheit wird
+  mit 403 abgewiesen, das Audit-Detail traegt `approved_on_create`.
+- Portal und Desktop zeigen an einem Antrag, dass die Personalabteilung ihn
+  stellvertretend erfasst hat (`created_by_name`, `created_by_proxy` in
+  beiden Listen-Antworten; ein Admin, der fuer sich selbst beantragt, gilt
+  nicht als stellvertretend).
+
 ### Farbwahl (21.09.2026)
 - Abwesenheitsarten-Dialog und Kalender "Farben bearbeiten" nutzen einen
   eigenen Farbwaehler (`components/ColorPicker.tsx`) statt
