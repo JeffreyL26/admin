@@ -16,9 +16,13 @@ import {
   MeetingsWidget, AnnouncementsWidget, SurveysWidget, BirthdaysWidget, OnboardingWidget,
   LeadershipTeamWidget, LeadershipReportWidget, LicenseWidget,
 } from './widgets';
+import {
+  DASHBOARD_STYLE_LABELS, DashboardStyleContext, loadDashboardStyle, saveDashboardStyle,
+  type DashboardStyle,
+} from './dashboardStyle';
 
-/** Widgets, deren Inhalt bis an den Card-Rand läuft (Tabellen). */
-const FLUSH_WIDGETS: WidgetKey[] = ['absent-today'];
+/** Widgets, deren Inhalt bis an den Card-Rand läuft (Tabellen); derzeit keines. */
+const FLUSH_WIDGETS: WidgetKey[] = [];
 
 function widgetBody(key: WidgetKey, data: DashboardData): React.ReactNode {
   switch (key) {
@@ -45,7 +49,12 @@ export function DashboardPage() {
   const { data, isLoading } = useDashboard();
 
   const [config, setConfig] = useState<DashboardConfig>(loadDashboardConfig);
+  const [style, setStyle] = useState<DashboardStyle>(loadDashboardStyle);
   const [edit, setEdit] = useState(false);
+  const changeStyle = (next: DashboardStyle) => {
+    setStyle(next);
+    saveDashboardStyle(next);
+  };
   const [quickAbsenceOpen, setQuickAbsenceOpen] = useState(false);
   const [dragKey, setDragKey] = useState<WidgetKey | null>(null);
   const [overKey, setOverKey] = useState<WidgetKey | null>(null);
@@ -147,25 +156,42 @@ export function DashboardPage() {
     ) : undefined;
 
   return (
-    <>
+    <DashboardStyleContext.Provider value={style}>
+    <div className={`hm-dash${style === 'farbenfroh' ? ' hm-dash--bunt' : ''}`}>
       <PageHeader
         title={`${greeting}, ${user?.name?.split(' ')[0] ?? ''} 👋`}
         subtitle={`${today} — Ihr persönlicher Überblick.`}
         actions={
-          edit ? (
-            <div className="row" style={{ gap: 8 }}>
-              <button className="hm-btn hm-btn--ghost" onClick={reset} title="Standard-Layout wiederherstellen">
-                <RotateCcw size={15} /> Zurücksetzen
-              </button>
-              <button className="hm-btn hm-btn--primary" onClick={() => setEdit(false)}>
-                <Check size={15} /> Fertig
-              </button>
+          <div className="row" style={{ gap: 8 }}>
+            <div className="hm-tabs hm-tabs--sm" role="tablist" aria-label="Darstellung des Dashboards">
+              {(Object.keys(DASHBOARD_STYLE_LABELS) as DashboardStyle[]).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  role="tab"
+                  aria-selected={style === s}
+                  className={`hm-tab${style === s ? ' hm-tab--active' : ''}`}
+                  onClick={() => changeStyle(s)}
+                >
+                  {DASHBOARD_STYLE_LABELS[s]}
+                </button>
+              ))}
             </div>
-          ) : (
-            <button className="hm-btn hm-btn--secondary" onClick={() => setEdit(true)}>
-              <SlidersHorizontal size={15} /> Anpassen
-            </button>
-          )
+            {edit ? (
+              <>
+                <button className="hm-btn hm-btn--ghost" onClick={reset} title="Standard-Layout wiederherstellen">
+                  <RotateCcw size={15} /> Zurücksetzen
+                </button>
+                <button className="hm-btn hm-btn--primary" onClick={() => setEdit(false)}>
+                  <Check size={15} /> Fertig
+                </button>
+              </>
+            ) : (
+              <button className="hm-btn hm-btn--secondary" onClick={() => setEdit(true)}>
+                <SlidersHorizontal size={15} /> Anpassen
+              </button>
+            )}
+          </div>
         }
       />
 
@@ -272,7 +298,9 @@ export function DashboardPage() {
                             label={sd.label}
                             value={value}
                             sub={sd.sub?.(stats)}
-                            icon={<sd.icon size={15} />}
+                            subTone={sd.subTone?.(stats)}
+                            icon={<sd.icon size={16} />}
+                            accent={sd.accent}
                             onClick={edit ? undefined : () => navigate(sd.path)}
                           />
                         );
@@ -283,10 +311,21 @@ export function DashboardPage() {
               );
             }
 
+            const wrap = editWrapProps(key);
             return (
-              <div key={key} {...editWrapProps(key)}>
+              <div
+                key={key}
+                {...wrap}
+                className="hm-widget"
+                style={{ '--hm-accent': `var(${def.accent})`, ...wrap.style } as React.CSSProperties}
+              >
                 <Card
-                  title={<span className="row"><def.icon size={16} /> {def.title}</span>}
+                  title={
+                    <span className="row" style={{ gap: 10 }}>
+                      <span className="hm-widget__icon"><def.icon size={15} /></span>
+                      {def.title}
+                    </span>
+                  }
                   actions={editActions(key)}
                   flush={FLUSH_WIDGETS.includes(key)}
                 >
@@ -299,6 +338,7 @@ export function DashboardPage() {
       )}
 
       <RequestDialog open={quickAbsenceOpen} onClose={() => setQuickAbsenceOpen(false)} />
-    </>
+    </div>
+    </DashboardStyleContext.Provider>
   );
 }

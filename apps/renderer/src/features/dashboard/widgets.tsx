@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+  BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import {
   formatDate, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, ONBOARDING_KIND_LABELS,
@@ -15,14 +15,28 @@ import {
   LICENSE_PATH, LICENSE_STATE_LABELS, licenseStateTone, remainingLabel, seatsLabel,
 } from '../settings/license';
 import type { DashboardData } from './api';
+import { useDashboardStyle } from './dashboardStyle';
 
 /* Reine Widget-Inhalte des Dashboards — der Card-Rahmen (Titel, Icon,
-   Bearbeitungs-Controls) kommt aus DashboardPage. */
+   Bearbeitungs-Controls) kommt aus DashboardPage. Alle Listen folgen einem
+   Rezept: Avatar oder Kennung in der Akzentfarbe des Widgets, Haupttext,
+   rechts ein Chip mit Datum oder Zahl (Klassen hm-dash-*). */
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+const ORG_ACCENTS = ['--org-1', '--org-2', '--org-3', '--org-4', '--org-5', '--org-6'];
+
+function initials(first?: string | null, last?: string | null): string {
+  return `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase();
+}
+
+/** Kurzdatum fuer Chips: 24.09. (Jahr nur, wenn es nicht das laufende ist). */
+function shortDate(iso: string): string {
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return y === String(new Date().getFullYear()) ? `${d}.${m}.` : `${d}.${m}.${y}`;
+}
 
 function Empty({ text, padded }: { text: string; padded?: boolean }) {
-  return <p style={{ color: 'var(--text-muted)', margin: 0, padding: padded ? 16 : 0 }}>{text}</p>;
+  return <p className="hm-dash-empty" style={{ padding: padded ? 16 : 0 }}>{text}</p>;
 }
 
 /**
@@ -37,11 +51,53 @@ function Restricted({ padded }: { padded?: boolean }) {
   return <Empty text="Für diesen Bereich fehlt Ihnen die Berechtigung." padded={padded} />;
 }
 
+function Row({
+  to,
+  avatar,
+  title,
+  meta,
+  chip,
+  chipMuted,
+}: {
+  to?: string;
+  avatar?: React.ReactNode;
+  title: React.ReactNode;
+  meta?: React.ReactNode;
+  chip?: React.ReactNode;
+  chipMuted?: boolean;
+}) {
+  const body = (
+    <>
+      {avatar !== undefined && <span className="hm-dash-row__avatar" aria-hidden="true">{avatar}</span>}
+      <span className="hm-dash-row__main">
+        <span className="hm-dash-row__title">{title}</span>
+        {meta && <span className="hm-dash-row__meta">{meta}</span>}
+      </span>
+      {chip !== undefined && (
+        <span className={`hm-dash-row__chip${chipMuted ? ' hm-dash-row__chip--muted' : ''}`}>{chip}</span>
+      )}
+    </>
+  );
+  return to ? <Link className="hm-dash-row" to={to}>{body}</Link> : <div className="hm-dash-row">{body}</div>;
+}
+
+function Progress({ value, max }: { value: number; max: number }) {
+  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  return (
+    <span className="hm-dash-progress" role="progressbar" aria-valuemin={0} aria-valuemax={max} aria-valuenow={value}>
+      <span style={{ width: `${pct}%` }} />
+    </span>
+  );
+}
+
 export function AbsenceChartWidget({ data }: { data: DashboardData }) {
+  const bunt = useDashboardStyle() === 'farbenfroh';
   if (!data.absenceDaysByMonth) return <Restricted />;
+  const currentMonth = new Date().toISOString().slice(0, 7);
   const monthData = data.absenceDaysByMonth.map((m) => ({
     name: MONTH_NAMES[Number(m.month.slice(5)) - 1],
     Tage: m.days,
+    current: m.month === currentMonth,
   }));
   return (
     <Link
@@ -55,7 +111,20 @@ export function AbsenceChartWidget({ data }: { data: DashboardData }) {
           <XAxis dataKey="name" tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
           <YAxis tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
           <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--blue-50)' }} />
-          <Bar dataKey="Tage" fill="var(--brand-primary)" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="Tage" radius={[5, 5, 0, 0]}>
+            {monthData.map((m) => (
+              <Cell
+                key={m.name}
+                fill={
+                  !bunt
+                    ? 'var(--brand-primary)'
+                    : m.current
+                      ? 'var(--hm-accent)'
+                      : 'color-mix(in srgb, var(--hm-accent) 45%, var(--bg-surface))'
+                }
+              />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </Link>
@@ -67,6 +136,7 @@ type DepartmentRow = NonNullable<DashboardData['byDepartment']>[number];
 /** Balken wie Beschriftung führen ins Organigramm mit dieser Abteilung als Filter (wie in Organisation → Struktur). */
 export function DepartmentChartWidget({ data }: { data: DashboardData }) {
   const navigate = useNavigate();
+  const bunt = useDashboardStyle() === 'farbenfroh';
   if (!data.byDepartment) return <Restricted />;
   const rows = data.byDepartment;
   const open = (row: DepartmentRow | undefined) => {
@@ -100,45 +170,39 @@ export function DepartmentChartWidget({ data }: { data: DashboardData }) {
           <Bar
             dataKey="count"
             name="Anzahl"
-            fill="var(--brand-navy)"
-            radius={[0, 4, 4, 0]}
+            radius={[0, 5, 5, 0]}
             barSize={16}
             style={{ cursor: 'pointer' }}
             onClick={(entry: unknown) => open((entry as { payload?: DepartmentRow }).payload)}
-          />
+          >
+            {rows.map((r, i) => (
+              <Cell key={r.department} fill={bunt ? `var(${ORG_ACCENTS[i % ORG_ACCENTS.length]})` : 'var(--brand-navy)'} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-/** Wird als flush-Card gerendert (Tabelle bis an den Rand) — Leertext deshalb selbst gepolstert. */
 export function AbsentTodayWidget({ data }: { data: DashboardData }) {
-  if (!data.absentToday) return <Restricted padded />;
-  if (data.absentToday.length === 0) {
-    return <Empty text="Heute sind alle an Bord. 🎉" padded />;
-  }
+  if (!data.absentToday) return <Restricted />;
+  if (data.absentToday.length === 0) return <Empty text="Heute sind alle an Bord. 🎉" />;
   return (
-    <div className="hm-table-wrap" style={{ maxHeight: 240 }}>
-      <table className="hm-table">
-        <tbody>
-          {data.absentToday.map((a) => (
-            <tr key={`${a.id}-${a.date_to}`}>
-              <td style={{ fontWeight: 550 }}>
-                <Link className="hm-text-link" to={`/abwesenheit/kalender?person=${a.id}`}>
-                  {a.first_name} {a.last_name}
-                </Link>
-              </td>
-              <td>
-                <span className="hm-badge" style={{ background: `${a.color}22`, color: a.color }}>
-                  {a.type_name}
-                </span>
-              </td>
-              <td style={{ color: 'var(--text-muted)' }}>bis {formatDate(a.date_to)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="hm-dash-list" style={{ maxHeight: 240, overflow: 'auto' }}>
+      {data.absentToday.map((a) => (
+        <Row
+          key={`${a.id}-${a.date_to}`}
+          to={`/abwesenheit/kalender?person=${a.id}`}
+          avatar={initials(a.first_name, a.last_name)}
+          title={`${a.first_name} ${a.last_name}`}
+          meta={
+            <span style={{ color: a.color, fontWeight: 560 }}>{a.type_name}</span>
+          }
+          chip={`bis ${shortDate(a.date_to)}`}
+          chipMuted
+        />
+      ))}
     </div>
   );
 }
@@ -147,17 +211,16 @@ export function InterviewsWidget({ data }: { data: DashboardData }) {
   if (!data.upcomingInterviews) return <Restricted />;
   if (data.upcomingInterviews.length === 0) return <Empty text="Keine geplanten Interviews." />;
   return (
-    <div className="stack" style={{ gap: 10 }}>
+    <div className="hm-dash-list">
       {data.upcomingInterviews.map((iv) => (
-        <Link key={iv.id} to="/recruiting/interviews" style={{ color: 'inherit', textDecoration: 'none' }}>
-          <div className="row row--between">
-            <span style={{ fontWeight: 550 }}>{iv.first_name} {iv.last_name}</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-              {INTERVIEW_KIND_LABELS[iv.kind]} · {formatDate(iv.scheduled_at.slice(0, 10))}
-            </span>
-          </div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>{iv.posting_title}</div>
-        </Link>
+        <Row
+          key={iv.id}
+          to="/recruiting/interviews"
+          avatar={initials(iv.first_name, iv.last_name)}
+          title={`${iv.first_name} ${iv.last_name}`}
+          meta={`${INTERVIEW_KIND_LABELS[iv.kind]} · ${iv.posting_title}`}
+          chip={shortDate(iv.scheduled_at)}
+        />
       ))}
     </div>
   );
@@ -167,16 +230,16 @@ export function MeetingsWidget({ data }: { data: DashboardData }) {
   if (!data.upcomingMeetings) return <Restricted />;
   if (data.upcomingMeetings.length === 0) return <Empty text="Keine Gespräche in den nächsten 3 Wochen." />;
   return (
-    <div className="stack" style={{ gap: 10 }}>
+    <div className="hm-dash-list">
       {data.upcomingMeetings.map((m) => (
-        <Link key={m.id} to="/leistung/feedback" style={{ color: 'inherit', textDecoration: 'none' }}>
-          <div className="row row--between">
-            <span style={{ fontWeight: 550 }}>{m.first_name} {m.last_name}</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-              {FEEDBACK_MEETING_KIND_LABELS[m.kind]} · {formatDate(m.scheduled_date)}
-            </span>
-          </div>
-        </Link>
+        <Row
+          key={m.id}
+          to="/leistung/feedback"
+          avatar={initials(m.first_name, m.last_name)}
+          title={`${m.first_name} ${m.last_name}`}
+          meta={FEEDBACK_MEETING_KIND_LABELS[m.kind]}
+          chip={shortDate(m.scheduled_date)}
+        />
       ))}
     </div>
   );
@@ -186,14 +249,16 @@ export function AnnouncementsWidget({ data }: { data: DashboardData }) {
   if (!data.activeAnnouncements) return <Restricted />;
   if (data.activeAnnouncements.length === 0) return <Empty text="Keine aktiven Ankündigungen." />;
   return (
-    <div className="stack" style={{ gap: 10 }}>
+    <div className="hm-dash-list">
       {data.activeAnnouncements.map((a) => (
-        <Link key={a.id} to="/kommunikation/ankuendigungen" style={{ color: 'inherit', textDecoration: 'none' }}>
-          <div className="row row--between">
-            <span style={{ fontWeight: 550 }}>{a.title}</span>
-            {a.requires_ack ? <span className="hm-badge hm-badge--blue">Bestätigung</span> : null}
-          </div>
-        </Link>
+        <Row
+          key={a.id}
+          to="/kommunikation/ankuendigungen"
+          avatar={shortDate(a.publish_at).slice(0, 3)}
+          title={a.title}
+          meta={`veröffentlicht ${formatDate(a.publish_at.slice(0, 10))}`}
+          chip={a.requires_ack ? 'Bestätigung' : undefined}
+        />
       ))}
     </div>
   );
@@ -203,16 +268,17 @@ export function SurveysWidget({ data }: { data: DashboardData }) {
   if (!data.runningSurveys) return <Restricted />;
   if (data.runningSurveys.length === 0) return <Empty text="Keine laufenden Umfragen." />;
   return (
-    <div className="stack" style={{ gap: 10 }}>
+    <div className="hm-dash-list">
       {data.runningSurveys.map((s) => (
-        <Link key={s.id} to="/kommunikation/umfragen" style={{ color: 'inherit', textDecoration: 'none' }}>
-          <div className="row row--between">
-            <span style={{ fontWeight: 550 }}>{s.title}</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-              {s.participations} Teilnahmen · bis {formatDate(s.date_to)}
-            </span>
-          </div>
-        </Link>
+        <Row
+          key={s.id}
+          to="/kommunikation/umfragen"
+          avatar={s.participations}
+          title={s.title}
+          meta={`${s.participations} Teilnahmen`}
+          chip={`bis ${shortDate(s.date_to)}`}
+          chipMuted
+        />
       ))}
     </div>
   );
@@ -225,22 +291,29 @@ export function OnboardingWidget() {
     return <Empty text="Aktuell ist niemand im On- oder Offboarding." />;
   }
   return (
-    <div className="stack" style={{ gap: 10 }}>
-      {processes.map((p) => (
-        <Link key={p.id} to="/verwaltung/onboarding" style={{ color: 'inherit', textDecoration: 'none' }}>
-          <div className="row row--between">
-            <span style={{ fontWeight: 550 }}>{p.first_name} {p.last_name}</span>
-            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-              {ONBOARDING_KIND_LABELS[p.kind]} · {p.done_tasks ?? 0}/{p.total_tasks ?? 0} erledigt
-            </span>
-          </div>
-          {p.target_date && (
-            <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
-              Stichtag {formatDate(p.target_date)}
-            </div>
-          )}
-        </Link>
-      ))}
+    <div className="hm-dash-list">
+      {processes.map((p) => {
+        const done = p.done_tasks ?? 0;
+        const total = p.total_tasks ?? 0;
+        return (
+          <Row
+            key={p.id}
+            to="/verwaltung/onboarding"
+            avatar={initials(p.first_name, p.last_name)}
+            title={`${p.first_name} ${p.last_name}`}
+            meta={
+              <span className="row" style={{ gap: 8 }}>
+                <span style={{ flexShrink: 0 }}>
+                  {ONBOARDING_KIND_LABELS[p.kind]}
+                  {p.target_date ? ` · Stichtag ${shortDate(p.target_date)}` : ''}
+                </span>
+                <span style={{ flex: 1, minWidth: 40 }}><Progress value={done} max={total} /></span>
+              </span>
+            }
+            chip={`${done}/${total}`}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -258,14 +331,13 @@ export function LeadershipTeamWidget() {
   }
   const open = status.team_size - status.rated_count;
   return (
-    <Link to="/fuehrung/mein-team" style={{ color: 'inherit', textDecoration: 'none' }}>
+    <Link to="/fuehrung/mein-team" className="stack" style={{ gap: 10, color: 'inherit', textDecoration: 'none' }}>
       <div className="row row--between">
-        <span style={{ fontWeight: 550 }}>{status.period?.label ?? 'Laufender Zeitraum'}</span>
-        <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-          {status.rated_count}/{status.team_size} bewertet
-        </span>
+        <span style={{ fontWeight: 560 }}>{status.period?.label ?? 'Laufender Zeitraum'}</span>
+        <span className="hm-dash-row__chip">{status.rated_count}/{status.team_size} bewertet</span>
       </div>
-      <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
+      <Progress value={status.rated_count} max={status.team_size} />
+      <div className="hm-dash-row__meta">
         {open > 0 ? `${open} Person${open === 1 ? '' : 'en'} noch offen` : 'Alle bewertet für diesen Zeitraum.'}
       </div>
     </Link>
@@ -281,25 +353,28 @@ export function LeadershipReportWidget() {
   const done = data.leaders.length - open.length;
   return (
     <div className="stack" style={{ gap: 10 }}>
-      <Link to="/fuehrung/report" style={{ color: 'inherit', textDecoration: 'none' }}>
+      <Link to="/fuehrung/report" className="stack" style={{ gap: 8, color: 'inherit', textDecoration: 'none' }}>
         <div className="row row--between">
-          <span style={{ fontWeight: 550 }}>{data.period.label}</span>
-          <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-            {done}/{data.leaders.length} vollständig
-          </span>
+          <span style={{ fontWeight: 560 }}>{data.period.label}</span>
+          <span className="hm-dash-row__chip">{done}/{data.leaders.length} vollständig</span>
         </div>
+        <Progress value={done} max={data.leaders.length} />
       </Link>
       {open.length === 0 ? (
         <Empty text="Alle Führungskräfte haben ihr Team bewertet. 🎉" />
       ) : (
-        open.slice(0, 5).map((l) => (
-          <Link key={l.employee_id} to="/fuehrung/report" style={{ color: 'inherit', textDecoration: 'none' }}>
-            <div className="row row--between">
-              <span>{l.first_name} {l.last_name}</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>{l.open_count} offen</span>
-            </div>
-          </Link>
-        ))
+        <div className="hm-dash-list">
+          {open.slice(0, 5).map((l) => (
+            <Row
+              key={l.employee_id}
+              to="/fuehrung/report"
+              avatar={initials(l.first_name, l.last_name)}
+              title={`${l.first_name} ${l.last_name}`}
+              chip={`${l.open_count} offen`}
+              chipMuted
+            />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -313,7 +388,6 @@ export function LeadershipReportWidget() {
 export function LicenseWidget() {
   const { license, can } = useAuth();
   if (!license) return <Empty text="Lizenzzustand nicht verfügbar." />;
-  const muted: React.CSSProperties = { color: 'var(--text-muted)', fontSize: 'var(--text-sm)' };
   const runtime =
     license.state === 'entwicklung'
       ? 'keine Prüfung'
@@ -326,11 +400,11 @@ export function LicenseWidget() {
     <div className="stack" style={{ gap: 8 }}>
       <div className="row row--between">
         <Badge tone={licenseStateTone(license)}>{LICENSE_STATE_LABELS[license.state]}</Badge>
-        <span style={muted}>{license.customer ?? ''}</span>
+        <span className="hm-dash-row__meta">{license.customer ?? ''}</span>
       </div>
       <div className="row row--between">
         <span>{license.state === 'grace' ? 'Kulanz bis' : 'Gültig bis'}</span>
-        <span style={muted}>
+        <span className="hm-dash-row__chip hm-dash-row__chip--muted">
           {license.state === 'grace'
             ? `${formatDate(license.grace_until)} · ${remainingLabel(license.days_left)}`
             : runtime}
@@ -338,7 +412,7 @@ export function LicenseWidget() {
       </div>
       <div className="row row--between">
         <span>Plätze</span>
-        <span style={muted}>{seatsLabel(license)}</span>
+        <span className="hm-dash-row__chip">{seatsLabel(license)}</span>
       </div>
     </div>
   );
@@ -354,16 +428,15 @@ export function BirthdaysWidget({ data }: { data: DashboardData }) {
   if (!data.upcomingBirthdays) return <Restricted />;
   if (data.upcomingBirthdays.length === 0) return <Empty text="Keine Geburtstage hinterlegt." />;
   return (
-    <div className="stack" style={{ gap: 10 }}>
+    <div className="hm-dash-list">
       {data.upcomingBirthdays.map((b) => (
-        <div key={b.id} className="row row--between">
-          <Link className="hm-text-link" to={`/personal/mitarbeitende/${b.id}`}>
-            {b.first_name} {b.last_name}
-          </Link>
-          <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-            {formatDate(b.next_birthday)}
-          </span>
-        </div>
+        <Row
+          key={b.id}
+          to={`/personal/mitarbeitende/${b.id}`}
+          avatar={initials(b.first_name, b.last_name)}
+          title={`${b.first_name} ${b.last_name}`}
+          chip={shortDate(b.next_birthday)}
+        />
       ))}
     </div>
   );
