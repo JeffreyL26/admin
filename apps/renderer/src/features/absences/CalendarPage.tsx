@@ -30,6 +30,7 @@ import {
 import { Avatar, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
+import { ColorPicker } from '../../components/ColorPicker';
 import { useAbsenceTypes, useCalendar, useDepartments, useTeams, type CalendarData } from './api';
 import { useColorOverrides, type ColorOverrides } from './absenceColors';
 import { Select } from '../../components/Select';
@@ -362,13 +363,12 @@ function ColorEditor({
                 )}
               </span>
               <span className="row" style={{ gap: 6 }}>
-                <input
-                  type="color"
-                  className="hm-input"
-                  aria-label={`Farbe für ${t.name}`}
+                <ColorPicker
+                  compact
+                  align="right"
+                  label={`Farbe für ${t.name}`}
                   value={current}
-                  onChange={(e) => onChange(t.id, e.target.value)}
-                  style={{ padding: 3, height: 32, width: 44 }}
+                  onChange={(hex) => onChange(t.id, hex)}
                 />
                 <Tooltip content="Auf Standardfarbe zurücksetzen">
                   <button

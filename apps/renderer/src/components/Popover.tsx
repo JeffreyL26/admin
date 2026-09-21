@@ -118,6 +118,11 @@ export function Popover({
     <div
       ref={panelRef}
       className="hm-popover"
+      // Ein Klick auf Rahmen oder Innenabstand darf den Fokus nicht auf <body>
+      // werfen: Escape und Tab träfen sonst das Modal darunter statt des Panels.
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) e.preventDefault();
+      }}
       style={{
         top: pos?.top ?? -9999,
         left: pos?.left ?? -9999,

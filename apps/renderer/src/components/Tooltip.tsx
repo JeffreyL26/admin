@@ -122,7 +122,14 @@ export function Tooltip({ content, children, placement = 'top', delay = 150 }: P
   // Ausstehenden Öffnen-Timer beim Unmount verwerfen (Zeilenwechsel im Kalender).
   useEffect(() => cancelTimer, []);
 
-  if (content === null || content === undefined || content === false) return children;
+  const empty = content === null || content === undefined || content === false;
+  // Ein bereits offener Tooltip darf nicht mit altem Zustand wieder auftauchen,
+  // sobald der Aufrufer den Inhalt zurückgibt.
+  useEffect(() => {
+    if (empty) hide();
+  }, [empty, hide]);
+
+  if (empty) return children;
 
   const child = React.Children.only(children) as React.ReactElement<AnchorProps> & {
     ref?: React.Ref<HTMLElement>;

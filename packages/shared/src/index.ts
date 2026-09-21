@@ -2,6 +2,7 @@
 // Jedes Fachmodul pflegt ausschließlich seine eigene Datei in diesem Package.
 export * from './version.js';
 export * from './common.js';
+export * from './color.js';
 export * from './employees.js';
 export * from './orgChart.js';
 export * from './absences.js';

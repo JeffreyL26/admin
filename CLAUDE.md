@@ -181,7 +181,13 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `.app`, definiert im Preload). Tastaturkürzel (Strg+K/1–6/±/0, F11) sind in
   `AppShell.tsx` im Renderer registriert, da es kein Menü mehr für Accelerators
   gibt. Datei-Uploads nutzen die Dropzone `components/FilePicker.tsx`
-  (`FilePicker`/`PhotoPicker`) statt nacktem `<input type=file>`.
+  (`FilePicker`/`PhotoPicker`) statt nacktem `<input type=file>`. Farbfelder
+  nutzen `components/ColorPicker.tsx` statt `<input type=color>` (das
+  Chromium-Pop-up ist nicht themebar); die Komponente liefert immer
+  `#rrggbb` in Kleinbuchstaben, toleriert im `value` Kurzform, fehlendes `#`
+  und Grossschreibung, die Farbmathematik (Hex/RGB/HSV) liegt rein in
+  `packages/shared/src/color.ts`, geprueft von
+  `apps/backend/src/test/colorTest.ts`.
 - **Dateien** liegen ausschließlich im Backend-Storage (`files`-Tabelle + Ordner).
   Downloads laufen über kurzlebige HMAC-signierte URLs (`core/files.ts`) — für
   Desktop- und späteren Web-Client identisch.

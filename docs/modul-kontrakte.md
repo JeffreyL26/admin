@@ -83,6 +83,8 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   (Card, Field, Tabs, Badge, StatCard, PageHeader, EmptyState, Spinner, Avatar),
   `components/Modal.tsx`, `components/Toast.tsx`, `components/Popover.tsx`,
   `components/Tooltip.tsx`, `components/EmployeeSelect.tsx`,
+  `components/Select.tsx`, `components/MultiSelect.tsx`,
+  `components/FilePicker.tsx`, `components/ColorPicker.tsx`,
   CSS-Klassen `hm-*` aus `design/components.css`.
 - Tooltips ausschließlich über `components/Tooltip.tsx`, nie per `title`-Attribut
   (Details und Begründung: CLAUDE.md → Konventionen → Tooltips). Inhalt als

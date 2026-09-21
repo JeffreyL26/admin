@@ -26,7 +26,7 @@ export function loadColorOverrides(): ColorOverrides {
     const out: ColorOverrides = {};
     for (const [key, value] of Object.entries(parsed)) {
       const id = Number(key);
-      // Nur, was ein <input type="color"> auch liefert — alles andere (kaputte
+      // Nur, was der Farbwähler auch liefert (#rrggbb). Alles andere (kaputte
       // Einträge, alte Formate) still verwerfen statt den Kalender zu färben.
       if (Number.isInteger(id) && typeof value === 'string' && HEX_COLOR.test(value)) out[id] = value;
     }

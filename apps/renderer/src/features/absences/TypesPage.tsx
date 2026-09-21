@@ -19,6 +19,7 @@ import { useToast } from '../../components/Toast';
 import { EmployeeSelect, employeeName, useEmployees } from '../../components/EmployeeSelect';
 import { useAbsenceTypes, useClosures } from './api';
 import { Select } from '../../components/Select';
+import { ColorPicker } from '../../components/ColorPicker';
 
 interface TypeForm {
   name: string;
@@ -464,13 +465,7 @@ function TypeDialog({
           </Select>
         </Field>
         <Field label="Farbe">
-          <input
-            className="hm-input"
-            type="color"
-            value={form.color}
-            onChange={(e) => set({ color: e.target.value })}
-            style={{ padding: 3, height: 36 }}
-          />
+          <ColorPicker label="Farbe" value={form.color} onChange={(color) => set({ color })} />
         </Field>
         <Field label="Max. Tage pro Jahr" hint="Leer lassen für unbegrenzt">
           <input

@@ -12,6 +12,20 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Farbwahl (21.09.2026)
+- Abwesenheitsarten-Dialog und Kalender "Farben bearbeiten" nutzen einen
+  eigenen Farbwaehler (`components/ColorPicker.tsx`) statt
+  `<input type="color">`, weil das Chromium-Pop-up keinem Theme folgt:
+  Farbflaeche, Farbtonspur, Pipette, Hex- und R/G/B-Felder, vollstaendig
+  per Tastatur bedienbar (Pfeil nach unten oeffnet, Escape schliesst nur den
+  Waehler, Tab kreist im Panel). Die Farbmathematik (Hex/RGB/HSV) liegt in
+  `packages/shared/src/color.ts`; `src/test/colorTest.ts` prueft alle 2^24
+  Werte auf Drift und laeuft in `npm test` mit.
+- Nebenbei: `.hm-popover` rundet mit `--radius-sm` (das bisher genannte
+  `--radius-md` existierte nie, alle Popovers waren eckig); ein Klick auf den
+  Popover-Rahmen wirft den Fokus nicht mehr auf die Seite; das Kaestchen in
+  `.hm-checkbox` schrumpft nicht mehr, wenn der Text umbricht.
+
 ### Schrift (20.09.2026)
 - Desktop-App und Portal verwenden Creato Display, die Hausschrift der
   Website, statt Inter Variable. Die Schnitte liegen im Workspace-Paket

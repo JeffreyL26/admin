@@ -12,7 +12,7 @@
     "backup": "tsx src/scripts/backup.ts",
     "lizenz": "tsx src/scripts/license-tool.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/test/smoke.ts && tsx src/test/licenseStateTest.ts && tsx src/test/licenseSmoke.ts && tsx src/test/featureSmoke.ts && tsx src/test/variantSmoke.ts && tsx src/test/holidaysTest.ts",
+    "test": "tsx src/test/smoke.ts && tsx src/test/licenseStateTest.ts && tsx src/test/licenseSmoke.ts && tsx src/test/featureSmoke.ts && tsx src/test/variantSmoke.ts && tsx src/test/holidaysTest.ts && tsx src/test/colorTest.ts",
     "openapi": "node scripts/merge-openapi.mjs",
     "build": "node scripts/build.mjs",
     "test:holidays": "tsx src/test/holidaysTest.ts"
