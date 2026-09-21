@@ -6,6 +6,7 @@ import {
 import { Briefcase, Users, UserCheck, CalendarClock, Timer, Layers } from 'lucide-react';
 import { CANDIDATE_SOURCE_LABELS, type CandidateSource } from '@ohrganize/shared';
 import { Card, PageHeader, Spinner, StatCard, EmptyState } from '../../components/ui';
+import { ChartTooltip } from '../../components/ChartTooltip';
 import { useAnalytics } from './api';
 
 function sourceLabel(key: string): string {
@@ -42,7 +43,7 @@ export function AnalysePage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-200)" horizontal={false} />
                 <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
                 <YAxis type="category" dataKey="name" width={120} tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
-                <Tooltip cursor={{ fill: 'var(--blue-50)' }} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--blue-50)' }} />
                 <Bar dataKey="Anzahl" radius={[0, 4, 4, 0]} barSize={18}>
                   {funnelData.map((d, i) => (
                     <Cell key={i} fill={d.color} />

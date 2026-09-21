@@ -10,6 +10,7 @@ import { useOnboardingProcesses } from '../admin/api';
 import { useLeaderStatus, useLeadershipReport } from '../leadership/api';
 import { useAuth } from '../../auth/AuthContext';
 import { Badge } from '../../components/ui';
+import { ChartTooltip } from '../../components/ChartTooltip';
 import {
   LICENSE_PATH, LICENSE_STATE_LABELS, licenseStateTone, remainingLabel, seatsLabel,
 } from '../settings/license';
@@ -53,7 +54,7 @@ export function AbsenceChartWidget({ data }: { data: DashboardData }) {
           <CartesianGrid strokeDasharray="3 3" stroke="var(--gray-200)" vertical={false} />
           <XAxis dataKey="name" tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
           <YAxis tickLine={false} axisLine={false} style={{ fontSize: 12 }} />
-          <Tooltip cursor={{ fill: 'var(--blue-50)' }} />
+          <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--blue-50)' }} />
           <Bar dataKey="Tage" fill="var(--brand-primary)" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
@@ -95,7 +96,7 @@ export function DepartmentChartWidget({ data }: { data: DashboardData }) {
         <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 24, left: 30, bottom: 0 }}>
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="department" width={110} tickLine={false} axisLine={false} tick={tick} />
-          <Tooltip cursor={{ fill: 'var(--blue-50)' }} />
+          <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--blue-50)' }} />
           <Bar
             dataKey="count"
             name="Anzahl"

@@ -38,6 +38,7 @@ import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { AudienceSelect, audienceLabel, type AudienceValue } from './AudienceSelect';
 import { useInvalidate, useSurvey, useSurveys, type Survey, type SurveyResults } from './api';
 import { Select } from '../../components/Select';
+import { ChartTooltip } from '../../components/ChartTooltip';
 
 const STATUS_TONE: Record<SurveyStatus, BadgeTone> = {
   entwurf: 'neutral',
@@ -513,7 +514,7 @@ function ResultsDialog({ survey, onClose }: { survey: Survey | null; onClose: ()
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                       <XAxis dataKey="value" tick={{ fontSize: 12 }} />
                       <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip />
+                      <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--blue-50)' }} />
                       <Bar dataKey="count" name="Antworten" fill="var(--brand-primary)" radius={[3, 3, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -525,7 +526,7 @@ function ResultsDialog({ survey, onClose }: { survey: Survey | null; onClose: ()
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                     <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
                     <YAxis type="category" dataKey="option" width={140} tick={{ fontSize: 12 }} />
-                    <Tooltip />
+                    <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--blue-50)' }} />
                     <Bar dataKey="count" name="Antworten" fill="var(--brand-primary)" radius={[0, 3, 3, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
