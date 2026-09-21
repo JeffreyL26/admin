@@ -17,8 +17,8 @@ import {
   LeadershipTeamWidget, LeadershipReportWidget, LicenseWidget,
 } from './widgets';
 
-/** Widgets, deren Inhalt bis an den Card-Rand läuft (Tabellen). */
-const FLUSH_WIDGETS: WidgetKey[] = ['absent-today'];
+/** Widgets, deren Inhalt bis an den Card-Rand läuft (Tabellen); derzeit keines. */
+const FLUSH_WIDGETS: WidgetKey[] = [];
 
 function widgetBody(key: WidgetKey, data: DashboardData): React.ReactNode {
   switch (key) {
@@ -272,7 +272,9 @@ export function DashboardPage() {
                             label={sd.label}
                             value={value}
                             sub={sd.sub?.(stats)}
-                            icon={<sd.icon size={15} />}
+                            subTone={sd.subTone?.(stats)}
+                            icon={<sd.icon size={16} />}
+                            accent={sd.accent}
                             onClick={edit ? undefined : () => navigate(sd.path)}
                           />
                         );
@@ -283,10 +285,21 @@ export function DashboardPage() {
               );
             }
 
+            const wrap = editWrapProps(key);
             return (
-              <div key={key} {...editWrapProps(key)}>
+              <div
+                key={key}
+                {...wrap}
+                className="hm-widget"
+                style={{ '--hm-accent': `var(${def.accent})`, ...wrap.style } as React.CSSProperties}
+              >
                 <Card
-                  title={<span className="row"><def.icon size={16} /> {def.title}</span>}
+                  title={
+                    <span className="row" style={{ gap: 10 }}>
+                      <span className="hm-widget__icon"><def.icon size={15} /></span>
+                      {def.title}
+                    </span>
+                  }
                   actions={editActions(key)}
                   flush={FLUSH_WIDGETS.includes(key)}
                 >

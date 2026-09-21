@@ -145,18 +145,26 @@ export function StatCard({
   label,
   value,
   sub,
+  subTone = 'neutral',
   icon,
+  accent,
   onClick,
 }: {
   label: string;
   value: React.ReactNode;
   sub?: string;
+  /** Farbe des Untertitel-Chips. */
+  subTone?: 'neutral' | 'success' | 'warning' | 'danger';
   icon?: React.ReactNode;
+  /** CSS-Token der Akzentfarbe (z. B. '--org-2'); ohne Angabe Markenblau. */
+  accent?: string;
   onClick?: () => void;
 }) {
+  const style = accent ? ({ '--hm-accent': `var(${accent})` } as React.CSSProperties) : undefined;
   return (
     <div
       className={`hm-card hm-stat${onClick ? ' hm-card--clickable' : ''}`}
+      style={style}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
     >
@@ -165,7 +173,7 @@ export function StatCard({
         {icon && <span className="hm-stat__icon">{icon}</span>}
       </div>
       <span className="hm-stat__value">{value}</span>
-      {sub && <span className="hm-stat__sub">{sub}</span>}
+      {sub && <span className={`hm-stat__sub hm-stat__sub--${subTone}`}>{sub}</span>}
     </div>
   );
 }
