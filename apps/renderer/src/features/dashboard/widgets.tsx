@@ -15,6 +15,7 @@ import {
   LICENSE_PATH, LICENSE_STATE_LABELS, licenseStateTone, remainingLabel, seatsLabel,
 } from '../settings/license';
 import type { DashboardData } from './api';
+import { useDashboardStyle } from './dashboardStyle';
 
 /* Reine Widget-Inhalte des Dashboards — der Card-Rahmen (Titel, Icon,
    Bearbeitungs-Controls) kommt aus DashboardPage. Alle Listen folgen einem
@@ -90,6 +91,7 @@ function Progress({ value, max }: { value: number; max: number }) {
 }
 
 export function AbsenceChartWidget({ data }: { data: DashboardData }) {
+  const bunt = useDashboardStyle() === 'farbenfroh';
   if (!data.absenceDaysByMonth) return <Restricted />;
   const currentMonth = new Date().toISOString().slice(0, 7);
   const monthData = data.absenceDaysByMonth.map((m) => ({
@@ -113,7 +115,13 @@ export function AbsenceChartWidget({ data }: { data: DashboardData }) {
             {monthData.map((m) => (
               <Cell
                 key={m.name}
-                fill={m.current ? 'var(--hm-accent)' : 'color-mix(in srgb, var(--hm-accent) 45%, var(--bg-surface))'}
+                fill={
+                  !bunt
+                    ? 'var(--brand-primary)'
+                    : m.current
+                      ? 'var(--hm-accent)'
+                      : 'color-mix(in srgb, var(--hm-accent) 45%, var(--bg-surface))'
+                }
               />
             ))}
           </Bar>
@@ -128,6 +136,7 @@ type DepartmentRow = NonNullable<DashboardData['byDepartment']>[number];
 /** Balken wie Beschriftung führen ins Organigramm mit dieser Abteilung als Filter (wie in Organisation → Struktur). */
 export function DepartmentChartWidget({ data }: { data: DashboardData }) {
   const navigate = useNavigate();
+  const bunt = useDashboardStyle() === 'farbenfroh';
   if (!data.byDepartment) return <Restricted />;
   const rows = data.byDepartment;
   const open = (row: DepartmentRow | undefined) => {
@@ -167,7 +176,7 @@ export function DepartmentChartWidget({ data }: { data: DashboardData }) {
             onClick={(entry: unknown) => open((entry as { payload?: DepartmentRow }).payload)}
           >
             {rows.map((r, i) => (
-              <Cell key={r.department} fill={`var(${ORG_ACCENTS[i % ORG_ACCENTS.length]})`} />
+              <Cell key={r.department} fill={bunt ? `var(${ORG_ACCENTS[i % ORG_ACCENTS.length]})` : 'var(--brand-navy)'} />
             ))}
           </Bar>
         </BarChart>
