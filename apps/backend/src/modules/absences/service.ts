@@ -127,6 +127,19 @@ export function countAbsenceDays(opts: CountOptions): number {
   return total;
 }
 
+/**
+ * Wert fuer `absence_requests.closure_covered`: 1 nur, wenn ERST die
+ * Betriebsruhe den Zeitraum auf 0 Tage bringt, ohne sie also mindestens ein
+ * Tag zaehlen wuerde. Eine 0 aus Wochenende oder Feiertag bleibt 0, auch
+ * wenn der Zeitraum eine Betriebsruhe beruehrt. Die Clients zeigen bei 1
+ * „Betriebsruhe“ statt der Zahl. Geschrieben an den beiden Stellen, die
+ * `days_counted` schreiben (createRequest, recountRequestsOverlapping).
+ */
+export function closureCoveredFlag(days: number, opts: CountOptions): number {
+  if (days !== 0) return 0;
+  return countAbsenceDays({ ...opts, closures: new Set() }) > 0 ? 1 : 0;
+}
+
 /** Kaufmännisch auf halbe Tage runden. */
 export function roundHalf(x: number): number {
   return Math.round(x * 2) / 2;
@@ -431,21 +444,29 @@ export function assertTypeAllowed(employeeId: number, type: AbsenceTypeRow, self
 }
 
 /**
- * Rechnet `days_counted` aller offenen und genehmigten Antraege neu, die den
+ * Rechnet `days_counted` und `closure_covered` der offenen und genehmigten
+ * Antraege neu, die den
  * Zeitraum ueberlappen. Aufgerufen nach Anlegen oder Loeschen einer
  * Betriebsruhe, weil die gespeicherte Tageszahl sonst den alten Kalender
  * abbildet: Saldo, Jahresobergrenze und Listen laesen dann verschiedene
  * Wahrheiten. Gehoert in dieselbe Transaktion wie die Betriebsruhe-Aenderung.
- * Abgelehnte und stornierte Antraege bleiben unangetastet (Historie).
+ * Abgelehnte und stornierte Antraege bleiben als Historie unangetastet, mit
+ * EINER Ausnahme: Stehen sie wegen einer Betriebsruhe auf 0
+ * (`closure_covered = 1`), werden sie mitgerechnet. Sonst zeigte ein Antrag,
+ * der in der Betriebsruhe auf 0 fiel und danach abgelehnt wurde, nach dem
+ * Loeschen der Betriebsruhe dauerhaft 0 statt der beantragten Tage. Eine
+ * nachtraeglich angelegte Betriebsruhe schreibt dagegen keine
+ * abgeschlossene Entscheidung um.
  * Liefert die IDs der geaenderten Antraege (fuer Audit und Rueckmeldung).
  */
 export function recountRequestsOverlapping(from: string, to: string): number[] {
   const db = getDb();
   const rows = db
     .prepare(
-      `SELECT id, employee_id, date_from, date_to, half_day_start, half_day_end, days_counted
+      `SELECT id, employee_id, date_from, date_to, half_day_start, half_day_end, days_counted, closure_covered
        FROM absence_requests
-       WHERE status IN ('beantragt', 'genehmigt') AND date_from <= ? AND date_to >= ?`,
+       WHERE (status IN ('beantragt', 'genehmigt') OR closure_covered = 1)
+         AND date_from <= ? AND date_to >= ?`,
     )
     .all([to, from]) as {
     id: number;
@@ -455,10 +476,11 @@ export function recountRequestsOverlapping(from: string, to: string): number[] {
     half_day_start: number;
     half_day_end: number;
     days_counted: number;
+    closure_covered: number;
   }[];
   if (rows.length === 0) return [];
   const placeCache = new Map<number, EmployeeRegion>();
-  const update = db.prepare('UPDATE absence_requests SET days_counted = ? WHERE id = ?');
+  const update = db.prepare('UPDATE absence_requests SET days_counted = ?, closure_covered = ? WHERE id = ?');
   // Liegt ein Antrag vollstaendig in der Betriebsruhe, faellt er auf 0 Tage,
   // bleibt aber in seinem Status: Die Listen kennzeichnen ihn als „in
   // Betriebsruhe“. Bewusst KEINE Stornierung: Krankmeldungen muessen auch in
@@ -469,15 +491,17 @@ export function recountRequestsOverlapping(from: string, to: string): number[] {
   for (const r of rows) {
     let place = placeCache.get(r.employee_id);
     if (!place) placeCache.set(r.employee_id, (place = regionForEmployee(r.employee_id)));
-    const days = countAbsenceDays({
+    const opts: CountOptions = {
       place,
       dateFrom: r.date_from,
       dateTo: r.date_to,
       halfDayStart: r.half_day_start === 1,
       halfDayEnd: r.half_day_end === 1,
-    });
-    if (days === r.days_counted) continue;
-    update.run(days, r.id);
+    };
+    const days = countAbsenceDays(opts);
+    const covered = closureCoveredFlag(days, opts);
+    if (days === r.days_counted && covered === r.closure_covered) continue;
+    update.run(days, covered, r.id);
     changed.push(r.id);
   }
   return changed;
@@ -683,16 +707,6 @@ export const CREATED_BY_PROXY_SQL = `
   CASE WHEN c.id IS NOT NULL AND (c.employee_id IS NULL OR c.employee_id != r.employee_id) THEN 1 ELSE 0 END
     AS created_by_proxy`;
 
-/**
- * 1, wenn ein Antrag (Alias `r`) keinen zu zaehlenden Tag hat UND eine
- * Betriebsruhe ueberlappt. Die Clients zeigen dann „Betriebsruhe“ statt 0;
- * eine 0 ohne Betriebsruhe (Wochenende, Feiertag) bleibt eine 0.
- */
-export const CLOSURE_COVERED_SQL = `
-  CASE WHEN r.days_counted = 0 AND EXISTS (
-    SELECT 1 FROM company_closures cc WHERE cc.date_from <= r.date_to AND cc.date_to >= r.date_from
-  ) THEN 1 ELSE 0 END AS closure_covered`;
-
 export function createRequest(
   req: Parameters<typeof audit>[0],
   body: CreateRequestBody,
@@ -762,14 +776,15 @@ export function createRequest(
 
     const place = regionForEmployee(body.employee_id);
     const closures = closureDates(body.date_from, body.date_to);
-    const days = countAbsenceDays({
+    const countOpts: CountOptions = {
       place,
       dateFrom: body.date_from,
       dateTo: body.date_to,
       halfDayStart: body.half_day_start,
       halfDayEnd: body.half_day_end,
       closures,
-    });
+    };
+    const days = countAbsenceDays(countOpts);
     // Krankmeldungen sind auch ohne zu zaehlenden Arbeitstag zu erfassen (etwa
     // vollstaendig in einer Betriebsruhe oder am Wochenende): AU-Frist,
     // Bescheinigung und Kette der Entgeltfortzahlung haengen am Kalender, nicht
@@ -817,8 +832,8 @@ export function createRequest(
       .prepare(
         `INSERT INTO absence_requests
          (employee_id, type_id, date_from, date_to, half_day_start, half_day_end, days_counted,
-          status, comment, decided_by_user_id, decided_at, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${autoApprove ? "datetime('now')" : 'NULL'}, ?)`,
+          closure_covered, status, comment, decided_by_user_id, decided_at, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${autoApprove ? "datetime('now')" : 'NULL'}, ?)`,
       )
       .run(
         body.employee_id,
@@ -828,6 +843,7 @@ export function createRequest(
         body.half_day_start ? 1 : 0,
         body.half_day_end ? 1 : 0,
         days,
+        closureCoveredFlag(days, countOpts),
         autoApprove ? 'genehmigt' : 'beantragt',
         body.comment ?? null,
         autoApprove ? userId : null,

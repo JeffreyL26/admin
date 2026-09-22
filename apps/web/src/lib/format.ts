@@ -33,6 +33,18 @@ export function formatDays(days: number): string {
   return days.toLocaleString(LOCALE);
 }
 
+/**
+ * Tage eines Antrags mit Einheit, fuer Fliesstext. `closure_covered` (vom
+ * Server beim Zaehlen gesetzt): „Betriebsruhe“ statt „0 Tage“.
+ */
+export function formatRequestDays(
+  r: { days_counted: number; closure_covered?: number },
+  unit: { one: string; many: string } = { one: 'Tag', many: 'Tage' },
+): string {
+  if (r.closure_covered === 1) return 'Betriebsruhe';
+  return `${formatDays(r.days_counted)} ${r.days_counted === 1 ? unit.one : unit.many}`;
+}
+
 export function greeting(name: string): string {
   const h = new Date().getHours();
   const daytime = h < 11 ? 'Guten Morgen' : h < 17 ? 'Guten Tag' : 'Guten Abend';

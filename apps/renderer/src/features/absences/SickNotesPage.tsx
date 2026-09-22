@@ -13,6 +13,7 @@ import { useMissingSickNotes, useSickNotes } from './api';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
 import { DaysCounted } from './DaysCounted';
+import { LOCALE } from '../../lib/locale';
 
 /** Name mit Absprung in die Personalakte; Krankmeldungen ohne Profil-ID (Altbestand) bleiben Text. */
 function personName(note: SickNote) {
@@ -66,7 +67,7 @@ function missedDaysCell(note: SickNote) {
   const ongoing = note.date_to !== undefined && note.date_to >= todayIsoLocal();
   return (
     <span className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
-      {(note.days_absent_so_far ?? 0).toLocaleString('de-DE')}
+      {(note.days_absent_so_far ?? 0).toLocaleString(LOCALE)}
       {ongoing && (
         <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>laufend</span>
       )}

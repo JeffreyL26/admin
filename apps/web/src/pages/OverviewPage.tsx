@@ -5,7 +5,7 @@ import { useMyBalance, useMyCalendar, useMyProfile, useMyRequests } from '../api
 import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
 import { NoticeSection } from '../features/communication/NoticeCards';
-import { formatDate, formatDays, formatLongDate, formatRange, greeting, todayIso } from '../lib/format';
+import { formatDate, formatDays, formatLongDate, formatRange, formatRequestDays, greeting, todayIso } from '../lib/format';
 
 function BalanceCard() {
   const year = Number(todayIso().slice(0, 4));
@@ -91,10 +91,7 @@ function RequestRow({ request }: { request: AbsenceRequest }) {
       <div style={{ minWidth: 0 }}>
         <p style={{ fontWeight: 600, fontSize: 'var(--text-sm)' }}>{request.type_name}</p>
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-          {formatRange(request.date_from, request.date_to)} ·{' '}
-          {request.closure_covered === 1
-            ? 'Betriebsruhe'
-            : `${formatDays(request.days_counted)} ${request.days_counted === 1 ? 'Tag' : 'Tage'}`}
+          {formatRange(request.date_from, request.date_to)} · {formatRequestDays(request)}
         </p>
       </div>
       <span style={{ marginLeft: 'auto' }}>
@@ -360,9 +357,7 @@ export function OverviewPage() {
                       {formatRange(next.date_from, next.date_to)}
                     </p>
                     <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginTop: 2 }}>
-                      {next.closure_covered === 1
-                        ? 'Betriebsruhe, keine Arbeitstage'
-                        : `${formatDays(next.days_counted)} ${next.days_counted === 1 ? 'Arbeitstag' : 'Arbeitstage'}`}
+                      {formatRequestDays(next, { one: 'Arbeitstag', many: 'Arbeitstage' })}
                     </p>
                   </div>
                 </div>

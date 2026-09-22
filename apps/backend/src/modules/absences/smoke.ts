@@ -150,7 +150,8 @@ check('Vorschau mit halbem Starttag = 3.5', previewHalf.json().days_counted === 
 {
   const inside = await post('/api/absences/requests', { employee_id: 2, type_id: 1, date_from: '2026-11-09', date_to: '2026-11-10' });
   const insideId = inside.json().request?.id as number;
-  const cover = await post('/api/absences/closures', { name: 'Inventur', date_from: '2026-11-09', date_to: '2026-11-10' });
+  // Sa 07.11. bis Di 10.11.: schliesst ein Wochenende ein (Krankmeldung unten).
+  const cover = await post('/api/absences/closures', { name: 'Inventur', date_from: '2026-11-07', date_to: '2026-11-10' });
   const row = db.prepare('SELECT status, days_counted FROM absence_requests WHERE id = ?').get(insideId) as
     | { status: string; days_counted: number }
     | undefined;
@@ -162,17 +163,48 @@ check('Vorschau mit halbem Starttag = 3.5', previewHalf.json().days_counted === 
   const sickInside = await post('/api/absences/sick-notes', { employee_id: 3, date_from: '2026-11-09', date_to: '2026-11-10' });
   const sickNote = sickInside.json().sick_note as { id: number; absence_request_id: number; days_counted: number; closure_covered: number } | undefined;
   check('Krankmeldung in Betriebsruhe → 201 mit 0 Tagen', sickInside.statusCode === 201 && sickNote?.days_counted === 0 && sickNote.closure_covered === 1, sickInside.json());
-  if (sickNote) {
-    db.prepare('DELETE FROM sick_notes WHERE id = ?').run(sickNote.id);
-    db.prepare('DELETE FROM absence_requests WHERE id = ?').run(sickNote.absence_request_id);
+  // Wochenende innerhalb der Betriebsruhe: die 0 kommt vom Wochenende, nicht
+  // von der Betriebsruhe, also keine Kennzeichnung.
+  const sickWeekend = await post('/api/absences/sick-notes', { employee_id: 3, date_from: '2026-11-07', date_to: '2026-11-08' });
+  const weekendNote = sickWeekend.json().sick_note as { id: number; absence_request_id: number; days_counted: number; closure_covered: number } | undefined;
+  check('Krankmeldung nur am Wochenende in Betriebsruhe: 0 Tage ohne Kennzeichnung', sickWeekend.statusCode === 201 && weekendNote?.days_counted === 0 && weekendNote.closure_covered === 0, sickWeekend.json());
+  for (const note of [sickNote, weekendNote]) {
+    if (!note) continue;
+    db.prepare('DELETE FROM sick_notes WHERE id = ?').run(note.id);
+    db.prepare('DELETE FROM absence_requests WHERE id = ?').run(note.absence_request_id);
   }
   const vacationInside = await post('/api/absences/requests', { employee_id: 3, type_id: 1, date_from: '2026-11-09', date_to: '2026-11-10' });
-  check('Urlaub nur in Betriebsruhe bleibt abgewiesen → 400', vacationInside.statusCode === 400, vacationInside.json());
+  check(
+    'Urlaub nur in Betriebsruhe bleibt abgewiesen → 400 (keine zu zaehlenden Tage)',
+    vacationInside.statusCode === 400 && /keine zu zählenden Arbeitstage/.test(vacationInside.json().error?.message ?? ''),
+    vacationInside.json(),
+  );
+  // Zurueckgezogen, solange er 0 Tage hatte: Die Historie bekommt ihre Tage
+  // beim Loeschen der Betriebsruhe trotzdem zurueck.
+  await post(`/api/absences/requests/${insideId}/cancel`, {});
   await app.inject({ method: 'DELETE', url: `/api/absences/closures/${cover.json().closure.id}`, headers: auth });
   const back = db.prepare('SELECT status, days_counted FROM absence_requests WHERE id = ?').get(insideId) as
     | { status: string; days_counted: number }
     | undefined;
-  check('Betriebsruhe geloescht: Tage zurueckgerechnet', back?.status === 'beantragt' && back.days_counted === 2, back);
+  check('Betriebsruhe geloescht: Tage auch fuer stornierten Antrag zurueckgerechnet', back?.status === 'storniert' && back.days_counted === 2, back);
+}
+
+// Abgeschlossene Entscheidungen: Eine nachtraeglich angelegte Betriebsruhe
+// schreibt die Tageszahl eines stornierten Antrags nicht um.
+{
+  const closed = await post('/api/absences/requests', { employee_id: 2, type_id: 1, date_from: '2026-11-16', date_to: '2026-11-18' });
+  const closedId = closed.json().request?.id as number;
+  await post(`/api/absences/requests/${closedId}/cancel`, {});
+  const late = await post('/api/absences/closures', { name: 'Nachtrag', date_from: '2026-11-17', date_to: '2026-11-17' });
+  const after = db.prepare('SELECT status, days_counted FROM absence_requests WHERE id = ?').get(closedId) as
+    | { status: string; days_counted: number }
+    | undefined;
+  check(
+    'Stornierter Antrag behaelt seine Tage bei nachtraeglicher Betriebsruhe',
+    closed.statusCode === 201 && late.statusCode === 201 && late.json().recounted_requests === 0 && after?.status === 'storniert' && after.days_counted === 3,
+    { after, late: late.json() },
+  );
+  await app.inject({ method: 'DELETE', url: `/api/absences/closures/${late.json().closure.id}`, headers: auth });
 }
 
 // ----------------------------------------------------------- Betriebsruhe ---

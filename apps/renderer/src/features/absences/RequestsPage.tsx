@@ -9,6 +9,7 @@ import { Modal, ConfirmDialog } from '../../components/Modal';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { DaysCounted } from './DaysCounted';
+import { LOCALE } from '../../lib/locale';
 import { useFocusRow } from '../../lib/focusRow';
 import { useAuth } from '../../auth/AuthContext';
 import {
@@ -516,12 +517,12 @@ function BalancesTab() {
                       {b.last_name}, {b.first_name}
                     </Link>
                   </td>
-                  <td className="num">{b.entitlement.toLocaleString('de-DE')}</td>
-                  <td className="num">{b.carryover.toLocaleString('de-DE')}</td>
-                  <td className="num">{b.taken.toLocaleString('de-DE')}</td>
-                  <td className="num">{b.planned.toLocaleString('de-DE')}</td>
+                  <td className="num">{b.entitlement.toLocaleString(LOCALE)}</td>
+                  <td className="num">{b.carryover.toLocaleString(LOCALE)}</td>
+                  <td className="num">{b.taken.toLocaleString(LOCALE)}</td>
+                  <td className="num">{b.planned.toLocaleString(LOCALE)}</td>
                   <td className="num" style={{ fontWeight: 650 }}>
-                    {b.remaining.toLocaleString('de-DE')}
+                    {b.remaining.toLocaleString(LOCALE)}
                   </td>
                   <td>
                     {b.carryover_expired ? (

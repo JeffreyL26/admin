@@ -34,12 +34,13 @@ import { ColorPicker } from '../../components/ColorPicker';
 import { useAbsenceTypes, useCalendar, useDepartments, useTeams, type CalendarData } from './api';
 import { useColorOverrides, type ColorOverrides } from './absenceColors';
 import { Select } from '../../components/Select';
+import { LOCALE } from '../../lib/locale';
 
 type LegendType = Pick<AbsenceType, 'id' | 'name' | 'color' | 'active'>;
 
 /** „1 Tag“, „0,5 Tage“, „12 Tage“ — Zählung wie days_counted. */
 function formatDays(n: number): string {
-  return `${n.toLocaleString('de-DE')} ${n === 1 ? 'Tag' : 'Tage'}`;
+  return `${n.toLocaleString(LOCALE)} ${n === 1 ? 'Tag' : 'Tage'}`;
 }
 
 const MONTH_NAMES = [

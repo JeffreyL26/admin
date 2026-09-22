@@ -20,7 +20,12 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   kommt als `closure_covered` vom Backend und steht ueberall, wo Tage
   erscheinen (Antraege, Krankmeldungen, Personalakte, Kalender,
   Portal-Uebersicht). Krankmeldungen lassen sich auch vollstaendig in einer
-  Betriebsruhe oder am Wochenende erfassen.
+  Betriebsruhe oder am Wochenende erfassen. Ob die Betriebsruhe die 0
+  verursacht, entscheidet der Server beim Zaehlen und speichert es
+  (Migration `204_absence_closure_covered`); eine 0 vom Wochenende bleibt 0.
+  Abgelehnte und stornierte Antraege bleiben bei einer nachtraeglichen
+  Betriebsruhe unangetastet; nur solche, die wegen einer Betriebsruhe auf 0
+  stehen, bekommen beim Loeschen der Betriebsruhe ihre Tage zurueck.
 - Vertragsspiegelung: Ein Vertrag, der nur Urlaubstage aendert, scheitert
   nicht mehr an zu hohen Altstunden der Personalakte.
 - Sackgassen geschlossen: Gespraechsprotokolle mit Sichtbarkeit

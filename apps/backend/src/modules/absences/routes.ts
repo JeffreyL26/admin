@@ -16,7 +16,6 @@ import {
   assertNotOwnEmployee,
   countAbsenceDays,
   createRequest,
-  CLOSURE_COVERED_SQL,
   CREATED_BY_PROXY_SQL,
   companyRegionDefaults,
   recountRequestsOverlapping,
@@ -152,7 +151,7 @@ function assertNotOwnRequest(req: FastifyRequest, row: RequestRow): void {
 const REQUEST_SELECT = `
   SELECT r.*, e.first_name, e.last_name,
          t.name AS type_name, t.color AS type_color, t.category AS type_category,
-         c.name AS created_by_name, ${CREATED_BY_PROXY_SQL}, ${CLOSURE_COVERED_SQL}
+         c.name AS created_by_name, ${CREATED_BY_PROXY_SQL}
   FROM absence_requests r
   JOIN employees e ON e.id = r.employee_id
   JOIN absence_types t ON t.id = r.type_id
@@ -611,7 +610,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
   // -------------------------------------------------------- Krankmeldungen ---
   const SICK_SELECT = `
     SELECT s.*, r.employee_id, r.date_from, r.date_to, r.days_counted, r.status AS request_status,
-           e.first_name, e.last_name, ${CLOSURE_COVERED_SQL}
+           r.closure_covered, e.first_name, e.last_name
     FROM sick_notes s
     JOIN absence_requests r ON r.id = s.absence_request_id
     JOIN employees e ON e.id = r.employee_id`;
@@ -914,7 +913,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
             .prepare(
               `SELECT r.id AS request_id, r.employee_id, r.type_id, t.name AS type_name,
                       t.color, r.status, r.date_from, r.date_to, r.half_day_start, r.half_day_end,
-                      r.days_counted, ${CLOSURE_COVERED_SQL}
+                      r.days_counted, r.closure_covered
                FROM absence_requests r
                JOIN absence_types t ON t.id = r.type_id
                WHERE r.status IN ('beantragt', 'genehmigt')

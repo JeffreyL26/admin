@@ -98,7 +98,7 @@ export interface AbsenceRequest {
    */
   created_by_name?: string | null;
   created_by_proxy?: number;
-  /** 1: keine zu zaehlenden Tage, weil eine Betriebsruhe den Zeitraum abdeckt (Anzeige „Betriebsruhe“ statt 0). */
+  /** 1: erst die Betriebsruhe bringt den Zeitraum auf 0 Tage (Anzeige „Betriebsruhe“ statt 0; beim Zaehlen gespeichert). */
   closure_covered?: number;
 }
 
@@ -156,7 +156,7 @@ export interface SickNote {
   date_to?: string;
   days_counted?: number;
   request_status?: AbsenceRequestStatus;
-  /** 1: keine zu zaehlenden Tage, weil eine Betriebsruhe den Zeitraum abdeckt (Anzeige „Betriebsruhe“ statt 0). */
+  /** 1: erst die Betriebsruhe bringt den Zeitraum auf 0 Tage (Anzeige „Betriebsruhe“ statt 0; beim Zaehlen gespeichert). */
   closure_covered?: number;
   /** Bereits angefallene Fehltage (Arbeitstage von Beginn bis heute). */
   days_absent_so_far?: number;
@@ -188,7 +188,7 @@ export interface CalendarAbsenceEntry {
   half_day_end: number;
   /** Gezählte Tage wie in der Antragsliste (ohne Wochenenden/Feiertage/Betriebsruhe, halbe Tage 0,5). */
   days_counted: number;
-  /** 1: keine zu zaehlenden Tage, weil eine Betriebsruhe den Zeitraum abdeckt (Anzeige „Betriebsruhe“ statt 0). */
+  /** 1: erst die Betriebsruhe bringt den Zeitraum auf 0 Tage (Anzeige „Betriebsruhe“ statt 0; beim Zaehlen gespeichert). */
   closure_covered?: number;
 }
 

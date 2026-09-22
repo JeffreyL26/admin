@@ -150,4 +150,21 @@ export const absencesMigrations: Migration[] = [
       UPDATE absence_types SET color = '#0864C6' WHERE name = 'Sabbatical';
     `,
   },
+  {
+    // Ob eine 0 bei days_counted von einer Betriebsruhe kommt, entscheidet
+    // der Server beim Zaehlen (absences/service.ts#closureCoveredFlag) und
+    // speichert es hier; per SQL waere nur „beruehrt eine Betriebsruhe“
+    // pruefbar, nicht, ob sie die Ursache ist (Wochenende, Feiertage).
+    // Bestand: 0 Tage und ueberlappende Betriebsruhe; die naechste
+    // Neuberechnung (Anlegen oder Loeschen einer Betriebsruhe) praezisiert.
+    name: '204_absence_closure_covered',
+    sql: `
+      ALTER TABLE absence_requests ADD COLUMN closure_covered INTEGER NOT NULL DEFAULT 0;
+      UPDATE absence_requests SET closure_covered = 1
+        WHERE days_counted = 0 AND EXISTS (
+          SELECT 1 FROM company_closures c
+          WHERE c.date_from <= absence_requests.date_to AND c.date_to >= absence_requests.date_from
+        );
+    `,
+  },
 ];

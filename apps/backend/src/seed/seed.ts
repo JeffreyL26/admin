@@ -170,12 +170,12 @@ function insert(table: string, row: Record<string, unknown>): number {
 }
 
 /** Arbeitstage im Zeitraum (Mo–Fr, ohne Feiertage des Bundeslands, ohne Betriebsruhe). */
-function countDays(from: string, to: string, place: { country: CountryCode; region: RegionCode }, halfStart = false, halfEnd = false): number {
+function countDays(from: string, to: string, place: { country: CountryCode; region: RegionCode }, halfStart = false, halfEnd = false, withClosures = true): number {
   const years = new Set(eachDay(from, to).map((d) => d.slice(0, 4)));
   const holidays = new Set(
     [...years].flatMap((y) => holidaysForYear(Number(y), place.country, place.region).map((h) => h.date)),
   );
-  const closures = new Set(eachDay('2026-12-24', '2026-12-31'));
+  const closures = new Set(withClosures ? eachDay('2026-12-24', '2026-12-31') : []);
   const days = eachDay(from, to).filter((d) => !isWeekend(d) && !holidays.has(d) && !closures.has(d));
   let n = days.length;
   if (halfStart && days.length > 0) n -= 0.5;
@@ -475,6 +475,13 @@ inTransaction(() => {
       employee_id: emp, type_id: type, date_from: from, date_to: to,
       half_day_start: opts.halfStart ? 1 : 0, half_day_end: 0,
       days_counted: countDays(from, to, placeOf(emp), opts.halfStart),
+      // Wie absences/service.ts#closureCoveredFlag: 1 nur, wenn erst die
+      // Betriebsruhe den Zeitraum auf 0 bringt.
+      closure_covered:
+        countDays(from, to, placeOf(emp), opts.halfStart) === 0 &&
+        countDays(from, to, placeOf(emp), opts.halfStart, false, false) > 0
+          ? 1
+          : 0,
       status, comment: opts.comment ?? null, rejection_reason: opts.rejection ?? null,
       decided_by_user_id: status === 'beantragt' ? null : adminId,
       decided_at: status === 'beantragt' ? null : `${TODAY} 09:00:00`,

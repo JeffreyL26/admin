@@ -17,6 +17,7 @@ import { Badge, Card, EmptyState, Spinner, StatCard } from '../../components/ui'
 import { Select } from '../../components/Select';
 import { backToState } from '../../lib/backTo';
 import { DaysCounted } from '../absences/DaysCounted';
+import { LOCALE } from '../../lib/locale';
 
 /**
  * Modulübergreifende Tabs der Personalakte: Abwesenheit und Vergütung werden
@@ -126,7 +127,7 @@ export function EmployeeAbsenceTab({ employeeId }: { employeeId: number }) {
   );
 }
 
-const days = (n: number) => `${n.toLocaleString('de-DE')} ${n === 1 ? 'Tag' : 'Tage'}`;
+const days = (n: number) => `${n.toLocaleString(LOCALE)} ${n === 1 ? 'Tag' : 'Tage'}`;
 
 /**
  * Wann was genommen bzw. verplant ist: die Zeitabschnitte hinter den Kacheln.

@@ -2,10 +2,11 @@ import { LOCALE } from '../../lib/locale';
 import { Tooltip } from '../../components/Tooltip';
 
 /**
- * Gezaehlte Tage einer Abwesenheit fuer Tabellenzellen. Deckt eine
- * Betriebsruhe den Zeitraum ab (`closure_covered` aus dem Backend,
- * CLOSURE_COVERED_SQL), steht dort „Betriebsruhe“ statt einer 0; eine 0 aus
- * anderen Gruenden (Wochenende, Feiertag) bleibt eine 0.
+ * Gezaehlte Tage einer Abwesenheit fuer Tabellenzellen. Bringt erst eine
+ * Betriebsruhe den Zeitraum auf 0 (`closure_covered`, vom Server beim
+ * Zaehlen gespeichert: absences/service.ts#closureCoveredFlag), steht dort
+ * „Betriebsruhe“ statt einer 0; eine 0 aus anderen Gruenden (Wochenende,
+ * Feiertag) bleibt eine 0.
  */
 export function DaysCounted({ days, closureCovered }: { days: number | undefined; closureCovered?: number }) {
   if (closureCovered === 1) {
