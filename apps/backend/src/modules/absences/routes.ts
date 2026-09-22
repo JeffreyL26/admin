@@ -832,11 +832,11 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         recounted: recountRequestsOverlapping(body.date_from, body.date_to),
       };
     });
-    audit(req, 'create', 'company_closure', id, { ...body, recounted_requests: recounted });
+    audit(req, 'create', 'company_closure', id, { ...body, recounted_request_ids: recounted });
     reply.status(201);
     return {
       closure: db().prepare('SELECT * FROM company_closures WHERE id = ?').get(id),
-      recounted_requests: recounted,
+      recounted_requests: recounted.length,
     };
   });
 
@@ -850,7 +850,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       db().prepare('DELETE FROM company_closures WHERE id = ?').run(id);
       return recountRequestsOverlapping(existing.date_from, existing.date_to);
     });
-    audit(req, 'delete', 'company_closure', id, { ...existing, recounted_requests: recounted });
+    audit(req, 'delete', 'company_closure', id, { ...existing, recounted_request_ids: recounted });
     reply.status(204);
   });
 

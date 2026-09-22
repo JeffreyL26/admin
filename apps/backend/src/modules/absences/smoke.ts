@@ -154,8 +154,12 @@ check('Vorschau mit halbem Starttag = 3.5', previewHalf.json().days_counted === 
   const row = db.prepare('SELECT status, days_counted FROM absence_requests WHERE id = ?').get(insideId) as
     | { status: string; days_counted: number }
     | undefined;
-  check('Antrag vollstaendig in Betriebsruhe wird storniert', inside.statusCode === 201 && cover.statusCode === 201 && row?.status === 'storniert' && row.days_counted === 0, { inside: inside.json(), row });
+  check('Antrag vollstaendig in Betriebsruhe: 0 Tage, Status bleibt', inside.statusCode === 201 && cover.statusCode === 201 && row?.status === 'beantragt' && row.days_counted === 0, { inside: inside.json(), row });
   await app.inject({ method: 'DELETE', url: `/api/absences/closures/${cover.json().closure.id}`, headers: auth });
+  const back = db.prepare('SELECT status, days_counted FROM absence_requests WHERE id = ?').get(insideId) as
+    | { status: string; days_counted: number }
+    | undefined;
+  check('Betriebsruhe geloescht: Tage zurueckgerechnet', back?.status === 'beantragt' && back.days_counted === 2, back);
 }
 
 // ----------------------------------------------------------- Betriebsruhe ---

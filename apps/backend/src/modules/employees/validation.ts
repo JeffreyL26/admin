@@ -119,6 +119,17 @@ export function assertTypeRules(employee: Record<string, unknown>): void {
     );
   }
 
+  assertWeeklyHoursWithinRule(employee);
+}
+
+/**
+ * Nur die Stundenobergrenze der Beschaeftigungsart (Teil von assertTypeRules).
+ * Einzeln nutzbar, wo nur die Stunden neu gesetzt werden (Vertragsspiegelung).
+ */
+export function assertWeeklyHoursWithinRule(employee: Record<string, unknown>): void {
+  const type = employee.employee_type as EmployeeType;
+  const rule = employeeTypeRulesFor(COUNTRY)[type];
+  if (!rule) return;
   const hours = employee.weekly_hours;
   if (
     rule.maxWeeklyHours !== undefined &&

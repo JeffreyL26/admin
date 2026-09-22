@@ -1060,6 +1060,12 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
       tax_class: body.tax_class ?? null,
       social_security_number: body.social_security_number || null,
     };
+    // Team der Stelle inzwischen geloescht: ohne Team einstellen statt 404.
+    // Ein im Dialog gewaehltes, unbekanntes Team bleibt ein Fehler (400).
+    if (typeof employee.team_id === 'number' && !getDb().prepare('SELECT 1 AS x FROM teams WHERE id = ?').get(employee.team_id)) {
+      if (body.team_id !== undefined && body.team_id !== null) throw badRequest('Das gewählte Team existiert nicht mehr');
+      employee.team_id = null;
+    }
     assertTypeRules(employee);
     assertExitNotBeforeHire(employee);
     assertTeamMatchesDepartment(employee);

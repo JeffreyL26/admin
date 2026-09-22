@@ -6,7 +6,6 @@ import {
   GOAL_KIND_LABELS,
   GOAL_STATUS_LABELS,
   TRAINING_REGISTRATION_STATUS_LABELS,
-  scoreTone,
   type FeedbackMeetingStatus,
   type GoalStatus,
   type MeDevelopmentGoal,
@@ -53,11 +52,6 @@ const MEETING_TONES: Record<FeedbackMeetingStatus, string> = {
   abgesagt: 'neutral',
 };
 
-const SCORE_TONES: Record<ReturnType<typeof scoreTone>, string> = {
-  green: 'success',
-  yellow: 'warning',
-  red: 'danger',
-};
 
 function Chip({ tone, children }: { tone: string; children: React.ReactNode }) {
   return <span className={`pt-chip pt-chip--${tone}`}>{children}</span>;

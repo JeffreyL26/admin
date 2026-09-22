@@ -536,7 +536,6 @@ const devBody = dev.json() as {
   meetings: { id: number; actions: { title: string }[]; notes?: unknown }[];
   skills: { name: string; level: number }[];
   ratings?: unknown;
-  trainings_note?: unknown;
 };
 check(
   'Meine Entwicklung: nur eigene Ziele (Anna)',

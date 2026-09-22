@@ -437,9 +437,9 @@ export function assertTypeAllowed(employeeId: number, type: AbsenceTypeRow, self
  * abbildet: Saldo, Jahresobergrenze und Listen laesen dann verschiedene
  * Wahrheiten. Gehoert in dieselbe Transaktion wie die Betriebsruhe-Aenderung.
  * Abgelehnte und stornierte Antraege bleiben unangetastet (Historie).
- * Liefert die Anzahl der geaenderten Antraege.
+ * Liefert die IDs der geaenderten Antraege (fuer Audit und Rueckmeldung).
  */
-export function recountRequestsOverlapping(from: string, to: string): number {
+export function recountRequestsOverlapping(from: string, to: string): number[] {
   const db = getDb();
   const rows = db
     .prepare(
@@ -456,18 +456,16 @@ export function recountRequestsOverlapping(from: string, to: string): number {
     half_day_end: number;
     days_counted: number;
   }[];
-  if (rows.length === 0) return 0;
+  if (rows.length === 0) return [];
   const placeCache = new Map<number, EmployeeRegion>();
   const update = db.prepare('UPDATE absence_requests SET days_counted = ? WHERE id = ?');
-  // Liegt ein Antrag vollstaendig in der Betriebsruhe, bleibt nichts zu
-  // beantragen; createRequest lehnte ihn mit 0 Tagen gar nicht erst an.
-  // Er wird storniert statt als 0-Tage-Antrag in Listen und Warteschlange zu stehen.
-  const cancel = db.prepare(
-    `UPDATE absence_requests SET days_counted = 0, status = 'storniert',
-       rejection_reason = 'Vollständig durch Betriebsruhe abgedeckt', decided_at = datetime('now')
-     WHERE id = ?`,
-  );
-  let changed = 0;
+  // Liegt ein Antrag vollstaendig in der Betriebsruhe, faellt er auf 0 Tage,
+  // bleibt aber in seinem Status: Die Listen kennzeichnen ihn als „in
+  // Betriebsruhe“. Bewusst KEINE Stornierung: Krankmeldungen muessen auch in
+  // einer Betriebsruhe dokumentiert bleiben (AU, Entgeltfortzahlung, § 9
+  // BUrlG), und das Loeschen einer versehentlich angelegten Betriebsruhe
+  // rechnet die Tage wieder zurueck, was nach einer Stornierung nicht ginge.
+  const changed: number[] = [];
   for (const r of rows) {
     let place = placeCache.get(r.employee_id);
     if (!place) placeCache.set(r.employee_id, (place = regionForEmployee(r.employee_id)));
@@ -478,14 +476,9 @@ export function recountRequestsOverlapping(from: string, to: string): number {
       halfDayStart: r.half_day_start === 1,
       halfDayEnd: r.half_day_end === 1,
     });
-    if (days <= 0) {
-      cancel.run(r.id);
-      changed++;
-      continue;
-    }
     if (days === r.days_counted) continue;
     update.run(days, r.id);
-    changed++;
+    changed.push(r.id);
   }
   return changed;
 }

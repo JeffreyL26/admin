@@ -3,9 +3,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { addDaysIso, todayIso } from '../../core/dates.js';
 import { AppError, badRequest, conflict, notFound, parse } from '../../core/errors.js';
-import { employeeTypeRulesFor, type EmployeeType } from '@ohrganize/shared';
-import { VARIANT } from '@variant-manifest';
-import { assertTypeRules, contractBodySchema, contractPatchSchema, type ContractBody } from './validation.js';
+import { assertTypeRules, assertWeeklyHoursWithinRule, contractBodySchema, contractPatchSchema, type ContractBody } from './validation.js';
 
 interface ContractRow {
   id: number;
@@ -61,16 +59,6 @@ function newestContract(employeeId: number): ContractRow | undefined {
     .get(employeeId) as ContractRow | undefined;
 }
 
-/** Stundenobergrenze der Beschaeftigungsart fuer die gespiegelten Wochenstunden. */
-function assertMirroredHours(employee: Record<string, unknown>, mirrored: Record<string, unknown>): void {
-  const hours = mirrored.weekly_hours;
-  if (typeof hours !== 'number') return;
-  const rules = employeeTypeRulesFor(VARIANT.country)[employee.employee_type as EmployeeType];
-  if (rules?.maxWeeklyHours !== undefined && hours > rules.maxWeeklyHours) {
-    throw badRequest(`Höchstens ${rules.maxWeeklyHours} Wochenstunden für diese Beschäftigungsart`);
-  }
-}
-
 /**
  * Wochenstunden/Urlaubsanspruch der aktuellen Vertragsversion auf employees
  * spiegeln, dort liegt die eine Quelle für alle anderen Module.
@@ -114,7 +102,7 @@ function mirrorToEmployee(
     preexisting = true;
   }
   try {
-    if (preexisting) assertMirroredHours(employee, mirrored);
+    if (preexisting) assertWeeklyHoursWithinRule({ ...employee, ...mirrored });
     else assertTypeRules({ ...employee, ...mirrored });
   } catch (e) {
     if (e instanceof AppError) {

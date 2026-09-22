@@ -181,7 +181,13 @@ export function RequestsPage() {
                         </span>
                       )}
                     </td>
-                    <td className="num">{formatDays(r.days_counted)}</td>
+                    <td className="num">
+                      {r.days_counted === 0 ? (
+                        <span className="pt-chip">Betriebsruhe</span>
+                      ) : (
+                        formatDays(r.days_counted)
+                      )}
+                    </td>
                     <td>
                       <StatusChip status={r.status} />
                       {r.status === 'abgelehnt' && r.rejection_reason && (

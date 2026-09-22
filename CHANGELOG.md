@@ -13,6 +13,10 @@ die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
 ### Durchgaengigkeitspruefung aller Module (22.09.2026)
+- Betriebsruhe rechnet ueberlappende Antraege neu, storniert aber nie:
+  vollstaendig abgedeckte Antraege stehen mit 0 Tagen und Kennzeichnung
+  „Betriebsruhe“ in den Listen, Krankmeldungen bleiben erhalten, und das
+  Loeschen der Betriebsruhe rechnet die Tage zurueck.
 - Sackgassen geschlossen: Gespraechsprotokolle mit Sichtbarkeit
   „HR + Vorgesetzte + Mitarbeiter:in“, Ziele, Trainings, Gespraeche,
   und Skills erreichen das Portal (ohne Vorgesetztenbewertung und HR-Notizen)

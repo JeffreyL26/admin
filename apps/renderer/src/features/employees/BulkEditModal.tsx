@@ -89,11 +89,15 @@ export function BulkEditModal({
   };
 
   const mutation = useMutation({
-    mutationFn: () => api.post<{ updated: number }>('/api/employees/bulk', { ids, set: buildSet() }),
+    mutationFn: () => api.post<{ updated: number; teams_cleared?: number }>('/api/employees/bulk', { ids, set: buildSet() }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       qc.invalidateQueries({ queryKey: ['org'] });
-      toast.success(`${res.updated} Mitarbeitende aktualisiert`);
+      toast.success(
+        res.teams_cleared
+          ? `${res.updated} Mitarbeitende aktualisiert, bei ${res.teams_cleared} das Team der alten Abteilung entfernt`
+          : `${res.updated} Mitarbeitende aktualisiert`,
+      );
       setState(INITIAL);
       onDone();
       onClose();

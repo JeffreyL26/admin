@@ -72,11 +72,18 @@ const ALWAYS_ALLOWED = [
   '/api/holidays',
   '/api/regions',
   '/api/bundeslaender',
-  // Personenliste fuer Auswahlfelder in ALLEN Modulen (core/lookupRoutes.ts):
-  // nur Name, Status und Zuordnung, keine Fachdaten. Die Route prueft selbst,
-  // dass die Rolle mindestens einen Fachbereich lesen darf (sonst 403) und
-  // Ausgeschiedene nur mit `personal` oder `verwaltung` sieht.
-  '/api/lookup',
+];
+
+/**
+ * Routen, die an KEINEM einzelnen Bereich haengen, aber mindestens einen der
+ * genannten Bereiche lesend verlangen. `/api/lookup` ist die Personenliste
+ * fuer Auswahlfelder aller Module (core/lookupRoutes.ts: nur Name, Status und
+ * Zuordnung). Eine Rolle ohne jeden Fachbereich (etwa „Führungskraft“ mit
+ * allem auf `kein`) bekommt sie nicht; die Fuehrung holt ihre Auswahl ueber
+ * GET /api/leadership/lookup.
+ */
+const ANY_AREA_ROUTES: ReadonlyArray<readonly [string, readonly AdminArea[]]> = [
+  ['/api/lookup', ADMIN_AREAS.filter((a) => a !== 'einstellungen' && a !== 'fuehrung')],
 ];
 
 export interface PermissionSubject {
@@ -142,6 +149,12 @@ export function assertRouteAllowed(req: FastifyRequest, permissions: AdminPermis
   const route = req.routeOptions.url ?? req.url;
   if (ALWAYS_ALLOWED.some((p) => route === p || route.startsWith(`${p}/`))) return;
   if (SELF_GATED.some((p) => route === p || route.startsWith(`${p}/`))) return;
+  for (const [prefix, areas] of ANY_AREA_ROUTES) {
+    if (route === prefix || route.startsWith(`${prefix}/`)) {
+      if (areas.some((a) => permits(permissions[a], 'lesen'))) return;
+      throw forbidden('Für diesen Bereich haben Sie keine Berechtigung.');
+    }
+  }
 
   const needed = neededFor(req.method, route);
 

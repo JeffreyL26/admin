@@ -208,7 +208,8 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   HR-Verzeichnis, Seite `/kollegen`; das Portal-Organigramm filtert
   dieselben Felder), Bescheinigungen landen beim Aushaendigen als
   `documents`-Zeile mit `visibility = portal`. `GET /api/lookup/employees`
-  (Core, `ALWAYS_ALLOWED`) ist die bereichsneutrale Personenliste fuer
+  (Core, `ANY_AREA_ROUTES` in `core/permissions.ts`: mindestens ein
+  Fachbereich lesend, sonst 403) ist die bereichsneutrale Personenliste fuer
   Auswahlfelder aller Module; `EmployeeSelect` liest nur daraus, damit eine
   Rolle ohne `personal` keine leeren Picker sieht. Konto-Einstellungen
   (Passwort, Darstellung, Seitenleiste) liegen auf `/einstellungen/konto`
