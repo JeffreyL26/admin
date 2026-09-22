@@ -161,6 +161,37 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Zelle (Detail-Pop-up). Der zweite Pfadparameter heißt `memberId`, weil
   find-my-way an derselben Baumposition denselben Parameternamen verlangt wie
   `/leaders/:employeeId/team`.
+- **Zielgruppen der Kommunikation (Ankuendigungen, Umfragen) loest NUR
+  `modules/communication/audience.ts` auf.** `audience_type` ist `alle`,
+  `abteilung` (schliesst Unterabteilungen ueber `departments.parent_id`
+  ein), `team`, `standort` oder `verteiler`; `audience_id` zeigt auf die
+  Einheit. Ein **Verteiler** (`distribution_lists` +
+  `distribution_list_members`, Migration `501_distribution_lists`,
+  Verwaltung unter Kommunikation → Verteiler, Routen
+  `distributionListRoutes.ts`) buendelt Abteilungen (samt Unterabteilungen),
+  Teams, Standorte und einzelne Personen; eine Person, die ueber eine Einheit
+  desselben Verteilers erreicht wird, ist nicht zusaetzlich einzeln zulaessig
+  (400, die Seite bietet sie nicht an), ein Verteiler in Verwendung ist nicht
+  loeschbar (409). `audience_id` hat KEINEN Fremdschluessel; `checkAudience`
+  weist beim Speichern eine fehlende Einheit ab, spaeter geloeschte Einheiten
+  erreichen niemanden mehr. HR-Seite (`countAudience`, `audienceResolver` in
+  den Listen) und Portalseite (`audienceOfEmployeeSql`) lesen dieselbe
+  Mitgliedslogik; wer nur eine Seite aendert, laesst Empfaengerzahl und
+  Sichtbarkeit auseinanderlaufen. **Empfaenger sind die Dashboards:**
+  `modules/me/communicationRoutes.ts` (`GET /api/me/announcements`,
+  `POST …/:id/ack`, `POST …/:id/attachments/:fileId/sign` (Anhang erst beim
+  Klick signieren, in `LICENSE_OPEN_ROUTES`), `GET /api/me/surveys[/:id]`
+  (Status `laufend` UND `date_to` nicht ueberschritten), `POST …/:id/responses`;
+  haengt am Modul `communication`, deshalb ueber die Variantenverdrahtung
+  registriert wie `meSalaryRoutes`) liefert nur, was sich an die Person
+  richtet, alles andere ist 404. Portal-Uebersicht (`NoticeCards.tsx`) und
+  Desktop-Dashboard (`personalWidgets.tsx`, auch fuer Admin-Konten mit
+  verknuepftem Profil) zeigen daraus Karten, die NUR mit Inhalt erscheinen:
+  keine feste Kachel, kein „keine Ankuendigungen“. Umfrageteilnahme laeuft
+  fuer Portal und HR-Testerfassung durch `surveyService.recordParticipation`
+  (eine Pruefung, ein Schreibpfad, Antworten ohne Personenbezug, kein Audit).
+  Die frueheren Kanaele sind entfernt (Sender ohne Empfaenger, Doppel zu
+  Ankuendigungen; Hintergrund docs/entscheidungen.md).
 - **Leistung & Führung sind verzahnt, nicht verschmolzen.** Beurteilungen
   (`modules/performance`) kennen nur Selbstbewertung und 360°-Feedback;
   `kind: 'vorgesetzt'` wird mit 400 und Verweis abgewiesen, weil die

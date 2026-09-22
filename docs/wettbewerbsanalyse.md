@@ -12,7 +12,7 @@ Ziel: Schwächen erkennen und den größten Rückstand mit mehr Tiefe schließen
 | Abwesenheit & Urlaub | Anträge, Genehmigung, AU-Fristen, Betriebsruhe, Feiertage je Bundesland | ✓ | **Gleichauf** |
 | Leistung & Entwicklung | Ziele/OKR, 360°-Beurteilungen, Skills-Gap, Trainings, Karrierepfade | teils Zusatzmodul | **Stärker** |
 | Vergütung / Payroll-Vorbereitung | Gehaltshistorie, Änderungs-Workflow, Boni, Abrechnungsläufe, DATEV | ✓ | **Gleichauf** |
-| Kommunikation & Engagement | Verzeichnis, Ankündigungen, anonyme Umfragen, Kanäle | teils Zusatzmodul | **Stärker** |
+| Kommunikation & Engagement | Verzeichnis, Ankündigungen mit Lesebestätigung, anonyme Umfragen, Verteiler | teils Zusatzmodul | **Stärker** |
 
 ## 2. Erkannte Schwächen (Lücken gegenüber dem Marktstandard)
 

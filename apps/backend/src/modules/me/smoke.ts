@@ -1016,6 +1016,130 @@ check(
   crEigeneListe.json().requests.map((r: { id: number; status: string }) => `${r.id}:${r.status}`),
 );
 
+// ------------------------------------------------ Ankuendigungen & Umfragen ---
+// Anna: Abteilung Technik (1), Team Backend (1), Standort Muenchen (1).
+// Carla: neue Unterabteilung Support (2) unter Technik, ohne Team, Standort 2.
+db.prepare("INSERT INTO locations (name, bundesland) VALUES ('Berlin', 'BE')").run();
+db.prepare("INSERT INTO departments (name, parent_id) VALUES ('Support', 1)").run();
+insertEmp.run('Carla', 'Cruz', 'carla.cruz@test.de', '2022-01-01', 30, 'Support', 2, 2, null); // id 3
+db.prepare(
+  "INSERT INTO users (email, name, password_hash, role, employee_id) VALUES ('carla.cruz@test.de', 'Carla Cruz', ?, 'mitarbeiter', 3)",
+).run(hash);
+const loginCarla = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'carla.cruz@test.de', password: 'geheim123' } });
+const carlaAuth = { authorization: `Bearer ${loginCarla.json().token as string}` };
+const carlaGet = (url: string) => app.inject({ method: 'GET', url, headers: carlaAuth });
+
+const adminPostComm = (url: string, payload: Record<string, unknown>) =>
+  app.inject({ method: 'POST', url, headers: adminAuth, payload });
+const { todayIso } = await import('../../core/dates.js');
+const today = todayIso();
+
+const annAlle = await adminPostComm('/api/communication/announcements', {
+  title: 'An alle', body: 'x', audience_type: 'alle', audience_id: null, publish_at: '2020-01-01', expires_at: null, requires_ack: true,
+});
+const annTechnik = await adminPostComm('/api/communication/announcements', {
+  title: 'Technik samt Unterabteilungen', body: 'x', audience_type: 'abteilung', audience_id: 1, publish_at: '2020-01-01', expires_at: null, requires_ack: false,
+});
+const annTeam = await adminPostComm('/api/communication/announcements', {
+  title: 'Nur Team Backend', body: 'x', audience_type: 'team', audience_id: 1, publish_at: '2020-01-01', expires_at: null, requires_ack: false,
+});
+const annGeplant = await adminPostComm('/api/communication/announcements', {
+  title: 'Geplant', body: 'x', audience_type: 'alle', audience_id: null, publish_at: '2999-01-01', expires_at: null, requires_ack: false,
+});
+const annAbgelaufen = await adminPostComm('/api/communication/announcements', {
+  title: 'Abgelaufen', body: 'x', audience_type: 'alle', audience_id: null, publish_at: '2020-01-01', expires_at: '2020-02-01', requires_ack: false,
+});
+const dl = await adminPostComm('/api/communication/distribution-lists', {
+  name: 'Standort Berlin', members: [{ member_type: 'standort', member_id: 2 }],
+});
+const annVerteiler = await adminPostComm('/api/communication/announcements', {
+  title: 'Nur Berlin', body: 'x', audience_type: 'verteiler', audience_id: dl.json().distribution_list.id, publish_at: today, expires_at: today, requires_ack: false,
+});
+check(
+  'Fixtures Ankuendigungen angelegt',
+  [annAlle, annTechnik, annTeam, annGeplant, annAbgelaufen, dl, annVerteiler].every((r) => r.statusCode === 201),
+  [annAlle, annTechnik, annTeam, annGeplant, annAbgelaufen, dl, annVerteiler].map((r) => r.json()),
+);
+
+const titles = (res: { json: () => { announcements: { title: string }[] } }) =>
+  res.json().announcements.map((a) => a.title).sort();
+const annaAnn = await empGet('/api/me/announcements');
+check(
+  'Anna sieht alle, Technik und Team; nicht geplant, abgelaufen, Berlin',
+  annaAnn.statusCode === 200 && JSON.stringify(titles(annaAnn)) === JSON.stringify(['An alle', 'Nur Team Backend', 'Technik samt Unterabteilungen']),
+  titles(annaAnn),
+);
+const carlaAnn = await carlaGet('/api/me/announcements');
+check(
+  'Carla sieht alle, Technik (ueber Unterabteilung) und Berlin (Verteiler); nicht Team',
+  JSON.stringify(titles(carlaAnn)) === JSON.stringify(['An alle', 'Nur Berlin', 'Technik samt Unterabteilungen']),
+  titles(carlaAnn),
+);
+const alleId = annAlle.json().announcement.id as number;
+check(
+  'Ankuendigung traegt requires_ack und acked_at null',
+  annaAnn.json().announcements.find((a: { id: number }) => a.id === alleId)?.requires_ack === true &&
+    annaAnn.json().announcements.find((a: { id: number }) => a.id === alleId)?.acked_at === null,
+);
+const ack = await empPost(`/api/me/announcements/${alleId}/ack`);
+const ackAgain = await empPost(`/api/me/announcements/${alleId}/ack`);
+check('Lesebestaetigung -> 204, Wiederholung ebenfalls 204', ack.statusCode === 204 && ackAgain.statusCode === 204, ack.body);
+const afterAck = await empGet('/api/me/announcements');
+check(
+  'acked_at nach Bestaetigung gesetzt',
+  typeof afterAck.json().announcements.find((a: { id: number }) => a.id === alleId)?.acked_at === 'string',
+);
+const ackForeign = await empPost(`/api/me/announcements/${annVerteiler.json().announcement.id}/ack`);
+check('Bestaetigung fremder Ankuendigung -> 404', ackForeign.statusCode === 404);
+const signUnknown = await empPost(`/api/me/announcements/${alleId}/attachments/999/sign`);
+check('Anhang-Signatur fuer fremde Datei -> 404', signUnknown.statusCode === 404);
+const hrQuote = await app.inject({ method: 'GET', url: `/api/communication/announcements/${alleId}`, headers: adminAuth });
+check('HR-Seite zaehlt die Bestaetigung (1 von 3)', hrQuote.json().announcement.ack_count === 1 && hrQuote.json().announcement.recipients === 3, hrQuote.json());
+
+// Umfragen
+const svTeam = await adminPostComm('/api/communication/surveys', {
+  title: 'Team-Puls', description: null, audience_type: 'team', audience_id: 1, date_from: '2020-01-01', date_to: '2999-01-01', min_participants: 1,
+  questions: [
+    { kind: 'skala', text: 'Stimmung?', scale_max: 5 },
+    { kind: 'einfachauswahl', text: 'Homeoffice?', options: ['Nie', 'Oft'] },
+  ],
+});
+const svAbgelaufen = await adminPostComm('/api/communication/surveys', {
+  title: 'Abgelaufen', description: null, audience_type: 'alle', audience_id: null, date_from: '2020-01-01', date_to: '2020-02-01',
+  questions: [{ kind: 'freitext', text: 'Frei?' }],
+});
+await adminPostComm(`/api/communication/surveys/${svAbgelaufen.json().survey.id}/status`, { status: 'laufend' });
+const svEntwurf = await adminPostComm('/api/communication/surveys', {
+  title: 'Entwurf', description: null, audience_type: 'alle', audience_id: null, date_from: '2020-01-01', date_to: '2999-01-01',
+  questions: [{ kind: 'freitext', text: 'Frei?' }],
+});
+const svId = svTeam.json().survey.id as number;
+const beforeStart = await empGet('/api/me/surveys');
+check('Umfrage im Entwurf ist unsichtbar', beforeStart.statusCode === 200 && beforeStart.json().surveys.length === 0, beforeStart.json());
+await adminPostComm(`/api/communication/surveys/${svId}/status`, { status: 'laufend' });
+const annaSv = await empGet('/api/me/surveys');
+check('Anna sieht die laufende Team-Umfrage, nicht die mit vergangenem Enddatum', annaSv.json().surveys.length === 1 && annaSv.json().surveys[0].participated === false, annaSv.json());
+const carlaSv = await carlaGet('/api/me/surveys');
+check('Carla (nicht im Team) sieht sie nicht', carlaSv.json().surveys.length === 0);
+const detailSv = await empGet(`/api/me/surveys/${svId}`);
+check('Umfrage-Detail mit Fragen', detailSv.statusCode === 200 && detailSv.json().survey.questions.length === 2, detailSv.json());
+const carlaDetail = await carlaGet(`/api/me/surveys/${svId}`);
+check('Fremde Umfrage -> 404', carlaDetail.statusCode === 404);
+const qIds = detailSv.json().survey.questions.map((q: { id: number }) => q.id) as number[];
+const badAnswer = await empPost(`/api/me/surveys/${svId}/responses`, { answers: [{ question_id: qIds[0], value: 9 }] });
+check('Ungueltiger Skalenwert -> 400', badAnswer.statusCode === 400);
+const spoof = await empPost(`/api/me/surveys/${svId}/responses`, { employee_id: 2, answers: [{ question_id: qIds[0], value: 4 }, { question_id: qIds[1], value: 'Oft' }] });
+check('Teilnahme -> 201 (employee_id im Body wird ignoriert)', spoof.statusCode === 201, spoof.json());
+const twice = await empPost(`/api/me/surveys/${svId}/responses`, { answers: [{ question_id: qIds[0], value: 3 }] });
+check('Zweite Teilnahme -> 409', twice.statusCode === 409);
+const afterSv = await empGet('/api/me/surveys');
+check('participated nach Teilnahme true', afterSv.json().surveys[0].participated === true);
+const participationOwner = db.prepare('SELECT employee_id FROM survey_participations WHERE survey_id = ?').all(svId) as { employee_id: number }[];
+check('Teilnahme-Marker gehoert Anna (1), nicht dem Body-Wert', participationOwner.length === 1 && participationOwner[0].employee_id === 1, participationOwner);
+const hrResults = await app.inject({ method: 'GET', url: `/api/communication/surveys/${svId}/results`, headers: adminAuth });
+check('HR-Auswertung sieht die Portal-Antwort', hrResults.statusCode === 200 && hrResults.json().results.response_count === 1, hrResults.json());
+check('Entwurf-Fixture angelegt', svEntwurf.statusCode === 201);
+
 // ------------------------------------------------------ Sofortiger Widerruf ---
 // Rolle/Verknüpfung werden pro Request frisch geladen — Änderungen wirken
 // sofort, nicht erst nach Ablauf der Token-Laufzeit.

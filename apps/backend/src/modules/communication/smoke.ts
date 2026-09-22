@@ -347,58 +347,95 @@ check('Auth-Pflicht auf Modulrouten', noAuth.statusCode === 401);
 }
 
 // ---------------------------------------------------------------------------
-// Kanäle
+// Verteiler und Zielgruppen-Aufloesung
 // ---------------------------------------------------------------------------
 {
+  // Unterabteilung: Engineering (1) > Plattform-Entwicklung (3); Dora arbeitet dort.
+  db.prepare("INSERT INTO departments (id, name, parent_id) VALUES (3, 'Plattform-Entwicklung', 1)").run();
+  insertEmp.run(4, 'Dora', 'Dahl', 'dora@firma.de', '089-4', 'Entwicklerin', 3, null, 1, 'aktiv', null, null, null);
+
+  const subtree = await app.inject({
+    method: 'POST',
+    url: '/api/communication/announcements',
+    headers: auth,
+    payload: { title: 'Engineering-Info', body: 'x', audience_type: 'abteilung', audience_id: 1, publish_at: '2026-01-01', expires_at: null, requires_ack: false },
+  });
+  check('Zielgruppe Abteilung schliesst Unterabteilungen ein (Anna + Dora)', subtree.statusCode === 201 && subtree.json().announcement.recipients === 2, subtree.json());
+
+  const orphan = await app.inject({
+    method: 'POST',
+    url: '/api/communication/announcements',
+    headers: auth,
+    payload: { title: 'x', body: 'x', audience_type: 'team', audience_id: 999, publish_at: '2026-01-01', expires_at: null, requires_ack: false },
+  });
+  check('Zielgruppe auf nicht existierende Einheit -> 400', orphan.statusCode === 400, orphan.json());
+
+  const covered = await app.inject({
+    method: 'POST',
+    url: '/api/communication/distribution-lists',
+    headers: auth,
+    payload: { name: 'Doppelt', members: [{ member_type: 'abteilung', member_id: 1 }, { member_type: 'mitarbeiter', member_id: 4 }] },
+  });
+  check('Verteiler: Person aus Unterabteilung einer enthaltenen Abteilung -> 400', covered.statusCode === 400, covered.json());
+
   const created = await app.inject({
     method: 'POST',
-    url: '/api/communication/channels',
+    url: '/api/communication/distribution-lists',
     headers: auth,
-    payload: { name: 'Allgemein', topic: 'Firmenweite Infos', audience_type: 'alle', audience_id: null },
+    payload: {
+      name: 'Kernteam',
+      description: 'Plattform plus Vertrieb',
+      members: [{ member_type: 'abteilung', member_id: 3 }, { member_type: 'mitarbeiter', member_id: 2 }],
+    },
   });
-  check('Kanal: anlegen', created.statusCode === 201 && created.json().channel.recipients === 2, created.json());
-  const channelId = created.json().channel.id as number;
+  check('Verteiler: anlegen (Dora ueber Abteilung, Bernd einzeln = 2)', created.statusCode === 201 && created.json().distribution_list.recipients === 2 && created.json().distribution_list.member_count === 2, created.json());
+  const listId = created.json().distribution_list.id as number;
 
   const duplicate = await app.inject({
     method: 'POST',
-    url: '/api/communication/channels',
+    url: '/api/communication/distribution-lists',
     headers: auth,
-    payload: { name: 'Allgemein', topic: null, audience_type: 'alle', audience_id: null },
+    payload: { name: 'kernteam', members: [] },
   });
-  check('Kanal: doppelter Name -> 409 (Konfliktfall)', duplicate.statusCode === 409);
+  check('Verteiler: Name doppelt (ohne Gross/Klein) -> 409', duplicate.statusCode === 409);
 
-  const msg = await app.inject({
+  const viaList = await app.inject({
     method: 'POST',
-    url: `/api/communication/channels/${channelId}/messages`,
+    url: '/api/communication/announcements',
     headers: auth,
-    payload: { body: 'Willkommen im Kanal!' },
+    payload: { title: 'Kernteam-Info', body: 'x', audience_type: 'verteiler', audience_id: listId, publish_at: '2026-01-01', expires_at: null, requires_ack: false },
   });
-  check('Kanal: Nachricht senden', msg.statusCode === 201 && msg.json().message.sent_by_name === 'HR Administrator', msg.json());
+  check('Ankuendigung an Verteiler: Empfaengerzahl folgt dem Verteiler', viaList.statusCode === 201 && viaList.json().announcement.recipients === 2 && viaList.json().announcement.audience_name === 'Kernteam', viaList.json());
 
-  const history = await app.inject({ method: 'GET', url: `/api/communication/channels/${channelId}/messages`, headers: auth });
-  check('Kanal: Verlauf', history.json().messages.length === 1);
+  const blocked = await app.inject({ method: 'DELETE', url: `/api/communication/distribution-lists/${listId}`, headers: auth });
+  check('Verteiler in Verwendung -> 409', blocked.statusCode === 409, blocked.json());
 
-  const archive = await app.inject({
+  const org = await app.inject({ method: 'GET', url: '/api/communication/org', headers: auth });
+  check('Org-Lookup nennt Verteiler und parent_id', org.json().distribution_lists.length === 1 && org.json().departments.some((d: { parent_id: number | null }) => d.parent_id === 1));
+
+  const detail = await app.inject({ method: 'GET', url: `/api/communication/distribution-lists/${listId}`, headers: auth });
+  check('Verteiler: Detail mit Mitgliedsnamen', detail.json().distribution_list.members.some((m: { name: string | null }) => m.name === 'Bernd Bauer'), detail.json());
+
+  const updated = await app.inject({
     method: 'PUT',
-    url: `/api/communication/channels/${channelId}`,
+    url: `/api/communication/distribution-lists/${listId}`,
     headers: auth,
-    payload: { name: 'Allgemein', topic: 'Firmenweite Infos', audience_type: 'alle', audience_id: null, archived: true },
+    payload: { name: 'Kernteam', members: [{ member_type: 'standort', member_id: 1 }] },
   });
-  check('Kanal: archivieren', archive.statusCode === 200 && archive.json().channel.archived === true);
+  check('Verteiler: Mitglieder ersetzen (Standort = alle drei Aktiven)', updated.statusCode === 200 && updated.json().distribution_list.recipients === 3, updated.json());
 
-  const msgArchived = await app.inject({
-    method: 'POST',
-    url: `/api/communication/channels/${channelId}/messages`,
-    headers: auth,
-    payload: { body: 'Geht das noch?' },
-  });
-  check('Kanal: Senden in archivierten Kanal -> 409', msgArchived.statusCode === 409);
+  await app.inject({ method: 'DELETE', url: `/api/communication/announcements/${viaList.json().announcement.id}`, headers: auth });
+  const removed = await app.inject({ method: 'DELETE', url: `/api/communication/distribution-lists/${listId}`, headers: auth });
+  check('Verteiler ohne Verwendung loeschen -> 204', removed.statusCode === 204);
+
+  const gone = await app.inject({ method: 'GET', url: '/api/communication/channels', headers: auth });
+  check('Kanaele sind entfernt (404)', gone.statusCode === 404);
 }
 
 // Audit-Stichprobe
 {
   const auditRows = db
-    .prepare("SELECT COUNT(*) AS c FROM audit_log WHERE entity IN ('announcement','survey','meeting_protocol','channel')")
+    .prepare("SELECT COUNT(*) AS c FROM audit_log WHERE entity IN ('announcement','survey','meeting_protocol','distribution_list')")
     .get() as { c: number };
   check('Audit: fachliche Änderungen protokolliert', auditRows.c >= 6, auditRows);
 }

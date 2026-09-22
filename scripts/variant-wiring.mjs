@@ -49,6 +49,7 @@ const BACKEND = [
   { module: 'me', name: 'meModule', from: '../modules/me/routes.js' },
   // Teilrouten des Portals, die an einem optionalen Modul haengen.
   { module: 'me', requires: 'compensation', name: 'meSalaryRoutes', from: '../modules/me/salaryRoutes.js' },
+  { module: 'me', requires: 'communication', name: 'meCommunicationRoutes', from: '../modules/me/communicationRoutes.js' },
 ];
 
 /** Routenlisten der Desktop-App je Modul, in Router-Reihenfolge. */

@@ -1064,3 +1064,56 @@ gleichbreiten Ziffern waere technisch moeglich, ist aber eine Modified
 Version im Sinne der OFL und duerfte den reservierten Namen nicht tragen.
 Die Website faehrt mit denselben Dateien; ein zweiter Name fuer dieselbe
 Schrift waere Verwirrung ohne Nutzen.
+
+## Kanaele entfernt, Ankuendigungen und Umfragen erreichen die Dashboards, Verteiler statt vierter Zielgruppenart je Modul
+
+**Entscheidung:** Die Kommunikationskanaele (Tabellen `channels`,
+`channel_messages`, Routen `/api/communication/channels*`, Seite
+„Kanaele“) sind gestrichen; Migration `501_distribution_lists` loescht die
+Tabellen. Ankuendigungen und Umfragen bekommen stattdessen ihren
+Empfaenger: `modules/me/communicationRoutes.ts` liefert der angemeldeten
+Person genau die Eintraege, deren Zielgruppe sie einschliesst, und
+Portal-Uebersicht wie Desktop-Dashboard zeigen daraus Karten, die nur mit
+Inhalt erscheinen. Die Zielgruppe `abteilung` schliesst Unterabteilungen
+ein, und eine neue Art `verteiler` zeigt auf einen von der HR gepflegten
+Verteiler aus Abteilungen, Teams, Standorten und einzelnen Personen.
+
+**Warum die Kanaele weg sind:** Sie waren ein Sender ohne Empfaenger. Die
+HR konnte Kanaele anlegen und Nachrichten schreiben, aber kein Portal-Konto
+konnte sie lesen; es gab weder Route noch Seite. Selbst mit Empfaenger
+haetten sie dasselbe getan wie eine Ankuendigung (Einweg von HR an eine
+Zielgruppe), nur ohne Lesebestaetigung und in Chat-Optik ohne
+Chat-Funktion. Zwei Wege fuer dieselbe Mitteilung sind ein Support-Risiko:
+Die HR glaubt, kommuniziert zu haben, und niemand hat es gelesen.
+
+**Warum ein Verteiler und keine vierte Zielgruppenart:** Ankuendigungen und
+Umfragen hatten genau eine Einheit als Zielgruppe (eine Abteilung ODER ein
+Team ODER ein Standort). Mischungen wie „Standort Koeln plus der gesamte
+Vertrieb plus drei Einzelpersonen“ waren nicht abbildbar. Ein Verteiler ist
+eine benannte, wiederverwendbare Mischung, die die HR einmal pflegt; die
+Ankuendigung zeigt nur darauf. Eine Person, die ueber eine Einheit des
+Verteilers erreicht wird, darf nicht zusaetzlich einzeln enthalten sein:
+Sonst behauptete die Mitgliederliste eine andere Zahl als die Empfaengerzahl,
+und beim spaeteren Entfernen der Einheit bliebe die Person unbemerkt drin.
+
+**Warum eine einzige Aufloesung:** `audience.ts` entscheidet fuer beide
+Seiten, wer zu einer Zielgruppe gehoert: `countAudience` fuer die
+Empfaengerzahl der HR, `audienceOfEmployeeSql` fuer die Sicht der Person.
+Zwei getrennte Implementierungen haetten frueher oder spaeter Empfaenger
+gezaehlt, die nichts sehen, oder umgekehrt. Aus demselben Grund laufen die
+HR-Testerfassung einer Umfrage und die Portal-Teilnahme durch
+`surveyService.recordParticipation`.
+
+**Warum keine feste Kachel:** Ein Dashboard-Widget „keine Ankuendigungen“
+ist Rauschen. Die Karten stehen ausserhalb der konfigurierbaren Widgets,
+lassen sich nicht abwaehlen und erscheinen nur, solange es etwas gibt; eine
+Umfrage verschwindet nach der Teilnahme, eine Ankuendigung mit Ablaufdatum
+an diesem Tag. Ein Admin-Konto ohne verknuepftes Personalprofil bekommt 403
+und damit schlicht keine Karte.
+
+**Bewusst offen gelassen:** `audience_id` hat weiterhin keinen
+Fremdschluessel (die Zieltabelle wechselt je Art). Beim Speichern weist
+`checkAudience` eine fehlende Einheit ab; wird die Einheit spaeter
+geloescht, erreicht die Ankuendigung niemanden mehr und die HR sieht
+die Zielgruppe ohne Namen mit 0 Empfaengern. Ein Loeschschutz auf Abteilungen, Teams
+und Standorten waere die naechste Stufe, gehoert aber ins Personalmodul.

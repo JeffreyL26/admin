@@ -10,10 +10,20 @@ import { isoDateString } from '../../core/validation.js';
 import {
   audienceShape,
   audienceName,
+  audienceResolver,
   checkAudience,
   countAudience,
   type AudienceType,
 } from './audience.js';
+import { distributionListRoutes } from './distributionListRoutes.js';
+import {
+  answersSchema,
+  getQuestions,
+  getSurvey,
+  questionToJson,
+  recordParticipation,
+  type SurveyRow,
+} from './surveyService.js';
 
 // ---------------------------------------------------------------------------
 // Gemeinsame Helfer
@@ -34,71 +44,12 @@ function userId(req: { user: unknown }): number | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Vorgeladene Zielgruppen-Daten für die Listen-Endpunkte. audienceName() und
- * countAudience() feuern je Aufruf eigene Queries — in den Listen
- * (Ankündigungen, Umfragen) wären das zwei bis drei Queries PRO ZEILE, und
- * die Listen wachsen über die Betriebsjahre unbegrenzt. Die Lookup-Tabellen
- * sind dagegen winzig; eine Handvoll Sammelabfragen ersetzt so hunderte
- * Einzelqueries, die den synchronen Event-Loop am Stück blockieren würden.
- * Die Einzel-Routen (GET :id, POST, PUT) bleiben bei der Query-Variante.
+ * In den Listen (Ankündigungen, Umfragen) wiederholen sich wenige Zielgruppen
+ * über viele Zeilen. audienceResolver() berechnet Name und Empfängerzahl je
+ * Zielgruppe nur einmal pro Anfrage; die Einzel-Routen (GET :id, POST, PUT)
+ * bleiben bei audienceName()/countAudience().
  */
-interface AudienceLookup {
-  names: Record<Exclude<AudienceType, 'alle'>, Map<number, string>>;
-  counts: Record<Exclude<AudienceType, 'alle'>, Map<number, number>>;
-  total: number;
-}
-
-function loadAudienceLookup(): AudienceLookup {
-  const db = getDb();
-  const nameMap = (table: string): Map<number, string> =>
-    new Map(
-      (db.prepare(`SELECT id, name FROM ${table}`).all() as { id: number; name: string }[]).map(
-        (r) => [r.id, r.name] as const,
-      ),
-    );
-  const countMap = (column: string): Map<number, number> =>
-    new Map(
-      (
-        db
-          .prepare(
-            `SELECT ${column} AS id, COUNT(*) AS c FROM employees
-             WHERE status = 'aktiv' AND ${column} IS NOT NULL GROUP BY ${column}`,
-          )
-          .all() as { id: number; c: number }[]
-      ).map((r) => [r.id, r.c] as const),
-    );
-  return {
-    names: {
-      abteilung: nameMap('departments'),
-      team: nameMap('teams'),
-      standort: nameMap('locations'),
-    },
-    counts: {
-      abteilung: countMap('department_id'),
-      team: countMap('team_id'),
-      standort: countMap('location_id'),
-    },
-    total: (
-      db.prepare("SELECT COUNT(*) AS c FROM employees WHERE status = 'aktiv'").get() as {
-        c: number;
-      }
-    ).c,
-  };
-}
-
-/** Gleiche Semantik wie audienceName()/countAudience(), nur aus den Maps. */
-function resolveAudience(
-  lookup: AudienceLookup,
-  audienceType: AudienceType,
-  audienceId: number | null,
-): { audience_name: string | null; recipients: number } {
-  if (audienceType === 'alle') return { audience_name: null, recipients: lookup.total };
-  if (audienceId === null) return { audience_name: null, recipients: 0 };
-  return {
-    audience_name: lookup.names[audienceType].get(audienceId) ?? null,
-    recipients: lookup.counts[audienceType].get(audienceId) ?? 0,
-  };
-}
+type AudienceLookup = ReturnType<typeof audienceResolver>;
 
 /** Zähler je Fremdschlüssel in einer Query — GROUP BY statt COUNT je Zeile. */
 function countsBy(sql: string): Map<number, number> {
@@ -179,54 +130,6 @@ function validateQuestions(questions: z.infer<typeof questionSchema>[]): void {
   }
 }
 
-interface SurveyRow {
-  id: number;
-  title: string;
-  description: string | null;
-  audience_type: AudienceType;
-  audience_id: number | null;
-  date_from: string;
-  date_to: string;
-  min_participants: number | null;
-  status: 'entwurf' | 'laufend' | 'beendet';
-  created_by_user_id: number | null;
-  created_at: string;
-}
-
-interface QuestionRow {
-  id: number;
-  survey_id: number;
-  kind: 'skala' | 'einfachauswahl' | 'mehrfachauswahl' | 'freitext';
-  text: string;
-  options: string | null;
-  scale_max: number | null;
-  sort_order: number;
-}
-
-function getSurvey(id: number): SurveyRow {
-  const row = getDb().prepare('SELECT * FROM surveys WHERE id = ?').get(id) as SurveyRow | undefined;
-  if (!row) throw notFound('Umfrage nicht gefunden');
-  return row;
-}
-
-function getQuestions(surveyId: number): QuestionRow[] {
-  return getDb()
-    .prepare('SELECT * FROM survey_questions WHERE survey_id = ? ORDER BY sort_order, id')
-    .all(surveyId) as QuestionRow[];
-}
-
-function questionToJson(q: QuestionRow) {
-  return {
-    id: q.id,
-    survey_id: q.survey_id,
-    kind: q.kind,
-    text: q.text,
-    options: q.options ? (JSON.parse(q.options) as string[]) : null,
-    scale_max: q.scale_max,
-    sort_order: q.sort_order,
-  };
-}
-
 /** Kontext der Listen-Route — siehe AudienceLookup. */
 interface SurveyListContext {
   participantCounts: Map<number, number>;
@@ -243,7 +146,7 @@ function surveyToJson(s: SurveyRow, ctx?: SurveyListContext) {
           .get(s.id) as { c: number }
       ).c;
   const audience = ctx
-    ? resolveAudience(ctx.audience, s.audience_type, s.audience_id)
+    ? ctx.audience(s)
     : {
         audience_name: audienceName(s.audience_type, s.audience_id),
         recipients: countAudience(s.audience_type, s.audience_id),
@@ -306,7 +209,7 @@ function announcementToJson(a: AnnouncementRow, ctx?: AnnouncementListContext) {
           .get(a.id) as { c: number }
       ).c;
   const audience = ctx
-    ? resolveAudience(ctx.audience, a.audience_type, a.audience_id)
+    ? ctx.audience(a)
     : {
         audience_name: audienceName(a.audience_type, a.audience_id),
         recipients: countAudience(a.audience_type, a.audience_id),
@@ -342,62 +245,22 @@ const MEETING_SELECT = `
 `;
 
 // ---------------------------------------------------------------------------
-// Kanäle
-// ---------------------------------------------------------------------------
-
-const channelBodySchema = z.object({
-  name: z.string().min(1, 'Name fehlt'),
-  topic: z.string().nullable().optional(),
-  ...audienceShape,
-  archived: z.boolean().optional(),
-});
-
-interface ChannelRow {
-  id: number;
-  name: string;
-  topic: string | null;
-  audience_type: AudienceType;
-  audience_id: number | null;
-  archived: number;
-  created_at: string;
-}
-
-function getChannel(id: number): ChannelRow {
-  const row = getDb().prepare('SELECT * FROM channels WHERE id = ?').get(id) as ChannelRow | undefined;
-  if (!row) throw notFound('Kanal nicht gefunden');
-  return row;
-}
-
-function channelToJson(c: ChannelRow) {
-  const db = getDb();
-  const stats = db
-    .prepare(
-      'SELECT COUNT(*) AS message_count, MAX(sent_at) AS last_message_at FROM channel_messages WHERE channel_id = ?',
-    )
-    .get(c.id) as { message_count: number; last_message_at: string | null };
-  return {
-    ...c,
-    archived: c.archived === 1,
-    audience_name: audienceName(c.audience_type, c.audience_id),
-    recipients: countAudience(c.audience_type, c.audience_id),
-    message_count: stats.message_count,
-    last_message_at: stats.last_message_at,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Modul-Plugin
 // ---------------------------------------------------------------------------
 
 export const communicationModule: FastifyPluginAsync = async (app) => {
+  // Verteiler (eigene Datei, gleiche Bereichspruefung ueber den Praefix).
+  await app.register(distributionListRoutes);
+
   // ------------------------------------------------------------------ Org-Lookup
   // Lesender Blick auf die Kerntabellen (für Zielgruppen-Auswahl & Filter).
   app.get('/api/communication/org', async () => {
     const db = getDb();
     return {
-      departments: db.prepare('SELECT id, name FROM departments ORDER BY name').all(),
+      departments: db.prepare('SELECT id, name, parent_id FROM departments ORDER BY name').all(),
       teams: db.prepare('SELECT id, name, department_id FROM teams ORDER BY name').all(),
       locations: db.prepare('SELECT id, name FROM locations ORDER BY name').all(),
+      distribution_lists: db.prepare('SELECT id, name FROM distribution_lists ORDER BY name').all(),
     };
   });
 
@@ -553,7 +416,7 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
       ackCounts: countsBy(
         'SELECT announcement_id AS id, COUNT(*) AS c FROM announcement_acks GROUP BY announcement_id',
       ),
-      audience: loadAudienceLookup(),
+      audience: audienceResolver(),
     };
     return { announcements: rows.map((a) => announcementToJson(a, ctx)) };
   });
@@ -660,7 +523,7 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
       participantCounts: countsBy(
         'SELECT survey_id AS id, COUNT(*) AS c FROM survey_participations GROUP BY survey_id',
       ),
-      audience: loadAudienceLookup(),
+      audience: audienceResolver(),
       // Einmal je Request statt je Zeile — getSetting liest ungecacht aus der DB.
       defaultMinParticipants: getSetting('surveyMinParticipants'),
     };
@@ -789,80 +652,19 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * Antworterfassung (Demo/Test im Desktop; produktiv später über den
-   * Web-Client-Endpunkt POST /api/me/surveys/:id/response, s. base.yaml).
-   *
-   * ANONYMITÄT: Die Teilnahme wird in survey_participations markiert (Dedup +
-   * Quote), die Antworten landen OHNE employee_id in survey_responses — eine
-   * Zuordnung Antwort<->Person ist im Datenmodell nicht möglich. Deshalb wird
-   * hier auch bewusst NICHT auditiert.
+   * Testerfassung durch die HR (Umfrage durchspielen). Produktiv nehmen
+   * Mitarbeitende ueber POST /api/me/surveys/:id/responses teil; beide Wege
+   * laufen durch surveyService.recordParticipation (eine Pruefung, ein
+   * Schreibpfad, Antworten ohne Personenbezug, deshalb kein Audit).
    */
   app.post('/api/communication/surveys/:id/responses', async (req, reply) => {
     const { id } = parse(idParam, req.params);
     const body = parse(
-      z.object({
-        employee_id: z.number().int().positive(),
-        answers: z
-          .array(
-            z.object({
-              question_id: z.number().int().positive(),
-              value: z.union([z.string(), z.number(), z.array(z.string())]),
-            }),
-          )
-          .min(1, 'Mindestens eine Antwort erforderlich'),
-      }),
+      z.object({ employee_id: z.number().int().positive(), answers: answersSchema }),
       req.body,
     );
-    const survey = getSurvey(id);
-    if (survey.status !== 'laufend') {
-      throw conflict('Antworten sind nur möglich, während die Umfrage läuft');
-    }
-    const employee = getDb()
-      .prepare("SELECT id FROM employees WHERE id = ? AND status = 'aktiv'")
-      .get(body.employee_id);
-    if (!employee) throw badRequest('Mitarbeiter:in nicht gefunden oder nicht aktiv');
-    const already = getDb()
-      .prepare('SELECT 1 FROM survey_participations WHERE survey_id = ? AND employee_id = ?')
-      .get(id, body.employee_id);
-    if (already) throw conflict('Diese Person hat an der Umfrage bereits teilgenommen');
-
-    const questions = new Map(getQuestions(id).map((q) => [q.id, q]));
-    for (const a of body.answers) {
-      const q = questions.get(a.question_id);
-      if (!q) throw badRequest(`Frage ${a.question_id} gehört nicht zu dieser Umfrage`);
-      if (q.kind === 'skala') {
-        if (typeof a.value !== 'number' || a.value < 1 || a.value > (q.scale_max ?? 5)) {
-          throw badRequest(`Ungültiger Skalenwert für Frage „${q.text}“`);
-        }
-      } else if (q.kind === 'einfachauswahl') {
-        const options = q.options ? (JSON.parse(q.options) as string[]) : [];
-        if (typeof a.value !== 'string' || !options.includes(a.value)) {
-          throw badRequest(`Ungültige Auswahl für Frage „${q.text}“`);
-        }
-      } else if (q.kind === 'mehrfachauswahl') {
-        const options = q.options ? (JSON.parse(q.options) as string[]) : [];
-        if (!Array.isArray(a.value) || a.value.some((v) => !options.includes(v))) {
-          throw badRequest(`Ungültige Auswahl für Frage „${q.text}“`);
-        }
-      } else if (typeof a.value !== 'string') {
-        throw badRequest(`Freitextantwort für Frage „${q.text}“ muss Text sein`);
-      }
-    }
-
-    inTransaction(() => {
-      getDb()
-        .prepare('INSERT INTO survey_participations (survey_id, employee_id) VALUES (?, ?)')
-        .run(id, body.employee_id);
-      getDb()
-        .prepare('INSERT INTO survey_responses (survey_id, answers) VALUES (?, ?)')
-        .run(id, JSON.stringify(body.answers));
-    });
+    const participantCount = recordParticipation(id, body.employee_id, body.answers);
     reply.code(201);
-    const participantCount = (
-      getDb()
-        .prepare('SELECT COUNT(*) AS c FROM survey_participations WHERE survey_id = ?')
-        .get(id) as { c: number }
-    ).c;
     return { participation: { survey_id: id, participant_count: participantCount } };
   });
 
@@ -1043,87 +845,5 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     if (info.changes === 0) throw notFound('Gesprächsprotokoll nicht gefunden');
     audit(req, 'delete', 'meeting_protocol', id);
     reply.code(204);
-  });
-
-  // ------------------------------------------------------------------ Kanäle
-  app.get('/api/communication/channels', async () => {
-    const rows = getDb().prepare('SELECT * FROM channels ORDER BY archived, name').all() as ChannelRow[];
-    return { channels: rows.map(channelToJson) };
-  });
-
-  app.post('/api/communication/channels', async (req, reply) => {
-    const body = parse(channelBodySchema, req.body);
-    checkAudience(body);
-    const duplicate = getDb().prepare('SELECT id FROM channels WHERE name = ?').get(body.name);
-    if (duplicate) throw conflict('Ein Kanal mit diesem Namen existiert bereits');
-    const info = getDb()
-      .prepare(
-        'INSERT INTO channels (name, topic, audience_type, audience_id, archived) VALUES (?, ?, ?, ?, ?)',
-      )
-      .run(body.name, body.topic ?? null, body.audience_type, body.audience_id, body.archived ? 1 : 0);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'create', 'channel', id, { name: body.name });
-    reply.code(201);
-    return { channel: channelToJson(getChannel(id)) };
-  });
-
-  app.put('/api/communication/channels/:id', async (req) => {
-    const { id } = parse(idParam, req.params);
-    getChannel(id);
-    const body = parse(channelBodySchema, req.body);
-    checkAudience(body);
-    const duplicate = getDb()
-      .prepare('SELECT id FROM channels WHERE name = ? AND id != ?')
-      .get(body.name, id);
-    if (duplicate) throw conflict('Ein Kanal mit diesem Namen existiert bereits');
-    getDb()
-      .prepare(
-        'UPDATE channels SET name = ?, topic = ?, audience_type = ?, audience_id = ?, archived = ? WHERE id = ?',
-      )
-      .run(body.name, body.topic ?? null, body.audience_type, body.audience_id, body.archived ? 1 : 0, id);
-    audit(req, 'update', 'channel', id, { name: body.name, archived: body.archived ?? false });
-    return { channel: channelToJson(getChannel(id)) };
-  });
-
-  app.delete('/api/communication/channels/:id', async (req, reply) => {
-    const { id } = parse(idParam, req.params);
-    const channel = getChannel(id);
-    getDb().prepare('DELETE FROM channels WHERE id = ?').run(id);
-    audit(req, 'delete', 'channel', id, { name: channel.name });
-    reply.code(204);
-  });
-
-  app.get('/api/communication/channels/:id/messages', async (req) => {
-    const { id } = parse(idParam, req.params);
-    getChannel(id);
-    const rows = getDb()
-      .prepare(
-        `SELECT cm.id, cm.channel_id, cm.body, cm.sent_at, cm.sent_by_user_id, u.name AS sent_by_name
-         FROM channel_messages cm LEFT JOIN users u ON u.id = cm.sent_by_user_id
-         WHERE cm.channel_id = ? ORDER BY cm.sent_at, cm.id`,
-      )
-      .all(id);
-    return { messages: rows };
-  });
-
-  app.post('/api/communication/channels/:id/messages', async (req, reply) => {
-    const { id } = parse(idParam, req.params);
-    const channel = getChannel(id);
-    if (channel.archived === 1) {
-      throw conflict('Der Kanal ist archiviert — es können keine Nachrichten mehr gesendet werden');
-    }
-    const body = parse(z.object({ body: z.string().min(1, 'Nachrichtentext fehlt') }), req.body);
-    const info = getDb()
-      .prepare('INSERT INTO channel_messages (channel_id, body, sent_by_user_id) VALUES (?, ?, ?)')
-      .run(id, body.body, userId(req));
-    audit(req, 'send', 'channel_message', Number(info.lastInsertRowid), { channel_id: id });
-    reply.code(201);
-    const row = getDb()
-      .prepare(
-        `SELECT cm.id, cm.channel_id, cm.body, cm.sent_at, cm.sent_by_user_id, u.name AS sent_by_name
-         FROM channel_messages cm LEFT JOIN users u ON u.id = cm.sent_by_user_id WHERE cm.id = ?`,
-      )
-      .get(Number(info.lastInsertRowid));
-    return { message: row };
   });
 };

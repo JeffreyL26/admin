@@ -29,7 +29,9 @@ export function AudienceSelect({
         ? org?.teams
         : value.audience_type === 'standort'
           ? org?.locations
-          : undefined;
+          : value.audience_type === 'verteiler'
+            ? org?.distribution_lists
+            : undefined;
 
   return (
     <>
@@ -61,6 +63,11 @@ export function AudienceSelect({
             }
           >
             <option value="">— auswählen —</option>
+            {value.audience_type === 'verteiler' && (entities ?? []).length === 0 && (
+              <option value="" disabled>
+                Noch kein Verteiler angelegt (Kommunikation, Verteiler)
+              </option>
+            )}
             {(entities ?? []).map((ent) => (
               <option key={ent.id} value={ent.id}>
                 {ent.name}

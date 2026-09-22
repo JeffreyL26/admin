@@ -6,6 +6,7 @@ import type {
   CompanyClosure,
   EmployeeChangeRequest,
   EmployeeSelfEditableField,
+  MeAnnouncement,
   MeBonus,
   MeCalendarEmployee,
   MeDocument,
@@ -14,8 +15,11 @@ import type {
   MeProfile,
   MeSalary,
   MeSalaryComponent,
+  MeSurvey,
+  MeSurveyDetail,
   OrgTreeNode,
   SickNote,
+  SurveyAnswer,
 } from '@ohrganize/shared';
 import { api, downloadFile, uploadFile } from './client';
 
@@ -331,5 +335,60 @@ export function useWithdrawChangeRequest() {
     mutationFn: (id: number) =>
       api.post<{ request: EmployeeChangeRequest }>(`/api/me/change-requests/${id}/withdraw`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Ankuendigungen und Umfragen an die angemeldete Person
+// ---------------------------------------------------------------------------
+
+/**
+ * Nur, was sich an die Person richtet (Zielgruppe im Backend aufgeloest).
+ * Die Uebersicht zeigt die Karten ausschliesslich, wenn es Eintraege gibt;
+ * neue Ankuendigungen erscheinen ohne Neuladen (Intervall wie bei Antraegen).
+ */
+export function useMyAnnouncements(enabled = true) {
+  return useQuery({
+    queryKey: ['me', 'announcements'],
+    queryFn: () => api.get<{ announcements: MeAnnouncement[] }>('/api/me/announcements'),
+    select: (d) => d.announcements,
+    enabled,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useAckAnnouncement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.post<void>(`/api/me/announcements/${id}/ack`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me', 'announcements'] }),
+  });
+}
+
+export function useMySurveys(enabled = true) {
+  return useQuery({
+    queryKey: ['me', 'surveys'],
+    queryFn: () => api.get<{ surveys: MeSurvey[] }>('/api/me/surveys'),
+    select: (d) => d.surveys,
+    enabled,
+    refetchInterval: 60_000,
+  });
+}
+
+export function useMySurvey(id: number | null) {
+  return useQuery({
+    queryKey: ['me', 'surveys', id],
+    queryFn: () => api.get<{ survey: MeSurveyDetail }>(`/api/me/surveys/${id}`),
+    select: (d) => d.survey,
+    enabled: id !== null,
+  });
+}
+
+export function useSubmitSurvey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, answers }: { id: number; answers: SurveyAnswer[] }) =>
+      api.post(`/api/me/surveys/${id}/responses`, { answers }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me', 'surveys'] }),
   });
 }

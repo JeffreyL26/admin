@@ -20,6 +20,7 @@ import {
 import {
   DASHBOARD_STYLE_LABELS, loadDashboardStyle, saveDashboardStyle, type DashboardStyle,
 } from './dashboardStyle';
+import { PersonalNotices } from './personalWidgets';
 
 const STYLE_TABS = (Object.keys(DASHBOARD_STYLE_LABELS) as DashboardStyle[]).map((key) => ({
   key,
@@ -223,6 +224,10 @@ export function DashboardPage() {
           })}
         </div>
       )}
+
+      {/* Persoenliche Hinweise (Ankuendigungen, Umfragen an dieses Konto):
+          erscheinen nur mit Inhalt, unabhaengig von der Widget-Konfiguration. */}
+      <PersonalNotices />
 
       {visibleWidgets.length === 0 ? (
         <Card>

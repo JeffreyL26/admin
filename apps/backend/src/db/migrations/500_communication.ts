@@ -114,27 +114,41 @@ export const communicationMigrations: Migration[] = [
       );
       CREATE INDEX idx_meeting_protocols_employee ON meeting_protocols(employee_id);
       CREATE INDEX idx_meeting_protocols_follow_up ON meeting_protocols(follow_up_date);
+    `,
+  },
+  {
+    // Kanaele entfernt (Sender ohne Empfaenger, Ueberschneidung mit den
+    // Ankuendigungen). Die Tabellen fallen auf bestehenden Installationen
+    // hier; Frischinstallationen kennen sie nicht mehr (IF EXISTS deckt beides).
+    //
+    // Verteiler: von der HR gepflegte Zielgruppe, die Abteilungen (samt
+    // Unterabteilungen), Teams, Standorte und einzelne Personen aufnimmt.
+    // audience_type 'verteiler' + audience_id zeigt darauf. Ein Verteiler
+    // mit Verwendung (Ankuendigung, Umfrage) ist nicht loeschbar (Route).
+    name: '501_distribution_lists',
+    sql: `
+      DROP TABLE IF EXISTS channel_messages;
+      DROP TABLE IF EXISTS channels;
 
-      -- Kommunikationskanäle: HR verwaltet und sendet; Konsum kommt später im
-      -- Mitarbeitenden-Web-Client.
-      CREATE TABLE channels (
+      CREATE TABLE distribution_lists (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
-        topic TEXT,
-        audience_type TEXT NOT NULL DEFAULT 'alle',
-        audience_id INTEGER,                        -- NULL bei audience_type 'alle'
-        archived INTEGER NOT NULL DEFAULT 0,
+        description TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
-      CREATE TABLE channel_messages (
+      -- member_type 'abteilung' | 'team' | 'standort' | 'mitarbeiter';
+      -- member_id die id der jeweiligen Einheit. Kein Fremdschluessel, weil
+      -- die Zieltabelle je Zeile wechselt; verwaiste Eintraege ignoriert die
+      -- Aufloesung und die Detailansicht zeigt sie ohne Namen.
+      CREATE TABLE distribution_list_members (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-        body TEXT NOT NULL,
-        sent_by_user_id INTEGER REFERENCES users(id),
-        sent_at TEXT NOT NULL DEFAULT (datetime('now'))
+        list_id INTEGER NOT NULL REFERENCES distribution_lists(id) ON DELETE CASCADE,
+        member_type TEXT NOT NULL,
+        member_id INTEGER NOT NULL,
+        UNIQUE (list_id, member_type, member_id)
       );
-      CREATE INDEX idx_channel_messages_channel ON channel_messages(channel_id, sent_at);
+      CREATE INDEX idx_dlm_member ON distribution_list_members(member_type, member_id);
     `,
   },
 ];

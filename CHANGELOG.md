@@ -12,6 +12,28 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Ankuendigungen und Umfragen erreichen die Mitarbeitenden, Kanaele entfernt (22.09.2026)
+- Kanaele sind entfernt (Migration `501_distribution_lists` loescht die
+  Tabellen): Sie hatten keinen Empfaenger und ueberschnitten sich mit den
+  Ankuendigungen. Routen `/api/communication/channels*`, Seite und
+  Navigationseintrag sind weg.
+- Neue Portal-Routen `GET /api/me/announcements`, `POST .../:id/ack`,
+  `GET /api/me/surveys[/:id]`, `POST .../:id/responses`: nur, was sich an
+  die Person richtet (404 sonst). Portal-Uebersicht und Desktop-Dashboard
+  (auch Admin-Konten mit verknuepftem Profil) zeigen daraus Karten, die nur
+  mit Inhalt erscheinen; Lesebestaetigung und anonyme Umfrageteilnahme
+  direkt dort.
+- Zielgruppe `abteilung` schliesst Unterabteilungen ein; neue Zielgruppe
+  `verteiler`: HR-gepflegte Verteiler (Kommunikation → Verteiler) aus
+  Abteilungen, Teams, Standorten und einzelnen Personen, wobei eine Person,
+  die ueber eine Einheit erreicht wird, nicht zusaetzlich waehlbar ist.
+  Eine Zielgruppe auf eine geloeschte Einheit wird beim Speichern mit 400
+  abgewiesen; ein Verteiler in Verwendung ist nicht loeschbar (409).
+- `GET /api/communication/org` liefert `parent_id` je Abteilung und
+  `distribution_lists`; die HR-Testerfassung einer Umfrage und die
+  Portal-Teilnahme teilen sich Pruefung und Schreibpfad
+  (`surveyService.ts`).
+
 ### Nachtraegliche Erfassung von Abwesenheiten (21.09.2026)
 - Die HR-Erfassung (Abwesenheit → Antraege → Neuer Antrag, auch vom
   Dashboard) kann mit "Direkt genehmigen" erfassen und genehmigen in einem

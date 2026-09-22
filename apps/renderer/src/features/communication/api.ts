@@ -4,8 +4,15 @@ import type {
   AnnouncementStatus,
   AudienceType,
   DirectoryFieldKey,
+  DistributionList,
+  DistributionListDetail,
+  DistributionListMember,
+  MeAnnouncement,
+  MeSurvey,
+  MeSurveyDetail,
   MeetingOccasion,
   MeetingVisibility,
+  SurveyAnswer,
   SurveyQuestionKind,
   SurveyStatus,
 } from '@ohrganize/shared';
@@ -15,9 +22,10 @@ import type {
 // ---------------------------------------------------------------------------
 
 export interface OrgData {
-  departments: { id: number; name: string }[];
+  departments: { id: number; name: string; parent_id: number | null }[];
   teams: { id: number; name: string; department_id: number | null }[];
   locations: { id: number; name: string }[];
+  distribution_lists: { id: number; name: string }[];
 }
 
 export interface DirectoryEmployee {
@@ -120,28 +128,6 @@ export interface Meeting {
   follow_up_date: string | null;
   visibility: MeetingVisibility;
   created_at: string;
-}
-
-export interface Channel {
-  id: number;
-  name: string;
-  topic: string | null;
-  audience_type: AudienceType;
-  audience_id: number | null;
-  audience_name: string | null;
-  archived: boolean;
-  recipients: number;
-  message_count: number;
-  last_message_at: string | null;
-}
-
-export interface ChannelMessage {
-  id: number;
-  channel_id: number;
-  body: string;
-  sent_at: string;
-  sent_by_user_id: number | null;
-  sent_by_name: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,21 +236,84 @@ export function useFollowUps() {
   });
 }
 
-export function useChannels() {
+export function useDistributionLists() {
   return useQuery({
-    queryKey: ['communication', 'channels'],
-    queryFn: () => api.get<{ channels: Channel[] }>('/api/communication/channels'),
-    select: (d) => d.channels,
+    queryKey: ['communication', 'distribution-lists'],
+    queryFn: () => api.get<{ distribution_lists: DistributionList[] }>('/api/communication/distribution-lists'),
+    select: (d) => d.distribution_lists,
   });
 }
 
-export function useChannelMessages(channelId: number | null) {
+export function useDistributionList(id: number | null) {
   return useQuery({
-    queryKey: ['communication', 'channels', channelId, 'messages'],
+    queryKey: ['communication', 'distribution-lists', id],
     queryFn: () =>
-      api.get<{ messages: ChannelMessage[] }>(`/api/communication/channels/${channelId}/messages`),
-    select: (d) => d.messages,
-    enabled: channelId !== null,
+      api.get<{ distribution_list: DistributionListDetail }>(`/api/communication/distribution-lists/${id}`),
+    select: (d) => d.distribution_list,
+    enabled: id !== null,
+  });
+}
+
+export type { DistributionListMember };
+
+// ---------------------------------------------------------------------------
+// Eigene Sicht (Self-Service-Routen, auch fuer Admin-Konten mit Profil)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ankuendigungen und Umfragen an die angemeldete Person. Antwortet das
+ * Backend mit 403 (Konto ohne verknuepftes Personalprofil), gibt es schlicht
+ * nichts anzuzeigen; deshalb kein Retry und keine Fehlermeldung. Die
+ * Dashboard-Kacheln erscheinen nur, wenn die Liste Eintraege hat.
+ */
+/** Nach einem Fehler (403 ohne Profil) nicht weiter im Minutentakt anfragen. */
+const pollUnlessFailed = (query: { state: { error: unknown } }) => (query.state.error ? false : 60_000);
+
+export function useMyAnnouncements(enabled = true) {
+  return useQuery({
+    queryKey: ['me', 'announcements'],
+    queryFn: () => api.get<{ announcements: MeAnnouncement[] }>('/api/me/announcements'),
+    select: (d) => d.announcements,
+    enabled,
+    retry: false,
+    refetchInterval: pollUnlessFailed,
+  });
+}
+
+export function useMySurveys(enabled = true) {
+  return useQuery({
+    queryKey: ['me', 'surveys'],
+    queryFn: () => api.get<{ surveys: MeSurvey[] }>('/api/me/surveys'),
+    select: (d) => d.surveys,
+    enabled,
+    retry: false,
+    refetchInterval: pollUnlessFailed,
+  });
+}
+
+export function useMySurvey(id: number | null) {
+  return useQuery({
+    queryKey: ['me', 'surveys', id],
+    queryFn: () => api.get<{ survey: MeSurveyDetail }>(`/api/me/surveys/${id}`),
+    select: (d) => d.survey,
+    enabled: id !== null,
+  });
+}
+
+export function useAckAnnouncement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.post<void>(`/api/me/announcements/${id}/ack`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me', 'announcements'] }),
+  });
+}
+
+export function useSubmitSurvey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, answers }: { id: number; answers: SurveyAnswer[] }) =>
+      api.post(`/api/me/surveys/${id}/responses`, { answers }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me', 'surveys'] }),
   });
 }
 

@@ -325,7 +325,9 @@ function SurveyBuilder({
 }
 
 // ---------------------------------------------------------------------------
-// Test-Antwort-Dialog (Demo; produktiv antwortet später der Web-Client)
+// Test-Antwort-Dialog der HR (Umfrage durchspielen). Mitarbeitende nehmen ueber
+// das Dashboard teil (POST /api/me/surveys/:id/responses); beide Wege laufen
+// durch surveyService.recordParticipation im Backend.
 // ---------------------------------------------------------------------------
 
 function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; onClose: () => void }) {

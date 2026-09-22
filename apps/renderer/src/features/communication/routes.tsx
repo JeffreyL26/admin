@@ -4,7 +4,7 @@ import { DirectoryPage } from './DirectoryPage';
 import { AnnouncementsPage } from './AnnouncementsPage';
 import { SurveysPage } from './SurveysPage';
 import { MeetingsPage } from './MeetingsPage';
-import { ChannelsPage } from './ChannelsPage';
+import { DistributionListsPage } from './DistributionListsPage';
 
 // Modul Kommunikation & Engagement — Pfad-Kontrakt aus layout/nav.ts.
 export const communicationRoutes: RouteObject[] = [
@@ -12,5 +12,5 @@ export const communicationRoutes: RouteObject[] = [
   { path: '/kommunikation/ankuendigungen', element: <AnnouncementsPage /> },
   { path: '/kommunikation/umfragen', element: <SurveysPage /> },
   { path: '/kommunikation/gespraeche', element: <MeetingsPage /> },
-  { path: '/kommunikation/kanaele', element: <ChannelsPage /> },
+  { path: '/kommunikation/verteiler', element: <DistributionListsPage /> },
 ];

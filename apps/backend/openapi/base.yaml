@@ -243,25 +243,40 @@ paths:
       responses: { "200": { description: Beurteilungen } }
   /api/me/announcements:
     get:
-      x-status: planned
-      summary: Ankündigungen lesen
+      summary: >-
+        Aktive Ankündigungen an die angemeldete Person (Zielgruppe wie in der
+        HR-Verwaltung aufgelöst, Abteilung samt Unterabteilungen, Verteiler),
+        mit eigener Lesebestätigung und signierten Anhang-Links
       responses: { "200": { description: Ankündigungen } }
   /api/me/announcements/{id}/ack:
     post:
-      x-status: planned
-      summary: Ankündigung als gelesen bestätigen
+      summary: Ankündigung als gelesen bestätigen (idempotent; 404 außerhalb der Zielgruppe)
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses: { "204": { description: Bestätigt } }
+  /api/me/announcements/{id}/attachments/{fileId}/sign:
+    post:
+      summary: Anhang einer eigenen Ankündigung signieren (kurzlebige Download-URL; 404 außerhalb der Zielgruppe)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: fileId, in: path, required: true, schema: { type: integer } }
+      responses: { "200": { description: Signierte URL } }
   /api/me/surveys:
     get:
-      x-status: planned
-      summary: Offene Umfragen auflisten
+      summary: Laufende Umfragen an die angemeldete Person mit Teilnahmestatus (Status laufend und Enddatum nicht überschritten)
       responses: { "200": { description: Umfragen } }
-  /api/me/surveys/{id}/response:
+  /api/me/surveys/{id}:
+    get:
+      summary: Umfrage mit Fragen (nur laufend und in der Zielgruppe, sonst 404)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses: { "200": { description: Umfrage } }
+  /api/me/surveys/{id}/responses:
     post:
-      x-status: planned
-      summary: An Umfrage teilnehmen (anonym ausgewertet)
+      summary: >-
+        An Umfrage teilnehmen. Die Person kommt aus dem Konto; Antworten werden
+        ohne Personenbezug gespeichert, die Teilnahme getrennt markiert (409 bei
+        zweiter Teilnahme).
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses: { "201": { description: Teilnahme gespeichert } }

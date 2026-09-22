@@ -80,6 +80,8 @@ Berechtigungsprüfung** sind damit in HR-Erfassung und Portal identisch):
 | `GET /api/me/org-tree` | `orgRoutes.ts` | Abteilungsbaum (`buildOrgTree()`), Abteilungsfilter des Kalenders |
 | `GET /api/me/calendar?year=&month=` | `calendarRoutes.ts` | Firmenweite Abwesenheiten |
 | `GET/POST /api/me/documents` · `POST /api/me/documents/:id/download` | `documentRoutes.ts` | Eigene Dokumente |
+| `GET /api/me/announcements` · `POST /api/me/announcements/:id/ack` · `POST …/:id/attachments/:fileId/sign` | `communicationRoutes.ts` | Aktive Ankündigungen an die Person (Zielgruppe wie in der HR aufgelöst), Lesebestätigung, Anhang beim Klick signieren; nur mit Modul `communication` |
+| `GET /api/me/surveys[/:id]` · `POST /api/me/surveys/:id/responses` | `communicationRoutes.ts` | Laufende Umfragen an die Person, Fragen, anonyme Teilnahme (409 bei zweiter Teilnahme) |
 | `GET /api/me/change-request-fields` | `changeRequestRoutes.ts` | Beantragbare Stammdatenfelder (Allowlist aus `@ohrganize/shared`) |
 | `GET/POST /api/me/change-requests` | `changeRequestRoutes.ts` | Eigene Änderungsanträge lesen/stellen |
 | `POST /api/me/change-requests/:id/withdraw` | `changeRequestRoutes.ts` | Eigenen, noch offenen Antrag zurückziehen |
@@ -100,6 +102,13 @@ Vier Grenzen, die bewusst gesetzt sind und beim Erweitern gelten müssen:
   ein 403 verriete deren Existenz. Upload nur mit Kategorie
   `bescheinigung|zertifikat|sonstiges`, MIME-Whitelist, 10 MB, `supersedes_id`
   verboten; `employee_id` kommt immer aus `requireEmployee`, nie aus dem Body.
+- **Kommunikation:** Sichtbar ist nur, was sich an die Person richtet; die
+  Zielgruppe (alle, Abteilung samt Unterabteilungen, Team, Standort,
+  Verteiler) löst `modules/communication/audience.ts` auf, dieselbe Stelle,
+  die der HR die Empfängerzahl liefert. Fremde Einträge antworten **404**.
+  Die Übersicht zeigt Ankündigungen und offene Umfragen als Karten, die nur
+  mit Inhalt erscheinen; `employee_id` einer Teilnahme kommt aus
+  `requireEmployee`, ein Wert im Body wird ignoriert.
 - **Stammdaten:** Das Portal schreibt **nie** direkt in `employees` — ein
   `PATCH /api/me/profile` gibt es deshalb nicht (der früher hier reservierte
   Eintrag ist aus der OpenAPI entfernt). Die Personalakte ist Grundlage für

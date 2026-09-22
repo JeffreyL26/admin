@@ -109,7 +109,7 @@ if (FORCE) {
   const tables = [
     // Recruiting (Kinder → Eltern; recruiting_stages bleibt, da per Migration geseedet)
     'interviews', 'application_events', 'applications', 'candidates', 'job_postings',
-    'channel_messages', 'channels', 'survey_participations', 'survey_responses',
+    'distribution_list_members', 'distribution_lists', 'survey_participations', 'survey_responses',
     'survey_questions', 'surveys', 'announcement_acks', 'announcement_attachments',
     'announcements', 'meeting_protocols', 'certificates', 'freelancer_invoices',
     'freelancer_rates', 'payroll_items', 'payroll_runs', 'bonuses',
@@ -792,19 +792,20 @@ inTransaction(() => {
     visibility: 'nur_hr', created_by_user_id: adminId,
   });
 
-  // Kanäle
-  const ch1 = insert('channels', { name: 'Allgemein', topic: 'Unternehmensweite Neuigkeiten', audience_type: 'alle' });
-  const ch2 = insert('channels', { name: 'Technik-News', topic: 'Releases, Wartungsfenster, Incidents', audience_type: 'abteilung', audience_id: depTech });
-  const ch3 = insert('channels', { name: 'Standort München', topic: 'Alles rund um die Zentrale', audience_type: 'standort', audience_id: locMuc });
-  insert('channels', { name: 'Projekt Phoenix (2025)', topic: 'Archiviert', audience_type: 'alle', archived: 1 });
-  const msg = (ch: number, body: string, at: string) =>
-    insert('channel_messages', { channel_id: ch, body, sent_by_user_id: adminId, sent_at: at });
-  msg(ch1, 'Herzlich willkommen im neuen oHRganize-Kanal! Hier informieren wir künftig über alles Wichtige.', '2026-06-01 09:00:00');
-  msg(ch1, 'Reminder: Bitte die Pulse-Umfrage Q3 ausfüllen — dauert nur 2 Minuten und ist anonym. 🙌', '2026-07-06 10:30:00');
-  msg(ch1, 'Das Sommerfest rückt näher — bitte Teilnahme in der Ankündigung bestätigen!', '2026-07-15 14:00:00');
-  msg(ch2, 'Wartungsfenster am Samstag 06–08 Uhr: Deployment Release 4.1.', '2026-07-08 16:45:00');
-  msg(ch2, 'Release 4.1 ist live. Danke an alle Beteiligten! 🎉', '2026-07-13 09:12:00');
-  msg(ch3, 'Die Tiefgarage ist am Montag wegen Reinigung gesperrt — bitte auf die Ausweichplätze ausweichen.', '2026-07-17 08:00:00');
+  // Verteiler: HR-gepflegte Zielgruppe aus Einheiten und einzelnen Personen.
+  // Nur Einzelpersonen: Alle Abteilungen haengen unter der Geschaeftsfuehrung,
+  // die Abteilung als Mitglied erreichte also das ganze Unternehmen.
+  const dlFuehrung = insert('distribution_lists', { name: 'Fuehrungskreis', description: 'Geschaeftsfuehrung, Abteilungsleitungen und Teamleads' });
+  for (const id of [GF, HRL, CTO, TLB, TLF, VTL]) {
+    insert('distribution_list_members', { list_id: dlFuehrung, member_type: 'mitarbeiter', member_id: id });
+  }
+  const dlKoeln = insert('distribution_lists', { name: 'Standort Koeln + Vertrieb', description: 'Alle in Koeln und der gesamte Vertrieb' });
+  insert('distribution_list_members', { list_id: dlKoeln, member_type: 'standort', member_id: locK });
+  insert('distribution_list_members', { list_id: dlKoeln, member_type: 'abteilung', member_id: depSales });
+  insert('announcements', {
+    title: 'Fuehrungskreis: Budgetrunde 2027 startet', body: 'Die Planungsvorlagen fuer 2027 liegen ab sofort im Laufwerk. Bitte bis Ende September je Bereich befuellen.',
+    audience_type: 'verteiler', audience_id: dlFuehrung, publish_at: '2026-09-01', requires_ack: 1, created_by_user_id: adminId,
+  });
 
   // ======================= Recruiting =======================
   const stageId = (name: string) =>

@@ -12,6 +12,7 @@ import { adminModule } from '../modules/admin/routes.js';
 import { leadershipModule } from '../modules/leadership/routes.js';
 import { meModule } from '../modules/me/routes.js';
 import { meSalaryRoutes } from '../modules/me/salaryRoutes.js';
+import { meCommunicationRoutes } from '../modules/me/communicationRoutes.js';
 
 export * from './de-vollversion.manifest.js';
 
@@ -27,4 +28,5 @@ export const backendModules: FastifyPluginAsync[] = [
   leadershipModule,
   meModule,
   meSalaryRoutes,
+  meCommunicationRoutes,
 ];

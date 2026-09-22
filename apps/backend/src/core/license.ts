@@ -368,6 +368,7 @@ export const LICENSE_OPEN_ROUTES: ReadonlySet<string> = new Set([
   '/api/files/:id/sign',
   '/api/compensation/certificates/:id/sign',
   '/api/me/documents/:id/download',
+  '/api/me/announcements/:id/attachments/:fileId/sign',
   // Konto-Widerruf bleibt möglich: Der Lesezugriff steht im Nur-Lese-Betrieb
   // ALLEN bestehenden Konten offen — also muss ein ausgeschiedenes oder
   // kompromittiertes Konto weiterhin gelöscht, zurückgesetzt (entwertet alle

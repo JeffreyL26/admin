@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Users, Network, FolderOpen, CalendarDays, Send, Stethoscope,
   ListChecks, Target, ClipboardCheck, Grid3x3, GraduationCap, MessagesSquare,
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
-  FileText, Radio, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
+  FileText, Contact, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
   LineChart, FileStack, UserPlus, ShieldCheck, KeyRound, UsersRound, Gauge, SlidersHorizontal,
   FilePenLine, BadgeCheck,
 } from 'lucide-react';
@@ -181,7 +181,7 @@ export const ALL_NAV_SECTIONS: NavSection[] = [
       { path: '/kommunikation/ankuendigungen', label: 'Ankündigungen', icon: Megaphone },
       { path: '/kommunikation/umfragen', label: 'Umfragen', icon: BarChart3 },
       { path: '/kommunikation/gespraeche', label: 'Gespräche', icon: FileText },
-      { path: '/kommunikation/kanaele', label: 'Kanäle', icon: Radio },
+      { path: '/kommunikation/verteiler', label: 'Verteiler', icon: Contact },
     ],
   },
   {

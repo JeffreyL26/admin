@@ -878,8 +878,27 @@
   border-radius: 10px;
   transition: background 0.12s ease;
 }
-.hm-dash--bunt a.hm-dash-row:hover {
+.hm-dash--bunt a.hm-dash-row:hover,
+.hm-dash--bunt button.hm-dash-row:hover {
   background: color-mix(in srgb, var(--hm-accent) 7%, transparent);
+}
+/* Zeile als Knopf (oeffnet einen Dialog statt zu navigieren): gleiche Optik wie der Link. */
+.hm-dash-row--button {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+.hm-dash-row--button:hover .hm-dash-row__title {
+  color: var(--brand-primary);
+}
+.hm-dash-row--button:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 .hm-dash-row__avatar {
   display: none;
@@ -3150,6 +3169,42 @@ button.lead-star:disabled {
   background: var(--brand-primary);
   border-color: var(--brand-primary);
   color: var(--text-on-brand, #fff);
+}
+/* Fragegruppe (Umfrage-Antwortformular): <fieldset> mit <legend> statt <label>,
+   damit ein Klick auf den Fragetext keine Antwort auswaehlt. */
+.hm-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.hm-fieldset > legend {
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+/* Anzeige-Chip mit Entfernen-Knopf (Verteiler-Mitglieder). */
+.hm-chip--static,
+.hm-chip--static:hover {
+  cursor: default;
+  border-color: var(--border);
+}
+.hm-chip__remove {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 999px;
+}
+.hm-chip__remove:hover {
+  color: var(--danger);
 }
 
 /* ===================================================== Farbwahl (components/ColorPicker.tsx) === */

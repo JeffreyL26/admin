@@ -4,6 +4,7 @@ import type { AbsenceRequest, MeCalendarEmployee } from '@ohrganize/shared';
 import { useMyBalance, useMyCalendar, useMyProfile, useMyRequests } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
+import { NoticeSection } from '../features/communication/NoticeCards';
 import { formatDate, formatDays, formatLongDate, formatRange, greeting, todayIso } from '../lib/format';
 
 function BalanceCard() {
@@ -305,6 +306,9 @@ export function OverviewPage() {
         )}
         <p className="portal-subtitle">{formatLongDate(today)}</p>
       </header>
+
+      {/* Hinweise an diese Person: erscheinen nur mit Inhalt (NoticeCards). */}
+      <NoticeSection />
 
       <div className="grid-overview">
         <div className="stack">

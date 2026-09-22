@@ -2,7 +2,7 @@
 paths:
   /api/communication/org:
     get:
-      summary: Abteilungen, Teams und Standorte für Zielgruppen-Auswahl und Filter (lesend)
+      summary: Abteilungen (mit parent_id), Teams, Standorte und Verteiler für Zielgruppen-Auswahl und Filter (lesend)
       tags: [Kommunikation]
       responses:
         "200": { description: Organisationseinheiten }
@@ -130,9 +130,9 @@ paths:
   /api/communication/surveys/{id}/responses:
     post:
       summary: >-
-        Antwort erfassen (Demo/Test; produktiv später über
-        POST /api/me/surveys/{id}/response). Teilnahme-Marker getrennt von den
-        anonymen Antworten (keine employee_id an der Antwort).
+        Testerfassung durch die HR (Umfrage durchspielen); Mitarbeitende nehmen
+        über POST /api/me/surveys/{id}/responses teil. Teilnahme-Marker getrennt
+        von den anonymen Antworten (keine employee_id an der Antwort).
       tags: [Kommunikation]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
@@ -198,54 +198,50 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "204": { description: Gelöscht }
-  /api/communication/channels:
+  /api/communication/distribution-lists:
     get:
-      summary: Kanäle mit Zielgruppe, Empfängerzahl und Nachrichtenstatistik
+      summary: Verteiler mit Mitgliederzahl, Empfängerzahl und Verwendungen
       tags: [Kommunikation]
       responses:
-        "200": { description: Kanalliste }
+        "200": { description: Verteilerliste }
     post:
-      summary: Kanal anlegen (Name eindeutig)
+      summary: >-
+        Verteiler anlegen (Name eindeutig ohne Groß/Klein). Mitglieder sind
+        Abteilungen (samt Unterabteilungen), Teams, Standorte und Personen; eine
+        Person, die über eine Einheit desselben Verteilers erreicht wird, ist
+        nicht zusätzlich einzeln zulässig (400).
       tags: [Kommunikation]
       responses:
-        "201": { description: Angelegter Kanal }
+        "201": { description: Angelegter Verteiler mit Mitgliedern }
         "409":
-          description: Kanalname bereits vergeben
+          description: Name bereits vergeben
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-  /api/communication/channels/{id}:
-    put:
-      summary: Kanal aktualisieren (inkl. Archiv-Toggle)
+  /api/communication/distribution-lists/{id}:
+    get:
+      summary: Verteiler mit Mitgliedern (Namen aufgelöst)
       tags: [Kommunikation]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
-        "200": { description: Aktualisierter Kanal }
+        "200": { description: Verteiler }
+    put:
+      summary: Verteiler aktualisieren (Mitglieder werden vollständig ersetzt)
+      tags: [Kommunikation]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierter Verteiler }
     delete:
-      summary: Kanal löschen (Nachrichten kaskadieren)
+      summary: Verteiler löschen (nur ohne Verwendung durch Ankündigungen oder Umfragen)
       tags: [Kommunikation]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "204": { description: Gelöscht }
-  /api/communication/channels/{id}/messages:
-    get:
-      summary: Nachrichtenverlauf eines Kanals
-      tags: [Kommunikation]
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: integer } }
-      responses:
-        "200": { description: Nachrichten chronologisch }
-    post:
-      summary: Nachricht in Kanal senden (nicht in archivierte Kanäle)
-      tags: [Kommunikation]
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: integer } }
-      responses:
-        "201": { description: Gesendete Nachricht }
         "409":
-          description: Kanal archiviert
+          description: Verteiler wird noch verwendet
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
