@@ -50,6 +50,7 @@ const BACKEND = [
   // Teilrouten des Portals, die an einem optionalen Modul haengen.
   { module: 'me', requires: 'compensation', name: 'meSalaryRoutes', from: '../modules/me/salaryRoutes.js' },
   { module: 'me', requires: 'communication', name: 'meCommunicationRoutes', from: '../modules/me/communicationRoutes.js' },
+  { module: 'me', requires: 'performance', name: 'mePerformanceRoutes', from: '../modules/me/performanceRoutes.js' },
 ];
 
 /** Routenlisten der Desktop-App je Modul, in Router-Reihenfolge. */
@@ -71,6 +72,9 @@ const WEB = [
   { module: 'absences', path: '/krankmeldung', name: 'SickNotePage', from: '../pages/SickNotePage' },
   { module: 'absences', path: '/kalender', name: 'CalendarPage', from: '../pages/CalendarPage' },
   { module: 'compensation', path: '/gehalt', name: 'SalaryPage', from: '../pages/SalaryPage' },
+  { module: 'performance', path: '/entwicklung', name: 'DevelopmentPage', from: '../pages/DevelopmentPage' },
+  { module: 'communication', path: '/gespraeche', name: 'MeetingsPage', from: '../pages/MeetingsPage' },
+  { module: 'communication', path: '/kollegen', name: 'ColleaguesPage', from: '../pages/ColleaguesPage' },
 ];
 
 const HEADER = (id) =>

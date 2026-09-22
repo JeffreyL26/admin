@@ -4,7 +4,7 @@ import {
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
   FileText, Contact, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
   LineChart, FileStack, UserPlus, ShieldCheck, KeyRound, UsersRound, Gauge, SlidersHorizontal,
-  FilePenLine, BadgeCheck,
+  FilePenLine, BadgeCheck, User,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -125,7 +125,7 @@ export const ALL_NAV_SECTIONS: NavSection[] = [
     items: [
       { path: '/recruiting/stellen', label: 'Stellen', icon: Briefcase },
       { path: '/recruiting/pipeline', label: 'Pipeline', icon: KanbanSquare },
-      { path: '/recruiting/bewerber', label: 'Bewerbungen', icon: UserSearch },
+      { path: '/recruiting/bewerber', label: 'Bewerber:innen', icon: UserSearch },
       { path: '/recruiting/interviews', label: 'Interviews', icon: CalendarClock },
       { path: '/recruiting/analyse', label: 'Analyse', icon: LineChart },
     ],
@@ -180,7 +180,7 @@ export const ALL_NAV_SECTIONS: NavSection[] = [
       { path: '/kommunikation/verzeichnis', label: 'Verzeichnis', icon: BookUser },
       { path: '/kommunikation/ankuendigungen', label: 'Ankündigungen', icon: Megaphone },
       { path: '/kommunikation/umfragen', label: 'Umfragen', icon: BarChart3 },
-      { path: '/kommunikation/gespraeche', label: 'Gespräche', icon: FileText },
+      { path: '/kommunikation/gespraeche', label: 'Gesprächsprotokolle', icon: FileText },
       { path: '/kommunikation/verteiler', label: 'Verteiler', icon: Contact },
     ],
   },
@@ -198,13 +198,18 @@ export const ALL_NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    // Bewusst OHNE Bereich am Abschnitt: „Konto“ (eigenes Passwort,
+    // Darstellung, Seitenleiste) erreicht JEDES Admin-Konto, auch eines,
+    // dessen Rolle `einstellungen: kein` hat. Die beiden anderen Eintraege
+    // tragen den Bereich deshalb selbst.
     key: 'system',
     title: 'System',
-    area: 'einstellungen',
     items: [
-      { path: '/einstellungen', label: 'Einstellungen', icon: Settings, end: true },
+      { path: '/einstellungen', label: 'Einstellungen', icon: Settings, end: true, area: 'einstellungen' },
       // Lizenzzustand, Lizenzdatei einspielen, Lizenzbericht (features/settings/LicensePage.tsx).
-      { path: '/einstellungen/lizenz', label: 'Lizenz', icon: BadgeCheck },
+      { path: '/einstellungen/lizenz', label: 'Lizenz', icon: BadgeCheck, area: 'einstellungen' },
+      // Persoenliche Einstellungen des Kontos (features/settings/AccountPage.tsx).
+      { path: '/einstellungen/konto', label: 'Konto', icon: User },
     ],
   },
 ];

@@ -9,6 +9,7 @@ import type {
   ContractDto,
   CountryCode,
   DocumentDto,
+  DocumentSource,
   EmployeeChangeRequestForHr,
   EmployeeChangeRequestStatus,
   EmployeeDto,
@@ -218,12 +219,15 @@ export function useDocuments(params: {
   search?: string;
   category?: string;
   employee_id?: number;
+  /** Herkunft: HR-Upload oder aus dem Portal hochgeladen. */
+  source?: DocumentSource;
   include_superseded?: boolean;
 }) {
   const p = new URLSearchParams();
   if (params.search?.trim()) p.set('search', params.search.trim());
   if (params.category) p.set('category', params.category);
   if (params.employee_id !== undefined) p.set('employee_id', String(params.employee_id));
+  if (params.source) p.set('source', params.source);
   if (params.include_superseded) p.set('include_superseded', 'true');
   const qs = p.toString();
   return useQuery({

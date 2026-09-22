@@ -4,6 +4,7 @@ import { getDb } from '../../db/db.js';
 import { parse, badRequest, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { isValidIsoDate } from '../../core/dates.js';
+import { deleteFileIfUnreferenced } from '../../core/files.js';
 import { getEmployee } from './lib.js';
 
 const isoDate = z
@@ -26,6 +27,8 @@ const invoiceSchema = z.object({
   amount_cents: z.number().int().positive('Der Betrag muss größer als 0 sein'),
   hours: z.number().positive().optional().nullable(),
   note: z.string().trim().max(500).optional().nullable(),
+  /** Rechnungsbeleg aus POST /api/files (files.id); Bereich 'verguetung' in core/files.ts. */
+  file_id: z.number().int().positive().optional().nullable(),
 });
 
 /** Stellt sicher, dass die Person Freiberufler:in ist (serverseitige Prüfung). */
@@ -136,11 +139,14 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
     if (duplicate) {
       throw conflict('Diese Rechnungsnummer existiert für diese Freiberufler:in bereits');
     }
+    if (body.file_id && !getDb().prepare('SELECT id FROM files WHERE id = ?').get(body.file_id)) {
+      throw badRequest('Die hochgeladene Datei wurde nicht gefunden');
+    }
     const info = getDb()
       .prepare(
         `INSERT INTO freelancer_invoices
-           (employee_id, invoice_number, invoice_date, period, amount_cents, hours, note)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           (employee_id, invoice_number, invoice_date, period, amount_cents, hours, note, file_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         body.employee_id,
@@ -150,6 +156,7 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
         body.amount_cents,
         body.hours ?? null,
         body.note ?? null,
+        body.file_id ?? null,
       );
     const invoice = getDb()
       .prepare('SELECT * FROM freelancer_invoices WHERE id = ?')
@@ -158,6 +165,7 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
       employee_id: body.employee_id,
       invoice_number: body.invoice_number,
       amount_cents: body.amount_cents,
+      file_id: body.file_id ?? null,
     });
     reply.status(201);
     return { invoice };
@@ -208,13 +216,16 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/compensation/freelancer-invoices/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
     const invoice = getDb().prepare('SELECT * FROM freelancer_invoices WHERE id = ?').get(id) as
-      | { status: string }
+      | { status: string; file_id: number | null }
       | undefined;
     if (!invoice) throw notFound('Rechnung nicht gefunden');
     if (invoice.status !== 'offen') {
       throw conflict('Nur offene Rechnungen können gelöscht werden');
     }
     getDb().prepare('DELETE FROM freelancer_invoices WHERE id = ?').run(id);
+    // Beleg mit der Zeile entfernen, sonst bliebe er ueber eine signierte URL
+    // erreichbar (Muster: core/files.ts deleteFileIfUnreferenced).
+    if (invoice.file_id) deleteFileIfUnreferenced(invoice.file_id);
     audit(req, 'freelancer_invoice.delete', 'freelancer_invoice', id);
     reply.status(204);
   });

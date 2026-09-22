@@ -27,7 +27,6 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/dashboard', async (req) => {
     const db = getDb();
     const today = todayIso();
-    const in30 = addDaysIso(today, 30);
     const yearStart = `${today.slice(0, 4)}-01-01`;
 
     const permissions = permissionsFor(req.user.admin_role_id);
@@ -58,10 +57,16 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         `SELECT COUNT(*) n FROM employees WHERE status = 'aktiv' AND hire_date >= ?`,
         yearStart,
       );
+      // Dieselbe Klausel wie GET /api/documents/expiring (modules/employees/
+      // documentRoutes.ts): Erinnerungsfrist je Dokument, 'localtime' wie
+      // dort, abgeloeste Versionen ausgenommen. Zusaetzlich nur, was heute
+      // noch gilt: Ein laengst abgelaufenes Dokument ist kein „ablaufendes“.
       expiringDocuments = count(
-        `SELECT COUNT(*) n FROM documents
-         WHERE expiry_date IS NOT NULL AND expiry_date <= ? `,
-        in30,
+        `SELECT COUNT(*) n FROM documents d
+         WHERE d.expiry_date IS NOT NULL
+           AND date(d.expiry_date) >= date('now', 'localtime')
+           AND date(d.expiry_date) <= date('now', 'localtime', '+' || d.reminder_days || ' days')
+           AND NOT EXISTS(SELECT 1 FROM documents s WHERE s.supersedes_id = d.id)`,
       );
       // Offene Änderungsanträge aus dem Mitarbeitenden-Portal. Sie ändern die
       // Personalakte und hängen deshalb am Bereich 'personal' — wie die Route
@@ -180,10 +185,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         .prepare(
           `SELECT m.id, m.kind, m.scheduled_date, e.first_name, e.last_name
            FROM feedback_meetings m JOIN employees e ON e.id = m.employee_id
-           WHERE m.status = 'geplant' AND m.scheduled_date <= ?
+           WHERE m.status = 'geplant' AND m.scheduled_date >= ? AND m.scheduled_date <= ?
            ORDER BY m.scheduled_date LIMIT 8`,
         )
-        .all([addDaysIso(today, 21)]);
+        .all([today, addDaysIso(today, 21)]);
     }
 
     // --- Kommunikation ------------------------------------------------------

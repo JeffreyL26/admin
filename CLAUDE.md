@@ -192,6 +192,26 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (eine Pruefung, ein Schreibpfad, Antworten ohne Personenbezug, kein Audit).
   Die frueheren Kanaele sind entfernt (Sender ohne Empfaenger, Doppel zu
   Ankuendigungen; Hintergrund docs/entscheidungen.md).
+- **Was die HR pflegt, muss einen Empfaenger haben.** Der Abgleich
+  „Backend-Route ohne Aufrufer“ (alle `app.<verb>('/api/...')` gegen alle
+  `/api/...`-Literale in Renderer, Web und Desktop) gehoert zu jeder
+  Abnahme; die Kanaele und die Entwicklungsplaene (Migration
+  `330_drop_development_plans`) waren genau solche Sackgassen. Portal-Sicht
+  auf Fachdaten der Person: `me/performanceRoutes.ts` (`GET
+  /api/me/development`: Ziele, Trainings, Gespraeche mit Massnahmen,
+  Skills, eigene Vorgesetztenbewertung; Seite `/entwicklung`),
+  `me/communicationRoutes.ts` (`/api/me/meetings` nur Protokolle mit
+  `visibility = hr_vorgesetzte_mitarbeiter`, Seite `/gespraeche`;
+  `/api/me/directory` mit derselben Feldsichtbarkeit wie das
+  HR-Verzeichnis, Seite `/kollegen`; das Portal-Organigramm filtert
+  dieselben Felder), Bescheinigungen landen beim Aushaendigen als
+  `documents`-Zeile mit `visibility = portal`. `GET /api/lookup/employees`
+  (Core, `ALWAYS_ALLOWED`) ist die bereichsneutrale Personenliste fuer
+  Auswahlfelder aller Module; `EmployeeSelect` liest nur daraus, damit eine
+  Rolle ohne `personal` keine leeren Picker sieht. Konto-Einstellungen
+  (Passwort, Darstellung, Seitenleiste) liegen auf `/einstellungen/konto`
+  ohne Bereichsbindung, weil jede Admin-Rolle ihr Passwort aendern koennen
+  muss.
 - **Leistung & Führung sind verzahnt, nicht verschmolzen.** Beurteilungen
   (`modules/performance`) kennen nur Selbstbewertung und 360°-Feedback;
   `kind: 'vorgesetzt'` wird mit 400 und Verweis abgewiesen, weil die

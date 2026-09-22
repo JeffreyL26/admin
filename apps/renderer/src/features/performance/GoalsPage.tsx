@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Target, Trash2, TrendingUp } from 'lucide-react';
+import { Pencil, Plus, Target, Trash2, TrendingUp } from 'lucide-react';
 import { api, ApiRequestError } from '../../api/client';
 import { PageHeader, Card, EmptyState, Spinner, Badge, StatCard, Field } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
+import { Tooltip } from '../../components/Tooltip';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import {
   GOAL_KIND_LABELS,
@@ -34,6 +35,7 @@ export function GoalsPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [deleteGoal, setDeleteGoal] = useState<Goal | null>(null);
+  const [editGoal, setEditGoal] = useState<Goal | null>(null);
   const toast = useToast();
   const qc = useQueryClient();
 
@@ -168,12 +170,13 @@ export function GoalsPage() {
                   <div key={obj.id} style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 14 }}>
                     <GoalRow
                       goal={obj}
+                      onEdit={() => setEditGoal(obj)}
                       onDelete={() => setDeleteGoal(obj)}
                       lockedProgress={(keyResultsByParent.get(obj.id) ?? []).length > 0}
                     />
                     {(keyResultsByParent.get(obj.id) ?? []).map((kr) => (
                       <div key={kr.id} style={{ marginLeft: 28, marginTop: 10 }}>
-                        <GoalRow goal={kr} onDelete={() => setDeleteGoal(kr)} />
+                        <GoalRow goal={kr} onEdit={() => setEditGoal(kr)} onDelete={() => setDeleteGoal(kr)} />
                       </div>
                     ))}
                   </div>
@@ -188,7 +191,7 @@ export function GoalsPage() {
             ) : (
               <div style={{ display: 'grid', gap: 12 }}>
                 {kpis.map((kpi) => (
-                  <GoalRow key={kpi.id} goal={kpi} onDelete={() => setDeleteGoal(kpi)} />
+                  <GoalRow key={kpi.id} goal={kpi} onEdit={() => setEditGoal(kpi)} onDelete={() => setDeleteGoal(kpi)} />
                 ))}
               </div>
             )}
@@ -288,6 +291,18 @@ export function GoalsPage() {
         </div>
       </Modal>
 
+      {editGoal && (
+        <EditGoalModal
+          goal={editGoal}
+          onClose={() => setEditGoal(null)}
+          onSaved={() => {
+            setEditGoal(null);
+            toast.success('Ziel gespeichert');
+            invalidate();
+          }}
+        />
+      )}
+
       <ConfirmDialog
         open={deleteGoal !== null}
         title="Ziel löschen"
@@ -306,19 +321,22 @@ export function GoalsPage() {
 /** Zeile mit Fortschrittsbalken, Inline-Progress-Update und Statuswechsel. */
 function GoalRow({
   goal,
+  onEdit,
   onDelete,
   lockedProgress = false,
 }: {
   goal: Goal;
+  onEdit: () => void;
   onDelete: () => void;
   lockedProgress?: boolean;
 }) {
   const [progress, setProgress] = useState<number>(goal.progress);
+  const [currentValue, setCurrentValue] = useState<string>(goal.current_value ?? '');
   const toast = useToast();
   const qc = useQueryClient();
 
   const update = useMutation({
-    mutationFn: (payload: { progress: number }) =>
+    mutationFn: (payload: { progress: number; current_value: string | null }) =>
       api.post(`/api/performance/goals/${goal.id}/progress`, payload),
     onSuccess: () => {
       toast.success('Fortschritt aktualisiert');
@@ -342,6 +360,8 @@ function GoalRow({
 
   // Bei Refetch aktualisierte Server-Werte übernehmen.
   React.useEffect(() => setProgress(goal.progress), [goal.progress]);
+  React.useEffect(() => setCurrentValue(goal.current_value ?? ''), [goal.current_value]);
+  const currentDirty = currentValue !== (goal.current_value ?? '');
 
   return (
     <div className="row row--wrap" style={{ alignItems: 'center', gap: 12 }}>
@@ -375,6 +395,16 @@ function GoalRow({
           </span>
         ) : (
           <>
+            {goal.metric && (
+              <input
+                className="hm-input"
+                value={currentValue}
+                onChange={(e) => setCurrentValue(e.target.value)}
+                style={{ width: 110 }}
+                placeholder="Aktueller Wert"
+                aria-label="Aktueller Wert"
+              />
+            )}
             <input
               type="number"
               className="hm-input"
@@ -387,8 +417,8 @@ function GoalRow({
             />
             <button
               className="hm-btn hm-btn--secondary hm-btn--sm"
-              disabled={update.isPending || progress === goal.progress}
-              onClick={() => update.mutate({ progress })}
+              disabled={update.isPending || (progress === goal.progress && !currentDirty)}
+              onClick={() => update.mutate({ progress, current_value: currentValue.trim() || null })}
             >
               OK
             </button>
@@ -407,10 +437,116 @@ function GoalRow({
             </option>
           ))}
         </Select>
-        <button className="hm-btn hm-btn--ghost hm-btn--icon" onClick={onDelete} aria-label="Löschen">
-          <Trash2 size={16} />
-        </button>
+        <Tooltip content={<span className="hm-tooltip__title">Bearbeiten</span>}>
+          <button className="hm-btn hm-btn--ghost hm-btn--icon" onClick={onEdit} aria-label="Bearbeiten">
+            <Pencil size={16} />
+          </button>
+        </Tooltip>
+        <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+          <button className="hm-btn hm-btn--ghost hm-btn--icon" onClick={onDelete} aria-label="Löschen">
+            <Trash2 size={16} />
+          </button>
+        </Tooltip>
       </div>
     </div>
+  );
+}
+
+/** Bearbeiten von Titel, Beschreibung, Metrik, Zielwert und Zeitraum über PUT. */
+function EditGoalModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [form, setForm] = useState({
+    title: goal.title,
+    description: goal.description ?? '',
+    metric: goal.metric ?? '',
+    target_value: goal.target_value ?? '',
+    period_from: goal.period_from ?? '',
+    period_to: goal.period_to ?? '',
+  });
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.put(`/api/performance/goals/${goal.id}`, {
+        title: form.title.trim(),
+        description: form.description.trim() || null,
+        metric: form.metric.trim() || null,
+        target_value: form.target_value.trim() || null,
+        period_from: form.period_from || null,
+        period_to: form.period_to || null,
+      }),
+    onSuccess: onSaved,
+    onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Speichern'),
+  });
+
+  const periodInvalid = Boolean(form.period_from && form.period_to && form.period_to < form.period_from);
+
+  return (
+    <Modal
+      title="Ziel bearbeiten"
+      open
+      onClose={onClose}
+      footer={
+        <>
+          <button className="hm-btn hm-btn--secondary" onClick={onClose}>
+            Abbrechen
+          </button>
+          <button
+            className="hm-btn hm-btn--primary"
+            disabled={!form.title.trim() || periodInvalid || save.isPending}
+            onClick={() => save.mutate()}
+          >
+            Speichern
+          </button>
+        </>
+      }
+    >
+      <div className="hm-form-grid">
+        <Field label="Art" span2>
+          <div className="row" style={{ gap: 8 }}>
+            <Badge tone="navy">{GOAL_KIND_LABELS[goal.kind]}</Badge>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+              Art und Zuordnung bleiben beim Bearbeiten erhalten.
+            </span>
+          </div>
+        </Field>
+        <Field label="Titel" required span2>
+          <input className="hm-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+        </Field>
+        <Field label="Beschreibung" span2>
+          <textarea
+            className="hm-textarea"
+            rows={2}
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+          />
+        </Field>
+        <Field label="Metrik" hint="z. B. NPS, Umsatz, Tickets">
+          <input className="hm-input" value={form.metric} onChange={(e) => setForm({ ...form, metric: e.target.value })} />
+        </Field>
+        <Field label="Zielwert">
+          <input
+            className="hm-input"
+            value={form.target_value}
+            onChange={(e) => setForm({ ...form, target_value: e.target.value })}
+          />
+        </Field>
+        <Field label="Zeitraum von">
+          <input
+            type="date"
+            className="hm-input"
+            value={form.period_from}
+            onChange={(e) => setForm({ ...form, period_from: e.target.value })}
+          />
+        </Field>
+        <Field label="Zeitraum bis" hint={periodInvalid ? 'Ende liegt vor dem Beginn' : undefined}>
+          <input
+            type="date"
+            className="hm-input"
+            value={form.period_to}
+            onChange={(e) => setForm({ ...form, period_to: e.target.value })}
+          />
+        </Field>
+      </div>
+    </Modal>
   );
 }

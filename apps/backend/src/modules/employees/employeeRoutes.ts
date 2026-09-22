@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
+import { deleteFileIfUnreferenced } from '../../core/files.js';
 import { assertSeatsAvailable } from '../../core/license.js';
 import {
   EMPLOYEE_COLUMNS,
@@ -148,6 +149,66 @@ function toLite(row: Record<string, unknown>) {
   };
 }
 
+/**
+ * Team und Abteilung muessen zusammenpassen: Ein Team mit Abteilung gehoert nur
+ * zu Personen dieser Abteilung. Teams ohne Abteilung (`teams.department_id`
+ * ist nullable) passen zu jeder Zuordnung. Erwartet den gemergten Stand
+ * (Bestand plus Aenderung), damit auch ein reiner Abteilungswechsel auffaellt.
+ */
+export function assertTeamMatchesDepartment(employee: {
+  team_id?: unknown;
+  department_id?: unknown;
+}): void {
+  const teamId = employee.team_id;
+  if (typeof teamId !== 'number') return;
+  const db = getDb();
+  const team = db
+    .prepare(
+      `SELECT t.name, t.department_id, d.name AS department_name
+       FROM teams t LEFT JOIN departments d ON d.id = t.department_id WHERE t.id = ?`,
+    )
+    .get(teamId) as { name: string; department_id: number | null; department_name: string | null } | undefined;
+  if (!team) throw notFound('Team nicht gefunden');
+  if (team.department_id === null) return;
+  const departmentId = employee.department_id;
+  if (departmentId === team.department_id) return;
+  const chosen =
+    typeof departmentId === 'number'
+      ? (db.prepare('SELECT name FROM departments WHERE id = ?').get(departmentId) as { name: string } | undefined)
+      : undefined;
+  throw badRequest(
+    `Das Team „${team.name}“ gehört zur Abteilung „${team.department_name ?? ''}“, ${
+      chosen ? `nicht zu „${chosen.name}“` : 'die Person hat aber keine Abteilung'
+    }. Bitte Team und Abteilung gemeinsam setzen.`,
+    { field: 'team_id' },
+  );
+}
+
+/**
+ * Alle Dateien, die an einer Person haengen. Die Fachzeilen verschwinden per
+ * ON DELETE CASCADE mit dem Profil, die `files`-Zeilen und Blobs aber nicht:
+ * Ohne diesen Schritt blieben Foto, Vertraege, Dokumente und Nachweise ueber
+ * eine signierte URL weiter abrufbar (Loeschersuchen nach Art. 17 DSGVO).
+ */
+function fileIdsOfEmployee(employeeId: number): number[] {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT photo_file_id AS file_id FROM employees WHERE id = @id AND photo_file_id IS NOT NULL
+       UNION SELECT document_file_id FROM contracts WHERE employee_id = @id AND document_file_id IS NOT NULL
+       UNION SELECT file_id FROM documents WHERE employee_id = @id
+       UNION SELECT s.certificate_file_id FROM sick_notes s
+         JOIN absence_requests r ON r.id = s.absence_request_id
+         WHERE r.employee_id = @id AND s.certificate_file_id IS NOT NULL
+       UNION SELECT certificate_file_id FROM training_registrations
+         WHERE employee_id = @id AND certificate_file_id IS NOT NULL
+       UNION SELECT file_id FROM freelancer_invoices WHERE employee_id = @id AND file_id IS NOT NULL
+       UNION SELECT file_id FROM certificates WHERE employee_id = @id AND file_id IS NOT NULL`,
+    )
+    .all({ id: employeeId }) as { file_id: number }[];
+  return rows.map((r) => r.file_id);
+}
+
 export function getEmployeeOr404(id: number): Record<string, unknown> {
   const row = getDb()
     .prepare(`${BASE_SELECT} WHERE e.id = ?`)
@@ -263,7 +324,18 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
           | Record<string, unknown>
           | undefined;
         if (!existing) throw notFound(`Mitarbeiter:in mit ID ${id} nicht gefunden`);
-        assertTypeRules({ ...existing, ...set });
+        const merged = { ...existing, ...set };
+        assertTypeRules(merged);
+        if (set.team_id !== undefined || set.department_id !== undefined) {
+          try {
+            assertTeamMatchesDepartment(merged);
+          } catch (e) {
+            if (e instanceof Error) {
+              throw badRequest(`${existing.first_name} ${existing.last_name}: ${e.message}`, { employee_id: id });
+            }
+            throw e;
+          }
+        }
         update.run(...fields.map(([, v]) => v), id);
       }
     });
@@ -306,6 +378,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     // darf die Reihenfolge-Prüfung immer laufen (sie greift nur, wenn beide
     // gesetzt sind).
     assertExitNotBeforeHire(body);
+    assertTeamMatchesDepartment(body);
     assertPersonnelNumberFree(body.personnel_number);
     // Platzgrenze der Lizenz (core/license.ts) — nur ein aktives Profil zählt.
     if (body.status === 'aktiv') assertSeatsAvailable(1);
@@ -346,6 +419,11 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     if (patch.hire_date !== undefined || patch.exit_date !== undefined) {
       assertExitNotBeforeHire({ ...existing, ...patch });
     }
+    // Wie oben: nur pruefen, wenn Team oder Abteilung angefasst werden, sonst
+    // sperrte eine Altlast jede unbeteiligte Aenderung.
+    if (patch.team_id !== undefined || patch.department_id !== undefined) {
+      assertTeamMatchesDepartment({ ...existing, ...patch });
+    }
     assertPersonnelNumberFree(patch.personnel_number, id);
     // Reaktivierung belegt einen Platz der Lizenz.
     if (existing.status === 'ausgeschieden' && patch.status === 'aktiv') assertSeatsAvailable(1);
@@ -365,18 +443,20 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       .prepare('SELECT first_name, last_name FROM employees WHERE id = ?')
       .get(id) as { first_name: string; last_name: string } | undefined;
     if (!existing) throw notFound('Mitarbeiter:in nicht gefunden');
-    try {
-      getDb().prepare('DELETE FROM employees WHERE id = ?').run(id);
-    } catch (e) {
-      if (e instanceof Error && e.message.includes('SQLITE_CONSTRAINT')) {
-        throw conflict(
-          'Mitarbeiter:in wird von anderen Modulen referenziert. Bitte stattdessen den Status auf „ausgeschieden“ setzen',
-        );
-      }
-      throw e;
-    }
+    // Dateien VOR dem DELETE einsammeln: Die Fachzeilen (Vertraege, Dokumente,
+    // Nachweise) fallen per CASCADE mit dem Profil, danach weiss niemand mehr,
+    // welche Dateien dazugehoerten. Alle Fremdschluessel auf employees tragen
+    // CASCADE oder SET NULL, ein Constraint-Fehler ist hier nicht mehr moeglich.
+    const fileIds = fileIdsOfEmployee(id);
+    getDb().prepare('DELETE FROM employees WHERE id = ?').run(id);
+    // Erst NACH dem DELETE: Vorher hielte die Referenzpruefung jede Datei
+    // fuer weiterhin gebraucht. Eine Datei, die noch anderswo verknuepft ist
+    // (z. B. dieselbe Vorlage bei einer zweiten Person), bleibt stehen.
+    const deletedFiles = fileIds.filter((fileId) => deleteFileIfUnreferenced(fileId));
     audit(req, 'delete', 'employee', id, {
       name: `${existing.first_name} ${existing.last_name}`,
+      files_deleted: deletedFiles.length,
+      files_kept: fileIds.length - deletedFiles.length,
     });
     reply.status(204);
   });

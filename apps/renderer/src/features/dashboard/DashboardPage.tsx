@@ -14,7 +14,7 @@ import {
 } from './dashboardConfig';
 import {
   AbsenceChartWidget, DepartmentChartWidget, AbsentTodayWidget, InterviewsWidget,
-  MeetingsWidget, AnnouncementsWidget, SurveysWidget, BirthdaysWidget, OnboardingWidget,
+  MeetingsWidget, AnnouncementsWidget, SurveysWidget, FollowUpsWidget, BirthdaysWidget, OnboardingWidget,
   LeadershipTeamWidget, LeadershipReportWidget, LicenseWidget,
 } from './widgets';
 import {
@@ -36,6 +36,7 @@ function widgetBody(key: WidgetKey, data: DashboardData): React.ReactNode {
     case 'meetings': return <MeetingsWidget data={data} />;
     case 'announcements': return <AnnouncementsWidget data={data} />;
     case 'surveys': return <SurveysWidget data={data} />;
+    case 'follow-ups': return <FollowUpsWidget />;
     case 'birthdays': return <BirthdaysWidget data={data} />;
     case 'onboarding': return <OnboardingWidget />;
     case 'leadership-team': return <LeadershipTeamWidget />;

@@ -11,7 +11,8 @@
  *                          1;<Abrechnungszeitraum TT.MM.JJJJ>;<Personalnummer>;
  *                          <Lohnart>;<Betrag mit Komma-Dezimale>
  *
- * Personalnummer = employee_id, Lohnart-Mapping siehe DATEV_LOHNART. Das
+ * Personalnummer = employees.personnel_number (ersatzweise die Profil-ID,
+ * siehe payrollRoutes.ts getItems), Lohnart-Mapping siehe DATEV_LOHNART. Das
  * reale Mapping ist mandantenspezifisch und wird beim Steuerberater
  * gepflegt; die Nummernkreise hier sind an uebliche LODAS-Lohnartenkataloge
  * angelehnt.
@@ -77,13 +78,13 @@ export const lodasExporter: PayrollExporter = {
       }[];
       for (const c of components) {
         lines.push(
-          `1;${zeitraum};${item.employee_id};${DATEV_LOHNART[c.kind] ?? '999'};${decimalComma(Math.abs(c.monthly_cents))};`,
+          `1;${zeitraum};${item.personnel_number};${DATEV_LOHNART[c.kind] ?? '999'};${decimalComma(Math.abs(c.monthly_cents))};`,
         );
       }
       const bonuses = JSON.parse(item.bonuses_json) as { kind: string; payout_cents: number }[];
       for (const b of bonuses) {
         lines.push(
-          `1;${zeitraum};${item.employee_id};${DATEV_LOHNART[`bonus_${b.kind}`] ?? '999'};${decimalComma(b.payout_cents)};`,
+          `1;${zeitraum};${item.personnel_number};${DATEV_LOHNART[`bonus_${b.kind}`] ?? '999'};${decimalComma(b.payout_cents)};`,
         );
       }
     }

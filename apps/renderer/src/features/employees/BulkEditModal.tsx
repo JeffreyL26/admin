@@ -50,6 +50,29 @@ export function BulkEditModal({
   const patch = <K extends keyof BulkState>(key: K, value: Partial<BulkState[K]>) =>
     setState((s) => ({ ...s, [key]: { ...s[key], ...value } }));
 
+  // Teamliste an die gewaehlte Abteilung binden (der Server weist ein Team
+  // aus einer anderen Abteilung mit 400 ab). Teams ohne Abteilung passen
+  // immer; ohne gesetzte Abteilung stehen alle Teams zur Wahl.
+  const boundDepartment = state.department.active ? state.department.value : null;
+  const teamOptions = (teams ?? []).filter(
+    (t) => boundDepartment === null || t.department_id === null || t.department_id === boundDepartment,
+  );
+  const teamValid = state.team.value === null || teamOptions.some((t) => t.id === state.team.value);
+  const setDepartment = (value: number | null) => {
+    setState((s) => {
+      const stillValid =
+        s.team.value === null ||
+        (teams ?? []).some(
+          (t) => t.id === s.team.value && (t.department_id === null || value === null || t.department_id === value),
+        );
+      return {
+        ...s,
+        department: { ...s.department, value },
+        team: stillValid ? s.team : { ...s.team, value: null },
+      };
+    });
+  };
+
   const buildSet = (): Record<string, unknown> => {
     const set: Record<string, unknown> = {};
     if (state.department.active) set.department_id = state.department.value;
@@ -131,7 +154,7 @@ export function BulkEditModal({
               className="hm-select"
               disabled={!state.department.active}
               value={state.department.value ?? ''}
-              onChange={(e) => patch('department', { value: e.target.value === '' ? null : Number(e.target.value) })}
+              onChange={(e) => setDepartment(e.target.value === '' ? null : Number(e.target.value))}
             >
               <option value="">— keine —</option>
               {(departments ?? []).map((d) => (
@@ -145,15 +168,24 @@ export function BulkEditModal({
         {row(
           'team',
           'Team',
-          <Field label="">
+          <Field
+            label=""
+            hint={
+              boundDepartment !== null
+                ? 'Nur Teams der gewählten Abteilung'
+                : state.team.active
+                  ? 'Ein Team mit Abteilung setzt voraus, dass die Person dieser Abteilung angehört'
+                  : undefined
+            }
+          >
             <Select
               className="hm-select"
               disabled={!state.team.active}
-              value={state.team.value ?? ''}
+              value={teamValid ? (state.team.value ?? '') : ''}
               onChange={(e) => patch('team', { value: e.target.value === '' ? null : Number(e.target.value) })}
             >
               <option value="">— keines —</option>
-              {(teams ?? []).map((t) => (
+              {teamOptions.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>

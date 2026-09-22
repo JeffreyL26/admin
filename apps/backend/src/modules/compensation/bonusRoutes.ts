@@ -122,7 +122,10 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/compensation/bonuses', async (req, reply) => {
     const body = parse(bonusSchema, req.body);
-    getEmployee(body.employee_id);
+    const employee = getEmployee(body.employee_id);
+    if (employee.employee_type === 'freiberufler') {
+      throw badRequest('Freiberufler:innen werden über Honorare vergütet, nicht über Boni');
+    }
     if (body.goal_id) {
       const goal = goalById(body.goal_id);
       if (!goal) throw badRequest('Das gewählte Ziel existiert nicht');

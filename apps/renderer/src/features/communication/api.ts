@@ -96,6 +96,8 @@ export interface Survey {
   status: SurveyStatus;
   recipients: number;
   participant_count: number;
+  /** Laufend, aber date_to ueberschritten: das Portal bietet sie nicht mehr an. */
+  deadline_passed: boolean;
 }
 
 export interface SurveyResults {
@@ -226,10 +228,16 @@ export function useSurvey(id: number | null) {
   });
 }
 
-export function useMeetings() {
+export function useMeetings(filters: { employee_id?: number; occasion?: MeetingOccasion } = {}) {
+  const params = new URLSearchParams();
+  if (filters.employee_id) params.set('employee_id', String(filters.employee_id));
+  if (filters.occasion) params.set('occasion', filters.occasion);
+  const qs = params.toString();
   return useQuery({
-    queryKey: ['communication', 'meetings'],
-    queryFn: () => api.get<{ meetings: Meeting[] }>('/api/communication/meetings'),
+    // 'list' trennt die Liste vom Schluessel der Wiedervorlagen (['meetings',
+    // 'follow-ups']); invalidate('meetings') trifft weiterhin beide.
+    queryKey: ['communication', 'meetings', 'list', filters],
+    queryFn: () => api.get<{ meetings: Meeting[] }>(`/api/communication/meetings${qs ? `?${qs}` : ''}`),
     select: (d) => d.meetings,
   });
 }

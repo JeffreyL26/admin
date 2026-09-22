@@ -20,6 +20,7 @@ import { notFound, parse } from '../../core/errors.js';
 import { todayIso } from '../../core/dates.js';
 import { signDownloadUrl } from '../../core/files.js';
 import { audienceOfEmployeeSql } from '../communication/audience.js';
+import { queryDirectory } from '../communication/directoryService.js';
 import {
   answersSchema,
   getQuestions,
@@ -112,7 +113,60 @@ function surveyToJson(s: SurveyRow, employeeId: number) {
   };
 }
 
+/** Eigene Gespraechsprotokolle, die die HR fuer die Person freigegeben hat. */
+function myMeetings(employeeId: number) {
+  return getDb()
+    .prepare(
+      `SELECT id, meeting_date, occasion, participants, content, agreements, follow_up_date
+       FROM meeting_protocols
+       WHERE employee_id = ? AND visibility = 'hr_vorgesetzte_mitarbeiter'
+       ORDER BY meeting_date DESC, id DESC`,
+    )
+    .all(employeeId);
+}
+
 export const meCommunicationRoutes: FastifyPluginAsync = async (app) => {
+  // ---------------------------------------------------------- Gespraeche ---
+  /**
+   * Nur die Stufe 'hr_vorgesetzte_mitarbeiter' erreicht die Person; 'nur_hr'
+   * und 'hr_vorgesetzte' bleiben der Administration vorbehalten. Kein
+   * Einzelabruf und keine Schreibroute: Das Protokoll fuehrt die HR.
+   */
+  app.get('/api/me/meetings', async (req) => {
+    const emp = requireEmployee(req);
+    return { meetings: myMeetings(emp.id) };
+  });
+
+  // --------------------------------------------------------- Verzeichnis ---
+  /**
+   * Kolleg:innen mit denselben Feldern und Filtern wie das HR-Verzeichnis
+   * (communication/directoryService.ts). Fotos kommen kurzlebig signiert wie
+   * bei /api/me/org-chart; der Client haengt API_BASE davor. `departments`
+   * nur, wenn das Feld sichtbar ist, sonst gaebe es einen Filter auf etwas,
+   * das die Karten nicht zeigen.
+   */
+  app.get('/api/me/directory', async (req) => {
+    requireEmployee(req);
+    const q = parse(
+      z.object({
+        search: z.string().optional(),
+        department_id: z.coerce.number().int().positive().optional(),
+        location_id: z.coerce.number().int().positive().optional(),
+        skill: z.string().optional(),
+      }),
+      req.query,
+    );
+    const result = queryDirectory(q);
+    const departments = result.fields.department
+      ? (getDb().prepare('SELECT id, name, parent_id FROM departments ORDER BY name').all() as {
+          id: number;
+          name: string;
+          parent_id: number | null;
+        }[])
+      : [];
+    return { ...result, departments };
+  });
+
   // ------------------------------------------------------------ Ankuendigungen ---
   app.get('/api/me/announcements', async (req) => {
     const emp = requireEmployee(req);

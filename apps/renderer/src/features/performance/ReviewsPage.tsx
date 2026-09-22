@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, ClipboardCheck, Users, UserCheck, UserRound, Orbit, Link2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, ClipboardCheck, Users, UserCheck, UserRound, Orbit, Link2, Building2 } from 'lucide-react';
 import { api, ApiRequestError } from '../../api/client';
 import { PageHeader, Card, EmptyState, Spinner, Badge, Field, Tabs } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';
@@ -35,6 +35,8 @@ import { CYCLE_STATUS_TONES, REVIEW_STATUS_TONES } from './common';
 import { Select } from '../../components/Select';
 import { SetupNote } from '../leadership/SetupShared';
 import { RatingInput, RatingValue } from '../leadership/RatingInput';
+import { Tooltip } from '../../components/Tooltip';
+import { useLeaderStatus } from '../leadership/api';
 
 /**
  * Beurteilungen (Bereich `leistung`). Die Vorgesetztenbewertung wird NICHT
@@ -154,6 +156,28 @@ function KindBadge({ kind }: { kind: ReviewKind }) {
   );
 }
 
+/**
+ * Selbstbewertung und 360°-Feedback werden in diesem Schritt von der
+ * Personalabteilung stellvertretend erfasst (kein Ausfüllen im Portal).
+ * Das steht sichtbar an jeder Beurteilung, damit niemand die Zeilen für
+ * eigenhändige Eingaben der Person hält.
+ */
+const PROXY_NOTE = 'Von der Personalabteilung stellvertretend erfasst; die Person bzw. das Umfeld füllt den Bogen nicht selbst im Portal aus.';
+
+function ProxyBadge() {
+  return (
+    <Tooltip content={<span className="hm-tooltip__line">{PROXY_NOTE}</span>}>
+      <span tabIndex={0} style={{ display: 'inline-flex' }}>
+        <Badge tone="neutral">
+          <span className="row" style={{ gap: 4 }}>
+            <Building2 size={12} /> stellvertretend erfasst
+          </span>
+        </Badge>
+      </span>
+    </Tooltip>
+  );
+}
+
 function percentText(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : `${value} %`;
 }
@@ -175,6 +199,8 @@ function CyclesTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [form, setForm] = useState({ name: '', kind: 'jaehrlich' as ReviewCycleKind, period_from: '', period_to: '' });
+  const [editing, setEditing] = useState<ReviewCycle | null>(null);
+  const [deleting, setDeleting] = useState<ReviewCycle | null>(null);
   const toast = useToast();
   const qc = useQueryClient();
 
@@ -219,6 +245,17 @@ function CyclesTab() {
       qc.invalidateQueries({ queryKey: ['performance', 'review-cycles'] });
     },
     onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/api/performance/review-cycles/${id}`),
+    onSuccess: (_res, id) => {
+      toast.success('Zyklus gelöscht');
+      if (selectedId === id) setSelectedId(null);
+      qc.invalidateQueries({ queryKey: ['performance', 'review-cycles'] });
+      qc.invalidateQueries({ queryKey: ['performance', 'reviews'] });
+    },
+    onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Löschen'),
   });
 
   if (isLoading) return <Spinner center />;
@@ -274,8 +311,20 @@ function CyclesTab() {
                         ))}
                       </Select>
                     </td>
-                    <td>
-                      <Badge tone={CYCLE_STATUS_TONES[c.status]}>{REVIEW_CYCLE_STATUS_LABELS[c.status]}</Badge>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
+                        <Badge tone={CYCLE_STATUS_TONES[c.status]}>{REVIEW_CYCLE_STATUS_LABELS[c.status]}</Badge>
+                        <Tooltip content={<span className="hm-tooltip__title">Bearbeiten</span>}>
+                          <button className="hm-btn hm-btn--ghost hm-btn--icon" onClick={() => setEditing(c)} aria-label="Zyklus bearbeiten">
+                            <Pencil size={16} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+                          <button className="hm-btn hm-btn--ghost hm-btn--icon" onClick={() => setDeleting(c)} aria-label="Zyklus löschen">
+                            <Trash2 size={16} />
+                          </button>
+                        </Tooltip>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -374,7 +423,86 @@ function CyclesTab() {
           </Field>
         </div>
       </Modal>
+
+      {editing && <EditCycleModal cycle={editing} onClose={() => setEditing(null)} />}
+
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Zyklus löschen"
+        message={`„${deleting?.name}“ wird mit allen darin angelegten Beurteilungen gelöscht. Das kann nicht rückgängig gemacht werden.`}
+        onConfirm={() => deleting && deleteMutation.mutate(deleting.id)}
+        onClose={() => setDeleting(null)}
+      />
     </>
+  );
+}
+
+/** Name, Art und Zeitraum eines Zyklus; der Status wird in der Liste geschaltet. */
+function EditCycleModal({ cycle, onClose }: { cycle: ReviewCycle; onClose: () => void }) {
+  const [form, setForm] = useState({
+    name: cycle.name,
+    kind: cycle.kind,
+    period_from: cycle.period_from,
+    period_to: cycle.period_to,
+  });
+  const toast = useToast();
+  const qc = useQueryClient();
+
+  const save = useMutation({
+    mutationFn: () => api.put(`/api/performance/review-cycles/${cycle.id}`, { ...form, name: form.name.trim() }),
+    onSuccess: () => {
+      toast.success('Zyklus gespeichert');
+      qc.invalidateQueries({ queryKey: ['performance', 'review-cycles'] });
+      qc.invalidateQueries({ queryKey: ['performance', 'review-aggregate'] });
+      onClose();
+    },
+    onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Speichern'),
+  });
+
+  const periodInvalid = Boolean(form.period_from && form.period_to && form.period_to < form.period_from);
+
+  return (
+    <Modal
+      title="Zyklus bearbeiten"
+      open
+      onClose={onClose}
+      footer={
+        <>
+          <button className="hm-btn hm-btn--secondary" onClick={onClose}>
+            Abbrechen
+          </button>
+          <button
+            className="hm-btn hm-btn--primary"
+            disabled={!form.name.trim() || !form.period_from || !form.period_to || periodInvalid || save.isPending}
+            onClick={() => save.mutate()}
+          >
+            Speichern
+          </button>
+        </>
+      }
+    >
+      <div className="hm-form-grid">
+        <Field label="Name" required span2>
+          <input className="hm-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </Field>
+        <Field label="Art" required>
+          <Select className="hm-select" value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value as ReviewCycleKind })}>
+            {(Object.keys(REVIEW_CYCLE_KIND_LABELS) as ReviewCycleKind[]).map((k) => (
+              <option key={k} value={k}>
+                {REVIEW_CYCLE_KIND_LABELS[k]}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <div />
+        <Field label="Zeitraum von" required>
+          <input type="date" className="hm-input" value={form.period_from} onChange={(e) => setForm({ ...form, period_from: e.target.value })} />
+        </Field>
+        <Field label="Zeitraum bis" required hint={periodInvalid ? 'Ende liegt vor dem Beginn' : undefined}>
+          <input type="date" className="hm-input" value={form.period_to} onChange={(e) => setForm({ ...form, period_to: e.target.value })} />
+        </Field>
+      </div>
+    </Modal>
   );
 }
 
@@ -686,7 +814,27 @@ function ConductTab() {
   const [employeeId, setEmployeeId] = useState<number | null>(employeeParam ? Number(employeeParam) : null);
   const [createOpen, setCreateOpen] = useState(false);
   const [openReview, setOpenReview] = useState<Review | null>(null);
+  const [deleting, setDeleting] = useState<Review | null>(null);
   const { data: employees } = useEmployees(true);
+  const { data: leaderStatus } = useLeaderStatus();
+  const toast = useToast();
+  const qc = useQueryClient();
+  // „Mein Team“ öffnet sich nur für Führungskräfte; alle anderen sehen die
+  // Bewertung im Report (Bereich fuehrung).
+  const leadershipLink = leaderStatus?.is_leader
+    ? { to: `/fuehrung/mein-team/${employeeId}`, label: 'Mein Team' }
+    : { to: '/fuehrung/report', label: 'Satisfaction-Report' };
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => api.delete(`/api/performance/reviews/${id}`),
+    onSuccess: () => {
+      toast.success('Beurteilung gelöscht');
+      qc.invalidateQueries({ queryKey: ['performance', 'reviews'] });
+      qc.invalidateQueries({ queryKey: ['performance', 'review-aggregate'] });
+      qc.invalidateQueries({ queryKey: ['performance', 'cycle-overview'] });
+    },
+    onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Löschen'),
+  });
 
   // Der Deep-Link aus den Gesprächen setzt die Person; die Auswahl selbst
   // hält die URL nach, damit Zurück-Navigation den Filter behält.
@@ -806,8 +954,9 @@ function ConductTab() {
               </div>
               {aggregate.supervisor.length === 0 ? (
                 <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                  Im Zeitraum des Zyklus liegt keine Bewertung aus dem Bereich Führung vor. Sie entsteht unter{' '}
-                  <Link to={`/fuehrung/mein-team/${employeeId}`}>Mein Team</Link> durch die zuständige Führungskraft.
+                  Im Zeitraum des Zyklus liegt keine Bewertung aus dem Bereich Führung vor. Sie entsteht unter „Mein Team“
+                  durch die zuständige Führungskraft.{' '}
+                  <Link to={leadershipLink.to}>{leadershipLink.label}</Link>
                 </div>
               ) : (
                 <div style={{ display: 'grid', gap: 10 }}>
@@ -831,7 +980,7 @@ function ConductTab() {
                     </div>
                   ))}
                   <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-                    Kommentare und Protokoll: <Link to={`/fuehrung/mein-team/${employeeId}`}>Mein Team</Link>
+                    Kommentare und Protokoll: <Link to={leadershipLink.to}>{leadershipLink.label}</Link>
                   </div>
                 </div>
               )}
@@ -863,7 +1012,10 @@ function ConductTab() {
                   <tr key={r.id}>
                     <td style={{ fontWeight: 600 }}>{nameOf(r.employee_id)}</td>
                     <td>
-                      <KindBadge kind={r.kind} />
+                      <div className="row row--wrap" style={{ gap: 6 }}>
+                        <KindBadge kind={r.kind} />
+                        <ProxyBadge />
+                      </div>
                     </td>
                     <td>{r.kind === 'selbst' ? 'die Person selbst' : nameOf(r.reviewer_employee_id)}</td>
                     <td>
@@ -871,9 +1023,16 @@ function ConductTab() {
                     </td>
                     <td style={{ fontVariantNumeric: 'tabular-nums' }}>{percentText(r.overall_percent)}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => setOpenReview(r)}>
-                        {r.status === 'abgeschlossen' ? 'Ansehen' : 'Durchführen'}
-                      </button>
+                      <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
+                        <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => setOpenReview(r)}>
+                          {r.status === 'abgeschlossen' ? 'Ansehen' : 'Durchführen'}
+                        </button>
+                        <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+                          <button className="hm-btn hm-btn--ghost hm-btn--icon" onClick={() => setDeleting(r)} aria-label="Beurteilung löschen">
+                            <Trash2 size={16} />
+                          </button>
+                        </Tooltip>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -898,6 +1057,17 @@ function ConductTab() {
           onClose={() => setOpenReview(null)}
         />
       )}
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Beurteilung löschen"
+        message={
+          deleting
+            ? `${REVIEW_KIND_LABELS[deleting.kind]} für ${nameOf(deleting.employee_id)} wird samt aller Bewertungen und Kommentare gelöscht.`
+            : ''
+        }
+        onConfirm={() => deleting && deleteMutation.mutate(deleting.id)}
+        onClose={() => setDeleting(null)}
+      />
     </>
   );
 }
@@ -1002,6 +1172,9 @@ function CreateReviewModal({
           <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 6 }}>
             {REVIEW_KIND_DESCRIPTIONS[form.kind]}
           </div>
+          <div className="row" style={{ gap: 6, marginTop: 8, fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+            <Building2 size={14} /> {PROXY_NOTE}
+          </div>
         </Field>
         <Field label="Zyklus" required>
           <Select className="hm-select" value={form.cycle_id} onChange={(e) => setForm({ ...form, cycle_id: Number(e.target.value) })}>
@@ -1076,8 +1249,12 @@ function ReviewFormModal({
     qc.invalidateQueries({ queryKey: ['performance', 'cycle-overview'] });
   };
 
+  // Zwischenstand: auch Kommentare ohne Bewertung (score 0) mitschicken, damit
+  // sie nicht verloren gehen; der Abschluss verlangt weiterhin jedes Kriterium.
   const payload = () => ({
-    scores: [...scores.values()].filter((s) => s.score >= 1),
+    scores: [...scores.values()]
+      .filter((s) => s.score >= 1 || (s.comment ?? '').trim() !== '')
+      .map((s) => ({ ...s, comment: (s.comment ?? '').trim() || undefined })),
     summary: summary || null,
   });
 
@@ -1157,7 +1334,9 @@ function ReviewFormModal({
         )
       }
     >
-      <SetupNote icon={KIND_ICONS[review.kind]}>{REVIEW_KIND_DESCRIPTIONS[review.kind]}</SetupNote>
+      <SetupNote icon={KIND_ICONS[review.kind]}>
+        {REVIEW_KIND_DESCRIPTIONS[review.kind]} <strong>{PROXY_NOTE}</strong>
+      </SetupNote>
       {readOnly && (
         <p style={{ color: 'var(--text-secondary)', margin: '12px 0' }}>
           Abgeschlossen am {formatDate(review.completed_at?.slice(0, 10))} — Ergebnis{' '}

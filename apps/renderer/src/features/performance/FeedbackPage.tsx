@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, CheckCircle2, MessagesSquare, Plus } from 'lucide-react';
+import { CalendarClock, CheckCircle2, MessagesSquare, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   formatDate,
   FEEDBACK_MEETING_KIND_LABELS,
@@ -13,12 +13,12 @@ import {
 } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, StatCard } from '../../components/ui';
-import { Modal } from '../../components/Modal';
+import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { MEETING_STATUS_TONES, todayIso } from './common';
 import { Select } from '../../components/Select';
-import { useLeaderStatus } from '../leadership/api';
+import { Tooltip } from '../../components/Tooltip';
 
 interface MeetingRow extends FeedbackMeeting {
   first_name: string;
@@ -44,8 +44,22 @@ export function FeedbackPage() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: ['performance', 'feedback'] });
 
+  // Deep-Link `/leistung/feedback?employee=<id>` setzt die Person; die
+  // Auswahl selbst hält die URL nach, damit Zurück-Navigation den Filter behält
+  // (wie ReviewsPage, Tab „Durchführen“).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const employeeParam = searchParams.get('employee');
   const [statusFilter, setStatusFilter] = useState<FeedbackMeetingStatus | ''>('');
-  const [employeeFilter, setEmployeeFilter] = useState<number | null>(null);
+  const [employeeFilter, setEmployeeFilter] = useState<number | null>(
+    employeeParam && Number.isInteger(Number(employeeParam)) && Number(employeeParam) > 0 ? Number(employeeParam) : null,
+  );
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams);
+    if (employeeFilter) params.set('employee', String(employeeFilter));
+    else params.delete('employee');
+    if (params.toString() !== searchParams.toString()) setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeFilter]);
 
   const { data: reminders } = useQuery({
     queryKey: ['performance', 'feedback', 'reminders'],
@@ -161,6 +175,7 @@ export function FeedbackPage() {
                   <tr>
                     <th>Maßnahme</th>
                     <th>Mitarbeiter:in</th>
+                    <th>Verantwortlich</th>
                     <th>Aus Gespräch</th>
                     <th>Fällig</th>
                     <th></th>
@@ -173,6 +188,7 @@ export function FeedbackPage() {
                       <td>
                         {a.last_name}, {a.first_name}
                       </td>
+                      <td>{a.owner_name ?? '—'}</td>
                       <td>
                         {FEEDBACK_MEETING_KIND_LABELS[a.meeting_kind]} · {formatDate(a.meeting_date)}
                       </td>
@@ -375,6 +391,10 @@ function MeetingDetailModal({
 
   const [notes, setNotes] = useState<string | null>(null);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteAction, setDeleteAction] = useState<FeedbackAction | null>(null);
   const [heldDate, setHeldDate] = useState(todayIso());
   const [actionTitle, setActionTitle] = useState('');
   const [actionDue, setActionDue] = useState('');
@@ -445,6 +465,25 @@ function MeetingDetailModal({
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const removeAction = useMutation({
+    mutationFn: (id: number) => api.delete(`/api/performance/feedback-actions/${id}`),
+    onSuccess: () => {
+      invalidate();
+      toast.success('Maßnahme gelöscht');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const removeMeeting = useMutation({
+    mutationFn: () => api.delete(`/api/performance/feedback-meetings/${meetingId}`),
+    onSuccess: () => {
+      onChanged();
+      toast.success('Gespräch gelöscht');
+      onClose();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const title = fallback
     ? `${FEEDBACK_MEETING_KIND_LABELS[fallback.kind]} — ${fallback.first_name} ${fallback.last_name}`
     : meeting
@@ -487,7 +526,10 @@ function MeetingDetailModal({
             </button>
             {meeting.status === 'geplant' && (
               <>
-                <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => cancel.mutate()}>
+                <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => setEditOpen(true)}>
+                  <Pencil size={14} /> Termin/Art ändern
+                </button>
+                <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => setCancelOpen(true)}>
                   Absagen
                 </button>
                 <button
@@ -498,6 +540,11 @@ function MeetingDetailModal({
                 </button>
               </>
             )}
+            <Tooltip content={<span className="hm-tooltip__title">Gespräch löschen</span>}>
+              <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" onClick={() => setDeleteOpen(true)} aria-label="Gespräch löschen">
+                <Trash2 size={14} />
+              </button>
+            </Tooltip>
           </div>
 
           <Card title="Vereinbarte Maßnahmen" flush>
@@ -506,25 +553,33 @@ function MeetingDetailModal({
                 <p style={{ color: 'var(--text-muted)' }}>Noch keine Maßnahmen vereinbart.</p>
               )}
               {(data?.actions ?? []).map((a) => (
-                <label key={a.id} className="hm-checkbox" style={{ alignItems: 'flex-start' }}>
-                  <input
-                    type="checkbox"
-                    checked={a.status === 'erledigt'}
-                    onChange={() => toggleAction.mutate(a)}
-                  />
-                  <span
-                    style={
-                      a.status === 'erledigt'
-                        ? { textDecoration: 'line-through', color: 'var(--text-muted)' }
-                        : undefined
-                    }
-                  >
-                    {a.title}
-                    {a.due_date && (
-                      <span style={{ color: 'var(--text-muted)' }}> · fällig {formatDate(a.due_date)}</span>
-                    )}
-                  </span>
-                </label>
+                <div key={a.id} className="row" style={{ alignItems: 'flex-start', gap: 8 }}>
+                  <label className="hm-checkbox" style={{ alignItems: 'flex-start', flex: 1 }}>
+                    <input
+                      type="checkbox"
+                      checked={a.status === 'erledigt'}
+                      onChange={() => toggleAction.mutate(a)}
+                    />
+                    <span
+                      style={
+                        a.status === 'erledigt'
+                          ? { textDecoration: 'line-through', color: 'var(--text-muted)' }
+                          : undefined
+                      }
+                    >
+                      {a.title}
+                      <span style={{ color: 'var(--text-muted)' }}>
+                        {a.owner_name ? ` · ${a.owner_name}` : ' · niemand verantwortlich'}
+                        {a.due_date ? ` · fällig ${formatDate(a.due_date)}` : ''}
+                      </span>
+                    </span>
+                  </label>
+                  <Tooltip content={<span className="hm-tooltip__title">Maßnahme löschen</span>}>
+                    <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" onClick={() => setDeleteAction(a)} aria-label="Maßnahme löschen">
+                      <Trash2 size={14} />
+                    </button>
+                  </Tooltip>
+                </div>
               ))}
               <div className="row row--wrap" style={{ alignItems: 'flex-end' }}>
                 <Field label="Neue Maßnahme">
@@ -598,6 +653,107 @@ function MeetingDetailModal({
           </p>
         ) : null}
       </Modal>
+
+      {editOpen && meeting && (
+        <EditMeetingModal
+          meeting={meeting}
+          onClose={() => setEditOpen(false)}
+          onSaved={() => {
+            setEditOpen(false);
+            invalidate();
+            toast.success('Gespräch aktualisiert');
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        open={cancelOpen}
+        title="Gespräch absagen"
+        message="Das Gespräch wird als abgesagt markiert. Maßnahmen bleiben erhalten, ein Folgetermin wird nicht angelegt."
+        confirmLabel="Absagen"
+        danger={false}
+        onConfirm={() => cancel.mutate()}
+        onClose={() => setCancelOpen(false)}
+      />
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Gespräch löschen"
+        message="Das Gespräch wird mit allen vereinbarten Maßnahmen gelöscht. Das kann nicht rückgängig gemacht werden."
+        onConfirm={() => removeMeeting.mutate()}
+        onClose={() => setDeleteOpen(false)}
+      />
+      <ConfirmDialog
+        open={deleteAction !== null}
+        title="Maßnahme löschen"
+        message={`„${deleteAction?.title}“ wird gelöscht.`}
+        onConfirm={() => deleteAction && removeAction.mutate(deleteAction.id)}
+        onClose={() => setDeleteAction(null)}
+      />
+    </Modal>
+  );
+}
+
+/** Termin, Art und Wiederholung eines geplanten Gesprächs (PUT ohne Status). */
+function EditMeetingModal({
+  meeting,
+  onClose,
+  onSaved,
+}: {
+  meeting: FeedbackMeeting;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [kind, setKind] = useState<FeedbackMeetingKind>(meeting.kind);
+  const [date, setDate] = useState(meeting.scheduled_date);
+  const [recurrence, setRecurrence] = useState(
+    meeting.recurrence_months === null ? '' : String(meeting.recurrence_months),
+  );
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.put(`/api/performance/feedback-meetings/${meeting.id}`, {
+        kind,
+        scheduled_date: date,
+        recurrence_months: recurrence === '' ? null : Number(recurrence),
+      }),
+    onSuccess: onSaved,
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Modal
+      title="Gespräch bearbeiten"
+      open
+      onClose={onClose}
+      footer={
+        <>
+          <button className="hm-btn hm-btn--secondary" onClick={onClose}>
+            Abbrechen
+          </button>
+          <button className="hm-btn hm-btn--primary" disabled={!date || save.isPending} onClick={() => save.mutate()}>
+            Speichern
+          </button>
+        </>
+      }
+    >
+      <div className="hm-form-grid">
+        <Field label="Art" required>
+          <Select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value as FeedbackMeetingKind)}>
+            {Object.entries(FEEDBACK_MEETING_KIND_LABELS).map(([k, label]) => (
+              <option key={k} value={k}>
+                {label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Termin" required>
+          <input className="hm-input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        </Field>
+        <Field label="Wiederholung (Monate)" hint="Leer = einmalig; Abschluss legt Folgetermin an" span2>
+          <input className="hm-input" type="number" min={1} value={recurrence} onChange={(e) => setRecurrence(e.target.value)} />
+        </Field>
+      </div>
     </Modal>
   );
 }

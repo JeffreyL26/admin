@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
+import { AlertTriangle, Download, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
 import { formatDate, todayIsoLocal, SICK_PAY_LIMIT_DAYS, type SickNote } from '@ohrganize/shared';
-import { api, uploadFile } from '../../api/client';
+import { api, downloadFile, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { FilePicker } from '../../components/FilePicker';
@@ -32,6 +32,32 @@ function certificateBadge(note: SickNote) {
   }
   if (note.certificate_due_date < todayIsoLocal()) return <Badge tone="red">überfällig</Badge>;
   return <Badge tone="neutral">fehlt noch</Badge>;
+}
+
+/** Hinterlegte AU-Bescheinigung herunterladen (signierte URL aus dem Backend-Storage). */
+function CertificateDownloadButton({ note }: { note: SickNote }) {
+  const fileId = note.certificate_file_id;
+  if (fileId === null) return null;
+  return (
+    <Tooltip
+      content={
+        <>
+          <span className="hm-tooltip__title">AU-Bescheinigung herunterladen</span>
+          {note.received_date && (
+            <span className="hm-tooltip__line">Eingegangen am {formatDate(note.received_date)}</span>
+          )}
+        </>
+      }
+    >
+      <button
+        className="hm-btn hm-btn--sm hm-btn--ghost hm-btn--icon"
+        aria-label="AU-Bescheinigung herunterladen"
+        onClick={() => downloadFile(fileId)}
+      >
+        <Download size={15} />
+      </button>
+    </Tooltip>
+  );
 }
 
 /** Bereits angefallene Fehltage; laufende Erkrankungen und überzogene Entgeltfortzahlung markieren. */
@@ -214,7 +240,8 @@ export function SickNotesPage() {
                       <td>{certificateBadge(n)}</td>
                       <td>{formatDate(n.certificate_due_date)}</td>
                       <td>
-                        <div className="row" style={{ justifyContent: 'flex-end' }}>
+                        <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
+                          <CertificateDownloadButton note={n} />
                           {!n.certificate_file_id && (
                             <button className="hm-btn hm-btn--sm hm-btn--ghost" onClick={() => setUploadFor(n)}>
                               <Upload size={14} /> AU nachtragen
@@ -249,6 +276,7 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [receivedDate, setReceivedDate] = useState('');
   const { data: allNotes } = useSickNotes(null);
   const employeeNotes = (allNotes ?? []).filter((n) => n.employee_id === employeeId);
+  const previousNote = followUpOf === null ? null : (employeeNotes.find((n) => n.id === followUpOf) ?? null);
 
   const reset = () => {
     setEmployeeId(null);
@@ -323,19 +351,24 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
           span2
           hint="Nur bei nahtloser Fortsetzung einer bestehenden Krankmeldung."
         >
-          <Select
-            className="hm-select"
-            value={followUpOf ?? ''}
-            onChange={(e) => setFollowUpOf(e.target.value ? Number(e.target.value) : null)}
-            disabled={!employeeId || employeeNotes.length === 0}
-          >
-            <option value="">— keine (Erstbescheinigung) —</option>
-            {employeeNotes.map((n) => (
-              <option key={n.id} value={n.id}>
-                {formatDate(n.date_from)} – {formatDate(n.date_to)}
-              </option>
-            ))}
-          </Select>
+          <div className="row" style={{ gap: 6 }}>
+            <Select
+              className="hm-select"
+              style={{ flex: 1 }}
+              value={followUpOf ?? ''}
+              onChange={(e) => setFollowUpOf(e.target.value ? Number(e.target.value) : null)}
+              disabled={!employeeId || employeeNotes.length === 0}
+            >
+              <option value="">— keine (Erstbescheinigung) —</option>
+              {employeeNotes.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {formatDate(n.date_from)} – {formatDate(n.date_to)}
+                  {n.certificate_file_id ? ' · AU liegt vor' : ''}
+                </option>
+              ))}
+            </Select>
+            {previousNote && <CertificateDownloadButton note={previousNote} />}
+          </div>
         </Field>
         <Field label="AU-Bescheinigung (optional)" span2 hint="Ausstellungspflicht ab dem 3. Kalendertag.">
           <FilePicker file={file} onFile={setFile} accept=".pdf,.jpg,.jpeg,.png" hint="PDF oder Bild" />

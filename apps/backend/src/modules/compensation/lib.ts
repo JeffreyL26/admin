@@ -10,6 +10,8 @@ import {
 /** Relevante Spalten der employees-Kerntabelle (nur lesend, Kontrakt 100_employees_core). */
 export interface EmployeeRow {
   id: number;
+  /** Freiwillige Personalnummer (Migration 104); NULL, wenn der Betrieb keine fuehrt. */
+  personnel_number: string | null;
   first_name: string;
   last_name: string;
   employee_type: string;
@@ -107,19 +109,13 @@ export function currentMonthlyGross(employee: EmployeeRow, date: string): number
 }
 
 /**
- * Fügt eine Gehaltskomponente ein und schließt die offene Vorgängerzeile
- * gleicher Art (valid_to = Vortag) — lückenlose Historie. MUSS innerhalb einer
- * Transaktion aufgerufen werden. Überschneidungs-Check → 409:
+ * Ueberschneidungs-Check einer neuen Komponente gleicher Art zum Stichtag (409):
  * - vorhandene Zeile gleicher Art beginnt am/nach dem neuen Stichtag, oder
- * - eine bereits geschlossene Zeile gleicher Art reicht über den Stichtag hinaus.
+ * - eine bereits geschlossene Zeile gleicher Art reicht ueber den Stichtag hinaus.
+ * Wird beim Einfuegen UND schon beim Anlegen eines Aenderungsantrags gerufen,
+ * damit ein Antrag nicht erst bei der Genehmigung an der Historie scheitert.
  */
-export function insertSalaryComponent(
-  employeeId: number,
-  kind: string,
-  amountCents: number,
-  validFrom: string,
-  note: string | null,
-): SalaryComponentRow {
+export function assertNoComponentOverlap(employeeId: number, kind: string, validFrom: string): void {
   const db = getDb();
   const laterOrEqual = db
     .prepare(
@@ -140,6 +136,23 @@ export function insertSalaryComponent(
   if (closedOverlap) {
     throw conflict('Der Gültigkeitsbeginn überschneidet sich mit einer bereits geschlossenen Komponente');
   }
+}
+
+/**
+ * Fügt eine Gehaltskomponente ein und schließt die offene Vorgängerzeile
+ * gleicher Art (valid_to = Vortag), lückenlose Historie. MUSS innerhalb einer
+ * Transaktion aufgerufen werden. Überschneidungs-Check siehe
+ * assertNoComponentOverlap.
+ */
+export function insertSalaryComponent(
+  employeeId: number,
+  kind: string,
+  amountCents: number,
+  validFrom: string,
+  note: string | null,
+): SalaryComponentRow {
+  const db = getDb();
+  assertNoComponentOverlap(employeeId, kind, validFrom);
   // Offene Vorgängerzeile lückenlos schließen (valid_to = Vortag).
   db.prepare(
     `UPDATE salary_components SET valid_to = ?
@@ -154,6 +167,29 @@ export function insertSalaryComponent(
   return db
     .prepare('SELECT * FROM salary_components WHERE id = ?')
     .get(Number(info.lastInsertRowid)) as SalaryComponentRow;
+}
+
+export interface ContractRow {
+  id: number;
+  contract_type: string;
+  valid_from: string;
+  valid_to: string | null;
+}
+
+/**
+ * Am Stichtag gueltiger Vertrag der Person (Tabelle contracts, Migration
+ * 101_contracts_documents; nur lesend). Bei mehreren Treffern der juengste.
+ * Ohne Tabelle oder ohne Vertrag: null.
+ */
+export function currentContract(employeeId: number, date: string): ContractRow | null {
+  if (!tableExists('contracts')) return null;
+  return (getDb()
+    .prepare(
+      `SELECT id, contract_type, valid_from, valid_to FROM contracts
+       WHERE employee_id = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?)
+       ORDER BY valid_from DESC, id DESC LIMIT 1`,
+    )
+    .get(employeeId, date, date) ?? null) as ContractRow | null;
 }
 
 export interface GoalRow {

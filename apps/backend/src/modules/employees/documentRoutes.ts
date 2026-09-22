@@ -10,6 +10,8 @@ const listQuerySchema = z.object({
   search: z.string().trim().optional(),
   category: documentCategorySchema.optional(),
   employee_id: z.coerce.number().int().positive().optional(),
+  /** Herkunft: von der Personalabteilung abgelegt oder aus dem Portal hochgeladen. */
+  source: z.enum(['hr', 'portal']).optional(),
   /** true = auch von neueren Versionen abgelöste Dokumente ausliefern. */
   include_superseded: z.coerce.boolean().optional(),
 });
@@ -103,6 +105,10 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     if (query.employee_id !== undefined) {
       where.push('d.employee_id = ?');
       params.push(query.employee_id);
+    }
+    if (query.source) {
+      where.push('d.source = ?');
+      params.push(query.source);
     }
     if (!query.include_superseded) {
       where.push('NOT EXISTS(SELECT 1 FROM documents s WHERE s.supersedes_id = d.id)');

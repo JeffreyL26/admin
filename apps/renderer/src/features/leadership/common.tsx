@@ -187,9 +187,9 @@ export function TeamMemberCard({
             <RatingValue scale={member.overall.scale} score={member.overall.score} />
           ) : (
             <span className="lead-card__pending">
-              {/* Bewertet, aber nicht in der Gesamtbewertung: Das ist etwas
-                  anderes als „gar nicht bewertet“ und muss es auch sagen. */}
-              {member.rated_categories > 0 ? 'Ohne Gesamtbewertung' : 'Noch nicht bewertet'}
+              {/* Kategorien erfasst, aber keine Gesamtbewertung: zählt als
+                  ausstehend, ist aber etwas anderes als „gar nicht bewertet“. */}
+              {member.rated_categories > 0 ? 'Kategorien begonnen' : 'Noch nicht bewertet'}
             </span>
           )}
           {member.rated_categories > 0 && (

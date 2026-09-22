@@ -17,6 +17,7 @@ import { authRoutes, ensureDefaultAdmin, type AuthUser } from './core/auth.js';
 import { getDb } from './db/db.js';
 import { fileRoutes } from './core/files.js';
 import { settingsRoutes } from './core/settingsRoutes.js';
+import { lookupRoutes } from './core/lookupRoutes.js';
 import { dashboardRoutes } from './core/dashboardRoutes.js';
 import { assertRouteAllowed, permissionsFor } from './core/permissions.js';
 import { APP_VERSION, assertClientSupported } from './core/version.js';
@@ -249,6 +250,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(fileRoutes);
   await app.register(licenseRoutes);
   await app.register(settingsRoutes);
+  await app.register(lookupRoutes);
   await app.register(dashboardRoutes);
   await registerModules(app);
 

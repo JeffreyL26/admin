@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { getDb } from '../../db/db.js';
+import { getDb, inTransaction } from '../../db/db.js';
 import { parse, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { storeFile, signDownloadUrl, assertMayReadFile } from '../../core/files.js';
 import { getAllSettings } from '../../core/settings.js';
-import type { CertificateKind } from '@ohrganize/shared';
+import { CERTIFICATE_KIND_LABELS, type CertificateKind } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { getEmployee } from './lib.js';
 import { certificateTemplateFor } from './certificates/index.js';
@@ -101,24 +101,44 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
     return { url: signDownloadUrl(certificate.file_id) };
   });
 
-  // Statusverwaltung: erstellt → ausgehaendigt.
+  // Statusverwaltung: erstellt → ausgehaendigt. Mit der Aushaendigung wandert
+  // die Datei als Dokument an das Personalprofil (Kategorie 'bescheinigung',
+  // sichtbar im Portal unter Dokumente); dieselbe file_id, keine Kopie.
+  // Idempotent: Ein bereits verknuepftes Dokument wird nicht doppelt angelegt.
   app.post('/api/compensation/certificates/:id/status', async (req) => {
     const id = Number((req.params as { id: string }).id);
     const body = parse(z.object({ status: z.enum(['ausgehaendigt']) }), req.body);
     const db = getDb();
     const certificate = db.prepare('SELECT * FROM certificates WHERE id = ?').get(id) as
-      | { id: number; employee_id: number; kind: string; status: string }
+      | { id: number; employee_id: number; kind: string; period: string; file_id: number | null; status: string }
       | undefined;
     if (!certificate) throw notFound('Bescheinigung nicht gefunden');
     if (certificate.status !== 'erstellt') {
       throw conflict(`Statuswechsel von „${certificate.status}" nach „${body.status}" ist nicht möglich`);
     }
-    db.prepare('UPDATE certificates SET status = ? WHERE id = ?').run(body.status, id);
+    if (!certificate.file_id) throw conflict('Für diese Bescheinigung liegt keine Datei vor');
+    const fileId = certificate.file_id;
+    const documentId = inTransaction(() => {
+      db.prepare('UPDATE certificates SET status = ? WHERE id = ?').run(body.status, id);
+      const existing = db
+        .prepare('SELECT id FROM documents WHERE employee_id = ? AND file_id = ?')
+        .get(certificate.employee_id, fileId) as { id: number } | undefined;
+      if (existing) return existing.id;
+      const label = CERTIFICATE_KIND_LABELS[certificate.kind as CertificateKind] ?? certificate.kind;
+      const info = db
+        .prepare(
+          `INSERT INTO documents (employee_id, file_id, category, title, source, visibility, uploaded_by_user_id)
+           VALUES (?, ?, 'bescheinigung', ?, 'hr', 'portal', ?)`,
+        )
+        .run(certificate.employee_id, fileId, `${label} ${certificate.period}`, req.user.id);
+      return Number(info.lastInsertRowid);
+    });
     audit(req, 'certificate.handover', 'certificate', id, {
       employee_id: certificate.employee_id,
       kind: certificate.kind,
       old_status: certificate.status,
       new_status: body.status,
+      document_id: documentId,
     });
     return { certificate: db.prepare('SELECT * FROM certificates WHERE id = ?').get(id) };
   });

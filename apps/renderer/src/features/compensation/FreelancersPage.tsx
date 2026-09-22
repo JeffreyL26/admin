@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
+import { Download, Pencil, Plus, Receipt, Trash2 } from 'lucide-react';
 import {
   formatDate,
   formatEuro,
@@ -10,9 +10,11 @@ import {
   type FreelancerInvoiceStatus,
   type FreelancerRateUnit,
 } from '@ohrganize/shared';
-import { api, ApiRequestError } from '../../api/client';
+import { api, ApiRequestError, downloadFile, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, StatCard, Tabs } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
+import { FilePicker } from '../../components/FilePicker';
+import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useEmployees } from '../../components/EmployeeSelect';
 import { parseEuroInput, centsToInput, STATUS_TONES } from './lib';
@@ -41,6 +43,7 @@ interface InvoiceRow {
   hours: number | null;
   status: string;
   paid_date: string | null;
+  file_id: number | null;
   note: string | null;
 }
 
@@ -297,10 +300,18 @@ function InvoiceDialog({ open, onClose }: { open: boolean; onClose: () => void }
   const [amount, setAmount] = useState('');
   const [hours, setHours] = useState('');
   const [note, setNote] = useState('');
+  const [file, setFile] = useState<File | null>(null);
 
   const create = useMutation({
-    mutationFn: () =>
-      api.post('/api/compensation/freelancer-invoices', {
+    mutationFn: async () => {
+      // Beleg zuerst hochladen (POST /api/files), dann die file_id mitgeben;
+      // Muster wie die AU-Bescheinigung in absences/SickNotesPage.tsx.
+      let fileId: number | null = null;
+      if (file) {
+        const uploaded = await uploadFile(file);
+        fileId = uploaded.file.id;
+      }
+      return api.post('/api/compensation/freelancer-invoices', {
         employee_id: employeeId,
         invoice_number: invoiceNumber,
         invoice_date: invoiceDate,
@@ -308,7 +319,9 @@ function InvoiceDialog({ open, onClose }: { open: boolean; onClose: () => void }
         amount_cents: parseEuroInput(amount),
         hours: hours.trim() ? Number(hours.replace(',', '.')) : null,
         note: note.trim() || null,
-      }),
+        file_id: fileId,
+      });
+    },
     onSuccess: () => {
       toast.success('Rechnung wurde erfasst');
       queryClient.invalidateQueries({ queryKey: ['compensation'] });
@@ -317,6 +330,7 @@ function InvoiceDialog({ open, onClose }: { open: boolean; onClose: () => void }
       setHours('');
       setPeriod('');
       setNote('');
+      setFile(null);
       onClose();
     },
     onError: (e) => toast.error(e instanceof ApiRequestError ? e.message : 'Erfassen fehlgeschlagen'),
@@ -381,6 +395,15 @@ function InvoiceDialog({ open, onClose }: { open: boolean; onClose: () => void }
         <Field label="Notiz">
           <input className="hm-input" value={note} onChange={(e) => setNote(e.target.value)} />
         </Field>
+        <Field label="Rechnungsbeleg (optional)" span2 hint="PDF oder Bild der Eingangsrechnung">
+          <FilePicker
+            file={file}
+            onFile={setFile}
+            accept=".pdf,.jpg,.jpeg,.png"
+            busy={create.isPending && !!file}
+            hint="PDF oder Bild"
+          />
+        </Field>
       </div>
     </Modal>
   );
@@ -429,6 +452,14 @@ function InvoicesTab() {
 
   const invoices = data?.invoices ?? [];
 
+  const downloadBeleg = async (fileId: number) => {
+    try {
+      await downloadFile(fileId);
+    } catch (e) {
+      toast.error(e instanceof ApiRequestError ? e.message : 'Download fehlgeschlagen');
+    }
+  };
+
   return (
     <>
       <div className="grid-stats">
@@ -474,7 +505,14 @@ function InvoicesTab() {
               <tbody>
                 {invoices.map((i) => (
                   <tr key={i.id}>
-                    <td style={{ fontWeight: 600 }}>{i.invoice_number}</td>
+                    <td style={{ fontWeight: 600 }}>
+                      {i.invoice_number}
+                      {i.note && (
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 400 }}>
+                          {i.note}
+                        </div>
+                      )}
+                    </td>
                     <td>
                       {i.last_name}, {i.first_name}
                     </td>
@@ -496,6 +534,17 @@ function InvoicesTab() {
                     </td>
                     <td>
                       <div className="row" style={{ justifyContent: 'flex-end' }}>
+                        {i.file_id && (
+                          <Tooltip content={<span className="hm-tooltip__title">Rechnungsbeleg herunterladen</span>}>
+                            <button
+                              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                              aria-label="Rechnungsbeleg herunterladen"
+                              onClick={() => downloadBeleg(i.file_id as number)}
+                            >
+                              <Download size={15} />
+                            </button>
+                          </Tooltip>
+                        )}
                         {i.status === 'offen' && (
                           <>
                             <button

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { Briefcase, Plus, Pencil, Trash2, Users, MapPin } from 'lucide-react';
+import { Briefcase, Plus, Pencil, Trash2, Users, MapPin, UserCog, Layers } from 'lucide-react';
 import {
   JOB_POSTING_STATUS_LABELS, JOB_POSTING_TRANSITIONS, EMPLOYEE_TYPE_LABELS,
   formatEuro, formatDate,
@@ -12,8 +12,8 @@ import { Badge, Card, EmptyState, Field, PageHeader, Spinner, StatCard } from '.
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
-import { usePostings, useRecruitingOrg, useInvalidate, type Posting } from './api';
-import { POSTING_STATUS_TONES, parseEuroInput, centsToInput } from './common';
+import { usePostings, usePosting, useRecruitingOrg, useInvalidate, type Posting } from './api';
+import { POSTING_STATUS_TONES, StageChip, parseEuroInput, centsToInput } from './common';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
 
@@ -168,8 +168,93 @@ function PostingEditor({
   );
 }
 
+/** Stellendetail: Stammdaten und Verteilung der aktiven Bewerbungen ueber die Stufen. */
+function PostingDetailDialog({ postingId, onClose }: { postingId: number | null; onClose: () => void }) {
+  const navigate = useNavigate();
+  const { data: p, isLoading } = usePosting(postingId);
+  const counts = p?.stage_counts ?? [];
+  const max = Math.max(1, ...counts.map((c) => c.count));
+  return (
+    <Modal
+      title={p?.title ?? 'Stelle'}
+      open={postingId !== null}
+      onClose={onClose}
+      wide
+      footer={
+        p && (
+          <button className="hm-btn hm-btn--secondary" onClick={() => { onClose(); navigate('/recruiting/pipeline'); }}>
+            <Layers size={15} /> Zur Pipeline
+          </button>
+        )
+      }
+    >
+      {isLoading || !p ? (
+        <Spinner center />
+      ) : (
+        <div className="stack" style={{ gap: 16 }}>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <Badge tone={POSTING_STATUS_TONES[p.status]}>{JOB_POSTING_STATUS_LABELS[p.status]}</Badge>
+            <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>{EMPLOYEE_TYPE_LABELS[p.employment_type]} · {p.seats} {p.seats === 1 ? 'Stelle' : 'Stellen'}</span>
+          </div>
+          <dl className="hm-form-grid" style={{ margin: 0, fontSize: 'var(--text-sm)' }}>
+            <div><dt style={{ color: 'var(--text-muted)' }}>Abteilung</dt><dd style={{ margin: 0 }}>{p.department_name ?? 'keine Angabe'}</dd></div>
+            <div><dt style={{ color: 'var(--text-muted)' }}>Team</dt><dd style={{ margin: 0 }}>{p.team_name ?? 'keine Angabe'}</dd></div>
+            <div><dt style={{ color: 'var(--text-muted)' }}>Standort</dt><dd style={{ margin: 0 }}>{p.location_name ?? 'keine Angabe'}</dd></div>
+            <div><dt style={{ color: 'var(--text-muted)' }}>Hiring Manager</dt><dd style={{ margin: 0 }}>{p.hiring_manager_name ?? 'keine Angabe'}</dd></div>
+            <div><dt style={{ color: 'var(--text-muted)' }}>Gewünschter Eintritt</dt><dd style={{ margin: 0 }}>{p.employment_start ? formatDate(p.employment_start) : 'keine Angabe'}</dd></div>
+            <div>
+              <dt style={{ color: 'var(--text-muted)' }}>Gehaltsspanne (€/Monat)</dt>
+              <dd style={{ margin: 0 }}>
+                {p.salary_min_cents || p.salary_max_cents
+                  ? `${p.salary_min_cents ? formatEuro(p.salary_min_cents) : '?'} bis ${p.salary_max_cents ? formatEuro(p.salary_max_cents) : '?'}`
+                  : 'keine Angabe'}
+              </dd>
+            </div>
+          </dl>
+          <div>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>
+              Bewerbungen je Stufe
+              <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: 'var(--text-sm)' }}>
+                {' '}· {p.active_count ?? 0} aktiv, {p.hired_count ?? 0} eingestellt, {p.application_count ?? 0} gesamt
+              </span>
+            </div>
+            {counts.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', margin: 0 }}>Keine aktiven Stufen konfiguriert.</p>
+            ) : (
+              <div className="stack" style={{ gap: 6 }}>
+                {counts.map((c) => (
+                  <div key={c.stage_id} className="row" style={{ gap: 10 }}>
+                    <span style={{ width: 150, flexShrink: 0 }}><StageChip name={c.name} color={c.color} /></span>
+                    <div style={{ flex: 1, height: 8, borderRadius: 4, background: 'var(--gray-100)', overflow: 'hidden' }}>
+                      <div style={{ width: `${(c.count / max) * 100}%`, height: '100%', background: c.color, borderRadius: 4 }} />
+                    </div>
+                    <span style={{ width: 28, textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-numeric)', fontSize: 'var(--text-sm)' }}>{c.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {p.description && (
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Stellenbeschreibung</div>
+              <div style={{ fontSize: 'var(--text-sm)', whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{p.description}</div>
+            </div>
+          )}
+          {p.requirements && (
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Anforderungen</div>
+              <div style={{ fontSize: 'var(--text-sm)', whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{p.requirements}</div>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 export function StellenPage() {
   const navigate = useNavigate();
+  const [detailId, setDetailId] = useState<number | null>(null);
   const toast = useToast();
   const invalidate = useInvalidate();
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -236,7 +321,7 @@ export function StellenPage() {
       <div className="grid-stats" style={{ marginBottom: 16 }}>
         <StatCard label="Offene Stellen" value={openCount} icon={<Briefcase size={15} />} />
         <StatCard label="Zu besetzende Plätze" value={totalSeats} icon={<Users size={15} />} />
-        <StatCard label="Aktive Bewerbungen" value={totalApplications} icon={<Users size={15} />} onClick={() => navigate('/recruiting/bewerber')} />
+        <StatCard label="Aktive Bewerbungen" value={totalApplications} icon={<Users size={15} />} onClick={() => navigate('/recruiting/bewerber?tab=bewerbungen&status=aktiv')} />
       </div>
 
       <div className="row" style={{ gap: 8, marginBottom: 16 }}>
@@ -257,7 +342,7 @@ export function StellenPage() {
       ) : (
         <div className="stack" style={{ gap: 12 }}>
           {all.map((p) => (
-            <div key={p.id} className="hm-card">
+            <div key={p.id} className="hm-card hm-card--clickable" onClick={() => setDetailId(p.id)}>
               <div className="hm-card__body">
                 <div className="row row--between" style={{ alignItems: 'flex-start', gap: 12 }}>
                   <div style={{ minWidth: 0 }}>
@@ -268,7 +353,9 @@ export function StellenPage() {
                     <div className="row" style={{ gap: 12, flexWrap: 'wrap', color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginTop: 4 }}>
                       <span>{EMPLOYEE_TYPE_LABELS[p.employment_type]}</span>
                       {p.department_name && <span>· {p.department_name}</span>}
+                      {p.team_name && <span>· Team {p.team_name}</span>}
                       {p.location_name && <span className="row" style={{ gap: 3 }}>· <MapPin size={12} /> {p.location_name}</span>}
+                      {p.hiring_manager_name && <span className="row" style={{ gap: 3 }}>· <UserCog size={12} /> {p.hiring_manager_name}</span>}
                       <span>· {p.seats} {p.seats === 1 ? 'Stelle' : 'Stellen'}</span>
                       {(p.salary_min_cents || p.salary_max_cents) && (
                         <span>· {p.salary_min_cents ? formatEuro(p.salary_min_cents) : '?'}–{p.salary_max_cents ? formatEuro(p.salary_max_cents) : '?'}</span>
@@ -281,7 +368,7 @@ export function StellenPage() {
                       <span style={{ color: 'var(--success)' }}><strong>{p.hired_count ?? 0}</strong> eingestellt</span>
                     </div>
                   </div>
-                  <div className="row" style={{ gap: 4, flexShrink: 0 }}>
+                  <div className="row" style={{ gap: 4, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                     <Select
                       className="hm-select"
                       style={{ maxWidth: 160 }}
@@ -312,6 +399,7 @@ export function StellenPage() {
       )}
 
       <PostingEditor open={editorOpen} initial={editorInitial} editId={editId} onClose={() => setEditorOpen(false)} />
+      <PostingDetailDialog postingId={detailId} onClose={() => setDetailId(null)} />
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Stelle löschen"

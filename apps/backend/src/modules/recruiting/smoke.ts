@@ -219,16 +219,66 @@ let interviewId = 0;
   });
   check('Bewerbung: Einstellung einer abgelehnten -> 409', rejectHire.statusCode === 409);
 
+  // Absage sagt geplante Interviews ab.
+  const rejectedInterviews = db
+    .prepare('SELECT status FROM interviews WHERE application_id = ?')
+    .all(secondId) as { status: string }[];
+  check('Absage: keine geplanten Interviews mehr', rejectedInterviews.every((i) => i.status !== 'geplant'));
+
+  // Rueckzug (dritte Bewerbung) mit geplantem Interview: Interview wird abgesagt,
+  // die Liste der anstehenden Interviews zeigt es nicht mehr.
+  const third = await app.inject({
+    method: 'POST',
+    url: '/api/recruiting/applications',
+    headers: auth,
+    payload: { posting_id: postingId, candidate: { first_name: 'Ida', last_name: 'Roth', source: 'website' }, applied_at: '2026-07-04' },
+  });
+  const thirdId = third.json().application.id as number;
+  const thirdInterview = await app.inject({
+    method: 'POST',
+    url: `/api/recruiting/applications/${thirdId}/interviews`,
+    headers: auth,
+    payload: { kind: 'telefon', scheduled_at: `${new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10)} 09:00` },
+  });
+  const thirdInterviewId = thirdInterview.json().interview.id as number;
+  const withdraw = await app.inject({ method: 'POST', url: `/api/recruiting/applications/${thirdId}/withdraw`, headers: auth });
+  check('Bewerbung: Rueckzug', withdraw.statusCode === 200 && withdraw.json().application.status === 'zurueckgezogen', withdraw.json());
+  const withdrawnInterview = db.prepare('SELECT status FROM interviews WHERE id = ?').get(thirdInterviewId) as { status: string };
+  check('Rueckzug: geplantes Interview abgesagt', withdrawnInterview.status === 'abgesagt', withdrawnInterview);
+  const upcomingAfter = await app.inject({ method: 'GET', url: '/api/recruiting/interviews?upcoming=true', headers: auth });
+  check('Interview: anstehend nur fuer aktive Bewerbungen', !upcomingAfter.json().interviews.some((i: { id: number }) => i.id === thirdInterviewId));
+
+  // Einstellung: Pflichtfelder der Beschaeftigungsart wie POST /api/employees.
+  const hireIncomplete = await app.inject({
+    method: 'POST',
+    url: `/api/recruiting/applications/${applicationId}/hire`,
+    headers: auth,
+    payload: { hire_date: '2026-09-01', weekly_hours: 40, annual_leave_days: 30 },
+  });
+  check('Einstellung: Vollzeit ohne IBAN/Steuerklasse/SV-Nummer -> 400', hireIncomplete.statusCode === 400, hireIncomplete.json());
+
   // erste Bewerbung einstellen → erzeugt Mitarbeitenden + Stelle wird besetzt
   const empBefore = (db.prepare('SELECT COUNT(*) n FROM employees').get() as { n: number }).n;
   const hire = await app.inject({
     method: 'POST',
     url: `/api/recruiting/applications/${applicationId}/hire`,
     headers: auth,
-    payload: { hire_date: '2026-09-01', weekly_hours: 40, annual_leave_days: 30 },
+    payload: {
+      hire_date: '2026-09-01', weekly_hours: 40, annual_leave_days: 30,
+      iban: 'DE02120300000000202051', tax_class: 'I', social_security_number: '12 345678 A 123',
+    },
   });
   check('Bewerbung: Einstellung', hire.statusCode === 200 && hire.json().application.status === 'eingestellt', hire.json());
   const employeeId = hire.json().employee_id as number;
+  const hiredRoles = db
+    .prepare('SELECT r.name FROM employee_roles er JOIN roles r ON r.id = er.role_id WHERE er.employee_id = ?')
+    .all(employeeId) as { name: string }[];
+  check('Einstellung: Fachrolle der Beschaeftigungsart zugewiesen', hiredRoles.some((r) => r.name === 'Vollzeit'), hiredRoles);
+  const hiredEmp = db.prepare('SELECT employee_type, iban, tax_class FROM employees WHERE id = ?').get(employeeId) as Record<string, unknown>;
+  check('Einstellung: Beschaeftigungsart aus der Stelle, Pflichtfelder gespeichert', hiredEmp.employee_type === 'vollzeit' && hiredEmp.iban === 'DE02120300000000202051' && hiredEmp.tax_class === 'I', hiredEmp);
+  const hiredCandidateId = hire.json().application.candidate_id as number;
+  const delHired = await app.inject({ method: 'DELETE', url: `/api/recruiting/candidates/${hiredCandidateId}`, headers: auth });
+  check('Talentpool: Loeschen bei eingestellter Bewerbung -> 409', delHired.statusCode === 409);
   const empAfter = (db.prepare('SELECT COUNT(*) n FROM employees').get() as { n: number }).n;
   check('Einstellung: Mitarbeitender erzeugt (Lebenszyklus-Brücke)', empAfter === empBefore + 1 && !!employeeId);
   const emp = db.prepare('SELECT first_name, last_name, job_title, department_id, hire_date FROM employees WHERE id = ?').get(employeeId) as Record<string, unknown>;
@@ -246,6 +296,50 @@ let interviewId = 0;
     payload: { hire_date: '2026-09-01' },
   });
   check('Bewerbung: doppelte Einstellung -> 409', doubleHire.statusCode === 409);
+}
+
+// ---------------------------------------------------------------------------
+// Kandidatenfoto bleibt bei PUT ohne photo_file_id erhalten
+// ---------------------------------------------------------------------------
+{
+  db.prepare(
+    `INSERT INTO files (id, original_name, stored_name, mime_type, size_bytes, sha256)
+     VALUES (77, 'foto.png', 'x-77.png', 'image/png', 10, 'ff')`,
+  ).run();
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/recruiting/candidates',
+    headers: auth,
+    payload: { first_name: 'Paul', last_name: 'Foto', source: 'website', photo_file_id: 77 },
+  });
+  const cid = created.json().candidate.id as number;
+  const put = await app.inject({
+    method: 'PUT',
+    url: `/api/recruiting/candidates/${cid}`,
+    headers: auth,
+    payload: { first_name: 'Paul', last_name: 'Foto', source: 'website', city: 'Berlin' },
+  });
+  check('Kandidat: PUT ohne photo_file_id behaelt das Foto', put.statusCode === 200 && put.json().candidate.photo_file_id === 77, put.json());
+  const clear = await app.inject({
+    method: 'PUT',
+    url: `/api/recruiting/candidates/${cid}`,
+    headers: auth,
+    payload: { first_name: 'Paul', last_name: 'Foto', source: 'website', photo_file_id: null },
+  });
+  check('Kandidat: PUT mit photo_file_id null entfernt das Foto', clear.json().candidate.photo_file_id === null);
+}
+
+// ---------------------------------------------------------------------------
+// Bereichsneutrale Personenliste
+// ---------------------------------------------------------------------------
+{
+  db.prepare("UPDATE employees SET status = 'ausgeschieden' WHERE id = 1").run();
+  const active = await app.inject({ method: 'GET', url: '/api/lookup/employees', headers: auth });
+  const rows = active.json().employees as { id: number; status: string; iban?: unknown }[];
+  check('Lookup: nur aktive Profile, keine Fachdaten', active.statusCode === 200 && rows.every((r) => r.status === 'aktiv') && rows.every((r) => r.iban === undefined), rows);
+  const all = await app.inject({ method: 'GET', url: '/api/lookup/employees?include_inactive=1', headers: auth });
+  check('Lookup: include_inactive liefert Ausgeschiedene', (all.json().employees as { id: number }[]).some((r) => r.id === 1));
+  db.prepare("UPDATE employees SET status = 'aktiv' WHERE id = 1").run();
 }
 
 // ---------------------------------------------------------------------------

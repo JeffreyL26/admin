@@ -119,7 +119,7 @@ export function CertificatesPage() {
     mutationFn: (id: number) =>
       api.post(`/api/compensation/certificates/${id}/status`, { status: 'ausgehaendigt' }),
     onSuccess: () => {
-      toast.success('Bescheinigung als ausgehändigt markiert');
+      toast.success('Bescheinigung ausgehändigt und als Dokument am Personalprofil abgelegt');
       queryClient.invalidateQueries({ queryKey: ['compensation'] });
     },
     onError: (e) =>
@@ -193,7 +193,12 @@ export function CertificatesPage() {
                     <td style={{ fontWeight: 600 }}>
                       {c.last_name}, {c.first_name}
                     </td>
-                    <td>{CERTIFICATE_KIND_LABELS[c.kind as CertificateKind] ?? c.kind}</td>
+                    <td>
+                      {CERTIFICATE_KIND_LABELS[c.kind as CertificateKind] ?? c.kind}
+                      {c.note && (
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{c.note}</div>
+                      )}
+                    </td>
                     <td>{c.period}</td>
                     <td>{formatDate(c.created_at?.slice(0, 10))}</td>
                     <td>

@@ -230,6 +230,34 @@ export interface ApplicationDto {
   interview_count?: number;
 }
 
+/**
+ * Rumpf von POST /api/recruiting/applications/:id/hire. Die Beschaeftigungsart
+ * kommt ohne Angabe aus der Stelle; die uebrigen Felder sind die Pflichtangaben
+ * je Beschaeftigungsart (EMPLOYEE_TYPE_RULES), die das Backend mit derselben
+ * Pruefung wie POST /api/employees verlangt.
+ */
+export interface HireRequestBody {
+  hire_date: string;
+  employee_type?: EmployeeType;
+  job_title?: string | null;
+  department_id?: number | null;
+  team_id?: number | null;
+  location_id?: number | null;
+  weekly_hours?: number | null;
+  annual_leave_days?: number | null;
+  iban?: string | null;
+  tax_class?: string | null;
+  social_security_number?: string | null;
+  exit_date?: string | null;
+}
+
+/** Antwort der Einstellung: neues Personalprofil und ob die Stelle damit besetzt ist. */
+export interface HireResponse {
+  application: ApplicationDto;
+  employee_id: number;
+  posting_closed: boolean;
+}
+
 export interface ApplicationEventDto {
   id: number;
   application_id: number;

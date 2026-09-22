@@ -8,6 +8,9 @@ import { NewRequestPage } from '../pages/NewRequestPage';
 import { SickNotePage } from '../pages/SickNotePage';
 import { CalendarPage } from '../pages/CalendarPage';
 import { SalaryPage } from '../pages/SalaryPage';
+import { DevelopmentPage } from '../pages/DevelopmentPage';
+import { MeetingsPage } from '../pages/MeetingsPage';
+import { ColleaguesPage } from '../pages/ColleaguesPage';
 
 export * from './de-vollversion.manifest';
 
@@ -18,4 +21,7 @@ export const portalRoutes: RouteObject[] = [
   { path: '/krankmeldung', element: <SickNotePage /> },
   { path: '/kalender', element: <CalendarPage /> },
   { path: '/gehalt', element: <SalaryPage /> },
+  { path: '/entwicklung', element: <DevelopmentPage /> },
+  { path: '/gespraeche', element: <MeetingsPage /> },
+  { path: '/kollegen', element: <ColleaguesPage /> },
 ];

@@ -40,6 +40,8 @@ import {
   type LeadershipReport,
   type LeadershipSettings,
   type LeadershipSettingsPatch,
+  type MeDevelopmentRatingEntry,
+  type MeDevelopmentRatingPeriod,
   type Rating,
   type RatingCategory,
   type RatingCategoryInput,
@@ -927,6 +929,52 @@ export function employeeRatings(employeeId: number): EmployeeRatingsResponse {
     .prepare(`${RATING_SELECT} WHERE r.employee_id = ? ${RATING_ORDER}`)
     .all(employeeId) as Rating[];
   return { ratings, history: historyFor(null, employeeId) };
+}
+
+/**
+ * Eigene Sicht der bewerteten Person (Portal, „Meine Entwicklung“): Werte und
+ * Kommentare der Führungskraft je Zeitraum, ohne Protokoll, ohne Konto-Namen
+ * und ohne die Schreibmetadaten der Admin-Sicht. Dieselbe Quelle wie
+ * `employeeRatings`, nur schmaler projiziert.
+ */
+export function ownRatings(employeeId: number): MeDevelopmentRatingPeriod[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT r.period_key, r.scale, r.score, r.comment, r.updated_at,
+              c.name AS category_name, c.is_overall,
+              COALESCE(le.first_name || ' ' || le.last_name, NULL) AS leader_name
+       FROM leadership_ratings r
+       JOIN rating_categories c ON c.id = r.category_id
+       LEFT JOIN employees le ON le.id = r.leader_employee_id
+       WHERE r.employee_id = ?
+       ${RATING_ORDER}`,
+    )
+    .all(employeeId) as (MeDevelopmentRatingEntry & { period_key: string; leader_name: string | null })[];
+  const byPeriod = new Map<string, MeDevelopmentRatingPeriod>();
+  for (const row of rows) {
+    let label: string;
+    try {
+      label = periodFromKey(row.period_key).label;
+    } catch {
+      continue;
+    }
+    const entry = byPeriod.get(row.period_key) ?? {
+      period_key: row.period_key,
+      period_label: label,
+      leader_name: row.leader_name,
+      entries: [],
+    };
+    entry.entries.push({
+      category_name: row.category_name,
+      is_overall: row.is_overall,
+      scale: row.scale,
+      score: row.score,
+      comment: row.comment,
+      updated_at: row.updated_at,
+    });
+    byPeriod.set(row.period_key, entry);
+  }
+  return [...byPeriod.values()];
 }
 
 /** Zeiträume zur Auswahl: aktueller, die letzten zwölf, alle mit Bewertungen (gleiche Kadenz). */

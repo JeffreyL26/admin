@@ -10,6 +10,7 @@ import {
   EMPLOYEE_STATUS_LABELS,
   EMPLOYEE_TYPE_LABELS,
   formatDate,
+  todayIsoLocal,
   type ContractDto,
 } from '@ohrganize/shared';
 import { ApiRequestError, api, downloadFile } from '../../api/client';
@@ -18,7 +19,8 @@ import { ConfirmDialog } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useContracts, useDocuments, useEmployee, usePhotoUrl, type DocumentRow, type EmployeeRow } from './api';
-import { VisibilityBadge, VisibilityToggle } from './documentVisibility';
+import { SourceBadge, VisibilityBadge, VisibilityToggle } from './documentVisibility';
+import { DocumentEditModal } from './DocumentEditModal';
 import {
   EmploymentFields,
   FinanceFields,
@@ -246,7 +248,26 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
       <ConfirmDialog
         open={confirmDelete}
         title="Mitarbeitende Person löschen?"
-        message={`${employee.first_name} ${employee.last_name} wird endgültig gelöscht. Wenn andere Module Daten referenzieren, setzen Sie stattdessen den Status auf „ausgeschieden“.`}
+        confirmLabel="Endgültig löschen"
+        message={
+          <>
+            <p>
+              {employee.first_name} {employee.last_name} wird endgültig gelöscht. Das lässt sich nicht rückgängig
+              machen.
+            </p>
+            <p style={{ marginTop: 8 }}>Mit gelöscht werden alle zugehörigen Daten:</p>
+            <ul style={{ margin: '6px 0 0 18px' }}>
+              <li>Abwesenheiten, Anträge und Krankmeldungen</li>
+              <li>Verträge und Vertragsdokumente</li>
+              <li>Dokumente der Personalakte samt Dateien</li>
+              <li>Gehaltsdaten, Rechnungen und Bescheinigungen</li>
+              <li>Bewertungen, Beurteilungen und Schulungen</li>
+            </ul>
+            <p style={{ marginTop: 8 }}>
+              Für die Aufbewahrung nach dem Austritt setzen Sie stattdessen den Status auf „ausgeschieden“.
+            </p>
+          </>
+        }
         onConfirm={() => remove.mutate()}
         onClose={() => setConfirmDelete(false)}
       />
@@ -285,10 +306,26 @@ function Notice({ tone, children }: { tone: 'warning' | 'danger'; children: Reac
 // Verträge (Historie als Timeline)
 // ---------------------------------------------------------------------------
 
+/**
+ * Zustand einer Vertragsversion, gleiche Regel wie in contractRoutes.ts:
+ * „aktuell“ ist die jüngste Version (erste der absteigend sortierten Liste),
+ * sofern sie nicht abgelaufen ist; eine Befristung allein macht sie nicht zur
+ * Historie. Nur die aktuelle Version lässt sich korrigieren.
+ */
+function contractState(c: ContractDto, newest: boolean, today: string): 'aktuell' | 'abgelaufen' | 'abgeloest' {
+  const running = c.valid_to === null || c.valid_to >= today;
+  if (running && newest) return 'aktuell';
+  if (!running) return 'abgelaufen';
+  return 'abgeloest';
+}
+
+const CONTRACT_STATE_LABELS = { aktuell: 'Aktuell', abgelaufen: 'Abgelaufen', abgeloest: 'Abgelöst' } as const;
+
 function ContractsTab({ employeeId }: { employeeId: number }) {
   const { data: contracts, isLoading } = useContracts(employeeId);
   const [modalOpen, setModalOpen] = useState(false);
   const [correct, setCorrect] = useState<ContractDto | null>(null);
+  const today = todayIsoLocal();
 
   if (isLoading) return <Spinner center />;
 
@@ -315,7 +352,9 @@ function ContractsTab({ employeeId }: { employeeId: number }) {
         />
       ) : (
         <div className="stack">
-          {contracts!.map((c, i) => (
+          {contracts!.map((c, i) => {
+            const state = contractState(c, i === 0, today);
+            return (
             <div
               key={c.id}
               className="row"
@@ -327,14 +366,12 @@ function ContractsTab({ employeeId }: { employeeId: number }) {
               }}
             >
               <div style={{ paddingTop: 3 }}>
-                <Badge tone={c.valid_to === null ? 'green' : 'neutral'}>
-                  {c.valid_to === null ? 'Offen' : 'Geschlossen'}
-                </Badge>
+                <Badge tone={state === 'aktuell' ? 'green' : 'neutral'}>{CONTRACT_STATE_LABELS[state]}</Badge>
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>
-                  {CONTRACT_TYPE_LABELS[c.contract_type]} · {formatDate(c.valid_from)} –{' '}
-                  {c.valid_to ? formatDate(c.valid_to) : 'offen'}
+                  {CONTRACT_TYPE_LABELS[c.contract_type]} · {formatDate(c.valid_from)} bis{' '}
+                  {c.valid_to ? formatDate(c.valid_to) : 'unbefristet'}
                 </div>
                 <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 3 }}>
                   {[
@@ -364,7 +401,7 @@ function ContractsTab({ employeeId }: { employeeId: number }) {
                     </button>
                   </Tooltip>
                 )}
-                {c.valid_to === null && (
+                {state === 'aktuell' && (
                   <button
                     className="hm-btn hm-btn--secondary hm-btn--sm"
                     onClick={() => {
@@ -377,7 +414,8 @@ function ContractsTab({ employeeId }: { employeeId: number }) {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <ContractModal open={modalOpen} onClose={() => setModalOpen(false)} employeeId={employeeId} correct={correct} />
@@ -401,6 +439,7 @@ function DocumentsTab({ employeeId }: { employeeId: number }) {
   const { data: documents, isLoading } = useDocuments({ employee_id: employeeId, include_superseded: true });
   const [uploadOpen, setUploadOpen] = useState(false);
   const [newVersionOf, setNewVersionOf] = useState<DocumentRow | null>(null);
+  const [editing, setEditing] = useState<DocumentRow | null>(null);
 
   if (isLoading) return <Spinner center />;
 
@@ -444,11 +483,15 @@ function DocumentsTab({ employeeId }: { employeeId: number }) {
                 <tr key={d.id} style={{ opacity: d.is_superseded ? 0.55 : 1 }}>
                   <td>
                     <div style={{ fontWeight: 600 }}>{d.title}</div>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{d.original_name}</div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                      {d.original_name}
+                      {d.note ? ` · ${d.note}` : ''}
+                    </div>
                   </td>
                   <td>
                     <span className="row" style={{ gap: 6 }}>
                       <Badge tone="neutral">{DOCUMENT_CATEGORY_LABELS[d.category]}</Badge>
+                      <SourceBadge source={d.source} />
                       <VisibilityBadge visibility={d.visibility} />
                     </span>
                   </td>
@@ -469,6 +512,15 @@ function DocumentsTab({ employeeId }: { employeeId: number }) {
                           onClick={() => downloadFile(d.file_id)}
                         >
                           <Download size={15} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content={<span className="hm-tooltip__title">Metadaten bearbeiten</span>}>
+                        <button
+                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                          aria-label="Metadaten bearbeiten"
+                          onClick={() => setEditing(d)}
+                        >
+                          <Pencil size={15} />
                         </button>
                       </Tooltip>
                       {!d.is_superseded && (
@@ -499,6 +551,7 @@ function DocumentsTab({ employeeId }: { employeeId: number }) {
         fixedEmployeeId={employeeId}
         supersedes={newVersionOf}
       />
+      <DocumentEditModal doc={editing} onClose={() => setEditing(null)} />
     </Card>
   );
 }
@@ -520,12 +573,16 @@ function OrgTab({
       <Card
         title="Organisatorische Zuordnung"
         actions={
-          <button
-            className="hm-btn hm-btn--secondary hm-btn--sm"
-            onClick={() => navigate(`/personal/organisation?tab=organigramm&person=${employee.id}`)}
-          >
-            <Network size={14} /> Im Organigramm zeigen
-          </button>
+          // Das Organigramm zeigt nur aktive Personen; der Sprung liefe bei
+          // Ausgeschiedenen ins Leere.
+          employee.status === 'aktiv' ? (
+            <button
+              className="hm-btn hm-btn--secondary hm-btn--sm"
+              onClick={() => navigate(`/personal/organisation?tab=organigramm&person=${employee.id}`)}
+            >
+              <Network size={14} /> Im Organigramm zeigen
+            </button>
+          ) : undefined
         }
       >
         <div className="hm-form-grid">

@@ -79,50 +79,6 @@ export const performanceMigrations: Migration[] = [
       );
       CREATE INDEX idx_reviews_cycle_employee ON reviews(cycle_id, employee_id);
 
-      -- ================= Entwicklung & Karriere =================
-      CREATE TABLE development_plans (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-        title TEXT NOT NULL,
-        goal TEXT,
-        status TEXT NOT NULL DEFAULT 'aktiv'
-          CHECK (status IN ('aktiv', 'abgeschlossen', 'abgebrochen')),
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
-      CREATE TABLE development_measures (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        plan_id INTEGER NOT NULL REFERENCES development_plans(id) ON DELETE CASCADE,
-        title TEXT NOT NULL,
-        due_date TEXT,
-        owner_employee_id INTEGER REFERENCES employees(id) ON DELETE SET NULL,
-        status TEXT NOT NULL DEFAULT 'offen'
-          CHECK (status IN ('offen', 'laufend', 'erledigt', 'verworfen')),
-        note TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
-      -- Karrierepfade: je Rolle eine Levelleiter (nächster Schritt = Level+1
-      -- derselben role_name).
-      CREATE TABLE career_levels (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        role_name TEXT NOT NULL,
-        level INTEGER NOT NULL CHECK (level >= 1),
-        title TEXT NOT NULL,
-        requirements TEXT,
-        created_at TEXT NOT NULL DEFAULT (datetime('now')),
-        UNIQUE (role_name, level)
-      );
-
-      CREATE TABLE employee_levels (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-        career_level_id INTEGER NOT NULL REFERENCES career_levels(id) ON DELETE CASCADE,
-        since_date TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-      CREATE INDEX idx_employee_levels_employee ON employee_levels(employee_id);
-
       -- ================= Skills =================
       CREATE TABLE skills (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,6 +215,19 @@ export const performanceMigrations: Migration[] = [
           )
         ) FROM json_each(review_templates.criteria)
       ) WHERE criteria LIKE '%scale_max%';
+    `,
+  },
+  {
+    // Entwicklungspläne und Karrierestufen hatten nie eine Oberfläche; die
+    // Routen sind entfernt, die Tabellen fallen weg. Frischinstallationen
+    // legen sie seit demselben Stand nicht mehr an (300_performance_core),
+    // Bestandsdatenbanken räumen hier auf.
+    name: '330_drop_development_plans',
+    sql: `
+      DROP TABLE IF EXISTS development_measures;
+      DROP TABLE IF EXISTS development_plans;
+      DROP TABLE IF EXISTS employee_levels;
+      DROP TABLE IF EXISTS career_levels;
     `,
   },
 ];

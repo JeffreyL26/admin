@@ -16,7 +16,7 @@ import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, Field, LoadError, SkeletonRows } from '../components/ui';
 import { IconClose, IconDocuments, type IconProps } from '../components/icons';
 import { useToast } from '../components/Toast';
-import { formatDate } from '../lib/format';
+import { formatDate, todayIso } from '../lib/format';
 import { apiErrorMessage, PORTAL_READ_ONLY_NOTICE, READ_ONLY_NOTICE_ID } from '../lib/license';
 import { Select } from '../components/Select';
 
@@ -108,6 +108,32 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / 1024 / 1024).toLocaleString('de-DE', { maximumFractionDigits: 1 })} MB`;
+}
+
+/** Ab so vielen Tagen vor Ablauf zeigt die Liste eine Vorwarnung. */
+const EXPIRY_WARN_DAYS = 30;
+
+/** Tage von heute bis zum ISO-Datum (negativ = liegt zurueck). */
+function daysUntil(iso: string, today: string): number {
+  return Math.round((Date.parse(`${iso}T00:00:00`) - Date.parse(`${today}T00:00:00`)) / 86_400_000);
+}
+
+/**
+ * Ablaufchip: abgelaufen (rot), laeuft bald ab (gelb), sonst nichts. Die
+ * HR-Liste rechnet mit den Erinnerungstagen je Dokument; die kennt das
+ * Portal nicht, deshalb hier eine feste Frist.
+ */
+function ExpiryChip({ expiryDate, today }: { expiryDate: string; today: string }) {
+  const days = daysUntil(expiryDate, today);
+  if (days < 0) return <span className="pt-chip pt-chip--danger">abgelaufen</span>;
+  if (days <= EXPIRY_WARN_DAYS) {
+    return (
+      <span className="pt-chip pt-chip--warning">
+        {days === 0 ? 'läuft heute ab' : days === 1 ? 'läuft morgen ab' : `läuft in ${days} Tagen ab`}
+      </span>
+    );
+  }
+  return null;
 }
 
 /** Dateiname ohne Endung — Vorschlag für das Titelfeld. */
@@ -270,6 +296,8 @@ function UploadCard() {
   const [file, setFile] = useState<File | null>(null);
   const [category, setCategory] = useState<PortalUploadCategory>('bescheinigung');
   const [title, setTitle] = useState('');
+  const [note, setNote] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
   const [fileError, setFileError] = useState<string | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
 
@@ -293,11 +321,19 @@ function UploadCard() {
     if (readOnly || !file || upload.isPending) return;
     setApiError(null);
     upload.mutate(
-      { file, category, title: title.trim() || undefined },
+      {
+        file,
+        category,
+        title: title.trim() || undefined,
+        note: note.trim() || undefined,
+        expiry_date: expiryDate || undefined,
+      },
       {
         onSuccess: (res) => {
           setFile(null);
           setTitle('');
+          setNote('');
+          setExpiryDate('');
           setFileError(null);
           toast.success(`„${res.document.title}“ wurde hochgeladen`);
         },
@@ -364,6 +400,25 @@ function UploadCard() {
               ))}
             </Select>
           </Field>
+          <Field label="Gültig bis" hint="Leer lassen, wenn das Dokument nicht abläuft.">
+            <input
+              className="pt-input"
+              type="date"
+              value={expiryDate}
+              disabled={upload.isPending}
+              onChange={(e) => setExpiryDate(e.target.value)}
+            />
+          </Field>
+          <Field label="Notiz" hint="Optional, zum Beispiel Aussteller oder Zweck.">
+            <input
+              className="pt-input"
+              type="text"
+              value={note}
+              maxLength={2000}
+              disabled={upload.isPending}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </Field>
         </div>
 
         {apiError && (
@@ -392,7 +447,7 @@ function UploadCard() {
 }
 
 /** Eine Zeile der Dokumentenliste samt eigenem Ladezustand für den Download. */
-function DocumentRow({ doc }: { doc: MeDocument }) {
+function DocumentRow({ doc, today }: { doc: MeDocument; today: string }) {
   const toast = useToast();
   const download = useDocumentDownload();
   // Die signierte URL gilt nur wenige Minuten — sie wird deshalb bei jedem
@@ -404,6 +459,11 @@ function DocumentRow({ doc }: { doc: MeDocument }) {
       <td>
         <span style={{ fontWeight: 600 }}>{doc.title}</span>
         <span className="doc-file">{doc.original_name}</span>
+        {doc.note && (
+          <span className="doc-file" style={{ color: 'var(--text-secondary)' }}>
+            {doc.note}
+          </span>
+        )}
       </td>
       <td>{DOCUMENT_CATEGORY_LABELS[doc.category] ?? doc.category}</td>
       <td>
@@ -412,6 +472,16 @@ function DocumentRow({ doc }: { doc: MeDocument }) {
         </span>
       </td>
       <td style={{ whiteSpace: 'nowrap' }}>{formatDate(doc.created_at.slice(0, 10))}</td>
+      <td style={{ whiteSpace: 'nowrap' }}>
+        {doc.expiry_date ? (
+          <span className="row" style={{ gap: 6 }}>
+            {formatDate(doc.expiry_date)}
+            <ExpiryChip expiryDate={doc.expiry_date} today={today} />
+          </span>
+        ) : (
+          <span style={{ color: 'var(--text-muted)' }}>unbefristet</span>
+        )}
+      </td>
       <td style={{ whiteSpace: 'nowrap' }}>
         {fileTypeLabel(doc.mime_type)}
         <span style={{ color: 'var(--text-muted)' }}> · {formatSize(doc.size_bytes)}</span>
@@ -444,6 +514,7 @@ function DocumentRow({ doc }: { doc: MeDocument }) {
 
 export function DocumentsPage() {
   const { data: documents, isLoading, error } = useMyDocuments();
+  const today = todayIso();
 
   return (
     <div>
@@ -490,6 +561,7 @@ export function DocumentsPage() {
                     <th>Kategorie</th>
                     <th>Herkunft</th>
                     <th>Hinterlegt am</th>
+                    <th>Gültig bis</th>
                     <th>Datei</th>
                     <th className="num">Version</th>
                     <th aria-label="Aktionen" />
@@ -497,7 +569,7 @@ export function DocumentsPage() {
                 </thead>
                 <tbody>
                   {documents.map((doc) => (
-                    <DocumentRow key={doc.id} doc={doc} />
+                    <DocumentRow key={doc.id} doc={doc} today={today} />
                   ))}
                 </tbody>
               </table>

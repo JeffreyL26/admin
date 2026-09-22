@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, History, Plus, ScrollText, Wallet, X } from 'lucide-react';
+import { ArrowLeft, Check, History, Plus, Receipt, ScrollText, Wallet, X } from 'lucide-react';
 import {
   formatDate,
   formatEuro,
@@ -12,12 +12,14 @@ import {
   type SalaryComponentKind,
 } from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
-import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
+import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { Modal } from '../../components/Modal';
+import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
+import { useAuth } from '../../auth/AuthContext';
 import { useBackTo } from '../../lib/backTo';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
-import { parseEuroInput } from './lib';
+import { parseEuroInput, STATUS_TONES } from './lib';
 import { Select } from '../../components/Select';
 
 interface SalaryOverviewRow {
@@ -52,9 +54,13 @@ interface ChangeRequestRow {
   effective_date: string;
   reason: string;
   status: string;
+  requested_by_user_id: number | null;
   requested_by_name: string | null;
+  decided_by_user_id: number | null;
   decided_by_name: string | null;
+  decided_at: string | null;
   decision_note: string | null;
+  created_at: string;
 }
 
 interface AuditEntry {
@@ -286,9 +292,22 @@ function ComponentDialog({
   );
 }
 
+/**
+ * Vier-Augen-Prinzip (Vorbild absences/RequestsPage.tsx): Das Backend weist die
+ * Genehmigung des eigenen Antrags mit 403 ab. Die Schaltflaeche ist deshalb
+ * schon hier gesperrt, damit niemand vergeblich klickt; Ablehnen bleibt
+ * moeglich (Rueckzug, kein Entscheid).
+ */
+function useIsOwnRequest() {
+  const { user } = useAuth();
+  const ownUserId = user?.id ?? null;
+  return (r: ChangeRequestRow) => ownUserId !== null && r.requested_by_user_id === ownUserId;
+}
+
 function PendingRequests() {
   const toast = useToast();
   const queryClient = useQueryClient();
+  const isOwnRequest = useIsOwnRequest();
   const { data, isLoading } = useQuery({
     queryKey: ['compensation', 'change-requests', 'beantragt'],
     queryFn: () =>
@@ -344,12 +363,26 @@ function PendingRequests() {
                 <td>{r.requested_by_name ?? '—'}</td>
                 <td>
                   <div className="row" style={{ justifyContent: 'flex-end' }}>
-                    <button
-                      className="hm-btn hm-btn--primary hm-btn--sm"
-                      onClick={() => setDecideFor({ request: r, decision: 'genehmigt' })}
+                    <Tooltip
+                      content={
+                        isOwnRequest(r) ? (
+                          <>
+                            <span className="hm-tooltip__title">Vier-Augen-Prinzip</span>
+                            <span className="hm-tooltip__line">
+                              Eigener Antrag · Genehmigung durch eine andere Person der HR-Administration
+                            </span>
+                          </>
+                        ) : null
+                      }
                     >
-                      <Check size={14} /> Genehmigen
-                    </button>
+                      <button
+                        className="hm-btn hm-btn--primary hm-btn--sm"
+                        disabled={isOwnRequest(r)}
+                        onClick={() => setDecideFor({ request: r, decision: 'genehmigt' })}
+                      >
+                        <Check size={14} /> Genehmigen
+                      </button>
+                    </Tooltip>
                     <button
                       className="hm-btn hm-btn--danger hm-btn--sm"
                       onClick={() => setDecideFor({ request: r, decision: 'abgelehnt' })}
@@ -412,6 +445,85 @@ function PendingRequests() {
   );
 }
 
+/** Entschiedene Antraege (genehmigt oder abgelehnt) mit Entscheider, Datum und Anmerkung. */
+function DecidedRequests() {
+  const [status, setStatus] = useState<'genehmigt' | 'abgelehnt'>('genehmigt');
+  const { data, isLoading } = useQuery({
+    queryKey: ['compensation', 'change-requests', status],
+    queryFn: () =>
+      api.get<{ requests: ChangeRequestRow[] }>(`/api/compensation/change-requests?status=${status}`),
+    select: (d) => d.requests,
+  });
+
+  return (
+    <Card
+      flush
+      title={
+        <Tabs
+          size="sm"
+          ariaLabel="Entschiedene Anträge"
+          tabs={[
+            { key: 'genehmigt', label: 'Genehmigte Anträge' },
+            { key: 'abgelehnt', label: 'Abgelehnte Anträge' },
+          ]}
+          active={status}
+          onChange={(k) => setStatus(k as 'genehmigt' | 'abgelehnt')}
+        />
+      }
+    >
+      {isLoading ? (
+        <Spinner center />
+      ) : (data ?? []).length === 0 ? (
+        <EmptyState
+          title={status === 'genehmigt' ? 'Keine genehmigten Anträge' : 'Keine abgelehnten Anträge'}
+          hint="Entschiedene Änderungsanträge bleiben hier nachvollziehbar."
+        />
+      ) : (
+        <div className="hm-table-wrap">
+          <table className="hm-table">
+            <thead>
+              <tr>
+                <th>Mitarbeiter:in</th>
+                <th>Art</th>
+                <th className="num">Betrag</th>
+                <th>Wirksam ab</th>
+                <th>Begründung</th>
+                <th>Beantragt von</th>
+                <th>Entschieden</th>
+                <th>Anmerkung</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data ?? []).map((r) => (
+                <tr key={r.id}>
+                  <td style={{ fontWeight: 600 }}>
+                    {r.last_name}, {r.first_name}
+                  </td>
+                  <td>{kindLabel(r.kind)}</td>
+                  <td className="num">{formatEuro(r.new_amount_cents)}</td>
+                  <td>{formatDate(r.effective_date)}</td>
+                  <td style={{ maxWidth: 240, color: 'var(--text-muted)' }}>{r.reason}</td>
+                  <td>{r.requested_by_name ?? '—'}</td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <Badge tone={STATUS_TONES[r.status] ?? 'neutral'}>
+                      {r.status === 'genehmigt' ? 'Genehmigt' : 'Abgelehnt'}
+                    </Badge>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
+                      {r.decided_by_name ?? '—'}
+                      {r.decided_at ? ` · ${formatDate(r.decided_at.slice(0, 10))}` : ''}
+                    </div>
+                  </td>
+                  <td style={{ maxWidth: 240, color: 'var(--text-muted)' }}>{r.decision_note ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function EmployeeDetail({
   employeeId,
   onBack,
@@ -456,12 +568,44 @@ function EmployeeDetail({
   if (salaryQuery.isLoading) return <Spinner center />;
   const salary = salaryQuery.data;
   if (!salary) return <EmptyState title="Vergütung konnte nicht geladen werden" />;
+  const typeLabel = EMPLOYEE_TYPE_LABELS[salary.employee_type as EmployeeType] ?? salary.employee_type;
+
+  // Freiberufler:innen werden ueber Honorare verguetet; Komponenten und
+  // Aenderungsantraege weist das Backend fuer sie mit 400 ab. Statt einer
+  // leeren Gehaltsseite fuehrt der Weg zu den Honoraren.
+  if (salary.employee_type === 'freiberufler') {
+    return (
+      <>
+        <PageHeader
+          title={`${salary.first_name} ${salary.last_name}`}
+          subtitle={typeLabel}
+          actions={
+            <button className="hm-btn hm-btn--secondary" onClick={onBack}>
+              <ArrowLeft size={16} /> {backLabel}
+            </button>
+          }
+        />
+        <Card>
+          <EmptyState
+            icon={<Receipt size={40} />}
+            title="Vergütung über Honorare"
+            hint="Freiberufler:innen haben keine Gehaltskomponenten. Honorarsätze und Rechnungen stehen unter Freiberufler & Honorare."
+            action={
+              <Link className="hm-btn hm-btn--primary" to="/verguetung/honorare">
+                <Receipt size={16} /> Zu den Honoraren
+              </Link>
+            }
+          />
+        </Card>
+      </>
+    );
+  }
 
   return (
     <>
       <PageHeader
         title={`${salary.first_name} ${salary.last_name}`}
-        subtitle={`${EMPLOYEE_TYPE_LABELS[salary.employee_type as EmployeeType] ?? salary.employee_type} · Monatsbrutto ${formatEuro(salary.monthly_gross_cents)}`}
+        subtitle={`${typeLabel} · Monatsbrutto ${formatEuro(salary.monthly_gross_cents)}`}
         actions={
           <>
             <button className="hm-btn hm-btn--secondary" onClick={onBack}>
@@ -561,6 +705,7 @@ function EmployeeDetail({
                     <th>Was</th>
                     <th className="num">Alt → Neu</th>
                     <th>Warum</th>
+                    <th>Anmerkung zur Entscheidung</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -582,7 +727,10 @@ function EmployeeDetail({
                           : '—'}
                       </td>
                       <td style={{ maxWidth: 300, color: 'var(--text-muted)' }}>
-                        {a.details?.reason ?? a.details?.decision_note ?? '—'}
+                        {a.details?.reason ?? '—'}
+                      </td>
+                      <td style={{ maxWidth: 300, color: 'var(--text-muted)' }}>
+                        {a.details?.decision_note ?? '—'}
                       </td>
                     </tr>
                   ))}
@@ -685,6 +833,7 @@ export function SalariesPage() {
             </div>
           )}
         </Card>
+        <DecidedRequests />
       </div>
       <ChangeRequestDialog open={requestDialog} onClose={() => setRequestDialog(false)} />
     </>

@@ -262,6 +262,19 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       | { name: string }
       | undefined;
     if (!existing) throw notFound('Abteilung nicht gefunden');
+    // Unterabteilungen verlieren per ON DELETE SET NULL still ihre Einordnung
+    // und ruecken auf die oberste Ebene. Das soll niemand aus Versehen
+    // ausloesen: erst umhaengen oder loeschen, dann die Abteilung.
+    const children = getDb()
+      .prepare('SELECT name FROM departments WHERE parent_id = ? ORDER BY name COLLATE NOCASE')
+      .all(id) as { name: string }[];
+    if (children.length > 0) {
+      throw conflict(
+        `„${existing.name}“ hat noch ${children.length === 1 ? 'eine Unterabteilung' : `${children.length} Unterabteilungen`} (${children
+          .map((c) => c.name)
+          .join(', ')}). Bitte zuerst umhängen oder löschen.`,
+      );
+    }
     getDb().prepare('DELETE FROM departments WHERE id = ?').run(id);
     audit(req, 'delete', 'department', id, { name: existing.name });
     reply.status(204);

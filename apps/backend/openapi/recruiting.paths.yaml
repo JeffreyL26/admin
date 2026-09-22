@@ -58,13 +58,13 @@ paths:
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
       responses: { "200": { description: Bewerber:in } }
     put:
-      summary: Bewerber:in bearbeiten
+      summary: Bewerber:in bearbeiten (photo_file_id ohne Angabe bleibt erhalten, null entfernt das Foto)
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
       responses: { "200": { description: Aktualisiert } }
     delete:
-      summary: Bewerber:in löschen (kaskadiert Bewerbungen)
+      summary: Bewerber:in löschen (kaskadiert Bewerbungen; 409 bei eingestellter Bewerbung)
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
-      responses: { "204": { description: Gelöscht } }
+      responses: { "204": { description: Gelöscht }, "409": { description: Ueber eine Bewerbung eingestellt } }
 
   /api/recruiting/applications:
     get:
@@ -99,22 +99,26 @@ paths:
       responses: { "201": { description: Notiz gespeichert } }
   /api/recruiting/applications/{id}/reject:
     post:
-      summary: Bewerbung ablehnen (Grund erforderlich)
+      summary: Bewerbung ablehnen (Grund erforderlich; geplante Interviews werden abgesagt)
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
       responses: { "200": { description: Abgelehnt } }
   /api/recruiting/applications/{id}/withdraw:
     post:
-      summary: Bewerbung zurückziehen
+      summary: Bewerbung zurückziehen (geplante Interviews werden abgesagt)
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
       responses: { "200": { description: Zurückgezogen } }
   /api/recruiting/applications/{id}/hire:
     post:
       summary: >
-        Einstellen — Lebenszyklus-Brücke: legt einen Mitarbeitenden-Grunddatensatz
-        an (converted_employee_id) und setzt die Stelle bei voller Belegung auf besetzt.
+        Einstellen (Lebenszyklus-Bruecke): legt ein Personalprofil an (converted_employee_id),
+        prueft die Pflichtfelder der Beschaeftigungsart wie POST /api/employees
+        (employee_type ohne Angabe aus der Stelle; iban, tax_class, social_security_number,
+        exit_date, weekly_hours, annual_leave_days je Regel), weist die gleichnamige Fachrolle zu,
+        sagt geplante Interviews ab und setzt die Stelle bei voller Belegung auf besetzt.
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
       responses:
-        "200": { description: Eingestellt inkl. employee_id }
+        "200": { description: Eingestellt inkl. employee_id und posting_closed }
+        "400": { description: Pflichtangaben der Beschaeftigungsart unvollstaendig }
         "409": { description: Bewerbung nicht einstellbar }
   /api/recruiting/applications/{id}/interviews:
     post:
@@ -124,7 +128,7 @@ paths:
 
   /api/recruiting/interviews:
     get:
-      summary: Interviews (Filter status, upcoming)
+      summary: Interviews (Filter status, upcoming; upcoming nur fuer aktive Bewerbungen)
       parameters:
         - { name: status, in: query, schema: { type: string } }
         - { name: upcoming, in: query, schema: { type: boolean } }

@@ -48,6 +48,48 @@ check('12 Standardarten geseedet', types.statusCode === 200 && typeList.length =
 const urlaubType = typeList.find((t) => t.name === 'Urlaub')!;
 const bildungType = typeList.find((t) => t.name === 'Bildungsurlaub')!;
 check('Urlaub & Bildungsurlaub vorhanden', !!urlaubType && !!bildungType);
+const krankheitType = typeList.find((t) => t.category === 'krankheit')!;
+
+// Freigegebene Arten je Person (HR-Erfassung filtert damit die Auswahl).
+const allowedAll = await get('/api/absences/types/allowed?employee_id=1');
+check(
+  'Freigegebene Arten ohne Regeln = alle Arten',
+  allowedAll.statusCode === 200 && allowedAll.json().type_ids.length === typeList.length,
+  allowedAll.json(),
+);
+const allowedNoEmp = await get('/api/absences/types/allowed');
+check('Freigegebene Arten ohne employee_id → 400', allowedNoEmp.statusCode === 400);
+const allowedUnknown = await get('/api/absences/types/allowed?employee_id=999');
+check('Freigegebene Arten fuer unbekannte Person → 404', allowedUnknown.statusCode === 404);
+db.prepare("INSERT INTO absence_type_employee_rules (type_id, employee_id, effect) VALUES (?, 1, 'deny')").run(
+  bildungType.id,
+);
+const allowedDeny = await get('/api/absences/types/allowed?employee_id=1');
+check(
+  'deny-Regel nimmt die Art aus der Liste',
+  !allowedDeny.json().type_ids.includes(bildungType.id) && allowedDeny.json().type_ids.includes(urlaubType.id),
+  allowedDeny.json(),
+);
+const deniedRequest = await post('/api/absences/requests', {
+  employee_id: 1,
+  type_id: bildungType.id,
+  date_from: '2026-03-02',
+  date_to: '2026-03-03',
+});
+check(
+  'HR-Erfassung einer gesperrten Art → 403 mit Namen der Person',
+  deniedRequest.statusCode === 403 && /Anna Adler/.test(deniedRequest.json().error.message),
+  deniedRequest.json(),
+);
+db.prepare('DELETE FROM absence_type_employee_rules WHERE type_id = ?').run(bildungType.id);
+
+const sickAsRequest = await post('/api/absences/requests', {
+  employee_id: 1,
+  type_id: krankheitType.id,
+  date_from: '2026-03-02',
+  date_to: '2026-03-03',
+});
+check('Kategorie krankheit als Antrag → 400 (Krankmeldung nutzen)', sickAsRequest.statusCode === 400, sickAsRequest.json());
 
 const badType = await post('/api/absences/types', {
   name: 'X',
@@ -218,6 +260,32 @@ const r2 = await post('/api/absences/requests', {
 check('Dez-Antrag zählt Betriebsruhe/Feiertage nicht mit (3 Tage)', r2.json().request.days_counted === 3, r2.json());
 const r2Id = r2.json().request.id as number;
 await post(`/api/absences/requests/${r2Id}/approve`);
+
+// Betriebsruhe loeschen und neu anlegen: days_counted der ueberlappenden
+// Antraege folgt dem Kalender (ohne Betriebsruhe 8 Tage, mit ihr wieder 3).
+const closureId = closure.json().closure.id as number;
+const delClosure = await app.inject({ method: 'DELETE', url: `/api/absences/closures/${closureId}`, headers: auth });
+const r2AfterDelete = (await get(`/api/absences/requests?employee_id=1`)).json().requests.find(
+  (r: { id: number }) => r.id === r2Id,
+);
+check(
+  'Betriebsruhe geloescht → Dez-Antrag neu gezaehlt (8 Tage)',
+  delClosure.statusCode === 204 && r2AfterDelete.days_counted === 8,
+  r2AfterDelete,
+);
+const closureAgain = await post('/api/absences/closures', {
+  name: 'Zwischen den Jahren',
+  date_from: '2026-12-24',
+  date_to: '2026-12-31',
+});
+const r2AfterCreate = (await get(`/api/absences/requests?employee_id=1`)).json().requests.find(
+  (r: { id: number }) => r.id === r2Id,
+);
+check(
+  'Betriebsruhe angelegt → Dez-Antrag neu gezaehlt (3 Tage), recounted_requests 1',
+  closureAgain.statusCode === 201 && closureAgain.json().recounted_requests === 1 && r2AfterCreate.days_counted === 3,
+  { closure: closureAgain.json(), request: r2AfterCreate },
+);
 
 const r3 = await post('/api/absences/requests', {
   employee_id: 1,
@@ -393,12 +461,13 @@ check(
 );
 
 // ---------------------------------------------------------------- Kalender ---
-// Ben ebenfalls 21./22.12. im Urlaub → Team "Backend" (2 Mitglieder) zu 100 % abwesend.
+// Ben ebenfalls 21. bis 25.12. im Urlaub → Team "Backend" (2 Mitglieder) zu 100 % abwesend;
+// 24.12. ist Betriebsruhe, 25.12. Feiertag: an beiden Tagen fehlt niemand dem Team.
 const rBen = await post('/api/absences/requests', {
   employee_id: 2,
   type_id: urlaubType.id,
   date_from: '2026-12-21',
-  date_to: '2026-12-22',
+  date_to: '2026-12-25',
 });
 await post(`/api/absences/requests/${rBen.json().request.id}/approve`);
 
@@ -412,6 +481,11 @@ check('Kalender: Betriebsruhe enthalten', calJson.closures.length === 1);
 check(
   'Kalender: Konflikt am 21.12. (Team komplett abwesend)',
   calJson.conflicts.some((c: { date: string; ratio: number }) => c.date === '2026-12-21' && c.ratio > 0.5),
+  calJson.conflicts,
+);
+check(
+  'Kalender: kein Konflikt an Betriebsruhe (24.12.) und Feiertag (25.12.)',
+  !calJson.conflicts.some((c: { date: string }) => c.date === '2026-12-24' || c.date === '2026-12-25'),
   calJson.conflicts,
 );
 

@@ -7,6 +7,13 @@ import { signDownloadUrl } from '../../core/files.js';
 import { todayIso } from '../../core/dates.js';
 import { assertSeatsAvailable } from '../../core/license.js';
 import { isoDateString } from '../../core/validation.js';
+import { EMPLOYEE_TYPE_LABELS, taxClassesFor, type EmployeeType } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
+// Nur lesend importiert: Die Einstellung legt ein Personalprofil an und muss
+// dieselben Pflichtfeld-Regeln erfuellen wie POST /api/employees, sonst
+// entstuende ueber das Recruiting ein Profil, das die Personalakte so nie
+// annaehme (modul-kontrakte.md §2).
+import { assertExitNotBeforeHire, assertTypeRules } from '../employees/validation.js';
 
 // ---------------------------------------------------------------------------
 // Gemeinsame Helfer
@@ -301,6 +308,38 @@ function logEvent(
       opts.toStage ?? null,
       opts.userId ?? null,
     );
+}
+
+/**
+ * Geplante Interviews einer Bewerbung absagen. Wird bei Absage, Rueckzug und
+ * Einstellung gerufen: Ein Termin fuer eine entschiedene Bewerbung stuende
+ * sonst weiter als „anstehend“ im Dashboard und in der Interviewliste.
+ * Stattgefundene Interviews bleiben unangetastet (Scorecards sind Historie).
+ */
+function cancelPlannedInterviews(applicationId: number): number {
+  return getDb()
+    .prepare("UPDATE interviews SET status = 'abgesagt' WHERE application_id = ? AND status = 'geplant'")
+    .run(applicationId).changes;
+}
+
+/**
+ * Fachrolle zur Beschaeftigungsart zuweisen, falls es sie gibt. Migration 102
+ * legt je Beschaeftigungsart eine gleichnamige Rolle an (Name = Label); wer
+ * sie umbenannt oder geloescht hat, bekommt hier bewusst keine Zuweisung,
+ * denn die Rollen driften seit dem Start absichtlich von der
+ * Beschaeftigungsart weg.
+ */
+function assignTypeRole(employeeId: number, employeeType: string): number | null {
+  const name = EMPLOYEE_TYPE_LABELS[employeeType as EmployeeType];
+  if (!name) return null;
+  const role = getDb().prepare('SELECT id FROM roles WHERE name = ? AND active = 1').get(name) as
+    | { id: number }
+    | undefined;
+  if (!role) return null;
+  getDb()
+    .prepare('INSERT OR IGNORE INTO employee_roles (employee_id, role_id) VALUES (?, ?)')
+    .run(employeeId, role.id);
+  return role.id;
 }
 
 // ---------------------------------------------------------------------------
@@ -632,8 +671,12 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
 
   app.put('/api/recruiting/candidates/:id', async (req) => {
     const { id } = parse(idParam, req.params);
-    getCandidate(id);
+    const existing = getCandidate(id);
     const body = parse(candidateBodySchema, req.body);
+    // Fehlt photo_file_id im Rumpf, bleibt das Foto erhalten: Der Editor
+    // schickt das Feld nur, wenn ein Foto gewaehlt wurde; explizites null
+    // entfernt es.
+    const photoFileId = body.photo_file_id === undefined ? existing.photo_file_id : body.photo_file_id;
     getDb()
       .prepare(
         `UPDATE candidates SET first_name = ?, last_name = ?, email = ?, phone = ?, city = ?,
@@ -650,7 +693,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
         body.source,
         body.headline ?? null,
         body.linkedin_url ?? null,
-        body.photo_file_id ?? null,
+        photoFileId,
         body.note ?? null,
         body.consent_until ?? null,
         id,
@@ -662,6 +705,18 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
   app.delete('/api/recruiting/candidates/:id', async (req, reply) => {
     const { id } = parse(idParam, req.params);
     const candidate = getCandidate(id);
+    // Eine eingestellte Bewerbung ist der Nachweis, woher das Personalprofil
+    // stammt (converted_employee_id). Loeschen naehme die Kaskade mit.
+    const hired = (
+      getDb()
+        .prepare("SELECT COUNT(*) AS n FROM applications WHERE candidate_id = ? AND status = 'eingestellt'")
+        .get(id) as { n: number }
+    ).n;
+    if (hired > 0) {
+      throw conflict(
+        'Diese Person wurde ueber eine Bewerbung eingestellt. Der Talentpool-Eintrag bleibt als Nachweis erhalten.',
+      );
+    }
     getDb().prepare('DELETE FROM candidates WHERE id = ?').run(id);
     audit(req, 'delete', 'candidate', id, {
       name: `${candidate.first_name} ${candidate.last_name}`,
@@ -888,6 +943,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
          WHERE id = ?`,
       )
       .run(rejected.id, body.reason, id);
+    cancelPlannedInterviews(id);
     logEvent(id, 'absage', { body: body.reason, fromStage: appl.stage_id, toStage: rejected.id, userId: userId(req) });
     audit(req, 'reject', 'application', id, { reason: body.reason });
     return { application: applicationRow(id) };
@@ -906,6 +962,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
         "UPDATE applications SET status = 'zurueckgezogen', decided_at = datetime('now') WHERE id = ?",
       )
       .run(id);
+    cancelPlannedInterviews(id);
     logEvent(id, 'status', { body: 'Bewerbung zurückgezogen', userId: userId(req) });
     audit(req, 'withdraw', 'application', id);
     return { application: applicationRow(id) };
@@ -916,11 +973,15 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
    *
    * KONTRAKT (docs/modul-kontrakte.md §2): Dies ist der EINZIGE erlaubte
    * Schreibzugriff eines Fachmoduls auf `employees` außerhalb des Personals.
-   * Es wird bewusst nur ein Stammdaten-Grundgerüst angelegt (Name, Kontakt,
-   * Orga, Eintritt) — die HR vervollständigt Steuer/SV/Bank im Personal-Modul.
+   * Angelegt wird ein Grundgeruest (Name, Kontakt, Orga, Eintritt) plus die
+   * Pflichtfelder der gewaehlten Beschaeftigungsart (assertTypeRules, dieselbe
+   * Pruefung wie POST /api/employees); alles Weitere pflegt die HR in der
+   * Personalakte. Die zur Beschaeftigungsart gleichnamige Fachrolle wird
+   * zugewiesen, geplante Interviews werden abgesagt.
    */
   app.post('/api/recruiting/applications/:id/hire', async (req) => {
     const { id } = parse(idParam, req.params);
+    const taxClasses = taxClassesFor(VARIANT.country);
     const body = parse(
       z.object({
         hire_date: isoDate,
@@ -929,8 +990,17 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
         department_id: z.number().int().positive().nullable().optional(),
         team_id: z.number().int().positive().nullable().optional(),
         location_id: z.number().int().positive().nullable().optional(),
-        weekly_hours: z.number().min(0).max(80).nullable().optional(),
-        annual_leave_days: z.number().min(0).max(365).nullable().optional(),
+        // Grenzen wie employeeBodySchema (modules/employees/validation.ts).
+        weekly_hours: z.number().min(0).max(60).nullable().optional(),
+        annual_leave_days: z.number().min(0).max(100).nullable().optional(),
+        // Pflichtfelder je Beschaeftigungsart (EMPLOYEE_TYPE_RULES).
+        iban: z.string().trim().max(500).nullable().optional(),
+        tax_class:
+          taxClasses.length === 0
+            ? z.null().optional()
+            : z.enum(taxClasses as unknown as [string, ...string[]]).nullable().optional(),
+        social_security_number: z.string().trim().max(500).nullable().optional(),
+        exit_date: isoDate.nullable().optional(),
       }),
       req.body,
     );
@@ -958,6 +1028,32 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     if (appl.status === 'abgelehnt' || appl.status === 'zurueckgezogen') {
       throw conflict('Nur aktive Bewerbungen können eingestellt werden');
     }
+    // Das neue Personalprofil: Beschaeftigungsart aus der Stelle, sofern der
+    // Dialog nichts anderes waehlt. Dieselben Pflichtfeld-Regeln wie
+    // POST /api/employees, sonst legte das Recruiting ein Profil an, das die
+    // Personalabteilung so nie speichern koennte.
+    const employee: Record<string, unknown> = {
+      first_name: appl.first_name,
+      last_name: appl.last_name,
+      email: appl.email,
+      phone: appl.phone,
+      employee_type: body.employee_type ?? appl.employment_type,
+      status: 'aktiv',
+      job_title: body.job_title ?? appl.posting_title,
+      department_id: body.department_id ?? appl.p_dep,
+      team_id: body.team_id ?? appl.p_team,
+      location_id: body.location_id ?? appl.p_loc,
+      hire_date: body.hire_date,
+      exit_date: body.exit_date ?? null,
+      weekly_hours: body.weekly_hours ?? null,
+      annual_leave_days: body.annual_leave_days ?? null,
+      iban: body.iban || null,
+      tax_class: body.tax_class ?? null,
+      social_security_number: body.social_security_number || null,
+    };
+    assertTypeRules(employee);
+    assertExitNotBeforeHire(employee);
+
     // Die Einstellung legt ein aktives Personalprofil an — Platzgrenze der
     // Lizenz prüfen, bevor die Transaktion beginnt (core/license.ts).
     assertSeatsAvailable(1);
@@ -968,24 +1064,31 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
         .prepare(
           `INSERT INTO employees
              (first_name, last_name, email, phone, employee_type, status, job_title,
-              department_id, team_id, location_id, hire_date, weekly_hours, annual_leave_days)
-           VALUES (?, ?, ?, ?, ?, 'aktiv', ?, ?, ?, ?, ?, ?, ?)`,
+              department_id, team_id, location_id, hire_date, exit_date, weekly_hours,
+              annual_leave_days, iban, tax_class, social_security_number)
+           VALUES (?, ?, ?, ?, ?, 'aktiv', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
-          appl.first_name,
-          appl.last_name,
-          appl.email,
-          appl.phone,
-          body.employee_type ?? appl.employment_type,
-          body.job_title ?? appl.posting_title,
-          body.department_id ?? appl.p_dep,
-          body.team_id ?? appl.p_team,
-          body.location_id ?? appl.p_loc,
-          body.hire_date,
-          body.weekly_hours ?? null,
-          body.annual_leave_days ?? null,
+          employee.first_name,
+          employee.last_name,
+          employee.email,
+          employee.phone,
+          employee.employee_type,
+          employee.job_title,
+          employee.department_id,
+          employee.team_id,
+          employee.location_id,
+          employee.hire_date,
+          employee.exit_date,
+          employee.weekly_hours,
+          employee.annual_leave_days,
+          employee.iban,
+          employee.tax_class,
+          employee.social_security_number,
         );
       const employeeId = Number(empInfo.lastInsertRowid);
+      const roleId = assignTypeRole(employeeId, String(employee.employee_type));
+      cancelPlannedInterviews(id);
       getDb()
         .prepare(
           `UPDATE applications
@@ -1015,13 +1118,14 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
           .run(appl.posting_id);
         postingClosed = true;
       }
-      return { employeeId, postingClosed };
+      return { employeeId, postingClosed, roleId };
     });
 
     audit(req, 'create', 'employee', result.employeeId, {
       source: 'recruiting',
       application_id: id,
       name: `${appl.first_name} ${appl.last_name}`,
+      role_id: result.roleId,
     });
     audit(req, 'hire', 'application', id, { employee_id: result.employeeId });
     return {
@@ -1047,7 +1151,9 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
       params.push(q.status);
     }
     if (q.upcoming) {
-      where.push("i.status = 'geplant' AND substr(i.scheduled_at, 1, 10) >= ?");
+      // Nur aktive Bewerbungen: Ein Termin einer entschiedenen Bewerbung ist
+      // kein anstehendes Interview mehr, auch wenn er noch als geplant steht.
+      where.push("i.status = 'geplant' AND substr(i.scheduled_at, 1, 10) >= ? AND a.status = 'aktiv'");
       params.push(todayIso());
     }
     const rows = getDb()

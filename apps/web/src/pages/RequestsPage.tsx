@@ -191,7 +191,18 @@ export function RequestsPage() {
                       )}
                     </td>
                     <td style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                      {r.decided_at ? (
+                      {/* Ein Rueckzug ist kein Entscheid: decided_by ist hier die
+                          zurueckziehende Person selbst, ein Name irritierte nur. */}
+                      {r.status === 'storniert' ? (
+                        <>
+                          zurückgezogen
+                          {r.decided_at && (
+                            <span style={{ display: 'block', fontSize: 'var(--text-xs)' }}>
+                              {formatDate(r.decided_at.slice(0, 10))}
+                            </span>
+                          )}
+                        </>
+                      ) : r.decided_at ? (
                         <>
                           {r.decided_by_name ?? 'System'}
                           <span style={{ display: 'block', fontSize: 'var(--text-xs)' }}>

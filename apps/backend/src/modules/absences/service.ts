@@ -408,12 +408,73 @@ function isTypeAllowed(employeeId: number, typeId: number, category: string): bo
   return row.listed === 0 || row.matched > 0;
 }
 
-/** Wirft 403, wenn die Person diese Abwesenheitsart nicht beantragen darf. */
-export function assertTypeAllowed(employeeId: number, type: AbsenceTypeRow): void {
+/**
+ * Wirft 403, wenn die Person diese Abwesenheitsart nicht beantragen darf.
+ * `self` unterscheidet die Anrede: Wer fuer sich selbst beantragt (Portal),
+ * liest "fuer Sie"; die HR-Erfassung fuer eine andere Person liest den Namen,
+ * sonst suchte die Sachbearbeitung den Fehler bei sich selbst.
+ */
+export function assertTypeAllowed(employeeId: number, type: AbsenceTypeRow, self = true): void {
   if (isTypeAllowed(employeeId, type.id, type.category)) return;
+  if (self) {
+    throw forbidden(
+      `Die Abwesenheitsart „${type.name}“ ist für Sie nicht freigegeben. Bitte wenden Sie sich an die Personalabteilung.`,
+    );
+  }
+  const emp = getDb()
+    .prepare('SELECT first_name, last_name FROM employees WHERE id = ?')
+    .get(employeeId) as { first_name: string; last_name: string } | undefined;
+  const name = emp ? `${emp.first_name} ${emp.last_name}` : 'diese Person';
   throw forbidden(
-    `Die Abwesenheitsart „${type.name}“ ist für Sie nicht freigegeben. Bitte wenden Sie sich an die Personalabteilung.`,
+    `Die Abwesenheitsart „${type.name}“ ist für ${name} nicht freigegeben. Die Berechtigung lässt sich unter Abwesenheitsarten anpassen.`,
   );
+}
+
+/**
+ * Rechnet `days_counted` aller offenen und genehmigten Antraege neu, die den
+ * Zeitraum ueberlappen. Aufgerufen nach Anlegen oder Loeschen einer
+ * Betriebsruhe, weil die gespeicherte Tageszahl sonst den alten Kalender
+ * abbildet: Saldo, Jahresobergrenze und Listen laesen dann verschiedene
+ * Wahrheiten. Gehoert in dieselbe Transaktion wie die Betriebsruhe-Aenderung.
+ * Abgelehnte und stornierte Antraege bleiben unangetastet (Historie).
+ * Liefert die Anzahl der geaenderten Antraege.
+ */
+export function recountRequestsOverlapping(from: string, to: string): number {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT id, employee_id, date_from, date_to, half_day_start, half_day_end, days_counted
+       FROM absence_requests
+       WHERE status IN ('beantragt', 'genehmigt') AND date_from <= ? AND date_to >= ?`,
+    )
+    .all([to, from]) as {
+    id: number;
+    employee_id: number;
+    date_from: string;
+    date_to: string;
+    half_day_start: number;
+    half_day_end: number;
+    days_counted: number;
+  }[];
+  if (rows.length === 0) return 0;
+  const placeCache = new Map<number, EmployeeRegion>();
+  const update = db.prepare('UPDATE absence_requests SET days_counted = ? WHERE id = ?');
+  let changed = 0;
+  for (const r of rows) {
+    let place = placeCache.get(r.employee_id);
+    if (!place) placeCache.set(r.employee_id, (place = regionForEmployee(r.employee_id)));
+    const days = countAbsenceDays({
+      place,
+      dateFrom: r.date_from,
+      dateTo: r.date_to,
+      halfDayStart: r.half_day_start === 1,
+      halfDayEnd: r.half_day_end === 1,
+    });
+    if (days === r.days_counted) continue;
+    update.run(days, r.id);
+    changed++;
+  }
+  return changed;
 }
 
 /**
@@ -628,7 +689,9 @@ export function createRequest(
   // Routen müsste dieselbe Prüfung viermal stehen und würde bei einem fünften
   // Weg vergessen. Geprüft wird ausschließlich die Neuanlage: bestehende
   // Anträge bleiben gültig, wenn eine Berechtigung später entzogen wird.
-  assertTypeAllowed(body.employee_id, type);
+  const actorEmployeeId =
+    (req.user as { employee_id?: number | null } | undefined)?.employee_id ?? null;
+  assertTypeAllowed(body.employee_id, type, actorEmployeeId === body.employee_id);
   assertSpanWithinLimit(body.date_from, body.date_to);
 
   // Ein "halber Tag am Ende" eines eintägigen Antrags IST der halbe Tag am

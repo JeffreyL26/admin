@@ -24,6 +24,8 @@ export interface PayrollExportRun {
 /** Eine Zeile des Laufs, angereichert um den Namen der Person. */
 export interface PayrollExportItem {
   employee_id: number;
+  /** Personalnummer fuer den Export; die Route liefert ersatzweise die Profil-ID. */
+  personnel_number: string;
   gross_cents: number;
   bonus_cents: number;
   total_cents: number;

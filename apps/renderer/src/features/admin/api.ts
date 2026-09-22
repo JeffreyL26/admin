@@ -1,5 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import type { HrTemplate, OnboardingProcess, OnboardingTask } from '@ohrganize/shared';
+import type {
+  HrTemplate,
+  OnboardingProcess,
+  OnboardingTask,
+  OnboardingTaskTemplate,
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 
 export function useHrTemplates(search: string, category: string) {
@@ -24,6 +29,16 @@ export function useOnboardingProcesses(status: string, kind: string) {
     queryFn: () =>
       api.get<{ processes: OnboardingProcess[] }>(`/api/admin/onboarding${qs ? `?${qs}` : ''}`),
     select: (d) => d.processes,
+  });
+}
+
+/** Standard-Checklisten je Prozessart (Verwaltung → On- & Offboarding → Vorlagen). */
+export function useOnboardingTemplates() {
+  return useQuery({
+    queryKey: ['admin', 'onboarding', 'templates'],
+    queryFn: () =>
+      api.get<{ templates: OnboardingTaskTemplate[] }>('/api/admin/onboarding/templates'),
+    select: (d) => d.templates,
   });
 }
 

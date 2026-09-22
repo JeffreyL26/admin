@@ -47,6 +47,16 @@ const e2 = Number(
 const e3 = Number(
   insertEmployee.run('Cara', 'Frei', 'freiberufler', 'aktiv', '2023-05-01', null, 'DE02100100100006820101', null, null).lastInsertRowid,
 );
+// Ohne Eintrittsdatum: Arbeitgeberbescheinigung muss abgewiesen werden.
+const e4 = Number(
+  insertEmployee.run('Dora', 'Ohne', 'vollzeit', 'aktiv', null, 40, null, null, null).lastInsertRowid,
+);
+// Personalnummer (Migration 104) fuer CSV, LODAS und Bescheinigung; E2 bleibt ohne (Rueckfall auf die ID).
+db.prepare('UPDATE employees SET personnel_number = ? WHERE id = ?').run('P-0042', e1);
+// Befristeter Vertrag fuer E1: Die Arbeitgeberbescheinigung liest die Befristung aus contracts.
+db.prepare(
+  `INSERT INTO contracts (employee_id, contract_type, valid_from, valid_to) VALUES (?, 'befristet', '2020-01-01', '2027-12-31')`,
+).run(e1);
 
 // Ziel-Tabelle gemäß Kontrakt (Leistungs-Modul) — falls dessen Migration im
 // Test-Setup noch fehlt, wird die Kontrakt-Struktur angelegt.
@@ -167,6 +177,15 @@ const request = await app.inject({
 check('Änderungsantrag → 201', request.statusCode === 201, request.json());
 const requestId = request.json().request.id as number;
 
+// Ueberschneidung mit der Historie schon beim Anlegen (nicht erst bei der Genehmigung).
+const overlapRequest = await app.inject({
+  method: 'POST',
+  url: '/api/compensation/change-requests',
+  headers: auth,
+  payload: { employee_id: e1, kind: 'grundgehalt', new_amount_cents: 540000, effective_date: '2021-06-01', reason: 'Rückwirkend' },
+});
+check('Änderungsantrag mit Überschneidung → 409', overlapRequest.statusCode === 409, overlapRequest.json());
+
 // Vier-Augen-Prinzip: Wer den Antrag gestellt hat, genehmigt ihn nicht selbst.
 const selfDecide = await app.inject({
   method: 'POST',
@@ -241,6 +260,14 @@ const badBonus = await app.inject({
   payload: { employee_id: e1, kind: 'zielbonus', title: 'Ohne Zielbetrag', goal_id: goalId ?? 1, payout_month: month },
 });
 check('Zielbonus ohne Zielbetrag → 400', badBonus.statusCode === 400);
+
+const freelancerBonus = await app.inject({
+  method: 'POST',
+  url: '/api/compensation/bonuses',
+  headers: auth,
+  payload: { employee_id: e3, kind: 'einmalzahlung', title: 'Prämie', amount_cents: 10000, payout_month: month },
+});
+check('Bonus für Freiberufler:in → 400', freelancerBonus.statusCode === 400, freelancerBonus.json());
 
 if (goalId) {
   const goalBonus = await app.inject({
@@ -340,6 +367,24 @@ const dupRun = await app.inject({
 });
 check('Zweiter Lauf im selben Monat → 409', dupRun.statusCode === 409);
 
+// Offenen Lauf verwerfen: Vormonat anlegen, verwerfen, weg.
+const prevMonth = `${m === 1 ? y - 1 : y}-${String(m === 1 ? 12 : m - 1).padStart(2, '0')}`;
+const prevRun = await app.inject({
+  method: 'POST',
+  url: '/api/compensation/payroll-runs',
+  headers: auth,
+  payload: { month: prevMonth },
+});
+check('Lauf Vormonat → 201', prevRun.statusCode === 201, prevRun.json());
+const prevRunId = prevRun.json().run.id as number;
+const discard = await app.inject({ method: 'DELETE', url: `/api/compensation/payroll-runs/${prevRunId}`, headers: auth });
+const discarded = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${prevRunId}`, headers: auth });
+check('Offenen Lauf verwerfen → 204, danach 404', discard.statusCode === 204 && discarded.statusCode === 404);
+check(
+  'Verwerfen ist auditiert',
+  !!db.prepare(`SELECT 1 FROM audit_log WHERE action = 'payroll_run.delete' AND entity_id = ?`).get(prevRunId),
+);
+
 const earlyExport = await app.inject({
   method: 'GET',
   url: `/api/compensation/payroll-runs/${runId}/export.datev`,
@@ -369,6 +414,11 @@ check(
     datev.body.includes('5200,00'),
   datev.body.slice(0, 300),
 );
+check(
+  'LODAS: Personalnummer statt ID (P-0042 fuer E1, Rueckfall ID fuer E2)',
+  datev.body.includes(';P-0042;') && datev.body.includes(`;${e2};`) && !datev.body.includes(`;${e1};`),
+  datev.body,
+);
 
 const runAfterExport = await app.inject({
   method: 'GET',
@@ -387,6 +437,10 @@ check(
   csv.statusCode === 200 && csv.body.charCodeAt(0) === 0xfeff && csv.body.includes(';Muster;'),
   csv.body.slice(0, 120),
 );
+check('CSV: Personalnummer in erster Spalte', csv.body.includes('P-0042;Muster;'), csv.body.slice(0, 200));
+
+const exportedDiscard = await app.inject({ method: 'DELETE', url: `/api/compensation/payroll-runs/${runId}`, headers: auth });
+check('Exportierten Lauf verwerfen → 409', exportedDiscard.statusCode === 409);
 
 // ---------------- Freiberufler ----------------
 
@@ -422,6 +476,14 @@ const dupInvoice = await app.inject({
   payload: { employee_id: e3, invoice_number: 'RE-2026-001', invoice_date: today, amount_cents: 1000 },
 });
 check('Doppelte Rechnungsnummer je MA → 409', dupInvoice.statusCode === 409);
+
+const badFile = await app.inject({
+  method: 'POST',
+  url: '/api/compensation/freelancer-invoices',
+  headers: auth,
+  payload: { employee_id: e3, invoice_number: 'RE-2026-002', invoice_date: today, amount_cents: 1000, file_id: 999999 },
+});
+check('Rechnung mit unbekannter file_id → 400', badFile.statusCode === 400, badFile.json());
 
 const invoiceList = await app.inject({ method: 'GET', url: '/api/compensation/freelancer-invoices', headers: auth });
 check('Offene Posten: Summe 2.640 €', invoiceList.json().open_cents === 264000, invoiceList.json());
@@ -496,6 +558,43 @@ const handoverAgain = await app.inject({
   payload: { status: 'ausgehaendigt' },
 });
 check('Doppelte Aushändigung → 409', handoverAgain.statusCode === 409);
+
+const certFileId = cert.json().certificate.file_id as number;
+const certDocs = db
+  .prepare(`SELECT category, visibility, source, title FROM documents WHERE employee_id = ? AND file_id = ?`)
+  .all(e1, certFileId) as { category: string; visibility: string; source: string; title: string }[];
+check(
+  'Aushändigung legt genau EIN Portal-Dokument (bescheinigung) an',
+  certDocs.length === 1 &&
+    certDocs[0]!.category === 'bescheinigung' &&
+    certDocs[0]!.visibility === 'portal' &&
+    certDocs[0]!.source === 'hr' &&
+    certDocs[0]!.title.includes('Entgeltbescheinigung'),
+  certDocs,
+);
+
+const agCert = await app.inject({
+  method: 'POST',
+  url: '/api/compensation/certificates',
+  headers: auth,
+  payload: { employee_id: e1, kind: 'arbeitgeberbescheinigung', period: String(y) },
+});
+check('Arbeitgeberbescheinigung → 201', agCert.statusCode === 201, agCert.json());
+const agSign = await app.inject({ method: 'POST', url: `/api/compensation/certificates/${agCert.json().certificate.id}/sign`, headers: auth });
+const agBody = (await app.inject({ method: 'GET', url: agSign.json().url as string })).body;
+check(
+  'Arbeitgeberbescheinigung: befristet aus Vertrag, Personalnummer aus Stammdaten',
+  agBody.includes('befristeten') && agBody.includes('31.12.2027') && agBody.includes('Personalnummer P-0042'),
+  agBody.slice(0, 600),
+);
+
+const noHire = await app.inject({
+  method: 'POST',
+  url: '/api/compensation/certificates',
+  headers: auth,
+  payload: { employee_id: e4, kind: 'arbeitgeberbescheinigung', period: String(y) },
+});
+check('Arbeitgeberbescheinigung ohne Eintrittsdatum → 400', noHire.statusCode === 400, noHire.json());
 
 await app.close();
 closeDb();

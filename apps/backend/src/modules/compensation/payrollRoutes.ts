@@ -35,6 +35,8 @@ interface PayrollItemRow {
   id: number;
   run_id: number;
   employee_id: number;
+  /** employees.personnel_number, ersatzweise die Profil-ID als Text (siehe getItems). */
+  personnel_number: string;
   gross_cents: number;
   bonus_cents: number;
   total_cents: number;
@@ -331,10 +333,16 @@ function getRun(id: number): PayrollRunRow {
   return run;
 }
 
+/**
+ * Zeilen eines Laufs samt Personalnummer. Betriebe ohne gepflegte
+ * Personalnummer (Spalte freiwillig, Migration 104) bekommen die Profil-ID,
+ * damit CSV, LODAS und Bescheinigung immer denselben Schluessel tragen.
+ */
 function getItems(runId: number): (PayrollItemRow & { first_name: string; last_name: string; employee_type: string })[] {
   return getDb()
     .prepare(
-      `SELECT i.*, e.first_name, e.last_name, e.employee_type
+      `SELECT i.*, e.first_name, e.last_name, e.employee_type,
+              COALESCE(e.personnel_number, CAST(i.employee_id AS TEXT)) AS personnel_number
        FROM payroll_items i JOIN employees e ON e.id = i.employee_id
        WHERE i.run_id = ? ORDER BY e.last_name, e.first_name`,
     )
@@ -464,6 +472,28 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
     return { run: getRun(id) };
   });
 
+  // Verwerfen: nur offene Laeufe. Ein geprueft oder exportiert markierter Lauf
+  // ist Grundlage einer Abrechnung beim Steuerberater und bleibt als Snapshot
+  // erhalten. Die Items fallen per CASCADE weg; ein neuer Lauf desselben
+  // Monats stellt die Bewegungsdaten dann aus dem aktuellen Stand zusammen.
+  app.delete('/api/compensation/payroll-runs/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const run = getRun(id);
+    if (run.status !== 'offen') {
+      throw conflict('Nur offene Abrechnungsläufe können verworfen werden');
+    }
+    const itemCount = (
+      getDb().prepare('SELECT COUNT(*) AS n FROM payroll_items WHERE run_id = ?').get(id) as { n: number }
+    ).n;
+    getDb().prepare('DELETE FROM payroll_runs WHERE id = ?').run(id);
+    audit(req, 'payroll_run.delete', 'payroll_run', id, {
+      month: run.month,
+      status: run.status,
+      item_count: itemCount,
+    });
+    reply.status(204);
+  });
+
   /**
    * Lohnexport im Format des Variantenlandes. Der Pfad nennt weiterhin
    * `datev`, weil Oberflaeche und Lesezeichen ihn so kennen; den Inhalt
@@ -511,7 +541,7 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
     for (const i of items) {
       rows.push(
         [
-          i.employee_id,
+          esc(i.personnel_number),
           esc(i.last_name),
           esc(i.first_name),
           run.month,

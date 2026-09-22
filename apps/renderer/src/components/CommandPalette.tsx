@@ -124,7 +124,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         group: 'Ankündigungen',
         label: a.title,
         icon: <Megaphone size={16} />,
-        to: '/kommunikation/ankuendigungen',
+        to: `/kommunikation/ankuendigungen?id=${a.id}`,
       });
     }
     return result;

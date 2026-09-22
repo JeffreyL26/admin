@@ -4,10 +4,11 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../core/dates.js';
-import { holidaysByRegion } from '../../core/holidays.js';
+import { holidaysByRegion, isHoliday } from '../../core/holidays.js';
 import type { CountryCode, RegionCode } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import {
+  allowedTypeIdsFor,
   assertBalanceCovers,
   assertSpanWithinLimit,
   closureDates,
@@ -17,6 +18,7 @@ import {
   createRequest,
   CREATED_BY_PROXY_SQL,
   companyRegionDefaults,
+  recountRequestsOverlapping,
   regionForEmployee,
   regionSelectParams,
   REGION_JOIN_SQL,
@@ -197,6 +199,23 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         employee_rules: rulesByType.get(t.id) ?? [],
       })),
     };
+  });
+
+  /**
+   * Welche Arten darf eine bestimmte Person beantragen? Dieselbe Aufloesung
+   * wie der Portal-Lesefilter (allowedTypeIdsFor) und die Schreibseite
+   * (assertTypeAllowed in createRequest), damit die HR-Erfassung keine Art
+   * anbietet, die der POST anschliessend mit 403 ablehnt. Deaktivierte Arten
+   * bleiben enthalten; der Client filtert sie ohnehin.
+   */
+  app.get('/api/absences/types/allowed', async (req) => {
+    const employeeId = Number((req.query as { employee_id?: string }).employee_id);
+    if (!Number.isInteger(employeeId) || employeeId <= 0) {
+      throw badRequest('employee_id ist erforderlich');
+    }
+    const employee = db().prepare('SELECT id FROM employees WHERE id = ?').get(employeeId);
+    if (!employee) throw notFound('Mitarbeiter:in nicht gefunden');
+    return { employee_id: employeeId, type_ids: [...allowedTypeIdsFor(employeeId)].sort((a, b) => a - b) };
   });
 
   app.post('/api/absences/types', async (req, reply) => {
@@ -417,6 +436,12 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       | undefined;
     if (!type) throw notFound('Abwesenheitsart nicht gefunden');
     if (!type.active) throw badRequest('Diese Abwesenheitsart ist deaktiviert');
+    // Wie im Portal: Krankheit laeuft ueber die Krankmeldung, die den
+    // sick_notes-Datensatz samt AU-Frist anlegt. Ein nackter Antrag der
+    // Kategorie liesse die AU-Ueberwachung aus.
+    if (type.category === 'krankheit') {
+      throw badRequest('Krankmeldungen erfassen Sie bitte unter Abwesenheit → Krankmeldungen');
+    }
 
     const id = createRequest(req, body, type);
     reply.status(201);
@@ -795,21 +820,37 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
   app.post('/api/absences/closures', async (req, reply) => {
     const body = parse(closureBodySchema, req.body);
     if (body.date_to < body.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
-    const result = db()
-      .prepare('INSERT INTO company_closures (name, date_from, date_to) VALUES (?, ?, ?)')
-      .run(body.name, body.date_from, body.date_to);
-    const id = Number(result.lastInsertRowid);
-    audit(req, 'create', 'company_closure', id, body);
+    // Betriebsruhe und Neuberechnung der ueberlappenden Antraege in EINER
+    // Transaktion: days_counted bildet sonst den alten Kalender ab (Saldo,
+    // Jahresobergrenze und Listen lesen die gespeicherte Zahl).
+    const { id, recounted } = inTransaction(() => {
+      const result = db()
+        .prepare('INSERT INTO company_closures (name, date_from, date_to) VALUES (?, ?, ?)')
+        .run(body.name, body.date_from, body.date_to);
+      return {
+        id: Number(result.lastInsertRowid),
+        recounted: recountRequestsOverlapping(body.date_from, body.date_to),
+      };
+    });
+    audit(req, 'create', 'company_closure', id, { ...body, recounted_requests: recounted });
     reply.status(201);
-    return { closure: db().prepare('SELECT * FROM company_closures WHERE id = ?').get(id) };
+    return {
+      closure: db().prepare('SELECT * FROM company_closures WHERE id = ?').get(id),
+      recounted_requests: recounted,
+    };
   });
 
   app.delete('/api/absences/closures/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const existing = db().prepare('SELECT * FROM company_closures WHERE id = ?').get(id);
+    const existing = db().prepare('SELECT * FROM company_closures WHERE id = ?').get(id) as
+      | { id: number; name: string; date_from: string; date_to: string }
+      | undefined;
     if (!existing) throw notFound('Betriebsruhe nicht gefunden');
-    db().prepare('DELETE FROM company_closures WHERE id = ?').run(id);
-    audit(req, 'delete', 'company_closure', id, existing);
+    const recounted = inTransaction(() => {
+      db().prepare('DELETE FROM company_closures WHERE id = ?').run(id);
+      return recountRequestsOverlapping(existing.date_from, existing.date_to);
+    });
+    audit(req, 'delete', 'company_closure', id, { ...existing, recounted_requests: recounted });
     reply.status(204);
   });
 
@@ -915,11 +956,27 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       )
       .all() as { team_id: number; n: number }[];
     const teamSizeMap = new Map(teamSizes.map((t) => [t.team_id, t.n]));
+    // Team samt Land und Region je Person: Feiertage der Person und
+    // Betriebsruhe sind keine Abwesenheit, an ihnen fehlt niemand dem Team.
+    // Ohne diesen Ausschluss meldete der Kalender an jedem Feiertag und
+    // in jeder Betriebsruhe einen Konflikt, sobald genug Antraege darueber
+    // hinweg liefen.
     const teamByEmployee = new Map(
       (db()
-        .prepare("SELECT id, team_id FROM employees WHERE status = 'aktiv' AND team_id IS NOT NULL")
-        .all() as { id: number; team_id: number }[]).map((e) => [e.id, e.team_id]),
+        .prepare(
+          `SELECT e.id, e.team_id, ${REGION_SELECT_SQL}
+           FROM employees e
+           ${REGION_JOIN_SQL}
+           WHERE e.status = 'aktiv' AND e.team_id IS NOT NULL`,
+        )
+        .all(...regionSelectParams(defaults)) as {
+        id: number;
+        team_id: number;
+        country: CountryCode;
+        bundesland: RegionCode;
+      }[]).map((e) => [e.id, { team_id: e.team_id, country: e.country, region: e.bundesland }]),
     );
+    const closureDays = closureDates(from, to);
     // Alle relevanten Abwesenheiten (unabhängig vom Abteilungs-/Teamfilter),
     // damit Konflikte auch bei gefilterter Ansicht vollständig sind.
     const allAbsences = db()
@@ -932,12 +989,15 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       .all(to, from) as { employee_id: number; date_from: string; date_to: string }[];
     const absentPerDayTeam = new Map<string, Set<number>>();
     for (const a of allAbsences) {
-      const teamId = teamByEmployee.get(a.employee_id);
-      if (teamId === undefined) continue;
+      const member = teamByEmployee.get(a.employee_id);
+      if (member === undefined) continue;
+      const teamId = member.team_id;
       const start = a.date_from > from ? a.date_from : from;
       const end = a.date_to < to ? a.date_to : to;
       for (const d of eachDay(start, end)) {
         if (isWeekend(d)) continue;
+        if (closureDays.has(d)) continue;
+        if (isHoliday(d, member.country, member.region)) continue;
         const key = `${d}|${teamId}`;
         let set = absentPerDayTeam.get(key);
         if (!set) absentPerDayTeam.set(key, (set = new Set()));

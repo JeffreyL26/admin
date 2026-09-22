@@ -6,6 +6,7 @@ import { audit, auditTrail } from '../../core/audit.js';
 import { todayIso, isValidIsoDate } from '../../core/dates.js';
 import { SALARY_COMPONENT_KINDS } from '@ohrganize/shared';
 import {
+  assertNoComponentOverlap,
   componentsAt,
   getEmployee,
   insertSalaryComponent,
@@ -198,6 +199,10 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
     if (employee.employee_type === 'freiberufler') {
       throw badRequest('Für Freiberufler:innen sind keine Gehaltsänderungen möglich');
     }
+    // Dieselbe Pruefung wie bei der Genehmigung, nur frueher: Ein Antrag, der
+    // sich mit der Historie ueberschneidet, scheiterte sonst erst beim
+    // Entscheid, und die zweite Person saehe einen Antrag, der nie anwendbar war.
+    assertNoComponentOverlap(body.employee_id, body.kind, body.effective_date);
     const info = getDb()
       .prepare(
         `INSERT INTO salary_change_requests

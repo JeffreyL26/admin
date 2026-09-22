@@ -13,6 +13,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import type { MeOrgChartPerson, OrgChartPerson, OrgTreeNode } from '@ohrganize/shared';
 import { buildOrgChart, buildOrgTree } from '../employees/orgRoutes.js';
+import { getFieldVisibility, type DirectoryVisibility } from '../communication/directoryService.js';
 import { requireEmployee } from './lib.js';
 
 /**
@@ -22,20 +23,28 @@ import { requireEmployee } from './lib.js';
  * Personalnummer, Eintrittsdatum, rohes `manager_id`) bleibt der
  * HR-Administration vorbehalten. Neue Felder dort tauchen hier deshalb nie
  * ungefragt auf.
+ *
+ * Dazu gilt die Feldsichtbarkeit des Verzeichnisses (Kommunikation →
+ * Verzeichnis → Felder, communication/directoryService.ts): Was die HR dort
+ * ausblendet (Foto, Jobtitel, Abteilung, Team, Standort), fehlt auch im
+ * Organigramm des Portals. Sonst stuende ein Feld auf der Karte, das der
+ * Dialog als „im Verzeichnis und im Organigramm des Portals“ ausgeblendet
+ * verspricht. `department_id` faellt mit der Abteilung weg; der
+ * Abteilungsfilter des Portals haengt daran.
  */
-function toPortalPerson(p: OrgChartPerson): MeOrgChartPerson {
+function toPortalPerson(p: OrgChartPerson, vis: DirectoryVisibility): MeOrgChartPerson {
   return {
     id: p.id,
     first_name: p.first_name,
     last_name: p.last_name,
-    job_title: p.job_title,
-    department_id: p.department_id,
-    department_name: p.department_name,
-    team_name: p.team_name,
-    location_name: p.location_name,
+    job_title: vis.job_title ? p.job_title : null,
+    department_id: vis.department ? p.department_id : null,
+    department_name: vis.department ? p.department_name : null,
+    team_name: vis.team ? p.team_name : null,
+    location_name: vis.location ? p.location_name : null,
     parent_id: p.parent_id,
     parent_source: p.parent_source,
-    photo_url: p.photo_url,
+    photo_url: vis.photo ? p.photo_url : null,
   };
 }
 
@@ -71,9 +80,10 @@ export const meOrgRoutes: FastifyPluginAsync = async (app) => {
     // Zugriffsgrenze zuerst: nur Accounts mit aktivem Personalprofil.
     const me = requireEmployee(req);
     const { people, departments } = buildOrgChart();
+    const vis = getFieldVisibility();
     return {
-      people: people.map(toPortalPerson),
-      departments: departments.map((d) => ({ id: d.id, name: d.name })),
+      people: people.map((p) => toPortalPerson(p, vis)),
+      departments: vis.department ? departments.map((d) => ({ id: d.id, name: d.name })) : [],
       self_id: me.id,
     };
   });

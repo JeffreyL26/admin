@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import bcrypt from 'bcryptjs';
 
 process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-perf-smoke-'));
 process.env.OHRGANIZE_LOG_LEVEL = 'silent';
@@ -21,6 +22,15 @@ function check(label: string, ok: boolean, extra?: unknown) {
 }
 
 const app = await buildServer();
+
+// Portal-Sicht „Meine Entwicklung“ hängt am Modul performance und wird über
+// die Variantenverdrahtung registriert. Solange die Verdrahtung fehlt, wird
+// das Plugin hier direkt eingehängt (vor der ersten Anfrage, das Register ist
+// dann noch offen), damit die Route in jedem Fall geprüft wird.
+if (!app.hasRoute({ method: 'GET', url: '/api/me/development' })) {
+  const { mePerformanceRoutes } = await import('../me/performanceRoutes.js');
+  await app.register(mePerformanceRoutes);
+}
 
 // Testdaten: Mitarbeitende direkt in die Kerntabelle (das Personal-Modul wird
 // parallel entwickelt; hier zählt nur das Tabellen-Schema aus 100_employees_core).
@@ -223,6 +233,26 @@ const earlyComplete = await app.inject({
 });
 check('Abschluss ohne vollständige Bewertung → 400', earlyComplete.statusCode === 400);
 
+// Zwischenstand: Kommentar ohne Bewertung (score 0) bleibt erhalten, der
+// Abschluss verlangt weiterhin jedes Kriterium.
+const commentOnly = await app.inject({
+  method: 'PUT',
+  url: `/api/performance/reviews/${selfId}`,
+  headers: auth,
+  payload: { scores: [{ key: 'qualitaet', score: 0, comment: 'Noch zu besprechen' }] },
+});
+check(
+  'Zwischenstand: Kommentar ohne Score wird gespeichert',
+  commentOnly.statusCode === 200 && commentOnly.json().review.scores[0]?.comment === 'Noch zu besprechen',
+  commentOnly.json(),
+);
+const commentOnlyComplete = await app.inject({
+  method: 'POST',
+  url: `/api/performance/reviews/${selfId}/complete`,
+  headers: auth,
+});
+check('Abschluss mit Kommentar ohne Score → 400', commentOnlyComplete.statusCode === 400);
+
 const badScore = await app.inject({
   method: 'PUT',
   url: `/api/performance/reviews/${selfId}`,
@@ -301,67 +331,6 @@ const part = (overview.json().participants as { employee_id: number; reviews_com
   (p) => p.employee_id === anna,
 );
 check('Zyklus-Übersicht: 3/3 abgeschlossen', part?.reviews_completed === 3, overview.json());
-
-// ============================ Entwicklung & Karriere ============================
-
-const planRes = await app.inject({
-  method: 'POST',
-  url: '/api/performance/development-plans',
-  headers: auth,
-  payload: { employee_id: anna, title: 'Weg zur Seniorität', goal: 'Senior-Level erreichen' },
-});
-check('Entwicklungsplan anlegen', planRes.statusCode === 201);
-const planId = planRes.json().plan.id as number;
-
-const measureRes = await app.inject({
-  method: 'POST',
-  url: `/api/performance/development-plans/${planId}/measures`,
-  headers: auth,
-  payload: { title: 'Architektur-Schulung besuchen', due_date: '2026-09-30', owner_employee_id: ben },
-});
-check('Maßnahme anlegen', measureRes.statusCode === 201);
-const measureDone = await app.inject({
-  method: 'PUT',
-  url: `/api/performance/development-measures/${measureRes.json().measure.id}`,
-  headers: auth,
-  payload: { status: 'erledigt' },
-});
-check('Maßnahme erledigen', measureDone.statusCode === 200 && measureDone.json().measure.status === 'erledigt');
-
-const lvl1 = await app.inject({
-  method: 'POST',
-  url: '/api/performance/career-levels',
-  headers: auth,
-  payload: { role_name: 'Entwickler:in', level: 1, title: 'Junior Developer', requirements: '1 Jahr Erfahrung' },
-});
-const lvl2 = await app.inject({
-  method: 'POST',
-  url: '/api/performance/career-levels',
-  headers: auth,
-  payload: { role_name: 'Entwickler:in', level: 2, title: 'Developer', requirements: '3 Jahre Erfahrung, eigenständige Projekte' },
-});
-check('Karrierestufen anlegen', lvl1.statusCode === 201 && lvl2.statusCode === 201);
-
-const dupLvl = await app.inject({
-  method: 'POST',
-  url: '/api/performance/career-levels',
-  headers: auth,
-  payload: { role_name: 'Entwickler:in', level: 1, title: 'Nochmal Junior' },
-});
-check('Konflikt: doppeltes Level je Rolle → 409', dupLvl.statusCode === 409);
-
-await app.inject({
-  method: 'POST',
-  url: '/api/performance/employee-levels',
-  headers: auth,
-  payload: { employee_id: anna, career_level_id: lvl1.json().level.id, since_date: '2025-01-01' },
-});
-const empLevel = await app.inject({ method: 'GET', url: `/api/performance/employee-levels/${anna}`, headers: auth });
-check(
-  'Aktuelles Level + nächster Schritt (Level 2)',
-  empLevel.json().current?.level === 1 && empLevel.json().next?.level === 2,
-  empLevel.json(),
-);
 
 // ============================ Skills ============================
 
@@ -529,6 +498,69 @@ const actionDone = await app.inject({
   payload: { status: 'erledigt' },
 });
 check('Maßnahme erledigen', actionDone.statusCode === 200 && actionDone.json().action.status === 'erledigt');
+
+// ============================ Entfernte Tabellen ============================
+
+const droppedTables = db
+  .prepare(
+    `SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'
+       AND name IN ('development_plans', 'development_measures', 'career_levels', 'employee_levels')`,
+  )
+  .get() as { n: number };
+check('Entwicklungspläne/Karrierestufen: Tabellen entfernt', droppedTables.n === 0, droppedTables);
+const plansGone = await app.inject({ method: 'GET', url: '/api/performance/development-plans', headers: auth });
+check('Entwicklungspläne: Route entfernt → 404', plansGone.statusCode === 404);
+
+// ============================ Portal: Meine Entwicklung ============================
+
+const portalHash = bcrypt.hashSync('geheim123', 10);
+db.prepare(
+  "INSERT INTO users (email, name, password_hash, role, employee_id) VALUES ('anna.adler@test.de', 'Anna Adler', ?, 'mitarbeiter', ?)",
+).run(portalHash, anna);
+const portalLogin = await app.inject({
+  method: 'POST',
+  url: '/api/auth/login',
+  payload: { email: 'anna.adler@test.de', password: 'geheim123' },
+});
+check('Portal-Login der bewerteten Person', portalLogin.statusCode === 200, portalLogin.json());
+const portalAuth = { authorization: `Bearer ${portalLogin.json().token as string}` };
+
+const noDev = await app.inject({ method: 'GET', url: '/api/me/development' });
+check('Meine Entwicklung: Auth-Pflicht', noDev.statusCode === 401);
+
+const dev = await app.inject({ method: 'GET', url: '/api/me/development', headers: portalAuth });
+check('Meine Entwicklung → 200', dev.statusCode === 200, dev.json());
+const devBody = dev.json() as {
+  goals: { id: number; title: string }[];
+  trainings: { training_title: string }[];
+  meetings: { id: number; actions: { title: string }[]; notes?: unknown }[];
+  skills: { name: string; level: number }[];
+  ratings: unknown[];
+};
+check(
+  'Meine Entwicklung: nur eigene Ziele (Anna)',
+  devBody.goals.length > 0 && devBody.goals.some((g) => g.id === objectiveId),
+  devBody.goals,
+);
+const ownGoalIds = new Set(
+  (db.prepare('SELECT id FROM goals WHERE employee_id = ?').all(anna) as { id: number }[]).map((g) => g.id),
+);
+check(
+  'Meine Entwicklung: genau die eigenen Ziele, keine fremden',
+  devBody.goals.length === ownGoalIds.size && devBody.goals.every((g) => ownGoalIds.has(g.id)),
+  { own: [...ownGoalIds], got: devBody.goals.map((g) => g.id) },
+);
+check(
+  'Meine Entwicklung: Gespräche ohne HR-Notizen, mit Maßnahmen',
+  devBody.meetings.every((m) => !('notes' in m)) && Array.isArray(devBody.meetings[0]?.actions ?? []),
+  devBody.meetings,
+);
+check('Meine Entwicklung: Trainings mit Titel', devBody.trainings.every((t) => typeof t.training_title === 'string'));
+check('Meine Entwicklung: Skills mit Level', devBody.skills.every((sk) => sk.level >= 1 && sk.level <= 5));
+check('Meine Entwicklung: Bewertungen als Liste', Array.isArray(devBody.ratings));
+
+const devAsAdmin = await app.inject({ method: 'GET', url: '/api/me/development', headers: auth });
+check('Meine Entwicklung: Admin ohne Personalprofil → 403', devAsAdmin.statusCode === 403);
 
 // Audit-Log wurde befüllt
 const auditCount = db

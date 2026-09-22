@@ -1,4 +1,5 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import {
   Megaphone,
@@ -454,6 +455,17 @@ export function AnnouncementsPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Announcement | null>(null);
+
+  // Deep-Link ?id= (Dashboard-Widget, Befehlspalette): Detail oeffnen und den
+  // Parameter verbrauchen, damit Schliessen ihn nicht wieder aufreisst.
+  const [params, setParams] = useSearchParams();
+  const linkedId = params.get("id");
+  useEffect(() => {
+    if (linkedId === null) return;
+    const id = Number(linkedId);
+    if (Number.isInteger(id) && id > 0) setDetailId(id);
+    setParams({}, { replace: true });
+  }, [linkedId, setParams]);
 
   const remove = useMutation({
     mutationFn: (id: number) =>

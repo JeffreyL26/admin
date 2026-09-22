@@ -84,6 +84,20 @@ const team = await app.inject({
 check('Team anlegen', team.statusCode === 201);
 const teamId = team.json().team.id as number;
 
+// Abteilung mit Unterabteilung ist nicht loeschbar (409), sonst rueckte
+// „Entwicklung“ still auf die oberste Ebene.
+const delParent = await app.inject({ method: 'DELETE', url: `/api/departments/${depAId}`, headers: auth });
+check('Abteilung mit Unterabteilung löschen → 409', delParent.statusCode === 409, delParent.json());
+
+// Zweite Abteilung fuer den Team/Abteilungs-Abgleich.
+const depC = await app.inject({
+  method: 'POST',
+  url: '/api/departments',
+  headers: auth,
+  payload: { name: 'Vertrieb' },
+});
+const depCId = depC.json().department.id as number;
+
 // ---------- Mitarbeiter: typabhängige Pflichtfelder ----------
 const invalidVollzeit = await app.inject({
   method: 'POST',
@@ -121,6 +135,39 @@ const emp = await app.inject({
 });
 check('Vollzeit vollständig anlegen → 201', emp.statusCode === 201, emp.json());
 const empId = emp.json().employee.id as number;
+
+// Team gehoert zu „Entwicklung“, Person soll nach „Vertrieb“: 400.
+const teamMismatch = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { department_id: depCId },
+});
+check('PATCH Abteilung passt nicht zum Team → 400', teamMismatch.statusCode === 400, teamMismatch.json());
+const teamMismatchPost = await app.inject({
+  method: 'POST',
+  url: '/api/employees',
+  headers: auth,
+  payload: { first_name: 'Falsch', last_name: 'Zugeordnet', employee_type: 'freiberufler', department_id: depCId, team_id: teamId },
+});
+check('POST Team aus fremder Abteilung → 400', teamMismatchPost.statusCode === 400);
+// Unbeteiligte Aenderung bleibt moeglich (keine Pruefung ohne Team/Abteilung im Patch).
+const phoneOnly = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { phone: '0821 1234' },
+});
+check('PATCH ohne Team/Abteilung prüft den Abgleich nicht', phoneOnly.statusCode === 200);
+
+// Teamleitung setzen (PATCH /api/teams/:id mit lead_employee_id).
+const setLead = await app.inject({
+  method: 'PATCH',
+  url: `/api/teams/${teamId}`,
+  headers: auth,
+  payload: { lead_employee_id: empId },
+});
+check('Teamleitung setzen → 200', setLead.statusCode === 200 && setLead.json().team.lead_employee_id === empId);
 
 const werkstudentTooMany = await app.inject({
   method: 'POST',
@@ -271,6 +318,59 @@ const patchOpen = await app.inject({
   payload: { weekly_hours: 36 },
 });
 check('Korrektur der offenen Version → 200', patchOpen.statusCode === 200);
+
+// Befristete Version mit Ende in der Zukunft ist „aktuell“: sie spiegelt
+// und laesst sich korrigieren; eine Befristung allein ist keine Historie.
+const c3 = await app.inject({
+  method: 'POST',
+  url: `/api/employees/${empId}/contracts`,
+  headers: auth,
+  payload: {
+    contract_type: 'befristet',
+    valid_from: '2026-01-01',
+    valid_to: isoInDays(200),
+    weekly_hours: 38,
+    annual_leave_days: 28,
+    fixed_term_reason: 'Elternzeitvertretung',
+  },
+});
+check('Befristete Version anlegen → 201', c3.statusCode === 201, c3.json());
+const c3Id = c3.json().contract.id as number;
+const afterFixed = await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: auth });
+check(
+  'Befristete aktuelle Version spiegelt Stunden/Urlaub',
+  afterFixed.json().employee.weekly_hours === 38 && afterFixed.json().employee.annual_leave_days === 28,
+  afterFixed.json().employee,
+);
+const patchFixed = await app.inject({
+  method: 'PATCH',
+  url: `/api/contracts/${c3Id}`,
+  headers: auth,
+  payload: { note: 'korrigiert' },
+});
+check('Korrektur der befristeten aktuellen Version → 200', patchFixed.statusCode === 200, patchFixed.json());
+const patchSuperseded = await app.inject({
+  method: 'PATCH',
+  url: `/api/contracts/${c2.json().contract.id}`,
+  headers: auth,
+  payload: { note: 'zu spät' },
+});
+check('Abgelöste (geschlossene) Vorversion → 409', patchSuperseded.statusCode === 409);
+
+// Spiegelung laeuft durch die Typregeln: Werkstudent mit 30 Wochenstunden im Vertrag → 400.
+const badMirror = await app.inject({
+  method: 'POST',
+  url: `/api/employees/${werkstudentId}/contracts`,
+  headers: auth,
+  payload: { contract_type: 'befristet', valid_from: '2026-01-01', weekly_hours: 30 },
+});
+check('Vertrag verletzt Typregel der Person → 400', badMirror.statusCode === 400, badMirror.json());
+const werkstudentContracts = await app.inject({
+  method: 'GET',
+  url: `/api/employees/${werkstudentId}/contracts`,
+  headers: auth,
+});
+check('Abgewiesener Vertrag wurde nicht gespeichert', werkstudentContracts.json().contracts.length === 0);
 
 // ---------- Org-Baum ----------
 const tree = await app.inject({ method: 'GET', url: '/api/org/tree', headers: auth });
@@ -506,6 +606,16 @@ const badDoc = await app.inject({
 });
 check('Ungültige Dokument-Kategorie → 400', badDoc.statusCode === 400);
 
+const bySource = await app.inject({ method: 'GET', url: '/api/documents?source=portal', headers: auth });
+check('Herkunftsfilter source=portal liefert keine HR-Uploads', bySource.json().documents.length === 0);
+const byHr = await app.inject({ method: 'GET', url: '/api/documents?source=hr', headers: auth });
+check(
+  'Herkunftsfilter source=hr liefert die HR-Uploads',
+  byHr.json().documents.some((d: { id: number }) => d.id === doc3.json().document.id),
+);
+const badSource = await app.inject({ method: 'GET', url: '/api/documents?source=mail', headers: auth });
+check('Ungültige Herkunft → 400', badSource.statusCode === 400);
+
 // ---------- Massenbearbeitung ----------
 const bulk = await app.inject({
   method: 'POST',
@@ -542,6 +652,51 @@ check(
     csvBody.includes('first_name;last_name') &&
     csvBody.includes('Erika;Musterfrau'),
   csvBody.slice(0, 120),
+);
+
+// ---------- Person löschen: Dateien folgen ----------
+// Frank bekommt ein Foto, dazu ein Dokument; nach dem DELETE sind Profil,
+// Dokumentzeile und beide files-Zeilen weg. Erikas Dateien bleiben.
+const photoUpload = await app.inject({
+  method: 'POST',
+  url: '/api/files',
+  headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
+  payload: filePart('frank.png', 'PNGDUMMY'),
+});
+const photoFileId = photoUpload.json().file.id as number;
+await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${frankId}`,
+  headers: auth,
+  payload: { photo_file_id: photoFileId },
+});
+const frankDocUpload = await app.inject({
+  method: 'POST',
+  url: '/api/files',
+  headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
+  payload: filePart('frank_nachweis.pdf', '%PDF-1.4 frank'),
+});
+const frankDocFileId = frankDocUpload.json().file.id as number;
+await app.inject({
+  method: 'POST',
+  url: '/api/documents',
+  headers: auth,
+  payload: { employee_id: frankId, file_id: frankDocFileId, category: 'sonstiges', title: 'Nachweis Frank' },
+});
+const removePhoto = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${frankId}`,
+  headers: auth,
+  payload: { photo_file_id: null },
+});
+check('PATCH photo_file_id = null löst das Foto', removePhoto.statusCode === 200 && removePhoto.json().employee.photo_file_id === null);
+await app.inject({ method: 'PATCH', url: `/api/employees/${frankId}`, headers: auth, payload: { photo_file_id: photoFileId } });
+const fileExists = (id: number) => !!getDb().prepare('SELECT 1 FROM files WHERE id = ?').get(id);
+const delFrank = await app.inject({ method: 'DELETE', url: `/api/employees/${frankId}`, headers: auth });
+check(
+  'Person löschen entfernt Foto und Dokumentdatei, fremde Dateien bleiben',
+  delFrank.statusCode === 204 && !fileExists(photoFileId) && !fileExists(frankDocFileId) && fileExists(fileId),
+  { photo: fileExists(photoFileId), doc: fileExists(frankDocFileId), erika: fileExists(fileId) },
 );
 
 // ---------- Auth-Pflicht ----------

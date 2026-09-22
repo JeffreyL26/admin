@@ -5,9 +5,11 @@ import {
 } from 'recharts';
 import { Megaphone } from 'lucide-react';
 import {
-  formatDate, todayIsoLocal, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, ONBOARDING_KIND_LABELS,
+  formatDate, todayIsoLocal, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, MEETING_OCCASION_LABELS,
+  ONBOARDING_KIND_LABELS,
 } from '@ohrganize/shared';
 import { useOnboardingProcesses } from '../admin/api';
+import { useFollowUps } from '../communication/api';
 import { useLeaderStatus, useLeadershipReport } from '../leadership/api';
 import { useAuth } from '../../auth/AuthContext';
 import { Badge, initialsOf } from '../../components/ui';
@@ -242,7 +244,7 @@ export function AnnouncementsWidget({ data }: { data: DashboardData }) {
       {data.activeAnnouncements.map((a) => (
         <Row
           key={a.id}
-          to="/kommunikation/ankuendigungen"
+          to={`/kommunikation/ankuendigungen?id=${a.id}`}
           avatar={<Megaphone size={14} />}
           title={a.title}
           meta={`veröffentlicht ${formatDate(a.publish_at.slice(0, 10))}`}
@@ -261,12 +263,37 @@ export function SurveysWidget({ data }: { data: DashboardData }) {
       {data.runningSurveys.map((s) => (
         <Row
           key={s.id}
-          to="/kommunikation/umfragen"
+          to={`/kommunikation/umfragen?id=${s.id}`}
           avatar={s.participations}
           title={s.title}
           meta={`${s.participations} Teilnahmen`}
           chip={`bis ${shortDate(s.date_to)}`}
           chipMuted
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Faellige Wiedervorlagen aus Gespraechsprotokollen (heute oder ueberfaellig).
+ * Laedt selbst ueber /api/communication/meetings/follow-ups; ohne
+ * `kommunikation` blendet DashboardPage das Widget aus.
+ */
+export function FollowUpsWidget() {
+  const { data: followUps } = useFollowUps();
+  if (!followUps) return null;
+  if (followUps.length === 0) return <Empty text="Keine fälligen Wiedervorlagen." />;
+  return (
+    <div className="hm-dash-list">
+      {followUps.slice(0, 6).map((m) => (
+        <Row
+          key={m.id}
+          to={`/kommunikation/gespraeche?employee=${m.employee_id}`}
+          avatar={initials(m.first_name, m.last_name)}
+          title={`${m.first_name} ${m.last_name}`}
+          meta={`${MEETING_OCCASION_LABELS[m.occasion]} vom ${formatDate(m.meeting_date)}`}
+          chip={`fällig ${shortDate(m.follow_up_date ?? m.meeting_date)}`}
         />
       ))}
     </div>

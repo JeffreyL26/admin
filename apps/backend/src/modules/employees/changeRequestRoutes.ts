@@ -1,6 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { EMPLOYEE_SELF_EDITABLE_FIELDS } from '@ohrganize/shared';
 import { parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import {
@@ -30,11 +29,6 @@ const listQuerySchema = z.object({
  * eine Rechtestufe, die niemand pflegt.
  */
 export async function employeeChangeRequestRoutes(app: FastifyInstance): Promise<void> {
-  /** Welche Felder überhaupt beantragbar sind — für die Anzeige. */
-  app.get('/api/employees/change-request-fields', async () => ({
-    fields: EMPLOYEE_SELF_EDITABLE_FIELDS,
-  }));
-
   app.get('/api/employees/change-requests', async (req) => {
     const q = parse(listQuerySchema, req.query);
     return { requests: listForHr(q), open_count: openRequestCount() };

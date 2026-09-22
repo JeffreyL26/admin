@@ -82,6 +82,8 @@ Berechtigungsprüfung** sind damit in HR-Erfassung und Portal identisch):
 | `GET/POST /api/me/documents` · `POST /api/me/documents/:id/download` | `documentRoutes.ts` | Eigene Dokumente |
 | `GET /api/me/announcements` · `POST /api/me/announcements/:id/ack` · `POST …/:id/attachments/:fileId/sign` | `communicationRoutes.ts` | Aktive Ankündigungen an die Person (Zielgruppe wie in der HR aufgelöst), Lesebestätigung, Anhang beim Klick signieren; nur mit Modul `communication` |
 | `GET /api/me/surveys[/:id]` · `POST /api/me/surveys/:id/responses` | `communicationRoutes.ts` | Laufende Umfragen an die Person, Fragen, anonyme Teilnahme (409 bei zweiter Teilnahme) |
+| `GET /api/me/development` | `performanceRoutes.ts` | Eigene Ziele, Trainings, Gespräche mit Maßnahmen, Skills, Vorgesetztenbewertung; nur mit Modul `performance` |
+| `GET /api/me/meetings` · `GET /api/me/directory` | `communicationRoutes.ts` | Freigegebene Gesprächsprotokolle; Kolleg:innen-Verzeichnis mit der Feldsichtbarkeit der HR |
 | `GET /api/me/change-request-fields` | `changeRequestRoutes.ts` | Beantragbare Stammdatenfelder (Allowlist aus `@ohrganize/shared`) |
 | `GET/POST /api/me/change-requests` | `changeRequestRoutes.ts` | Eigene Änderungsanträge lesen/stellen |
 | `POST /api/me/change-requests/:id/withdraw` | `changeRequestRoutes.ts` | Eigenen, noch offenen Antrag zurückziehen |

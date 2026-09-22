@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Download, FilePlus2, FolderOpen, Plus, Search, Trash2 } from 'lucide-react';
-import { DOCUMENT_CATEGORY_LABELS, formatDate } from '@ohrganize/shared';
+import { AlertTriangle, Download, FilePlus2, FolderOpen, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { DOCUMENT_CATEGORY_LABELS, formatDate, type DocumentSource } from '@ohrganize/shared';
 import { api, downloadFile } from '../../api/client';
 import { Badge, Card, EmptyState, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
@@ -10,7 +10,8 @@ import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useDocuments, useExpiringDocuments, type DocumentRow } from './api';
 import { DocumentUploadModal } from './DocumentUploadModal';
-import { VisibilityBadge, VisibilityToggle } from './documentVisibility';
+import { SourceBadge, VisibilityBadge, VisibilityToggle } from './documentVisibility';
+import { DocumentEditModal } from './DocumentEditModal';
 import { expiryBadge } from './EmployeeDetailPage';
 import { Select } from '../../components/Select';
 import { backToState } from '../../lib/backTo';
@@ -36,13 +37,18 @@ export function DocumentsPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
+  const [source, setSource] = useState<'' | DocumentSource>('');
+  const [includeSuperseded, setIncludeSuperseded] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [newVersionOf, setNewVersionOf] = useState<DocumentRow | null>(null);
+  const [editing, setEditing] = useState<DocumentRow | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<DocumentRow | null>(null);
 
   const { data: documents, isLoading } = useDocuments({
     search: search || undefined,
     category: category || undefined,
+    source: source || undefined,
+    include_superseded: includeSuperseded,
   });
   const { data: expiring } = useExpiringDocuments();
 
@@ -126,6 +132,25 @@ export function DocumentsPage() {
               </option>
             ))}
           </Select>
+          <Select
+            className="hm-select"
+            style={{ width: 170 }}
+            value={source}
+            aria-label="Herkunft"
+            onChange={(e) => setSource(e.target.value as '' | DocumentSource)}
+          >
+            <option value="">Jede Herkunft</option>
+            <option value="portal">Aus dem Portal</option>
+            <option value="hr">Von HR abgelegt</option>
+          </Select>
+          <label className="hm-checkbox" style={{ whiteSpace: 'nowrap' }}>
+            <input
+              type="checkbox"
+              checked={includeSuperseded}
+              onChange={(e) => setIncludeSuperseded(e.target.checked)}
+            />
+            Abgelöste Versionen anzeigen
+          </label>
         </div>
       </Card>
 
@@ -137,8 +162,8 @@ export function DocumentsPage() {
             icon={<FolderOpen size={40} />}
             title="Keine Dokumente gefunden"
             hint={
-              search || category
-                ? 'Passen Sie Suchbegriff oder Kategorie-Filter an.'
+              search || category || source
+                ? 'Passen Sie Suchbegriff, Kategorie oder Herkunft an.'
                 : 'Laden Sie das erste Dokument hoch. Sie können zwischen Mitarbeiter-Zuordnung oder ohne entscheiden.'
             }
           />
@@ -153,12 +178,17 @@ export function DocumentsPage() {
                   <th>Version</th>
                   <th>Ablauf</th>
                   <th>Hochgeladen</th>
-                  <th style={{ width: 176 }} />
+                  <th style={{ width: 210 }} />
                 </tr>
               </thead>
               <tbody>
                 {documents!.map((d) => (
-                  <tr key={d.id} data-focus-id={d.id} className={d.id === focusId ? 'hm-row--focus' : undefined}>
+                  <tr
+                    key={d.id}
+                    data-focus-id={d.id}
+                    className={d.id === focusId ? 'hm-row--focus' : undefined}
+                    style={{ opacity: d.is_superseded ? 0.55 : 1 }}
+                  >
                     <td>
                       <div style={{ fontWeight: 600 }}>{d.title}</div>
                       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
@@ -170,10 +200,13 @@ export function DocumentsPage() {
                     <td>
                       <span className="row" style={{ gap: 6 }}>
                         <Badge tone="blue">{DOCUMENT_CATEGORY_LABELS[d.category]}</Badge>
+                        <SourceBadge source={d.source} />
                         <VisibilityBadge visibility={d.visibility} />
                       </span>
                     </td>
-                    <td>v{d.version}</td>
+                    <td>
+                      v{d.version} {d.is_superseded ? <Badge tone="neutral">abgelöst</Badge> : null}
+                    </td>
                     <td>
                       {d.expiry_date ? formatDate(d.expiry_date) : '—'} {expiryBadge(d)}
                     </td>
@@ -190,18 +223,29 @@ export function DocumentsPage() {
                             <Download size={15} />
                           </button>
                         </Tooltip>
-                        <Tooltip content="Neue Version hochladen">
+                        <Tooltip content={<span className="hm-tooltip__title">Metadaten bearbeiten</span>}>
                           <button
                             className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                            aria-label="Neue Version hochladen"
-                            onClick={() => {
-                              setNewVersionOf(d);
-                              setUploadOpen(true);
-                            }}
+                            aria-label="Metadaten bearbeiten"
+                            onClick={() => setEditing(d)}
                           >
-                            <FilePlus2 size={15} />
+                            <Pencil size={15} />
                           </button>
                         </Tooltip>
+                        {!d.is_superseded && (
+                          <Tooltip content="Neue Version hochladen">
+                            <button
+                              className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                              aria-label="Neue Version hochladen"
+                              onClick={() => {
+                                setNewVersionOf(d);
+                                setUploadOpen(true);
+                              }}
+                            >
+                              <FilePlus2 size={15} />
+                            </button>
+                          </Tooltip>
+                        )}
                         <Tooltip content="Löschen">
                           <button
                             className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
@@ -222,6 +266,7 @@ export function DocumentsPage() {
       </Card>
 
       <DocumentUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} supersedes={newVersionOf} />
+      <DocumentEditModal doc={editing} onClose={() => setEditing(null)} />
       <ConfirmDialog
         open={confirmDelete !== null}
         title="Dokument löschen?"

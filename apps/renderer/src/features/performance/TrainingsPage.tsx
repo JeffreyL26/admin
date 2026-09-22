@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, GraduationCap, Plus, Upload, Download, Users } from 'lucide-react';
 import {
@@ -16,6 +16,8 @@ import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../compo
 import { Modal, ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
+import { FilePicker } from '../../components/FilePicker';
+import { Tooltip } from '../../components/Tooltip';
 import { REGISTRATION_STATUS_TONES } from './common';
 import { Select } from '../../components/Select';
 
@@ -62,15 +64,17 @@ export function TrainingsPage() {
 
   const save = useMutation({
     mutationFn: () => {
+      // Geleerte Felder gehen als null, sonst behielte der PUT den alten Wert
+      // (das Backend mischt den Body über den Bestand).
       const payload = {
         title: form.title,
-        provider: form.provider || undefined,
+        provider: form.provider.trim() || null,
         kind: form.kind,
-        cost_cents: form.cost_cents === '' ? undefined : Math.round(Number(form.cost_cents) * 100),
+        cost_cents: form.cost_cents === '' ? null : Math.round(Number(form.cost_cents) * 100),
         mandatory: form.mandatory,
         repeat_interval_months:
-          form.repeat_interval_months === '' ? undefined : Number(form.repeat_interval_months),
-        description: form.description || undefined,
+          form.repeat_interval_months === '' ? null : Number(form.repeat_interval_months),
+        description: form.description.trim() || null,
       };
       return editing
         ? api.put(`/api/performance/trainings/${editing.id}`, payload)
@@ -344,8 +348,8 @@ function RegistrationsModal({ training, onClose }: { training: TrainingRow; onCl
 
   const [employeeId, setEmployeeId] = useState<number | null>(null);
   const [date, setDate] = useState('');
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [uploadTarget, setUploadTarget] = useState<number | null>(null);
+  const [note, setNote] = useState('');
+  const [uploadTarget, setUploadTarget] = useState<RegistrationRow | null>(null);
 
   const register = useMutation({
     mutationFn: () =>
@@ -353,10 +357,12 @@ function RegistrationsModal({ training, onClose }: { training: TrainingRow; onCl
         training_id: training.id,
         employee_id: employeeId,
         date: date || undefined,
+        note: note.trim() || undefined,
       }),
     onSuccess: () => {
       invalidate();
       setEmployeeId(null);
+      setNote('');
       toast.success('Anmeldung erfasst');
     },
     onError: (e: Error) => toast.error(e.message),
@@ -369,18 +375,18 @@ function RegistrationsModal({ training, onClose }: { training: TrainingRow; onCl
     onError: (e: Error) => toast.error(e.message),
   });
 
-  async function onCertificateChosen(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || uploadTarget === null) return;
-    try {
+  const uploadCertificate = useMutation({
+    mutationFn: async ({ id, file }: { id: number; file: File }) => {
       const res = await uploadFile(file);
-      update.mutate({ id: uploadTarget, patch: { certificate_file_id: res.file.id } });
+      return api.put(`/api/performance/training-registrations/${id}`, { certificate_file_id: res.file.id });
+    },
+    onSuccess: () => {
+      invalidate();
+      setUploadTarget(null);
       toast.success('Zertifikat hochgeladen');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload fehlgeschlagen');
-    }
-  }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const nextStatus: Record<TrainingRegistrationStatus, TrainingRegistrationStatus | null> = {
     angemeldet: 'teilgenommen',
@@ -410,6 +416,15 @@ function RegistrationsModal({ training, onClose }: { training: TrainingRow; onCl
           <Field label="Termin">
             <input className="hm-input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
+          <Field label="Notiz">
+            <input
+              className="hm-input"
+              style={{ minWidth: 200 }}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="optional"
+            />
+          </Field>
           <button
             className="hm-btn hm-btn--primary"
             disabled={employeeId === null || register.isPending}
@@ -432,6 +447,7 @@ function RegistrationsModal({ training, onClose }: { training: TrainingRow; onCl
                   <th>Status</th>
                   <th>Termin</th>
                   <th>Abgeschlossen</th>
+                  <th>Notiz</th>
                   <th>Zertifikat</th>
                   <th></th>
                 </tr>
@@ -450,6 +466,27 @@ function RegistrationsModal({ training, onClose }: { training: TrainingRow; onCl
                     <td>{formatDate(r.date)}</td>
                     <td>{formatDate(r.completed_at)}</td>
                     <td>
+                      {r.note ? (
+                        <Tooltip content={<span className="hm-tooltip__line">{r.note}</span>}>
+                          <span
+                            tabIndex={0}
+                            style={{
+                              display: 'inline-block',
+                              maxWidth: 160,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              verticalAlign: 'bottom',
+                            }}
+                          >
+                            {r.note}
+                          </span>
+                        </Tooltip>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>
                       {r.certificate_file_id ? (
                         <button
                           className="hm-btn hm-btn--ghost hm-btn--sm"
@@ -460,10 +497,7 @@ function RegistrationsModal({ training, onClose }: { training: TrainingRow; onCl
                       ) : r.status === 'abgeschlossen' || r.status === 'teilgenommen' ? (
                         <button
                           className="hm-btn hm-btn--ghost hm-btn--sm"
-                          onClick={() => {
-                            setUploadTarget(r.id);
-                            fileInput.current?.click();
-                          }}
+                          onClick={() => setUploadTarget(r)}
                         >
                           <Upload size={14} /> Hochladen
                         </button>
@@ -498,7 +532,58 @@ function RegistrationsModal({ training, onClose }: { training: TrainingRow; onCl
           </div>
         )}
       </div>
-      <input ref={fileInput} type="file" hidden onChange={onCertificateChosen} />
+      {uploadTarget && (
+        <CertificateUploadModal
+          registration={uploadTarget}
+          busy={uploadCertificate.isPending}
+          onClose={() => setUploadTarget(null)}
+          onUpload={(file) => uploadCertificate.mutate({ id: uploadTarget.id, file })}
+        />
+      )}
+    </Modal>
+  );
+}
+
+/** Zertifikat je Anmeldung über die Dropzone statt eines nackten Datei-Inputs. */
+function CertificateUploadModal({
+  registration,
+  busy,
+  onClose,
+  onUpload,
+}: {
+  registration: RegistrationRow;
+  busy: boolean;
+  onClose: () => void;
+  onUpload: (file: File) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  return (
+    <Modal
+      title={`Zertifikat hochladen: ${registration.first_name} ${registration.last_name}`}
+      open
+      onClose={onClose}
+      footer={
+        <>
+          <button className="hm-btn hm-btn--secondary" onClick={onClose} disabled={busy}>
+            Abbrechen
+          </button>
+          <button
+            className="hm-btn hm-btn--primary"
+            disabled={!file || busy}
+            onClick={() => file && onUpload(file)}
+          >
+            <Upload size={14} /> Hochladen
+          </button>
+        </>
+      }
+    >
+      <FilePicker
+        file={file}
+        onFile={setFile}
+        busy={busy}
+        accept=".pdf,image/*"
+        hint="PDF oder Bild des Teilnahmezertifikats"
+      />
     </Modal>
   );
 }

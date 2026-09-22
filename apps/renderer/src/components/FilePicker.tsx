@@ -116,7 +116,8 @@ export function FilePicker({
 /**
  * Foto-Auswahl mit runder Vorschau — für das Mitarbeiterfoto. Lädt sofort hoch
  * (async) und meldet die neue file_id. `previewUrl` zeigt ein bereits
- * hinterlegtes Foto.
+ * hinterlegtes Foto. `onRemove` blendet einen Knopf „Foto entfernen“ ein; der
+ * Aufrufer setzt daraufhin seine file_id zurueck.
  */
 export function PhotoPicker({
   name,
@@ -124,16 +125,26 @@ export function PhotoPicker({
   busy,
   disabled,
   onPick,
+  onRemove,
 }: {
   name: string;
   previewUrl?: string;
   busy?: boolean;
   disabled?: boolean;
   onPick: (file: File) => void;
+  onRemove?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const shown = localPreview ?? previewUrl;
+  // Sobald der Server das hinterlegte Foto liefert (oder es wechselt), ist die
+  // lokale Vorschau ueberholt: freigeben, sonst haelt der Browser die Bytes.
+  React.useEffect(() => {
+    setLocalPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  }, [previewUrl]);
 
   return (
     <div className="row" style={{ gap: 14 }}>
@@ -163,6 +174,21 @@ export function PhotoPicker({
         >
           {busy ? 'Lädt …' : shown ? 'Foto ersetzen' : 'Foto hochladen'}
         </button>
+        {onRemove && shown && !busy && (
+          <button
+            type="button"
+            className="hm-btn hm-btn--ghost hm-btn--sm"
+            style={{ marginLeft: 6 }}
+            disabled={disabled}
+            onClick={() => {
+              if (localPreview) URL.revokeObjectURL(localPreview);
+              setLocalPreview(null);
+              onRemove();
+            }}
+          >
+            <X size={14} /> Foto entfernen
+          </button>
+        )}
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 5 }}>
           JPG oder PNG, quadratisch wirkt am besten
         </div>

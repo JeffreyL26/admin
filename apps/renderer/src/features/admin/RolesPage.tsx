@@ -182,12 +182,23 @@ export function RolesPage() {
                     </td>
                     <td>
                       <div className="row" style={{ justifyContent: 'flex-end' }}>
-                        <button
-                          className="hm-btn hm-btn--sm hm-btn--secondary"
-                          onClick={() => setMembersRole(r)}
+                        {/* Inaktive Rollen werden nicht mehr vergeben: Mitglieder nur
+                            noch einsehbar ueber die Zahl, Zuweisung erst nach Aktivieren. */}
+                        <Tooltip
+                          content={
+                            r.active === 1 ? null : (
+                              <span className="hm-tooltip__title">Inaktive Rolle: erst aktivieren, dann Mitglieder pflegen</span>
+                            )
+                          }
                         >
-                          <Users size={14} /> Mitglieder
-                        </button>
+                          <button
+                            className="hm-btn hm-btn--sm hm-btn--secondary"
+                            disabled={r.active !== 1}
+                            onClick={() => setMembersRole(r)}
+                          >
+                            <Users size={14} /> Mitglieder
+                          </button>
+                        </Tooltip>
                         <button
                           className="hm-btn hm-btn--sm hm-btn--ghost"
                           disabled={toggleActive.isPending}
@@ -352,8 +363,9 @@ function RoleDialog({
             <span>Aktiv</span>
           </label>
           <p style={{ margin: '6px 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            Inaktive Rollen bleiben mitsamt ihren Zuweisungen erhalten und werden bei der
-            Rollenvergabe nur nicht mehr angeboten.
+            Inaktive Rollen bleiben mitsamt ihren Zuweisungen erhalten, werden bei der
+            Rollenvergabe aber nicht mehr angeboten; auch die Mitgliederpflege hier ist bis zum
+            Aktivieren gesperrt.
           </p>
         </div>
         <div className="span-2">

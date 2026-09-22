@@ -1,6 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Eye, EyeOff, Info } from 'lucide-react';
-import { DOCUMENT_VISIBILITY_HR_HINT, DOCUMENT_VISIBILITY_LABELS, type DocumentVisibility } from '@ohrganize/shared';
+import { Eye, EyeOff, Info, Upload } from 'lucide-react';
+import {
+  DOCUMENT_VISIBILITY_HR_HINT,
+  DOCUMENT_VISIBILITY_LABELS,
+  type DocumentSource,
+  type DocumentVisibility,
+} from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { Badge } from '../../components/ui';
 import { Tooltip } from '../../components/Tooltip';
@@ -27,6 +32,27 @@ export function VisibilityHint() {
         onClick={(e) => e.preventDefault()}
       >
         <Info size={14} aria-hidden="true" />
+      </span>
+    </Tooltip>
+  );
+}
+
+/** Herkunft in Listen: nur Portal-Uploads tragen ein Kennzeichen, der HR-Upload ist der Regelfall. */
+export function SourceBadge({ source }: { source: DocumentSource }) {
+  if (source !== 'portal') return null;
+  return (
+    <Tooltip
+      content={
+        <>
+          <span className="hm-tooltip__title">Aus dem Portal</span>
+          <span className="hm-tooltip__line">Von der Person selbst im Mitarbeitenden-Portal hochgeladen</span>
+        </>
+      }
+    >
+      <span style={{ display: 'inline-flex' }}>
+        <Badge tone="navy">
+          <Upload size={11} aria-hidden="true" /> aus dem Portal
+        </Badge>
       </span>
     </Tooltip>
   );

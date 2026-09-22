@@ -1,22 +1,18 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, Check, RotateCcw } from 'lucide-react';
-import { api } from '../../api/client';
+import { Lock } from 'lucide-react';
+import { ApiRequestError, api } from '../../api/client';
 import { REGIONS, REGION_TERM } from '../../lib/locale';
-import { Card, Field, PageHeader, Spinner } from '../../components/ui';
+import { Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { useToast } from '../../components/Toast';
-import { useAuth } from '../../auth/AuthContext';
-import { applyTheme, getTheme, THEMES, type ThemeName } from '../../design/theme';
 import { Select } from '../../components/Select';
-import { NAV_SECTIONS } from '../../layout/nav';
-import { SIDEBAR_DEFAULT_ORDER, resetSidebarOrder, saveSidebarOrder, useSidebarOrder } from '../../layout/sidebarConfig';
 
-/** Passwortregel des Backends (MIN_PASSWORD_CHARS in core/auth.ts). Als
- *  Konstante statt als Zahl im Hinweistext UND in der Absende-Bedingung: Beide
- *  standen auseinander (Hinweis 12, Sperre 8), sodass 8–11 Zeichen absendbar
- *  waren und erst der Server sie ablehnte. Gleiches Muster wie im Portal
- *  (apps/web/src/pages/ProfilePage.tsx). */
-const MIN_PASSWORD_CHARS = 12;
+/**
+ * Firmeneinstellungen (Bereich `einstellungen`). Alles Persoenliche des
+ * Kontos (Passwort, Darstellung, Seitenleiste) liegt in AccountPage.tsx unter
+ * /einstellungen/konto, weil es JEDEM Admin-Konto offensteht.
+ */
 
 /** Antwort von GET /api/regions: Regionen des Landes der Variante. */
 interface RegionsResponse {
@@ -40,9 +36,12 @@ interface Settings {
 export function SettingsPage() {
   const toast = useToast();
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.get<{ settings: Settings }>('/api/settings'),
+    // Ein 403 (Rolle ohne Bereich `einstellungen`) ist endgueltig; ein
+    // Wiederholen liesse den Spinner nur laenger drehen.
+    retry: (count, err) => !(err instanceof ApiRequestError && err.status === 403) && count < 2,
   });
   // Regionen kommen vom Server (Land der Variante), damit die Auswahl nicht
   // an einer zweiten Liste im Client haengt. Bis die Antwort da ist, dient
@@ -65,7 +64,25 @@ export function SettingsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const pw = usePasswordForm();
+  if (error instanceof ApiRequestError && error.status === 403) {
+    return (
+      <>
+        <PageHeader title="Einstellungen" subtitle="Unternehmensweite Konfiguration von oHRganize." />
+        <Card>
+          <EmptyState
+            icon={<Lock size={40} />}
+            title="Für die Firmeneinstellungen fehlt Ihnen die Berechtigung"
+            hint="Ihre Admin-Rolle umfasst den Bereich Einstellungen nicht. Passwort, Darstellung und Seitenleiste ändern Sie unter Konto."
+            action={
+              <Link to="/einstellungen/konto" className="hm-btn hm-btn--primary">
+                Zum Konto
+              </Link>
+            }
+          />
+        </Card>
+      </>
+    );
+  }
 
   if (isLoading || !settings) return <Spinner center />;
 
@@ -75,8 +92,6 @@ export function SettingsPage() {
     <>
       <PageHeader title="Einstellungen" subtitle="Unternehmensweite Konfiguration von oHRganize." />
       <div className="stack" style={{ maxWidth: 760 }}>
-        <ThemeCard />
-        <SidebarCard />
         <Card title="Unternehmen">
           <div className="hm-form-grid">
             <Field label="Firmenname" span2>
@@ -163,203 +178,11 @@ export function SettingsPage() {
             </button>
           </div>
         </Card>
-
-        <Card title="Passwort ändern">
-          <div className="hm-form-grid">
-            <Field label="Aktuelles Passwort" required>
-              <input
-                className="hm-input"
-                type="password"
-                value={pw.current}
-                onChange={(e) => pw.setCurrent(e.target.value)}
-              />
-            </Field>
-            <Field label="Neues Passwort" required hint={`Mindestens ${MIN_PASSWORD_CHARS} Zeichen`}>
-              <input
-                className="hm-input"
-                type="password"
-                value={pw.next}
-                onChange={(e) => pw.setNext(e.target.value)}
-              />
-            </Field>
-          </div>
-          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
-            <button
-              className="hm-btn hm-btn--secondary"
-              disabled={pw.busy || pw.next.length < MIN_PASSWORD_CHARS || !pw.current}
-              onClick={pw.submit}
-            >
-              Passwort ändern
-            </button>
-          </div>
-        </Card>
+        <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+          Passwort, Darstellung und Seitenleiste dieses Kontos finden Sie unter{' '}
+          <Link to="/einstellungen/konto">Konto</Link>.
+        </p>
       </div>
     </>
   );
-}
-
-/**
- * Reihenfolge der Seitenleiste, je Gerät (localStorage, siehe
- * layout/sidebarConfig.ts). Dashboard (oben) und Einstellungen (unten) sind
- * fest und tauchen hier nicht auf.
- */
-function SidebarCard() {
-  const order = useSidebarOrder();
-  const titles = new Map(NAV_SECTIONS.map((s) => [s.key, s.title ?? 'Dashboard']));
-  const isDefault = order.join() === SIDEBAR_DEFAULT_ORDER.join();
-  const move = (from: number, to: number) => {
-    if (to < 0 || to >= order.length) return;
-    const next = [...order];
-    const [item] = next.splice(from, 1);
-    next.splice(to, 0, item!);
-    saveSidebarOrder(next);
-  };
-  const rowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '8px 12px',
-    borderRadius: 10,
-    border: '1px solid var(--border)',
-    background: 'var(--bg-surface)',
-  };
-  return (
-    <Card
-      title="Seitenleiste"
-      actions={
-        <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={resetSidebarOrder} disabled={isDefault}>
-          <RotateCcw size={15} /> Standard
-        </button>
-      }
-    >
-      <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
-        Die Reihenfolge der Abschnitte gilt sofort und wird auf diesem Gerät gespeichert. Das Dashboard bleibt immer
-        ganz oben, die Einstellungen ganz unten.
-      </p>
-      <div className="stack" style={{ gap: 6 }}>
-        {order.map((key, i) => (
-          <div key={key} style={rowStyle}>
-            <span style={{ width: 22, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' }}>
-              {i + 1}.
-            </span>
-            <span style={{ flex: 1, fontWeight: 600 }}>{titles.get(key)}</span>
-            <button
-              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-              onClick={() => move(i, i - 1)}
-              disabled={i === 0}
-              aria-label={`${titles.get(key)} nach oben`}
-            >
-              <ArrowUp size={15} />
-            </button>
-            <button
-              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-              onClick={() => move(i, i + 1)}
-              disabled={i === order.length - 1}
-              aria-label={`${titles.get(key)} nach unten`}
-            >
-              <ArrowDown size={15} />
-            </button>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-function ThemeCard() {
-  const [active, setActive] = useState<ThemeName>(getTheme());
-  return (
-    <Card title="Darstellung">
-      <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
-        Das Farbschema gilt sofort und wird auf diesem Gerät gespeichert.
-      </p>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-          gap: 12,
-        }}
-      >
-        {THEMES.map((t) => {
-          const selected = active === t.name;
-          return (
-            <button
-              key={t.name}
-              onClick={() => {
-                applyTheme(t.name);
-                setActive(t.name);
-              }}
-              style={{
-                font: 'inherit',
-                // Native <button>-Elemente ohne eigene Farbe rendern mit der
-                // UA-Vorgabe (Schwarz), unabhängig vom Theme. Im Dunkel-Theme
-                // ergibt das schwarze Schrift auf dunklem Kachelgrund, deshalb
-                // hier explizit wie beim Fließtext der Karte.
-                color: 'var(--text-primary)',
-                textAlign: 'left',
-                cursor: 'pointer',
-                padding: 12,
-                borderRadius: 12,
-                background: 'var(--bg-surface)',
-                border: selected
-                  ? '2px solid var(--brand-primary)'
-                  : '1px solid var(--border-strong)',
-                boxShadow: selected ? 'var(--shadow-primary-sm)' : 'var(--shadow-sm)',
-                transition: 'border-color .15s ease, box-shadow .15s ease',
-              }}
-            >
-              <span className="row" style={{ gap: 5, marginBottom: 8 }}>
-                {t.swatch.map((color, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      width: i === 0 ? 34 : 18,
-                      height: 18,
-                      borderRadius: 6,
-                      background: color,
-                      border: '1px solid rgb(0 0 0 / 0.08)',
-                    }}
-                  />
-                ))}
-                <span style={{ flex: 1 }} />
-                {selected && <Check size={16} color="var(--brand-primary)" />}
-              </span>
-              <div style={{ fontWeight: 620 }}>{t.label}</div>
-              <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                {t.description}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
-
-function usePasswordForm() {
-  const toast = useToast();
-  // Bewusst über den Auth-Kontext statt direkt über api.put: Der Wechsel
-  // entwertet serverseitig alle älteren Tokens (users.sessions_valid_from).
-  // Wer das mitgelieferte frische Token nicht übernimmt, wird beim nächsten
-  // Request mit 401 abgemeldet.
-  const { changePassword } = useAuth();
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    setBusy(true);
-    try {
-      await changePassword(current, next);
-      toast.success('Passwort geändert');
-      setCurrent('');
-      setNext('');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Fehler beim Ändern');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return { current, setCurrent, next, setNext, busy, submit };
 }

@@ -16,7 +16,7 @@ import { uploadFile } from '../../api/client';
 import { Field } from '../../components/ui';
 import { PhotoPicker } from '../../components/FilePicker';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
-import { useDepartments, useLocations, useTeams, type EmployeeRow } from './api';
+import { useDepartments, useLocations, usePhotoUrl, useTeams, type EmployeeRow } from './api';
 import { Select } from '../../components/Select';
 
 /** Formularzustand: Zahlen als String (Eingabe), Konvertierung erst beim Submit. */
@@ -200,6 +200,9 @@ type SetForm = (patch: Partial<EmployeeFormState>) => void;
 
 export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetForm }) {
   const [uploading, setUploading] = React.useState(false);
+  // Hinterlegtes Foto anzeigen: gleicher Cache wie Personalakte und
+  // Verzeichnis (usePhotoUrl haelt das Bild je Datei, nicht die kurzlebige URL).
+  const photo = usePhotoUrl(form.photo_file_id);
   return (
     <div className="hm-form-grid">
       <Field label="Vorname" required>
@@ -214,7 +217,11 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
       <Field label="Foto" span2>
         <PhotoPicker
           name={`${form.first_name} ${form.last_name}`.trim() || 'Neu'}
+          previewUrl={form.photo_file_id ? photo.data : undefined}
           busy={uploading}
+          // Setzt photo_file_id auf null; der PATCH nimmt null an und loest die
+          // Verknuepfung, die Datei selbst bleibt bis zum Aufraeumen im Storage.
+          onRemove={form.photo_file_id ? () => set({ photo_file_id: null }) : undefined}
           onPick={async (file) => {
             setUploading(true);
             try {
@@ -346,8 +353,13 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
           ))}
         </Select>
       </Field>
-      <Field label="Vorgesetzte:r">
-        <EmployeeSelect value={form.manager_id} onChange={(id) => set({ manager_id: id })} allowEmpty />
+      <Field label="Vorgesetzte:r" hint="Ausgeschiedene bleiben sichtbar, solange sie noch eingetragen sind">
+        <EmployeeSelect
+          value={form.manager_id}
+          onChange={(id) => set({ manager_id: id })}
+          allowEmpty
+          includeInactive
+        />
       </Field>
       <Field label="Eintrittsdatum" required={required.has('hire_date')}>
         <input className="hm-input" type="date" value={form.hire_date} onChange={(e) => set({ hire_date: e.target.value })} />

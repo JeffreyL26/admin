@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { CalendarDays, ExternalLink, Wallet } from 'lucide-react';
+import { CalendarDays, ExternalLink, Receipt, Wallet } from 'lucide-react';
 import {
   ABSENCE_STATUS_LABELS,
   formatDate,
@@ -182,6 +182,7 @@ function BalanceBreakdown({ balance, breakdown }: { balance: AbsenceBalance; bre
 }
 
 interface SalaryInfo {
+  employee_type: string;
   monthly_gross_cents: number;
   components: {
     id: number;
@@ -203,6 +204,25 @@ export function EmployeeCompensationTab({ employeeId, employeeName }: { employee
   });
 
   if (isLoading) return <Spinner center />;
+
+  // Freiberufler:innen haben keine Gehaltskomponenten (Backend: 400); ihre
+  // Vergütung sind Honorarsätze und Rechnungen unter Freiberufler & Honorare.
+  if (salary?.employee_type === 'freiberufler') {
+    return (
+      <Card>
+        <EmptyState
+          icon={<Receipt size={40} />}
+          title="Vergütung über Honorare"
+          hint="Für Freiberufler:innen gibt es keine Gehaltskomponenten. Honorarsätze und Rechnungen stehen im Bereich Freiberufler & Honorare."
+          action={
+            <button className="hm-btn hm-btn--primary" onClick={() => navigate('/verguetung/honorare')}>
+              <Receipt size={16} /> Zu den Honoraren
+            </button>
+          }
+        />
+      </Card>
+    );
+  }
 
   // Absprung in die Vergütungsseite DIESER Person; von dort führt „Zurück“
   // wieder in diesen Tab statt in die Gehälterübersicht.

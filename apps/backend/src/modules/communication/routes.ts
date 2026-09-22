@@ -5,7 +5,7 @@ import { AppError, badRequest, conflict, notFound, parse } from '../../core/erro
 import { audit } from '../../core/audit.js';
 import { todayIso } from '../../core/dates.js';
 import { getSetting } from '../../core/settings.js';
-import { signDownloadUrl } from '../../core/files.js';
+import { deleteFileIfUnreferenced } from '../../core/files.js';
 import { isoDateString } from '../../core/validation.js';
 import {
   audienceShape,
@@ -16,6 +16,7 @@ import {
   type AudienceType,
 } from './audience.js';
 import { distributionListRoutes } from './distributionListRoutes.js';
+import { DIRECTORY_FIELDS, queryDirectory } from './directoryService.js';
 import {
   answersSchema,
   getQuestions,
@@ -59,44 +60,9 @@ function countsBy(sql: string): Map<number, number> {
 }
 
 // ---------------------------------------------------------------------------
-// Verzeichnis
+// Verzeichnis: Abfrage und Feldsichtbarkeit liegen in directoryService.ts,
+// weil das Portal (modules/me/communicationRoutes.ts) dieselbe Logik liest.
 // ---------------------------------------------------------------------------
-
-const DIRECTORY_FIELDS = [
-  'email',
-  'phone',
-  'photo',
-  'job_title',
-  'department',
-  'team',
-  'location',
-  'skills',
-] as const;
-type DirectoryField = (typeof DIRECTORY_FIELDS)[number];
-
-function getFieldVisibility(): Record<DirectoryField, boolean> {
-  const rows = getDb()
-    .prepare('SELECT field_key, visible FROM directory_field_visibility')
-    .all() as { field_key: string; visible: number }[];
-  const map = Object.fromEntries(rows.map((r) => [r.field_key, r.visible === 1]));
-  return Object.fromEntries(
-    DIRECTORY_FIELDS.map((f) => [f, map[f] ?? true]),
-  ) as Record<DirectoryField, boolean>;
-}
-
-/**
- * Skills/Employee-Skills gehören dem Leistungs-Modul (Kontrakt: skills(id,
- * name), employee_skills(employee_id, skill_id, level)). Wir lesen nur — und
- * funktionieren auch, wenn die Tabellen (noch) nicht existieren oder leer sind.
- */
-function skillTablesExist(): boolean {
-  const row = getDb()
-    .prepare(
-      "SELECT COUNT(*) AS c FROM sqlite_master WHERE type = 'table' AND name IN ('skills', 'employee_skills')",
-    )
-    .get() as { c: number };
-  return row.c === 2;
-}
 
 // ---------------------------------------------------------------------------
 // Umfragen: Fragen & Antworten
@@ -115,7 +81,9 @@ const surveyBodySchema = z.object({
   ...audienceShape,
   date_from: isoDate,
   date_to: isoDate,
-  min_participants: z.number().int().min(1).nullable().optional(),
+  // Mindestens 2: Mit 1 waere die einzige Antwort einer Person zuzuordnen,
+  // die Anonymitaet der Auswertung damit nur behauptet.
+  min_participants: z.number().int().min(2).nullable().optional(),
   questions: z.array(questionSchema).min(1, 'Mindestens eine Frage erforderlich'),
 });
 
@@ -157,6 +125,9 @@ function surveyToJson(s: SurveyRow, ctx?: SurveyListContext) {
     participant_count: participantCount,
     effective_min_participants:
       s.min_participants ?? ctx?.defaultMinParticipants ?? getSetting('surveyMinParticipants'),
+    // Laufend, aber Enddatum ueberschritten: Das Portal bietet die Umfrage
+    // nicht mehr an (me/communicationRoutes.ts), die HR sollte sie beenden.
+    deadline_passed: s.status === 'laufend' && s.date_to < todayIso(),
   };
 }
 
@@ -185,6 +156,15 @@ interface AnnouncementRow {
   requires_ack: number;
   created_by_user_id: number | null;
   created_at: string;
+}
+
+/** Datei-IDs der Anhaenge, um nach Ersetzen oder Loeschen aufzuraeumen. */
+function attachmentFileIds(announcementId: number): number[] {
+  return (
+    getDb()
+      .prepare('SELECT file_id FROM announcement_attachments WHERE announcement_id = ?')
+      .all(announcementId) as { file_id: number }[]
+  ).map((r) => r.file_id);
 }
 
 function announcementStatus(a: Pick<AnnouncementRow, 'publish_at' | 'expires_at'>): string {
@@ -275,102 +255,7 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
       }),
       req.query,
     );
-    const db = getDb();
-    const vis = getFieldVisibility();
-    const hasSkills = skillTablesExist();
-
-    // DATENSCHUTZ: harte Positivliste dienstlicher Felder — niemals SELECT *.
-    // Private Daten (Adresse, IBAN, Steuer, SV, Geburtsdatum, private
-    // Kontakte) sind bewusst NICHT Teil dieser Abfrage.
-    const where: string[] = ["e.status = 'aktiv'"];
-    const params: unknown[] = [];
-    if (q.search) {
-      where.push(
-        "(e.first_name LIKE ? OR e.last_name LIKE ? OR (e.first_name || ' ' || e.last_name) LIKE ? OR e.job_title LIKE ? OR e.email LIKE ?)",
-      );
-      const like = `%${q.search}%`;
-      params.push(like, like, like, like, like);
-    }
-    if (q.department_id) {
-      where.push('e.department_id = ?');
-      params.push(q.department_id);
-    }
-    if (q.location_id) {
-      where.push('e.location_id = ?');
-      params.push(q.location_id);
-    }
-    if (q.skill) {
-      if (!hasSkills) return { employees: [], fields: vis };
-      where.push(
-        'e.id IN (SELECT es.employee_id FROM employee_skills es JOIN skills s ON s.id = es.skill_id WHERE s.name LIKE ?)',
-      );
-      params.push(`%${q.skill}%`);
-    }
-
-    const rows = db
-      .prepare(
-        `SELECT e.id, e.first_name, e.last_name, e.job_title, e.email, e.phone, e.photo_file_id,
-                d.name AS department_name, t.name AS team_name, l.name AS location_name
-         FROM employees e
-         LEFT JOIN departments d ON d.id = e.department_id
-         LEFT JOIN teams t ON t.id = e.team_id
-         LEFT JOIN locations l ON l.id = e.location_id
-         WHERE ${where.join(' AND ')}
-         ORDER BY e.last_name, e.first_name`,
-      )
-      .all(...params) as {
-      id: number;
-      first_name: string;
-      last_name: string;
-      job_title: string | null;
-      email: string | null;
-      phone: string | null;
-      photo_file_id: number | null;
-      department_name: string | null;
-      team_name: string | null;
-      location_name: string | null;
-    }[];
-
-    // Skills je Mitarbeiter:in (LEFT-JOIN-Semantik: leere Tabellen sind ok).
-    const skillMap = new Map<number, { name: string; level: number }[]>();
-    if (vis.skills && hasSkills && rows.length > 0) {
-      const skillRows = db
-        .prepare(
-          `SELECT es.employee_id, s.name, es.level
-           FROM employee_skills es JOIN skills s ON s.id = es.skill_id
-           ORDER BY s.name`,
-        )
-        .all() as { employee_id: number; name: string; level: number }[];
-      for (const s of skillRows) {
-        const list = skillMap.get(s.employee_id) ?? [];
-        list.push({ name: s.name, level: s.level });
-        skillMap.set(s.employee_id, list);
-      }
-    }
-
-    // Unsichtbare Felder werden HIER serverseitig entfernt — der Client
-    // bekommt sie gar nicht erst zu sehen.
-    const employees = rows.map((r) => {
-      const emp: Record<string, unknown> = {
-        id: r.id,
-        first_name: r.first_name,
-        last_name: r.last_name,
-      };
-      if (vis.job_title) emp.job_title = r.job_title;
-      if (vis.email) emp.email = r.email;
-      if (vis.phone) emp.phone = r.phone;
-      if (vis.photo) {
-        emp.photo_file_id = r.photo_file_id;
-        emp.photo_url = r.photo_file_id ? signDownloadUrl(r.photo_file_id) : null;
-      }
-      if (vis.department) emp.department_name = r.department_name;
-      if (vis.team) emp.team_name = r.team_name;
-      if (vis.location) emp.location_name = r.location_name;
-      if (vis.skills) emp.skills = skillMap.get(r.id) ?? [];
-      return emp;
-    });
-
-    return { employees, fields: vis };
+    return queryDirectory(q);
   });
 
   app.get('/api/communication/directory/fields', async () => {
@@ -491,6 +376,7 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     if (body.expires_at && body.expires_at < body.publish_at) {
       throw badRequest('Das Ablaufdatum darf nicht vor dem Veröffentlichungsdatum liegen');
     }
+    const previousFileIds = attachmentFileIds(id);
     inTransaction(() => {
       getDb()
         .prepare(
@@ -513,6 +399,11 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
       );
       for (const fileId of body.attachment_file_ids ?? []) attach.run(id, fileId);
     });
+    // Entfernte Anhaenge: Datei nur loeschen, wenn sie nirgends mehr haengt
+    // (core/files.ts prueft alle Referenztabellen). Erst NACH dem Commit, die
+    // Referenzpruefung muss den neuen Stand sehen.
+    const kept = new Set(body.attachment_file_ids ?? []);
+    for (const fileId of previousFileIds) if (!kept.has(fileId)) deleteFileIfUnreferenced(fileId);
     audit(req, 'update', 'announcement', id, { title: body.title });
     const row = getDb().prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnouncementRow;
     return { announcement: announcementToJson(row) };
@@ -520,8 +411,13 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
 
   app.delete('/api/communication/announcements/:id', async (req, reply) => {
     const { id } = parse(idParam, req.params);
+    // Anhang-Zeilen fallen per CASCADE; die Dateien selbst raeumt erst
+    // deleteFileIfUnreferenced weg, sonst blieben sie ueber eine signierte
+    // URL abrufbar.
+    const fileIds = attachmentFileIds(id);
     const info = getDb().prepare('DELETE FROM announcements WHERE id = ?').run(id);
     if (info.changes === 0) throw notFound('Ankündigung nicht gefunden');
+    for (const fileId of fileIds) deleteFileIfUnreferenced(fileId);
     audit(req, 'delete', 'announcement', id);
     reply.code(204);
   });

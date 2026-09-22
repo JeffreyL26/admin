@@ -82,7 +82,8 @@ function FieldVisibilityDialog({ open, onClose }: { open: boolean; onClose: () =
       }
     >
       <p style={{ color: 'var(--text-secondary)', marginBottom: 14 }}>
-        Ausgeblendete Felder werden serverseitig entfernt und sind für keinen Client sichtbar.
+        Ausgeblendete Felder werden serverseitig entfernt: hier im Verzeichnis sowie im Verzeichnis und im
+        Organigramm des Portals. Die Personalakte bleibt davon unberührt.
       </p>
       <div className="stack" style={{ gap: 8 }}>
         {DIRECTORY_FIELD_KEYS.map((key: DirectoryFieldKey) => (
@@ -206,9 +207,8 @@ export function DirectoryPage() {
           {employees.map((e) => {
             const name = `${e.first_name} ${e.last_name}`;
             return (
-              <Tooltip content={<span className="hm-tooltip__title">Personalakte öffnen</span>}>
+              <Tooltip key={e.id} content={<span className="hm-tooltip__title">Personalakte öffnen</span>}>
                 <div
-                  key={e.id}
                   className="hm-card hm-card--clickable"
                   onClick={() =>
                     navigate(`/personal/mitarbeitende/${e.id}`, {

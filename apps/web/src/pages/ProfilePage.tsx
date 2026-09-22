@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { EMPLOYEE_TYPE_LABELS, type EmployeeType } from '@ohrganize/shared';
 import { ApiRequestError } from '../api/client';
 import { useMyProfile } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
@@ -158,6 +159,12 @@ export function ProfilePage() {
             ) : (
               <div style={{ marginTop: -6 }}>
                 <Row label="Position" value={profile.job_title} />
+                {/* Der Katalog ist je Land definiert; ein unbekannter Wert
+                    erscheint roh statt als leeres Feld. */}
+                <Row
+                  label="Beschäftigungsart"
+                  value={EMPLOYEE_TYPE_LABELS[profile.employee_type as EmployeeType] ?? profile.employee_type}
+                />
                 <Row label="Abteilung" value={profile.department_name} />
                 <Row label="Team" value={profile.team_name} />
                 <Row label="Standort" value={profile.location_name} />

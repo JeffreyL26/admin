@@ -312,7 +312,12 @@ export function BonusesPage() {
                     <td style={{ fontWeight: 600 }}>
                       {b.last_name}, {b.first_name}
                     </td>
-                    <td>{b.title}</td>
+                    <td>
+                      {b.title}
+                      {b.note && (
+                        <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{b.note}</div>
+                      )}
+                    </td>
                     <td>
                       <Badge tone="blue">{BONUS_KIND_LABELS[b.kind as BonusKind] ?? b.kind}</Badge>
                     </td>

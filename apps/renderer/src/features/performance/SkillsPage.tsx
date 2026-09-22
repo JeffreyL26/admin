@@ -10,6 +10,7 @@ import type { Skill, SkillGapEntry } from '@ohrganize/shared';
 import { SKILL_LEVEL_COLORS } from './common';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
+import { useJobTitles } from '../employees/api';
 
 interface MatrixData {
   employees: { id: number; first_name: string; last_name: string; job_title: string | null; department_id: number | null; team_id: number | null }[];
@@ -325,10 +326,11 @@ function MatrixTab() {
                 <tr>
                   <th>Mitarbeiter:in</th>
                   {d.skills.map((s) => (
-                    <Tooltip content={s.category ? <span className="hm-tooltip__title">{s.category}</span> : null}>
-                      <th key={s.id} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                        {s.name}
-                      </th>
+                    <Tooltip
+                      key={s.id}
+                      content={s.category ? <span className="hm-tooltip__title">{s.category}</span> : null}
+                    >
+                      <th style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>{s.name}</th>
                     </Tooltip>
                   ))}
                 </tr>
@@ -520,6 +522,7 @@ function ProfilesTab() {
   const [form, setForm] = useState({ role_name: '', skill_id: 0, required_level: 3 });
   const toast = useToast();
   const qc = useQueryClient();
+  const { data: jobTitles } = useJobTitles();
 
   const { data: skillsData } = useQuery({
     queryKey: ['performance', 'skills'],
@@ -664,8 +667,15 @@ function ProfilesTab() {
         }
       >
         <div className="hm-form-grid">
-          <Field label="Rolle" required hint="Muss dem Jobtitel entsprechen, z. B. Entwickler:in">
-            <input className="hm-input" value={form.role_name} onChange={(e) => setForm({ ...form, role_name: e.target.value })} />
+          <Field label="Rolle" required hint="Aus den vorhandenen Jobtiteln; die Lückenanalyse ordnet über den Jobtitel zu">
+            <Select className="hm-select" value={form.role_name} onChange={(e) => setForm({ ...form, role_name: e.target.value })}>
+              <option value="">— auswählen —</option>
+              {(jobTitles ?? []).map((j) => (
+                <option key={j.title} value={j.title}>
+                  {j.title}
+                </option>
+              ))}
+            </Select>
           </Field>
           <Field label="Skill" required>
             <Select className="hm-select" value={form.skill_id} onChange={(e) => setForm({ ...form, skill_id: Number(e.target.value) })}>

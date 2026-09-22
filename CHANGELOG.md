@@ -12,6 +12,45 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Durchgaengigkeitspruefung aller Module (22.09.2026)
+- Sackgassen geschlossen: Gespraechsprotokolle mit Sichtbarkeit
+  „HR + Vorgesetzte + Mitarbeiter:in“, Ziele, Trainings, Gespraeche,
+  Skills und die eigene Vorgesetztenbewertung erreichen das Portal
+  (`/gespraeche`, `/entwicklung`); Verzeichnis im Portal (`/kollegen`)
+  mit derselben Feldsichtbarkeit wie in der HR, die auch das
+  Portal-Organigramm filtert; ausgehaendigte Bescheinigungen erscheinen
+  im Portal unter Dokumente; Entwicklungsplaene und Karrierestufen ohne
+  Oberflaeche entfernt (Migration `330_drop_development_plans`).
+- Konto-Seite ohne Bereichsbindung (Passwort, Darstellung, Seitenleiste),
+  damit jede Admin-Rolle ihr Passwort aendern kann; bereichsneutrale
+  Personenliste `GET /api/lookup/employees` fuer Auswahlfelder.
+- Personal: Teamleitung setzbar, befristete Vertraege als aktuell
+  erkannt und gespiegelt (mit Typregel-Pruefung), Loeschen einer Person
+  raeumt Dateien auf und nennt die Folgen, Dokumente bearbeitbar mit
+  Herkunft „aus dem Portal“ und abgeloesten Versionen, Foto entfernbar,
+  Team muss zur Abteilung passen, Unterabteilungen sperren das Loeschen.
+- Abwesenheit: AU-Bescheinigung herunterladbar, HR-Erfassung ohne
+  Krankheitsarten und mit Berechtigung je Person, Portal-Krankmeldungen
+  verketten Folgebescheinigungen, Betriebsruhe berechnet betroffene
+  Antraege neu, Konflikte ignorieren Feiertage.
+- Leistung und Fuehrung: Deep-Link auf Gespraeche der Person, leere
+  Trainingsfelder speicherbar, einheitliche Zaehlung „bewertet“,
+  Bearbeiten und Loeschen von Zyklen, Beurteilungen, Gespraechen und
+  Massnahmen mit Rueckfrage, Kommentare ohne Bewertung bleiben erhalten.
+- Verguetung: entschiedene Antraege mit Anmerkung sichtbar, Vier-Augen
+  in der Oberflaeche, Ueberschneidung schon beim Antrag, Personalnummer
+  in CSV, LODAS und Bescheinigung, Abrechnungslauf verwerfbar,
+  Freiberufler ohne Gehaltskarte und ohne Boni, Rechnungsbeleg als Datei,
+  geplante Boni bleiben dem Portal verborgen.
+- Recruiting und Verwaltung: Einstellen mit Beschaeftigungsart der Stelle
+  und Pflichtfeldern, Rueckzug erfassbar, Interviews bei Entscheidung
+  abgesagt, Link zur Personalakte und Onboarding nach der Einstellung,
+  Onboarding-Vorlagen pflegbar, Bewerbungen nach Status, Lebenslauf und
+  Gehaltsvorstellung erfassbar, abgelaufene Einwilligungen markiert.
+- Kommunikation: Umfragen mit Mindestteilnehmerzahl 2, Start und Ende
+  mit Rueckfrage, Frist abgelaufen sichtbar, Wiedervorlagen als
+  Dashboard-Widget, Deep-Links auf Ankuendigung und Umfrage.
+
 ### Ankuendigungen und Umfragen erreichen die Mitarbeitenden, Kanaele entfernt (22.09.2026)
 - Kanaele sind entfernt (Migration `501_distribution_lists` loescht die
   Tabellen): Sie hatten keinen Empfaenger und ueberschnitten sich mit den

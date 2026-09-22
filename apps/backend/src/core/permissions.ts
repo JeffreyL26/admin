@@ -67,7 +67,16 @@ const SELF_GATED = ['/api/leadership/me'];
  * die nicht ohnehin über einen erlaubten Bereich sichtbar wären — das Dashboard
  * blendet Kacheln fehlender Bereiche selbst aus.
  */
-const ALWAYS_ALLOWED = ['/api/dashboard', '/api/holidays', '/api/regions', '/api/bundeslaender'];
+const ALWAYS_ALLOWED = [
+  '/api/dashboard',
+  '/api/holidays',
+  '/api/regions',
+  '/api/bundeslaender',
+  // Personenliste fuer Auswahlfelder in ALLEN Modulen (core/lookupRoutes.ts):
+  // nur Name, Status und Zuordnung, keine Fachdaten. Haengt sie am Bereich
+  // `personal`, sieht jede Rolle ohne diesen Bereich leere Auswahlfelder.
+  '/api/lookup',
+];
 
 export interface PermissionSubject {
   id: number;

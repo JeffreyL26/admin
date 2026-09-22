@@ -181,3 +181,35 @@ export function IconLogout(props: IconProps) {
     </Svg>
   );
 }
+
+/** Entwicklung, Ziele und Trainings (lucide: trending-up). */
+export function IconDevelopment(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M3 17l6-6 4 4 8-8" />
+      <path d="M14 7h7v7" />
+    </Svg>
+  );
+}
+
+/** Gespraechsprotokolle (lucide: messages-square). */
+export function IconMeetings(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z" />
+      <path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1" />
+    </Svg>
+  );
+}
+
+/** Kolleginnen und Kollegen (lucide: users). */
+export function IconColleagues(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </Svg>
+  );
+}

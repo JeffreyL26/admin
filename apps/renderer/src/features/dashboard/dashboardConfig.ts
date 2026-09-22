@@ -2,7 +2,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Users, CalendarDays, Send, Stethoscope, FolderClock, Wallet, Briefcase,
   CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
-  UserPlus, UsersRound, Gauge, FilePenLine, BadgeCheck,
+  UserPlus, UsersRound, Gauge, FilePenLine, BadgeCheck, AlarmClock,
 } from 'lucide-react';
 import { AREA_MODULES, moduleEnabled, widgetAllowedByFeatures, type AdminArea, type ModuleKey } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
@@ -128,7 +128,9 @@ export const STAT_DEFS: Record<StatKey, StatDef> = {
     path: '/personal/dokumente',
     area: 'personal',
     value: (s) => s.expiringDocuments,
-    sub: () => 'innerhalb 30 Tagen',
+    // Zaehlt wie Personal → Dokumente → Ablaufend: Erinnerungsfrist je
+    // Dokument, nur gueltige und nicht abgeloeste Versionen.
+    sub: () => 'Erinnerungsfrist erreicht',
     subTone: (s) => pendingTone(s.expiringDocuments),
   },
   openProfileChanges: {
@@ -187,6 +189,7 @@ export type WidgetKey =
   | 'meetings'
   | 'announcements'
   | 'surveys'
+  | 'follow-ups'
   | 'birthdays'
   | 'onboarding'
   | 'leadership-team'
@@ -221,6 +224,8 @@ export const WIDGET_DEFS: Record<WidgetKey, WidgetDef> = {
   meetings: { title: 'Nächste Gespräche', description: 'Feedback-Termine der nächsten 3 Wochen', icon: MessagesSquare, accent: '--org-4', area: 'leistung' },
   announcements: { title: 'Aktive Ankündigungen', description: 'Laufende Mitteilungen', icon: Megaphone, accent: '--org-5', area: 'kommunikation' },
   surveys: { title: 'Laufende Umfragen', description: 'Teilnahmestand aktiver Umfragen', icon: BarChart3, accent: '--org-2', area: 'kommunikation' },
+  // Laedt seine Daten selbst (GET /api/communication/meetings/follow-ups).
+  'follow-ups': { title: 'Wiedervorlagen', description: 'Fällige Wiedervorlagen aus Gesprächsprotokollen', icon: AlarmClock, accent: '--org-6', area: 'kommunikation' },
   birthdays: { title: 'Nächste Geburtstage', description: 'Wer demnächst feiert', icon: Cake, accent: '--org-5', area: 'personal' },
   // Lädt seine Daten selbst über /api/admin/onboarding — ohne 'verwaltung'
   // antwortet das Backend mit 403 und das Widget behauptete sonst, es sei

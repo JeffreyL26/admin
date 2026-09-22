@@ -192,63 +192,6 @@ export interface ReviewAggregate {
 }
 
 // ---------------------------------------------------------------------------
-// Entwicklung & Karriere
-// ---------------------------------------------------------------------------
-
-export type DevelopmentPlanStatus = 'aktiv' | 'abgeschlossen' | 'abgebrochen';
-export type DevelopmentMeasureStatus = 'offen' | 'laufend' | 'erledigt' | 'verworfen';
-
-export const DEVELOPMENT_PLAN_STATUS_LABELS: Record<DevelopmentPlanStatus, string> = {
-  aktiv: 'Aktiv',
-  abgeschlossen: 'Abgeschlossen',
-  abgebrochen: 'Abgebrochen',
-};
-
-export const DEVELOPMENT_MEASURE_STATUS_LABELS: Record<DevelopmentMeasureStatus, string> = {
-  offen: 'Offen',
-  laufend: 'Laufend',
-  erledigt: 'Erledigt',
-  verworfen: 'Verworfen',
-};
-
-export interface DevelopmentPlan {
-  id: number;
-  employee_id: number;
-  title: string;
-  goal: string | null;
-  status: DevelopmentPlanStatus;
-  created_at: string;
-}
-
-export interface DevelopmentMeasure {
-  id: number;
-  plan_id: number;
-  title: string;
-  due_date: string | null;
-  owner_employee_id: number | null;
-  status: DevelopmentMeasureStatus;
-  note: string | null;
-  created_at: string;
-}
-
-export interface CareerLevel {
-  id: number;
-  role_name: string;
-  level: number;
-  title: string;
-  requirements: string | null;
-  created_at: string;
-}
-
-export interface EmployeeLevel {
-  id: number;
-  employee_id: number;
-  career_level_id: number;
-  since_date: string;
-  created_at: string;
-}
-
-// ---------------------------------------------------------------------------
 // Skills
 // ---------------------------------------------------------------------------
 
@@ -381,6 +324,101 @@ export interface FeedbackAction {
   title: string;
   due_date: string | null;
   owner_employee_id: number | null;
+  /** Name der verantwortlichen Person; in Gesprächsdetail und Erinnerungen mitgeliefert. */
+  owner_name?: string | null;
   status: FeedbackActionStatus;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Portal: „Meine Entwicklung“ (GET /api/me/development)
+// ---------------------------------------------------------------------------
+
+/** Eigenes Ziel im Portal: Fortschritt und Status, ohne Personenbezug Dritter. */
+export interface MeDevelopmentGoal {
+  id: number;
+  title: string;
+  description: string | null;
+  kind: GoalKind;
+  parent_goal_id: number | null;
+  metric: string | null;
+  target_value: string | null;
+  current_value: string | null;
+  progress: number;
+  period_from: string | null;
+  period_to: string | null;
+  status: GoalStatus;
+}
+
+/** Eigene Trainings-Anmeldung mit Titel und Termin des Trainings. */
+export interface MeDevelopmentTraining {
+  id: number;
+  training_id: number;
+  training_title: string;
+  provider: string | null;
+  training_kind: TrainingKind;
+  mandatory: number;
+  status: TrainingRegistrationStatus;
+  date: string | null;
+  completed_at: string | null;
+  note: string | null;
+}
+
+/** Vereinbarte Maßnahme aus einem eigenen Gespräch. */
+export interface MeDevelopmentAction {
+  id: number;
+  meeting_id: number;
+  title: string;
+  due_date: string | null;
+  owner_name: string | null;
+  status: FeedbackActionStatus;
+}
+
+/**
+ * Eigenes Feedback-Gespräch. Die Gesprächsnotizen sind Vorbereitungs- und
+ * Verlaufsnotizen der HR und bewusst NICHT enthalten; die Person sieht
+ * Termin, Art, Status und die vereinbarten Maßnahmen.
+ */
+export interface MeDevelopmentMeeting {
+  id: number;
+  kind: FeedbackMeetingKind;
+  scheduled_date: string;
+  held_date: string | null;
+  status: FeedbackMeetingStatus;
+  recurrence_months: number | null;
+  actions: MeDevelopmentAction[];
+}
+
+export interface MeDevelopmentSkill {
+  skill_id: number;
+  name: string;
+  category: string | null;
+  level: number;
+  assessed_at: string | null;
+}
+
+/** Eine Kategorie der eigenen Vorgesetztenbewertung (Wert und Kommentar der Führungskraft). */
+export interface MeDevelopmentRatingEntry {
+  category_name: string;
+  is_overall: number;
+  scale: RatingScaleKey;
+  score: number;
+  comment: string;
+  updated_at: string;
+}
+
+/** Eigene Vorgesetztenbewertung je Zeitraum, wie sie die Führungskraft abgegeben hat. */
+export interface MeDevelopmentRatingPeriod {
+  period_key: string;
+  period_label: string;
+  leader_name: string | null;
+  entries: MeDevelopmentRatingEntry[];
+}
+
+export interface MeDevelopmentResponse {
+  goals: MeDevelopmentGoal[];
+  trainings: MeDevelopmentTraining[];
+  meetings: MeDevelopmentMeeting[];
+  skills: MeDevelopmentSkill[];
+  ratings: MeDevelopmentRatingPeriod[];
 }

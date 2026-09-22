@@ -138,7 +138,9 @@ export function ReportPage() {
   const bestTotal = data.leaders.reduce((sum, r) => sum + (r.distribution[0]?.count ?? 0), 0);
   const bestPercent = percent(bestTotal, ratedTotal);
   const bestLevel = scaleLevelsBestFirst(scale)[0];
-  const openTotal = Math.max(0, teamTotal - ratedTotal);
+  // Offen je Führungskraft kommt aus dem Backend (heutiger Bereich ohne
+  // Gesamtbewertung); rated_count zählt auch früher Zugeordnete mit.
+  const openTotal = data.leaders.reduce((sum, r) => sum + r.open_count, 0);
 
   return (
     <>

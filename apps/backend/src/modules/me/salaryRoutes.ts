@@ -93,7 +93,11 @@ export async function meSalaryRoutes(app: FastifyInstance): Promise<void> {
     const today = todayIso();
     const rows = componentsAt(employee.id, today);
     const hasHourly = rows.some((c) => c.kind === 'stundenlohn');
-    const salary: MeSalary = {
+    // employee_type zusaetzlich zum Kontrakt MeSalary: Das Portal blendet fuer
+    // Freiberufler:innen die Monatsbrutto-Sicht aus und zeigt die Honorare
+    // (Feld lokal in SalaryPage.tsx erweitert).
+    const salary: MeSalary & { employee_type: string } = {
+      employee_type: employee.employee_type,
       weekly_hours: employee.weekly_hours,
       // Ohne Wochenstunden lässt sich ein Stundenlohn nicht seriös auf den Monat
       // rechnen; dann bleibt das Monatsbrutto ehrlich 0, statt über den
@@ -128,11 +132,13 @@ export async function meSalaryRoutes(app: FastifyInstance): Promise<void> {
       .prepare(
         // `note` bleibt draußen. `goal_id` wird nur zur Berechnung geladen und
         // NICHT ausgeliefert — welches Ziel an einem Bonus hängt, ist Sache der
-        // HR-Ansicht.
+        // HR-Ansicht. Geplante Boni sind ein interner Arbeitsstand ohne
+        // Zusage und erreichen das Portal nicht; erst 'freigegeben' und
+        // 'ausgezahlt' sind gegenueber der Person verbindlich.
         `SELECT id, kind, title, amount_cents, target_amount_cents, goal_id,
                 payout_month, status, created_at
          FROM bonuses
-         WHERE employee_id = ?
+         WHERE employee_id = ? AND status IN ('freigegeben', 'ausgezahlt')
          ORDER BY payout_month DESC, id DESC`,
       )
       .all(me.id) as {

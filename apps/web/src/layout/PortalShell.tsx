@@ -17,6 +17,9 @@ import {
   IconRequests,
   IconSalary,
   IconSickNote,
+  IconColleagues,
+  IconDevelopment,
+  IconMeetings,
   type IconProps,
 } from '../components/icons';
 import { Tooltip } from '../components/Tooltip';
@@ -78,11 +81,16 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/stammdaten', label: 'Stammdaten', icon: IconIdCard },
       { to: '/gehalt', label: 'Gehalt', icon: IconSalary, module: 'compensation' },
       { to: '/dokumente', label: 'Dokumente', icon: IconDocuments },
+      { to: '/entwicklung', label: 'Entwicklung', icon: IconDevelopment, module: 'performance' },
+      { to: '/gespraeche', label: 'Gesprächsprotokolle', icon: IconMeetings, module: 'communication' },
     ],
   },
   {
     title: 'Unternehmen',
-    items: [{ to: '/organigramm', label: 'Organigramm', icon: IconOrg }],
+    items: [
+      { to: '/organigramm', label: 'Organigramm', icon: IconOrg },
+      { to: '/kollegen', label: 'Kolleg:innen', icon: IconColleagues, module: 'communication' },
+    ],
   },
   {
     title: 'Konto',

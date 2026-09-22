@@ -38,12 +38,7 @@ paths:
       summary: Massenbearbeitung (nur department_id, team_id, location_id, manager_id, status, weekly_hours, annual_leave_days; transaktional, auditiert)
       responses:
         "200": { description: "{ updated: n }" }
-        "400": { description: Unzulässiges Feld oder Typregel-Verletzung }
-  /api/employees/change-request-fields:
-    get:
-      summary: Selbst beantragbare Stammdatenfelder (dieselbe Allowlist wie im Portal, für die Anzeige)
-      responses:
-        "200": { description: "{ fields: [...] }" }
+        "400": { description: Unzulässiges Feld, Typregel-Verletzung oder Team passt nicht zur Abteilung }
   /api/employees/change-requests:
     get:
       summary: Änderungsanträge Mitarbeitender zu ihren Stammdaten (offene zuerst, Bankwerte ungekürzt)
@@ -77,12 +72,11 @@ paths:
       responses:
         "200": { description: Aktualisierte:r Mitarbeiter:in }
     delete:
-      summary: Mitarbeiter:in löschen (bei Fremdreferenzen 409 — dann Status ausgeschieden nutzen)
+      summary: "Mitarbeiter:in endgültig löschen: Verträge, Dokumente, Abwesenheiten, Gehaltsdaten und Bewertungen fallen per CASCADE, nicht mehr referenzierte Dateien werden aus dem Storage entfernt"
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "204": { description: Gelöscht }
-        "409": { description: Referenzen anderer Module vorhanden }
   /api/employees/{id}/contracts:
     get:
       summary: Vertragshistorie eines Mitarbeitenden (neueste zuerst)
@@ -99,12 +93,13 @@ paths:
         "409": { description: valid_from liegt nicht nach dem Beginn der offenen Version }
   /api/contracts/{id}:
     patch:
-      summary: Korrektur ausschließlich der offenen Vertragsversion
+      summary: Korrektur ausschließlich der aktuellen Vertragsversion (jüngste Version, offen oder befristet mit Ende heute oder später)
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: Korrigierte Version }
-        "409": { description: Version ist geschlossen (Historie) }
+        "400": { description: Gespiegelte Wochenstunden/Urlaubstage verletzen die Typregeln der Person }
+        "409": { description: Version ist abgelaufen oder abgelöst (Historie) }
   /api/org/tree:
     get:
       summary: Organisationsbaum (Abteilungen → Teams) mit Mitarbeiterzahlen
@@ -133,11 +128,12 @@ paths:
         "200": { description: Abteilung }
         "409": { description: Umhängen würde einen Zyklus erzeugen }
     delete:
-      summary: Abteilung löschen (Zuordnungen werden gelöst)
+      summary: Abteilung löschen (Zuordnungen von Teams und Mitarbeitenden werden gelöst; mit Unterabteilungen nicht löschbar)
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "204": { description: Gelöscht }
+        "409": { description: Abteilung hat noch Unterabteilungen }
   /api/teams:
     get:
       summary: Teams auflisten
@@ -196,6 +192,7 @@ paths:
         - { name: search, in: query, schema: { type: string } }
         - { name: category, in: query, schema: { type: string, enum: [vertrag, zeugnis, zertifikat, bescheinigung, abmahnung, sonstiges] } }
         - { name: employee_id, in: query, schema: { type: integer } }
+        - { name: source, in: query, schema: { type: string, enum: [hr, portal] }, description: Herkunft (HR-Upload oder aus dem Portal) }
         - { name: include_superseded, in: query, schema: { type: boolean } }
       responses:
         "200": { description: "{ documents: [...] }" }

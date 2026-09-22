@@ -426,7 +426,18 @@ function DepartmentNode({
       <ConfirmDialog
         open={confirmDelete}
         title="Abteilung löschen?"
-        message={`„${node.name}“ wird gelöscht. Zugeordnete Teams und Mitarbeitende verlieren ihre Abteilungszuordnung.`}
+        message={
+          node.children.length > 0 ? (
+            <>
+              „{node.name}“ hat noch{' '}
+              {node.children.length === 1 ? 'eine Unterabteilung' : `${node.children.length} Unterabteilungen`}:{' '}
+              {node.children.map((c) => c.name).join(', ')}. Bitte hängen Sie diese zuerst um oder löschen Sie
+              sie. Der Server weist das Löschen sonst ab.
+            </>
+          ) : (
+            `„${node.name}“ wird gelöscht. Zugeordnete Teams und Mitarbeitende verlieren ihre Abteilungszuordnung.`
+          )
+        }
         onConfirm={() => mutations.deleteDepartment.mutate(node.id)}
         onClose={() => setConfirmDelete(false)}
       />
@@ -468,6 +479,8 @@ function TeamNode({
 }) {
   const [renaming, setRenaming] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [leadOpen, setLeadOpen] = useState(false);
+  const [lead, setLead] = useState<number | null>(team.lead_employee_id);
   return (
     <div
       className="row"
@@ -501,9 +514,20 @@ function TeamNode({
         <Users size={12} /> {team.employee_count}
       </Badge>
       {team.lead_name && (
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Lead: {team.lead_name}</span>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Leitung: {team.lead_name}</span>
       )}
       <span style={{ flex: 1 }} />
+      <Tooltip content={<span className="hm-tooltip__title">Teamleitung festlegen</span>}>
+        <button
+          className="hm-btn hm-btn--ghost hm-btn--sm"
+          onClick={() => {
+            setLead(team.lead_employee_id);
+            setLeadOpen(true);
+          }}
+        >
+          Leitung
+        </button>
+      </Tooltip>
       <Tooltip content={<span className="hm-tooltip__title">Umbenennen</span>}>
         <button
           className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
@@ -527,6 +551,34 @@ function TeamNode({
         onConfirm={() => mutations.deleteTeam.mutate(team.id)}
         onClose={() => setConfirmDelete(false)}
       />
+      <Modal
+        title={`Leitung von „${team.name}“`}
+        open={leadOpen}
+        onClose={() => setLeadOpen(false)}
+        footer={
+          <>
+            <button className="hm-btn hm-btn--secondary" onClick={() => setLeadOpen(false)}>
+              Abbrechen
+            </button>
+            <button
+              className="hm-btn hm-btn--primary"
+              onClick={() => {
+                mutations.patchTeam.mutate({ id: team.id, lead_employee_id: lead });
+                setLeadOpen(false);
+              }}
+            >
+              Speichern
+            </button>
+          </>
+        }
+      >
+        <Field
+          label="Teamleitung"
+          hint="Personen ohne eingetragene Vorgesetzte hängen im Organigramm unter der Teamleitung"
+        >
+          <EmployeeSelect value={lead} onChange={setLead} allowEmpty emptyLabel="— keine —" />
+        </Field>
+      </Modal>
     </div>
   );
 }

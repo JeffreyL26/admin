@@ -131,11 +131,22 @@ export const compensationMigrations: Migration[] = [
         kind TEXT NOT NULL,                -- lohnsteuerbescheinigung|arbeitgeberbescheinigung|entgeltbescheinigung_108
         period TEXT NOT NULL,              -- Jahr 'YYYY' oder Zeitraum-Freitext
         file_id INTEGER REFERENCES files(id),
-        status TEXT NOT NULL DEFAULT 'angefordert',  -- angefordert|erstellt|ausgehaendigt
+        status TEXT NOT NULL DEFAULT 'angefordert',  -- erstellt|ausgehaendigt (Default historisch, siehe 401)
         note TEXT,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
       CREATE INDEX idx_certificates_employee ON certificates(employee_id, kind);
+    `,
+  },
+  {
+    // Bescheinigungen kennen nur noch 'erstellt' und 'ausgehaendigt': Die
+    // Erstellung erzeugt die Datei sofort, eine Portal-Anfrage gibt es nicht.
+    // Der Spaltendefault 'angefordert' bleibt stehen (SQLite kann ihn nicht
+    // ohne Tabellenneubau aendern); die Routen setzen den Status immer
+    // explizit. Altbestand wird auf 'erstellt' gehoben.
+    name: '401_certificates_status',
+    sql: `
+      UPDATE certificates SET status = 'erstellt' WHERE status = 'angefordert';
     `,
   },
 ];

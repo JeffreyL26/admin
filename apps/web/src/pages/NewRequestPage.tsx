@@ -41,8 +41,11 @@ export function NewRequestPage() {
   }, [types]);
 
   const days = preview.data?.days_counted;
+  // Jahresuebergreifend prueft das Backend je Kalenderjahr; eine Differenz
+  // gegen den Saldo EINES Jahres waere hier falsch.
+  const spansYears = !!dateFrom && !!dateTo && dateFrom.slice(0, 4) !== dateTo.slice(0, 4);
   const remainingAfter =
-    balance && days !== undefined && selectedType?.affects_balance === 1
+    balance && days !== undefined && selectedType?.affects_balance === 1 && !spansYears
       ? balance.remaining - days
       : null;
 
@@ -193,6 +196,11 @@ export function NewRequestPage() {
                     </strong>{' '}
                     (ohne Wochenenden, Feiertage und Betriebsruhe).
                   </p>
+                  {spansYears && selectedType?.affects_balance === 1 && (
+                    <p style={{ marginTop: 4 }}>
+                      Der Antrag erstreckt sich über zwei Kalenderjahre, die Salden werden je Jahr geprüft.
+                    </p>
+                  )}
                   {remainingAfter !== null && (
                     <p style={{ marginTop: 4 }}>
                       Verbleibender Urlaub nach diesem Antrag:{' '}

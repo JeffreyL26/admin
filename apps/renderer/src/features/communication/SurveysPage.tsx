@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -237,11 +238,11 @@ function SurveyBuilder({
         </Field>
         <Field
           label="Mindestteilnehmerzahl"
-          hint="Leer = Standardwert aus den Einstellungen. Ergebnisse erst ab dieser Zahl sichtbar."
+          hint="Leer = Standardwert aus den Einstellungen, mindestens 2. Ergebnisse erst ab dieser Zahl sichtbar."
         >
           <input
             type="number"
-            min={1}
+            min={2}
             className="hm-input"
             value={form.min_participants}
             onChange={(e) =>
@@ -773,6 +774,28 @@ export function SurveysPage() {
   const [testSurveyId, setTestSurveyId] = useState<number | null>(null);
   const [resultsSurvey, setResultsSurvey] = useState<Survey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Survey | null>(null);
+  // Starten und Beenden sind nicht umkehrbar (Statuskette entwurf → laufend
+  // → beendet), deshalb mit Rueckfrage.
+  const [statusTarget, setStatusTarget] = useState<{
+    survey: Survey;
+    status: "laufend" | "beendet";
+  } | null>(null);
+
+  // Deep-Link ?id= (Dashboard-Widget): Ergebnisse einer gestarteten Umfrage,
+  // bei einem Entwurf den Builder oeffnen. Der Parameter wird verbraucht.
+  const [params, setParams] = useSearchParams();
+  const linkedId = params.get("id");
+  useEffect(() => {
+    if (linkedId === null || !surveys) return;
+    const target = surveys.find((s) => s.id === Number(linkedId));
+    if (target) {
+      if (target.status === "entwurf") void openEdit(target);
+      else setResultsSurvey(target);
+    }
+    setParams({}, { replace: true });
+    // openEdit ist eine stabile Seitenfunktion ohne eigene Abhaengigkeiten.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedId, surveys, setParams]);
 
   const changeStatus = useMutation({
     mutationFn: ({
@@ -886,9 +909,27 @@ export function SurveysPage() {
                       <tr key={s.id}>
                         <td style={{ fontWeight: 600 }}>{s.title}</td>
                         <td>
-                          <Badge tone={STATUS_TONE[s.status]}>
-                            {SURVEY_STATUS_LABELS[s.status]}
-                          </Badge>
+                          <div className="row row--wrap" style={{ gap: 6 }}>
+                            <Badge tone={STATUS_TONE[s.status]}>
+                              {SURVEY_STATUS_LABELS[s.status]}
+                            </Badge>
+                            {s.deadline_passed && (
+                              <Tooltip
+                                content={
+                                  <>
+                                    <span className="hm-tooltip__title">
+                                      Enddatum überschritten
+                                    </span>
+                                    <span className="hm-tooltip__line">
+                                      Mitarbeitende sehen die Umfrage nicht mehr · bitte beenden
+                                    </span>
+                                  </>
+                                }
+                              >
+                                <Badge tone="yellow">Frist abgelaufen</Badge>
+                              </Tooltip>
+                            )}
+                          </div>
                         </td>
                         <td>{audienceLabel(s)}</td>
                         <td>
@@ -928,8 +969,8 @@ export function SurveysPage() {
                                   <button
                                     className="hm-btn hm-btn--secondary hm-btn--sm"
                                     onClick={() =>
-                                      changeStatus.mutate({
-                                        id: s.id,
+                                      setStatusTarget({
+                                        survey: s,
                                         status: "laufend",
                                       })
                                     }
@@ -979,8 +1020,8 @@ export function SurveysPage() {
                                   <button
                                     className="hm-btn hm-btn--secondary hm-btn--sm"
                                     onClick={() =>
-                                      changeStatus.mutate({
-                                        id: s.id,
+                                      setStatusTarget({
+                                        survey: s,
                                         status: "beendet",
                                       })
                                     }
@@ -1031,6 +1072,31 @@ export function SurveysPage() {
       <ResultsDialog
         survey={resultsSurvey}
         onClose={() => setResultsSurvey(null)}
+      />
+      <ConfirmDialog
+        open={statusTarget !== null}
+        title={
+          statusTarget?.status === "laufend"
+            ? "Umfrage starten"
+            : "Umfrage beenden"
+        }
+        confirmLabel={
+          statusTarget?.status === "laufend" ? "Starten" : "Beenden"
+        }
+        danger={false}
+        message={
+          statusTarget?.status === "laufend"
+            ? `Soll „${statusTarget.survey.title}“ gestartet werden? Danach lassen sich Fragen und Zielgruppe nicht mehr ändern, und die Umfrage erscheint bei den Empfänger:innen.`
+            : `Soll „${statusTarget?.survey.title}“ beendet werden? Danach sind keine Teilnahmen mehr möglich; ein Wiederaufnehmen gibt es nicht.`
+        }
+        onConfirm={() =>
+          statusTarget &&
+          changeStatus.mutate({
+            id: statusTarget.survey.id,
+            status: statusTarget.status,
+          })
+        }
+        onClose={() => setStatusTarget(null)}
       />
       <ConfirmDialog
         open={deleteTarget !== null}

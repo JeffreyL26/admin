@@ -14,8 +14,9 @@ import {
   type CertificateKind,
 } from '@ohrganize/shared';
 import { todayIso } from '../../../core/dates.js';
+import { badRequest } from '../../../core/errors.js';
 import type { CompanySettings } from '../../../core/settings.js';
-import { componentsAt, monthlyCents, type EmployeeRow } from '../lib.js';
+import { componentsAt, currentContract, monthlyCents, type EmployeeRow } from '../lib.js';
 import type { CertificateTemplate } from './index.js';
 
 /** Bescheinigungsarten, die das deutsche Recht kennt. */
@@ -78,11 +79,28 @@ function renderCertificateHtml(
         <tfoot><tr><th>Monatsbrutto gesamt</th><th></th><th class="num">${escapeHtml(formatEuro(total))}</th></tr></tfoot>
       </table>`;
   } else if (kind === 'arbeitgeberbescheinigung') {
+    // Ohne Eintrittsdatum gibt es kein "seit dem": lieber abweisen als eine
+    // Bescheinigung mit Luecke ausstellen.
+    if (!employee.hire_date) throw badRequest('Eintrittsdatum fehlt');
+    // "befristet" nur, wenn der heute gueltige Vertrag befristet ist. Ein
+    // Austrittsdatum allein bedeutet Kuendigung oder Aufhebung, keine
+    // Befristung.
+    const contract = currentContract(employee.id, today);
+    let relation: string;
+    if (contract?.contract_type === 'befristet') {
+      relation = contract.valid_to
+        ? `bis zum ${escapeHtml(formatDate(contract.valid_to))} befristeten`
+        : 'befristeten';
+    } else if (employee.exit_date) {
+      relation = `zum ${escapeHtml(formatDate(employee.exit_date))} endenden`;
+    } else {
+      relation = 'ungekündigten';
+    }
     bodyHtml = `
       <p>Hiermit bestätigen wir, dass
       <strong>${escapeHtml(name)}</strong>${employee.job_title ? `, tätig als ${escapeHtml(employee.job_title)},` : ''}
       seit dem <strong>${escapeHtml(formatDate(employee.hire_date))}</strong> in einem
-      ${employee.exit_date ? `bis zum ${escapeHtml(formatDate(employee.exit_date))} befristeten` : 'ungekündigten'}
+      ${relation}
       Beschäftigungsverhältnis bei ${escapeHtml(company)} steht.</p>
       <p>Diese Bescheinigung wird für den Zeitraum ${escapeHtml(period)} auf Wunsch der
       Mitarbeiter:in ausgestellt.</p>`;
@@ -123,7 +141,7 @@ function renderCertificateHtml(
   <span>${escapeHtml(formatDate(today))}</span>
 </header>
 <h1>${escapeHtml(title)}</h1>
-<p class="meta">${escapeHtml(name)} · Personalnummer ${employee.id} · Zeitraum ${escapeHtml(period)}</p>
+<p class="meta">${escapeHtml(name)} · Personalnummer ${escapeHtml(employee.personnel_number ?? String(employee.id))} · Zeitraum ${escapeHtml(period)}</p>
 ${bodyHtml}
 <div class="signature">
   <div class="line">Ort, Datum, Unterschrift Personalabteilung</div>

@@ -66,6 +66,10 @@ export function DocumentUploadModal({
     mutationFn: async () => {
       if (!file) throw new Error('Bitte eine Datei auswählen');
       const uploaded = await uploadFile(file);
+      // „0“ ist eine gueltige Eingabe (keine Vorwarnung); nur leer oder
+      // Unlesbares faellt auf die Vorgabe zurueck.
+      const parsedReminder = Number(reminderDays);
+      const reminder = reminderDays.trim() === '' || Number.isNaN(parsedReminder) ? 30 : parsedReminder;
       return api.post('/api/documents', {
         employee_id: employeeId,
         file_id: uploaded.file.id,
@@ -73,7 +77,7 @@ export function DocumentUploadModal({
         title: title.trim() || file.name,
         note: note.trim() || null,
         expiry_date: expiryDate || null,
-        reminder_days: Number(reminderDays) || 30,
+        reminder_days: reminder,
         supersedes_id: supersedes?.id ?? null,
         // Ohne Zuordnung gibt es niemanden, dem das Dokument verborgen bliebe.
         visibility: employeeId === null ? 'portal' : visibility,

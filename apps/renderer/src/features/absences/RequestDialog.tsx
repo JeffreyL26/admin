@@ -1,22 +1,66 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Info } from 'lucide-react';
 import { api, ApiRequestError } from '../../api/client';
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
-import { balanceExceededQuestion, useAbsenceTypes, useDaysPreview, type BalanceExceededDetails } from './api';
+import { Tooltip } from '../../components/Tooltip';
+import {
+  balanceExceededQuestion,
+  useAbsenceTypes,
+  useAllowedTypeIds,
+  useDaysPreview,
+  type BalanceExceededDetails,
+} from './api';
 import { Select } from '../../components/Select';
+
+/** Info-Zeichen neben der Beschriftung: erklaert die ausgegrauten Arten. */
+function EligibilityHint() {
+  return (
+    <Tooltip
+      content={
+        <>
+          <span className="hm-tooltip__title">Für diese Person nicht freigegeben</span>
+          <span className="hm-tooltip__line">Ausgegraute Arten · Berechtigung unter Abwesenheitsarten</span>
+        </>
+      }
+    >
+      <span
+        className="hm-info-icon"
+        tabIndex={0}
+        aria-label="Erklärung zu gesperrten Arten"
+        // Sitzt in einem <label>: Ohne preventDefault reichte der Browser den
+        // Klick als Aktivierung an das Auswahlfeld weiter und klappte es auf.
+        onClick={(e) => e.preventDefault()}
+      >
+        <Info size={14} aria-hidden="true" />
+      </span>
+    </Tooltip>
+  );
+}
 
 /** Dialog "Neuer Abwesenheitsantrag" (HR erfasst stellvertretend). */
 export function RequestDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const toast = useToast();
   const qc = useQueryClient();
   const { data: types } = useAbsenceTypes();
-  const activeTypes = (types ?? []).filter((t) => t.active === 1);
+  // Krankheit laeuft ueber die Krankmeldung (sick_notes samt AU-Frist); das
+  // Backend weist die Kategorie hier ohnehin mit 400 ab.
+  const activeTypes = (types ?? []).filter((t) => t.active === 1 && t.category !== 'krankheit');
 
   const [employeeId, setEmployeeId] = useState<number | null>(null);
   const [typeId, setTypeId] = useState<number | null>(null);
+  // Freigegebene Arten der gewaehlten Person; bis zur Antwort gilt alles als
+  // erlaubt, damit die Liste nicht flackert.
+  const { data: allowedTypeIds } = useAllowedTypeIds(employeeId);
+  const isAllowed = (id: number) => !allowedTypeIds || allowedTypeIds.has(id);
+  const hasBlockedTypes = activeTypes.some((t) => !isAllowed(t.id));
+  useEffect(() => {
+    if (typeId !== null && allowedTypeIds && !allowedTypeIds.has(typeId)) setTypeId(null);
+  }, [allowedTypeIds, typeId]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [halfStart, setHalfStart] = useState(false);
@@ -107,20 +151,37 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
         <Field label="Mitarbeiter:in" required span2>
           <EmployeeSelect value={employeeId} onChange={setEmployeeId} />
         </Field>
-        <Field label="Abwesenheitsart" required span2>
+        <Field
+          label="Abwesenheitsart"
+          required
+          span2
+          labelAddon={hasBlockedTypes ? <EligibilityHint /> : undefined}
+        >
           <Select
             className="hm-select"
             value={typeId ?? ''}
             onChange={(e) => setTypeId(e.target.value ? Number(e.target.value) : null)}
           >
             <option value="">— auswählen —</option>
-            {activeTypes.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-                {t.max_days_per_year !== null ? ` (max. ${t.max_days_per_year} Tage/Jahr)` : ''}
-              </option>
-            ))}
+            {activeTypes.map((t) => {
+              const allowed = isAllowed(t.id);
+              return (
+                <option key={t.id} value={t.id} disabled={!allowed}>
+                  {t.name}
+                  {t.max_days_per_year !== null ? ` (max. ${t.max_days_per_year} Tage/Jahr)` : ''}
+                  {allowed ? '' : ' · für diese Person nicht freigegeben'}
+                </option>
+              );
+            })}
           </Select>
+          {/* Der Hinweis traegt einen Link, das hint-Attribut des Feldes nur Text. */}
+          <span className="hm-field__hint">
+            Krankmeldungen unter{' '}
+            <Link className="hm-text-link" to="/abwesenheit/krankmeldungen" onClick={onClose}>
+              Krankmeldungen
+            </Link>{' '}
+            erfassen.
+          </span>
         </Field>
         <Field label="Von" required>
           <input className="hm-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />

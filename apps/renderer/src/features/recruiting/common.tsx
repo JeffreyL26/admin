@@ -1,27 +1,32 @@
 import React, { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Star, MessageSquarePlus, CalendarClock, XCircle, UserCheck, FileText, ArrowRight,
-  Mail, Phone, MapPin, ExternalLink, Trash2,
+  Mail, Phone, MapPin, ExternalLink, Trash2, Undo2, Pencil, ClipboardList,
 } from 'lucide-react';
 import {
   APPLICATION_STATUS_LABELS, APPLICATION_EVENT_LABELS, CANDIDATE_SOURCE_LABELS,
   INTERVIEW_KIND_LABELS, INTERVIEW_STATUS_LABELS, INTERVIEW_RECOMMENDATION_LABELS,
-  EMPLOYEE_TYPE_LABELS, formatDate, formatEuro, todayIsoLocal,
+  EMPLOYEE_TYPE_LABELS, EMPLOYEE_RULE_FIELD_LABELS, employeeTypeRulesFor, employeeTypesFor,
+  taxClassesFor, formatDate, formatEuro, todayIsoLocal,
   type ApplicationStatus, type InterviewKind, type InterviewRecommendation,
-  type InterviewStatus, type EmployeeType, type ScorecardEntry, type InterviewDto,
+  type InterviewStatus, type EmployeeType, type EmployeeRuleField, type ScorecardEntry,
+  type InterviewDto,
 } from '@ohrganize/shared';
-import { api, downloadFile } from '../../api/client';
+import { api, downloadFile, uploadFile } from '../../api/client';
 import { Badge, Avatar, Field, Spinner } from '../../components/ui';
 import type { BadgeTone } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';
+import { FilePicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
 import { useEmployees, employeeName } from '../../components/EmployeeSelect';
+import { COUNTRY } from '../../lib/locale';
 import { parseEuroInput, centsToInput } from '../compensation/lib';
 import type { CandidateSource } from '@ohrganize/shared';
 import {
-  useApplication, useStages, useRecruitingOrg, useInvalidate, usePostings, useCandidates,
-  type ApplicationDetail,
+  useApplication, useStages, useRecruitingOrg, useInvalidate, usePostings, usePosting,
+  useCandidates, type ApplicationDetail,
 } from './api';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
@@ -381,6 +386,9 @@ function RejectDialog({
 // Einstellungs-Dialog (Lebenszyklus-Brücke zum Personal-Modul)
 // ---------------------------------------------------------------------------
 
+const TYPE_RULES = employeeTypeRulesFor(COUNTRY);
+const TAX_CLASSES = taxClassesFor(COUNTRY);
+
 function HireDialog({
   open,
   application,
@@ -393,20 +401,53 @@ function HireDialog({
   const toast = useToast();
   const invalidate = useInvalidate();
   const { data: org } = useRecruitingOrg();
+  // Die Beschaeftigungsart kommt aus der Stelle; der Dialog darf sie aendern.
+  const { data: posting } = usePosting(application.posting_id);
   const [hireDate, setHireDate] = useState('');
   const [type, setType] = useState<EmployeeType>('vollzeit');
+  const [typeTouched, setTypeTouched] = useState(false);
   const [weeklyHours, setWeeklyHours] = useState('40');
   const [leave, setLeave] = useState('30');
+  const [iban, setIban] = useState('');
+  const [taxClass, setTaxClass] = useState('');
+  const [svNumber, setSvNumber] = useState('');
+  const [exitDate, setExitDate] = useState('');
   const [lastOpen, setLastOpen] = useState(false);
   if (open !== lastOpen) {
     setLastOpen(open);
     if (open) {
       setHireDate(application.available_from ?? todayIsoLocal());
-      setType('vollzeit');
+      setType(posting?.employment_type ?? 'vollzeit');
+      setTypeTouched(false);
       setWeeklyHours('40');
       setLeave('30');
+      setIban('');
+      setTaxClass('');
+      setSvNumber('');
+      setExitDate('');
     }
   }
+  // Stelle traf erst nach dem Oeffnen ein: Vorbelegung nachziehen, solange
+  // niemand die Auswahl angefasst hat.
+  if (open && !typeTouched && posting && posting.employment_type !== type) {
+    setType(posting.employment_type);
+  }
+
+  const rule = TYPE_RULES[type];
+  const required = new Set<EmployeeRuleField>(rule?.required ?? []);
+  const values: Record<EmployeeRuleField, string> = {
+    weekly_hours: weeklyHours,
+    annual_leave_days: leave,
+    iban,
+    tax_class: taxClass,
+    social_security_number: svNumber,
+    hire_date: hireDate,
+    exit_date: exitDate,
+  };
+  const missing = [...required].filter((f) => values[f].trim() === '');
+  const hoursTooHigh =
+    rule?.maxWeeklyHours !== undefined && weeklyHours !== '' && Number(weeklyHours) > rule.maxWeeklyHours;
+
   const hire = useMutation({
     mutationFn: () =>
       api.post<{ employee_id: number }>(`/api/recruiting/applications/${application.id}/hire`, {
@@ -414,9 +455,13 @@ function HireDialog({
         employee_type: type,
         weekly_hours: weeklyHours ? Number(weeklyHours) : null,
         annual_leave_days: leave ? Number(leave) : null,
+        iban: iban.trim() || null,
+        tax_class: taxClass || null,
+        social_security_number: svNumber.trim() || null,
+        exit_date: exitDate || null,
       }),
     onSuccess: () => {
-      toast.success('Eingestellt: Mitarbeitenden-Datensatz angelegt');
+      toast.success('Eingestellt: Personalprofil angelegt');
       invalidate();
       onClose();
     },
@@ -427,42 +472,186 @@ function HireDialog({
       title={`${application.candidate_first_name} ${application.candidate_last_name} einstellen`}
       open={open}
       onClose={onClose}
+      wide
       footer={
         <>
           <button className="hm-btn hm-btn--secondary" onClick={onClose}>Abbrechen</button>
-          <button className="hm-btn hm-btn--primary" disabled={hire.isPending || !hireDate} onClick={() => hire.mutate()}>
+          <button
+            className="hm-btn hm-btn--primary"
+            disabled={hire.isPending || !hireDate || missing.length > 0 || hoursTooHigh}
+            onClick={() => hire.mutate()}
+          >
             {hire.isPending ? 'Stellt ein …' : 'Einstellen'}
           </button>
         </>
       }
     >
       <p style={{ color: 'var(--text-secondary)', marginBottom: 12, fontSize: 'var(--text-sm)' }}>
-        Es wird ein Mitarbeitenden-Grunddatensatz angelegt (Name, Kontakt, Orga, Eintritt).
-        Steuer-, SV- und Bankdaten ergänzen Sie anschließend im Personal-Modul.
+        Es wird ein Personalprofil angelegt (Name, Kontakt, Orga, Eintritt). Die Pflichtangaben
+        der Beschäftigungsart werden hier abgefragt, alles Weitere pflegen Sie in der Personalakte.
       </p>
       <div className="hm-form-grid">
-        <Field label="Eintrittsdatum" required>
-          <input className="hm-input" type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} />
-        </Field>
-        <Field label="Beschäftigungsart" required>
-          <Select className="hm-select" value={type} onChange={(e) => setType(e.target.value as EmployeeType)}>
-            {(Object.keys(EMPLOYEE_TYPE_LABELS) as EmployeeType[]).map((t) => (
+        <Field label="Beschäftigungsart" required hint={rule?.hint}>
+          <Select
+            className="hm-select"
+            value={type}
+            onChange={(e) => { setTypeTouched(true); setType(e.target.value as EmployeeType); }}
+          >
+            {employeeTypesFor(COUNTRY).map((t) => (
               <option key={t} value={t}>{EMPLOYEE_TYPE_LABELS[t]}</option>
             ))}
           </Select>
         </Field>
-        <Field label="Wochenstunden">
-          <input className="hm-input" type="number" min={0} value={weeklyHours} onChange={(e) => setWeeklyHours(e.target.value)} />
+        <Field label="Eintrittsdatum" required>
+          <input className="hm-input" type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} />
         </Field>
-        <Field label="Jahresurlaub (Tage)">
-          <input className="hm-input" type="number" min={0} value={leave} onChange={(e) => setLeave(e.target.value)} />
+        <Field label={EMPLOYEE_RULE_FIELD_LABELS.weekly_hours} required={required.has('weekly_hours')} hint={rule?.maxWeeklyHours !== undefined ? `Höchstens ${rule.maxWeeklyHours}` : undefined}>
+          <input className="hm-input" type="number" min={0} max={60} step={0.5} value={weeklyHours} onChange={(e) => setWeeklyHours(e.target.value)} />
         </Field>
+        <Field label={EMPLOYEE_RULE_FIELD_LABELS.annual_leave_days} required={required.has('annual_leave_days')}>
+          <input className="hm-input" type="number" min={0} max={100} value={leave} onChange={(e) => setLeave(e.target.value)} />
+        </Field>
+        {(required.has('exit_date') || exitDate) && (
+          <Field label={EMPLOYEE_RULE_FIELD_LABELS.exit_date} required={required.has('exit_date')}>
+            <input className="hm-input" type="date" value={exitDate} onChange={(e) => setExitDate(e.target.value)} />
+          </Field>
+        )}
+        {required.has('iban') && (
+          <Field label={EMPLOYEE_RULE_FIELD_LABELS.iban} required>
+            <input className="hm-input" value={iban} onChange={(e) => setIban(e.target.value)} placeholder="DE00 0000 0000 0000 0000 00" />
+          </Field>
+        )}
+        {required.has('tax_class') && TAX_CLASSES.length > 0 && (
+          <Field label={EMPLOYEE_RULE_FIELD_LABELS.tax_class} required>
+            <Select className="hm-select" value={taxClass} onChange={(e) => setTaxClass(e.target.value)}>
+              <option value="">Bitte wählen</option>
+              {TAX_CLASSES.map((t) => <option key={t} value={t}>{t}</option>)}
+            </Select>
+          </Field>
+        )}
+        {required.has('social_security_number') && (
+          <Field label={EMPLOYEE_RULE_FIELD_LABELS.social_security_number} required>
+            <input className="hm-input" value={svNumber} onChange={(e) => setSvNumber(e.target.value)} />
+          </Field>
+        )}
       </div>
+      {missing.length > 0 && (
+        <p style={{ color: 'var(--text-muted)', marginTop: 10, fontSize: 'var(--text-xs)' }}>
+          Noch offen: {missing.map((f) => EMPLOYEE_RULE_FIELD_LABELS[f]).join(', ')}
+        </p>
+      )}
+      {hoursTooHigh && rule?.maxWeeklyHours !== undefined && (
+        <p style={{ color: 'var(--danger)', marginTop: 10, fontSize: 'var(--text-xs)' }}>
+          Für {EMPLOYEE_TYPE_LABELS[type]} sind höchstens {rule.maxWeeklyHours} Wochenstunden zulässig.
+        </p>
+      )}
       {org && (
         <p style={{ color: 'var(--text-muted)', marginTop: 10, fontSize: 'var(--text-xs)' }}>
           Abteilung/Team/Standort werden aus der Stelle „{application.posting_title}“ übernommen.
         </p>
       )}
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bewerbungsdaten bearbeiten (Lebenslauf, Gehaltsvorstellung, Verfuegbarkeit)
+// ---------------------------------------------------------------------------
+
+function ApplicationEditDialog({
+  open,
+  application,
+  onClose,
+}: {
+  open: boolean;
+  application: ApplicationDetail;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const invalidate = useInvalidate();
+  const [salary, setSalary] = useState('');
+  const [availableFrom, setAvailableFrom] = useState('');
+  const [cvFile, setCvFile] = useState<File | null>(null);
+  const [removeCv, setRemoveCv] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [lastOpen, setLastOpen] = useState(false);
+  if (open !== lastOpen) {
+    setLastOpen(open);
+    if (open) {
+      setSalary(centsToInput(application.salary_expectation_cents));
+      setAvailableFrom(application.available_from ?? '');
+      setCvFile(null);
+      setRemoveCv(false);
+    }
+  }
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload: Record<string, unknown> = {
+        salary_expectation_cents: parseEuroInput(salary),
+        available_from: availableFrom || null,
+      };
+      if (cvFile) {
+        setUploading(true);
+        try {
+          payload.cv_file_id = (await uploadFile(cvFile)).file.id;
+        } finally {
+          setUploading(false);
+        }
+      } else if (removeCv) {
+        payload.cv_file_id = null;
+      }
+      return api.patch(`/api/recruiting/applications/${application.id}`, payload);
+    },
+    onSuccess: () => {
+      toast.success('Bewerbung aktualisiert');
+      invalidate();
+      onClose();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const hasCv = !!application.cv_file_id && !removeCv;
+  return (
+    <Modal
+      title="Bewerbungsdaten bearbeiten"
+      open={open}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="hm-btn hm-btn--secondary" onClick={onClose}>Abbrechen</button>
+          <button className="hm-btn hm-btn--primary" disabled={save.isPending} onClick={() => save.mutate()}>
+            {save.isPending ? 'Speichert …' : 'Speichern'}
+          </button>
+        </>
+      }
+    >
+      <div className="hm-form-grid">
+        <Field label="Gehaltsvorstellung (€/Monat)" hint="Brutto, wie die Gehaltsspanne der Stelle">
+          <input className="hm-input" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="z. B. 5.500" />
+        </Field>
+        <Field label="Verfügbar ab">
+          <input className="hm-input" type="date" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} />
+        </Field>
+        <Field label="Lebenslauf" span2>
+          <FilePicker
+            file={cvFile}
+            onFile={setCvFile}
+            accept=".pdf,.doc,.docx"
+            busy={uploading}
+            existingLabel={hasCv ? 'Lebenslauf hinterlegt' : undefined}
+            hint="PDF oder Word"
+          />
+          {hasCv && !cvFile && (
+            <button className="hm-btn hm-btn--ghost hm-btn--sm" style={{ marginTop: 6 }} onClick={() => setRemoveCv(true)}>
+              <Trash2 size={14} /> Lebenslauf entfernen
+            </button>
+          )}
+          {removeCv && !cvFile && (
+            <p style={{ margin: '6px 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+              Der Lebenslauf wird beim Speichern entfernt.
+            </p>
+          )}
+        </Field>
+      </div>
     </Modal>
   );
 }
@@ -480,13 +669,16 @@ export function ApplicationDrawer({
 }) {
   const toast = useToast();
   const invalidate = useInvalidate();
+  const qc = useQueryClient();
   const { data: app, isLoading } = useApplication(applicationId);
   const { data: stages } = useStages();
   const [note, setNote] = useState('');
   const [interviewOpen, setInterviewOpen] = useState(false);
   const [interviewEdit, setInterviewEdit] = useState<InterviewDto | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [hireOpen, setHireOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [deleteInterview, setDeleteInterview] = useState<InterviewDto | null>(null);
 
   const activeStages = (stages ?? []).filter((s) => s.category === 'aktiv');
@@ -495,6 +687,24 @@ export function ApplicationDrawer({
     mutationFn: (rating: number | null) =>
       api.patch(`/api/recruiting/applications/${applicationId}`, { rating }),
     onSuccess: () => invalidate(),
+    onError: (e) => toast.error(e.message),
+  });
+  const withdraw = useMutation({
+    mutationFn: () => api.post(`/api/recruiting/applications/${applicationId}/withdraw`),
+    onSuccess: () => {
+      toast.success('Bewerbung als zurückgezogen markiert');
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  // Onboarding direkt aus der Einstellung heraus starten (Verwaltung → On- & Offboarding).
+  const startOnboarding = useMutation({
+    mutationFn: (employeeId: number) =>
+      api.post('/api/admin/onboarding', { employee_id: employeeId, kind: 'onboarding' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] });
+      toast.success('Onboarding gestartet und Checkliste angelegt');
+    },
     onError: (e) => toast.error(e.message),
   });
   const moveStage = useMutation({
@@ -566,6 +776,11 @@ export function ApplicationDrawer({
                   <FileText size={14} /> Lebenslauf
                 </button>
               )}
+              <Tooltip content={<span className="hm-tooltip__title">Lebenslauf, Gehaltsvorstellung, Verfügbarkeit</span>}>
+                <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => setEditOpen(true)}>
+                  <Pencil size={14} /> Bearbeiten
+                </button>
+              </Tooltip>
             </div>
 
             {app.cover_letter && (
@@ -596,10 +811,29 @@ export function ApplicationDrawer({
                 <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => setRejectOpen(true)} style={{ color: 'var(--danger)' }}>
                   <XCircle size={15} /> Ablehnen
                 </button>
+                <Tooltip content={<span className="hm-tooltip__title">Bewerber:in hat die Bewerbung zurückgezogen</span>}>
+                  <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => setWithdrawOpen(true)}>
+                    <Undo2 size={15} /> Zurückgezogen
+                  </button>
+                </Tooltip>
               </div>
             )}
             {app.status === 'abgelehnt' && app.rejection_reason && (
               <div style={{ color: 'var(--danger)', fontSize: 'var(--text-sm)' }}>Abgelehnt: {app.rejection_reason}</div>
+            )}
+            {app.status === 'eingestellt' && app.converted_employee_id && (
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Link className="hm-btn hm-btn--secondary hm-btn--sm" to={`/personal/mitarbeitende/${app.converted_employee_id}`} onClick={onClose}>
+                  <UserCheck size={15} /> Personalakte öffnen
+                </Link>
+                <button
+                  className="hm-btn hm-btn--primary hm-btn--sm"
+                  disabled={startOnboarding.isPending || startOnboarding.isSuccess}
+                  onClick={() => startOnboarding.mutate(app.converted_employee_id!)}
+                >
+                  <ClipboardList size={15} /> {startOnboarding.isSuccess ? 'Onboarding läuft' : 'Onboarding starten'}
+                </button>
+              </div>
             )}
 
             {/* Interviews */}
@@ -689,6 +923,16 @@ export function ApplicationDrawer({
           <InterviewEditor open={interviewOpen} applicationId={app.id} interview={interviewEdit} onClose={() => setInterviewOpen(false)} />
           <RejectDialog open={rejectOpen} applicationId={app.id} onClose={() => setRejectOpen(false)} />
           <HireDialog open={hireOpen} application={app} onClose={() => setHireOpen(false)} />
+          <ApplicationEditDialog open={editOpen} application={app} onClose={() => setEditOpen(false)} />
+          <ConfirmDialog
+            open={withdrawOpen}
+            title="Bewerbung als zurückgezogen markieren"
+            message={`Die Bewerbung von ${app.candidate_first_name} ${app.candidate_last_name} wird als zurückgezogen geführt, geplante Interviews werden abgesagt.`}
+            confirmLabel="Als zurückgezogen markieren"
+            danger={false}
+            onConfirm={() => withdraw.mutate()}
+            onClose={() => setWithdrawOpen(false)}
+          />
           <ConfirmDialog
             open={deleteInterview !== null}
             title="Interview löschen"
@@ -751,6 +995,10 @@ export function NewApplicationModal({
   const [appliedAt, setAppliedAt] = useState('');
   const [rating, setRating] = useState<number | null>(null);
   const [coverLetter, setCoverLetter] = useState('');
+  const [cvFile, setCvFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [salary, setSalary] = useState('');
+  const [availableFrom, setAvailableFrom] = useState('');
 
   const [lastOpen, setLastOpen] = useState(false);
   if (open !== lastOpen) {
@@ -764,18 +1012,31 @@ export function NewApplicationModal({
       setAppliedAt(todayIsoLocal());
       setRating(null);
       setCoverLetter('');
+      setCvFile(null);
+      setSalary('');
+      setAvailableFrom('');
     }
   }
 
   const create = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const payload: Record<string, unknown> = {
         posting_id: Number(postingId),
         applied_at: appliedAt,
         source,
         rating,
         cover_letter: coverLetter || null,
+        salary_expectation_cents: parseEuroInput(salary),
+        available_from: availableFrom || null,
       };
+      if (cvFile) {
+        setUploading(true);
+        try {
+          payload.cv_file_id = (await uploadFile(cvFile)).file.id;
+        } finally {
+          setUploading(false);
+        }
+      }
       if (mode === 'existing') payload.candidate_id = Number(candidateId);
       else payload.candidate = { first_name: firstName, last_name: lastName, email: email || null, phone: phone || null, headline: headline || null, source };
       return api.post('/api/recruiting/applications', payload);
@@ -864,6 +1125,15 @@ export function NewApplicationModal({
         </Field>
         <Field label="Erste Bewertung" span2>
           <RatingStars value={rating} onChange={setRating} size={20} />
+        </Field>
+        <Field label="Gehaltsvorstellung (€/Monat)" hint="Brutto, wie die Gehaltsspanne der Stelle">
+          <input className="hm-input" value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="z. B. 5.500" />
+        </Field>
+        <Field label="Verfügbar ab">
+          <input className="hm-input" type="date" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} />
+        </Field>
+        <Field label="Lebenslauf" span2>
+          <FilePicker file={cvFile} onFile={setCvFile} accept=".pdf,.doc,.docx" busy={uploading} hint="PDF oder Word" />
         </Field>
         <Field label="Anschreiben / Notiz" span2>
           <textarea className="hm-textarea" rows={3} value={coverLetter} onChange={(e) => setCoverLetter(e.target.value)} />

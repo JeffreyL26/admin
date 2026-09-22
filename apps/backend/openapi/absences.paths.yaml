@@ -14,6 +14,23 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /api/absences/types/allowed:
+    get:
+      summary: Arten, die eine Person beantragen darf (Rollen-Allowlist plus Personenregeln, wie der Portal-Lesefilter)
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ employee_id, type_ids: [integer] }" }
+        "400":
+          description: employee_id fehlt
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Person nicht gefunden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/absences/types/{id}:
     put:
       summary: Abwesenheitsart bearbeiten
@@ -70,12 +87,12 @@ paths:
       responses:
         "201": { description: Antrag angelegt, days_counted berechnet }
         "403":
-          description: approve fuer die eigene Abwesenheit (Vier-Augen-Prinzip)
+          description: approve fuer die eigene Abwesenheit (Vier-Augen-Prinzip) oder Art fuer die Person nicht freigegeben
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "400":
-          description: Ungültiger Zeitraum oder keine zählbaren Arbeitstage
+          description: Ungültiger Zeitraum, keine zählbaren Arbeitstage oder Kategorie krankheit (Krankmeldung nutzen)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -191,19 +208,19 @@ paths:
       responses:
         "200": { description: Liste der Betriebsruhen }
     post:
-      summary: Betriebsruhe anlegen
+      summary: Betriebsruhe anlegen; days_counted der ueberlappenden offenen und genehmigten Antraege wird neu berechnet
       responses:
-        "201": { description: Betriebsruhe angelegt }
+        "201": { description: "{ closure, recounted_requests }" }
   /api/absences/closures/{id}:
     delete:
-      summary: Betriebsruhe löschen
+      summary: Betriebsruhe löschen; days_counted der ueberlappenden offenen und genehmigten Antraege wird neu berechnet
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "204": { description: Gelöscht }
   /api/absences/calendar:
     get:
-      summary: Abwesenheitskalender (Monat oder Jahr) inkl. Feiertagen je Bundesland, Betriebsruhe und Team-Konflikten (> 50 % gleichzeitig abwesend)
+      summary: Abwesenheitskalender (Monat oder Jahr) inkl. Feiertagen je Bundesland, Betriebsruhe und Team-Konflikten (> 50 % gleichzeitig abwesend; Feiertage der Person und Betriebsruhe zaehlen nicht)
       parameters:
         - { name: year, in: query, required: true, schema: { type: integer } }
         - { name: month, in: query, schema: { type: integer, minimum: 1, maximum: 12 } }

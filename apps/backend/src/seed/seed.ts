@@ -115,8 +115,7 @@ if (FORCE) {
     'freelancer_rates', 'payroll_items', 'payroll_runs', 'bonuses',
     'salary_change_requests', 'salary_components', 'feedback_actions',
     'feedback_meetings', 'training_registrations', 'trainings', 'role_skill_profiles',
-    'employee_skills', 'skills', 'employee_levels', 'career_levels',
-    'development_measures', 'development_plans', 'reviews', 'review_templates',
+    'employee_skills', 'skills', 'reviews', 'review_templates',
     'review_cycles', 'goals', 'sick_notes', 'absence_requests', 'company_closures',
     'documents', 'contracts',
     // Verwaltung (onboarding_task_templates bleibt, da per Migration geseedet)
@@ -576,20 +575,6 @@ inTransaction(() => {
     for (const [name, lvl] of reqs) insert('role_skill_profiles', { role_name: role, skill_id: skillIds[name], required_level: lvl });
   }
 
-  // Karrierepfade
-  const lvl = (role: string, level: number, title: string, reqs: string) =>
-    insert('career_levels', { role_name: role, level, title, requirements: reqs });
-  lvl('Entwicklung', 1, 'Junior Developer', 'Grundlagen TypeScript/SQL, Pairing mit Senior');
-  const lMid = lvl('Entwicklung', 2, 'Developer', 'Eigenständige Features, Code-Reviews, TS/Node Level 3');
-  const lSen = lvl('Entwicklung', 3, 'Senior Developer', 'Architekturentscheidungen, Mentoring, TS/Node Level 4+');
-  lvl('Entwicklung', 4, 'Staff Engineer', 'Teamübergreifende Initiativen, technische Strategie');
-  insert('employee_levels', { employee_id: DEV2, career_level_id: lMid, since_date: '2023-01-01' });
-  insert('employee_levels', { employee_id: DEV1, career_level_id: lSen, since_date: '2024-07-01' });
-
-  const plan = insert('development_plans', { employee_id: DEV2, title: 'Weg zur Senior-Entwicklerin', goal: 'Beförderung auf Senior Level bis Mitte 2027', status: 'aktiv' });
-  insert('development_measures', { plan_id: plan, title: 'SQL-Vertiefung (Fenster-Funktionen, Query-Tuning)', due_date: '2026-09-30', owner_employee_id: TLB, status: 'laufend' });
-  insert('development_measures', { plan_id: plan, title: 'Feature-Lead für Release 4.2', due_date: '2026-11-15', owner_employee_id: DEV2, status: 'offen' });
-
   // ======================= Trainings =======================
   const trDsgvo = insert('trainings', { title: 'Datenschutz-Grundschulung (DSGVO)', kind: 'intern', mandatory: 1, repeat_interval_months: 12, description: 'Jährliche Pflichtschulung für alle Mitarbeitenden.' });
   const trErste = insert('trainings', { title: 'Erste-Hilfe-Kurs', provider: 'Johanniter', kind: 'extern', cost_cents: 6500, mandatory: 1, repeat_interval_months: 24 });
@@ -712,7 +697,14 @@ inTransaction(() => {
   insert('freelancer_invoices', { employee_id: FREI2, invoice_number: 'R-2026-089', invoice_date: '2026-07-01', period: '2026-06', amount_cents: 960000, status: 'geprueft', note: '8 Beratungstage' });
 
   // Bescheinigung (Demo)
-  insert('certificates', { employee_id: DEV1, kind: 'arbeitgeberbescheinigung', period: '2026', status: 'angefordert', note: 'Für Mietvertrag' });
+  insert('certificates', {
+    employee_id: DEV1,
+    kind: 'arbeitgeberbescheinigung',
+    period: '2026',
+    status: 'erstellt',
+    file_id: demoFile('Arbeitgeberbescheinigung_2026.txt', 'Arbeitgeberbescheinigung 2026 (Demo)'),
+    note: 'Für Mietvertrag',
+  });
 
   // ======================= Kommunikation =======================
   const ann1 = insert('announcements', {

@@ -41,6 +41,21 @@ const processBodySchema = z.object({
   note: z.string().trim().max(2000).nullable().optional(),
 });
 
+const onboardingKind = z.enum(['onboarding', 'offboarding']);
+
+const taskTemplateBodySchema = z.object({
+  kind: onboardingKind,
+  title: z.string().trim().min(1, 'Titel ist erforderlich').max(300),
+  sort_order: z.number().int().min(0).optional(),
+  active: z.boolean().optional(),
+});
+
+const taskTemplatePatchSchema = z.object({
+  title: z.string().trim().min(1, 'Titel ist erforderlich').max(300).optional(),
+  sort_order: z.number().int().min(0).optional(),
+  active: z.boolean().optional(),
+});
+
 const TEMPLATE_SELECT = `
   SELECT t.*, f.original_name, f.mime_type, f.size_bytes
   FROM hr_templates t
@@ -130,6 +145,98 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     if (!existing) throw notFound('Vorlage nicht gefunden');
     db().prepare('DELETE FROM hr_templates WHERE id = ?').run(id);
     audit(req, 'delete', 'hr_template', id, { title: existing.title });
+    reply.status(204);
+  });
+
+  // ------------------------------------------- Checklisten-Vorlagen ---
+  // Standardaufgaben je Prozessart (onboarding_task_templates). Beim Start
+  // eines Prozesses werden die aktiven Vorlagen KOPIERT; spaetere Aenderungen
+  // hier wirken nur auf neue Prozesse. Die statischen Pfade muessen vor
+  // '/api/admin/onboarding/:id' registriert sein, sonst faengt die
+  // Parameter-Route „templates“ als id ab.
+  app.get('/api/admin/onboarding/templates', async (req) => {
+    const q = req.query as { kind?: string };
+    const where = q.kind ? 'WHERE kind = ?' : '';
+    const params = q.kind ? [q.kind] : [];
+    return {
+      templates: db()
+        .prepare(`SELECT * FROM onboarding_task_templates ${where} ORDER BY kind, sort_order, id`)
+        .all(...params),
+    };
+  });
+
+  app.post('/api/admin/onboarding/templates', async (req, reply) => {
+    const body = parse(taskTemplateBodySchema, req.body);
+    const max = db()
+      .prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM onboarding_task_templates WHERE kind = ?')
+      .get(body.kind) as { m: number };
+    const result = db()
+      .prepare('INSERT INTO onboarding_task_templates (kind, title, sort_order, active) VALUES (?, ?, ?, ?)')
+      .run(body.kind, body.title, body.sort_order ?? max.m + 10, body.active === false ? 0 : 1);
+    const id = Number(result.lastInsertRowid);
+    audit(req, 'create', 'onboarding_task_template', id, { kind: body.kind, title: body.title });
+    reply.status(201);
+    return { template: db().prepare('SELECT * FROM onboarding_task_templates WHERE id = ?').get(id) };
+  });
+
+  /** Reihenfolge einer Art in EINEM Schritt: ids in gewuenschter Reihenfolge. */
+  app.put('/api/admin/onboarding/templates/order', async (req) => {
+    const body = parse(
+      z.object({ kind: onboardingKind, ids: z.array(z.number().int().positive()).min(1) }),
+      req.body,
+    );
+    const ids = [...new Set(body.ids)];
+    const found = db()
+      .prepare(
+        `SELECT id FROM onboarding_task_templates WHERE kind = ? AND id IN (${ids.map(() => '?').join(', ')})`,
+      )
+      .all(body.kind, ...ids) as { id: number }[];
+    if (found.length !== ids.length) {
+      throw badRequest('Mindestens eine Vorlage gehoert nicht zu dieser Prozessart');
+    }
+    inTransaction(() => {
+      const update = db().prepare('UPDATE onboarding_task_templates SET sort_order = ? WHERE id = ?');
+      ids.forEach((id, index) => update.run((index + 1) * 10, id));
+    });
+    audit(req, 'reorder', 'onboarding_task_template', undefined, { kind: body.kind, ids });
+    return {
+      templates: db()
+        .prepare('SELECT * FROM onboarding_task_templates WHERE kind = ? ORDER BY sort_order, id')
+        .all(body.kind),
+    };
+  });
+
+  app.put('/api/admin/onboarding/templates/:id', async (req) => {
+    const id = Number((req.params as { id: string }).id);
+    const existing = db().prepare('SELECT * FROM onboarding_task_templates WHERE id = ?').get(id) as
+      | { title: string; sort_order: number; active: number }
+      | undefined;
+    if (!existing) throw notFound('Vorlage nicht gefunden');
+    const patch = parse(taskTemplatePatchSchema, req.body);
+    if (patch.title === undefined && patch.sort_order === undefined && patch.active === undefined) {
+      throw badRequest('Keine Änderungen übergeben');
+    }
+    db()
+      .prepare('UPDATE onboarding_task_templates SET title = ?, sort_order = ?, active = ? WHERE id = ?')
+      .run(
+        patch.title ?? existing.title,
+        patch.sort_order ?? existing.sort_order,
+        patch.active !== undefined ? (patch.active ? 1 : 0) : existing.active,
+        id,
+      );
+    audit(req, 'update', 'onboarding_task_template', id, { changed: patch });
+    return { template: db().prepare('SELECT * FROM onboarding_task_templates WHERE id = ?').get(id) };
+  });
+
+  // Loeschen trifft nur kuenftige Prozesse: Laufende Checklisten sind Kopien.
+  app.delete('/api/admin/onboarding/templates/:id', async (req, reply) => {
+    const id = Number((req.params as { id: string }).id);
+    const existing = db().prepare('SELECT title FROM onboarding_task_templates WHERE id = ?').get(id) as
+      | { title: string }
+      | undefined;
+    if (!existing) throw notFound('Vorlage nicht gefunden');
+    db().prepare('DELETE FROM onboarding_task_templates WHERE id = ?').run(id);
+    audit(req, 'delete', 'onboarding_task_template', id, { title: existing.title });
     reply.status(204);
   });
 

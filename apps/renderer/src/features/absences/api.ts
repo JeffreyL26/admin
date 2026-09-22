@@ -37,6 +37,23 @@ export function useAbsenceTypes() {
   });
 }
 
+/**
+ * Arten, die eine bestimmte Person beantragen darf (Rollen-Allowlist plus
+ * Personenregeln, aufgeloest im Backend). Die HR-Erfassung graut damit
+ * gesperrte Arten aus, statt erst den 403 des POST zu ernten.
+ */
+export function useAllowedTypeIds(employeeId: number | null) {
+  return useQuery({
+    queryKey: ['absences', 'types', 'allowed', employeeId],
+    queryFn: () =>
+      api.get<{ employee_id: number; type_ids: number[] }>(
+        `/api/absences/types/allowed?employee_id=${employeeId}`,
+      ),
+    select: (d) => new Set(d.type_ids),
+    enabled: employeeId !== null,
+  });
+}
+
 export interface RequestFilters {
   status?: string;
   type_id?: number | null;

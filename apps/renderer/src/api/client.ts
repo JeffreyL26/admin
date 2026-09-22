@@ -147,7 +147,16 @@ export async function uploadFile(file: File): Promise<{ file: { id: number; orig
 
 /** Signierte Download-URL holen und Download im Browser/OS anstoßen. */
 export async function downloadFile(fileId: number): Promise<void> {
-  const { url } = await api.post<{ url: string }>(`/api/files/${fileId}/sign`);
+  return downloadSignedFile(`/api/files/${fileId}/sign`);
+}
+
+/**
+ * Wie downloadFile, aber über eine beliebige Signier-Route (POST). Nötig für
+ * Self-Service-Anhänge (POST /api/me/announcements/:id/attachments/:fileId/sign),
+ * die ihre Berechtigung an der Zielgruppe prüfen statt am Bereich `personal`.
+ */
+export async function downloadSignedFile(signPath: string): Promise<void> {
+  const { url } = await api.post<{ url: string }>(signPath);
   const a = document.createElement('a');
   a.href = `${API_BASE}${url}`;
   a.download = '';

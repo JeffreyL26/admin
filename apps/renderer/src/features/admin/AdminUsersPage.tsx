@@ -262,14 +262,14 @@ function AccountsTab() {
                         <Tooltip
                           content={
                             <div className="hm-tooltip__title">
-                              {self ? 'Eigenes Passwort · unter Einstellungen ändern' : 'Passwort zurücksetzen'}
+                              {self ? 'Eigenes Passwort · unter System → Konto ändern' : 'Passwort zurücksetzen'}
                             </div>
                           }
                         >
                           <span>
                             <button
                               className="hm-btn hm-btn--quiet hm-btn--sm"
-                              aria-label={self ? 'Das eigene Passwort ändern Sie unter Einstellungen.' : 'Passwort zurücksetzen'}
+                              aria-label={self ? 'Das eigene Passwort ändern Sie unter System → Konto.' : 'Passwort zurücksetzen'}
                               disabled={self}
                               onClick={() => setResetting(a)}
                             >

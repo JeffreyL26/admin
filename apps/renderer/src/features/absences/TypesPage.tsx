@@ -51,17 +51,6 @@ const EMPTY_FORM: TypeForm = {
 const EMPTY_ELIGIBILITY: AbsenceTypeEligibility = { role_ids: [], employee_rules: [] };
 
 /**
- * Die HR-Liste (GET /api/absences/types) liefert die Zuordnung nur zur Anzeige
- * mit — sie filtert bewusst nicht. Das Backend benennt die Rollen-Allowlist
- * dort `eligible_role_ids`; `AbsenceType.role_ids` aus @ohrganize/shared wird
- * zusätzlich gelesen, falls die beiden Namen später angeglichen werden.
- */
-type TypeListRow = AbsenceType & {
-  eligible_role_ids?: number[];
-  employee_rules?: AbsenceTypeEligibility['employee_rules'];
-};
-
-/**
  * Fachrollen für die Berechtigungsauswahl. Der Query-Key ist bewusst der
  * generische `['admin', 'roles']`, damit die Rollenpflege in der Verwaltung und
  * dieser Dialog aus demselben Cache leben.
@@ -75,8 +64,8 @@ function useRoles() {
 }
 
 /** Kurzfassung der Zuordnung für die Artenliste ("Alle", "3 Rollen, 2 Ausnahmen"). */
-function eligibilitySummary(t: TypeListRow): string {
-  const roleCount = (t.eligible_role_ids ?? t.role_ids ?? []).length;
+function eligibilitySummary(t: AbsenceType): string {
+  const roleCount = (t.eligible_role_ids ?? []).length;
   const ruleCount = (t.employee_rules ?? []).length;
   if (roleCount === 0 && ruleCount === 0) return 'Alle';
   const parts = [roleCount === 0 ? 'Alle Rollen' : `${roleCount} ${roleCount === 1 ? 'Rolle' : 'Rollen'}`];
@@ -168,7 +157,7 @@ export function TypesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {((types ?? []) as TypeListRow[]).map((t) => (
+                  {(types ?? []).map((t) => (
                     <tr key={t.id}>
                       <td>
                         <span className="row" style={{ gap: 8 }}>
@@ -748,10 +737,19 @@ function ClosuresCard() {
   const [deleting, setDeleting] = useState<CompanyClosure | null>(null);
 
   const create = useMutation({
-    mutationFn: () => api.post('/api/absences/closures', { name: name.trim(), date_from: from, date_to: to }),
-    onSuccess: () => {
+    mutationFn: () =>
+      api.post<{ closure: CompanyClosure; recounted_requests: number }>('/api/absences/closures', {
+        name: name.trim(),
+        date_from: from,
+        date_to: to,
+      }),
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['absences'] });
-      toast.success('Betriebsruhe angelegt');
+      toast.success(
+        res.recounted_requests > 0
+          ? `Betriebsruhe angelegt, ${res.recounted_requests} ${res.recounted_requests === 1 ? 'Antrag' : 'Anträge'} neu berechnet`
+          : 'Betriebsruhe angelegt',
+      );
       setName('');
       setFrom('');
       setTo('');
@@ -796,7 +794,7 @@ function ClosuresCard() {
           </button>
         </div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 8 }}>
-          Betriebsruhetage werden bei der Berechnung der Abwesenheitstage nicht mitgezählt.
+          Betriebsruhetage werden bei der Berechnung der Abwesenheitstage nicht mitgezählt. Die Tage bestehender offener und genehmigter Anträge im Zeitraum werden beim Anlegen und Löschen neu berechnet.
         </div>
       </div>
       {isLoading ? (
@@ -840,7 +838,7 @@ function ClosuresCard() {
       <ConfirmDialog
         open={deleting !== null}
         title="Betriebsruhe löschen"
-        message={deleting ? `"${deleting.name}" (${formatDate(deleting.date_from)} – ${formatDate(deleting.date_to)}) löschen? Bereits berechnete Anträge bleiben unverändert.` : ''}
+        message={deleting ? `"${deleting.name}" (${formatDate(deleting.date_from)} – ${formatDate(deleting.date_to)}) löschen? Die Tage bestehender offener und genehmigter Anträge im Zeitraum werden neu berechnet.` : ''}
         onConfirm={() => deleting && remove.mutate(deleting.id)}
         onClose={() => setDeleting(null)}
       />

@@ -55,7 +55,8 @@ paths:
       tags: [Vergütung]
       responses:
         "201": { description: Antrag angelegt }
-        "400": { description: Validierungsfehler (u. a. fehlende Begründung) }
+        "400": { description: Validierungsfehler (u. a. fehlende Begründung, Freiberufler:in) }
+        "409": { description: Überschneidung mit der Komponentenhistorie (wie bei der Genehmigung) }
   /api/compensation/change-requests/{id}/decide:
     post:
       summary: Antrag genehmigen/ablehnen (Genehmigung wendet Komponente transaktional an)
@@ -83,7 +84,7 @@ paths:
       responses:
         "200": { description: Bonusliste mit Zielinformationen }
     post:
-      summary: Bonus anlegen (fest oder zielgekoppelt)
+      summary: Bonus anlegen (fest oder zielgekoppelt; nicht für Freiberufler:innen, 400)
       tags: [Vergütung]
       responses:
         "201": { description: Bonus angelegt }
@@ -120,12 +121,20 @@ paths:
         "409": { description: Für den Monat existiert bereits ein Lauf }
   /api/compensation/payroll-runs/{id}:
     get:
-      summary: Lauf-Detail mit Bewegungsdaten je Mitarbeiter:in
+      summary: Lauf-Detail mit Bewegungsdaten je Mitarbeiter:in (Items mit personnel_number)
       tags: [Vergütung]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: Lauf + Items }
+    delete:
+      summary: Offenen Lauf verwerfen (auditiert; Items fallen mit)
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Verworfen }
+        "409": { description: Nur offene Läufe sind verwerfbar }
   /api/compensation/payroll-runs/{id}/status:
     post:
       summary: Statuswechsel offen → geprueft → exportiert (nur vorwärts)
@@ -192,10 +201,11 @@ paths:
       responses:
         "200": { description: Rechnungen + open_count/open_cents }
     post:
-      summary: Rechnung erfassen (Rechnungsnummer je MA eindeutig)
+      summary: Rechnung erfassen (Rechnungsnummer je MA eindeutig; optional file_id aus POST /api/files als Beleg)
       tags: [Vergütung]
       responses:
         "201": { description: Rechnung angelegt }
+        "400": { description: Keine Freiberufler:in oder Datei nicht gefunden }
         "409": { description: Rechnungsnummer existiert bereits }
   /api/compensation/freelancer-invoices/{id}/status:
     post:
@@ -229,6 +239,7 @@ paths:
       tags: [Vergütung]
       responses:
         "201": { description: Bescheinigung mit file_id, Status erstellt }
+        "400": { description: Arbeitgeberbescheinigung ohne Eintrittsdatum }
   /api/compensation/certificates/{id}/sign:
     post:
       summary: Signierte Download-URL der Bescheinigung
@@ -240,7 +251,7 @@ paths:
         "409": { description: Keine Datei vorhanden }
   /api/compensation/certificates/{id}/status:
     post:
-      summary: Statuswechsel erstellt → ausgehaendigt (auditiert)
+      summary: Statuswechsel erstellt → ausgehaendigt (auditiert; legt die Datei als Dokument 'bescheinigung' am Personalprofil ab, sichtbar im Portal)
       tags: [Vergütung]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }

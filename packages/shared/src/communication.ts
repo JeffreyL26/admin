@@ -160,11 +160,65 @@ export const MEETING_OCCASION_LABELS: Record<MeetingOccasion, string> = {
 
 export type MeetingVisibility = 'nur_hr' | 'hr_vorgesetzte' | 'hr_vorgesetzte_mitarbeiter';
 
+/**
+ * Wer ein Protokoll sieht. Durchgesetzt wird heute nur die dritte Stufe:
+ * GET /api/me/meetings liefert der Person ihre Protokolle mit
+ * 'hr_vorgesetzte_mitarbeiter'. Eine eigene Ansicht fuer Fuehrungskraefte
+ * (Stufe 'hr_vorgesetzte', „Mein Team“) gibt es noch nicht; das Label sagt
+ * das, damit niemand eine Freigabe erwartet, die nirgends ankommt.
+ */
 export const MEETING_VISIBILITY_LABELS: Record<MeetingVisibility, string> = {
   nur_hr: 'Nur HR',
-  hr_vorgesetzte: 'HR + Vorgesetzte',
-  hr_vorgesetzte_mitarbeiter: 'HR + Vorgesetzte + Mitarbeiter:in',
+  hr_vorgesetzte: 'HR und Führungskräfte (noch ohne eigene Ansicht)',
+  hr_vorgesetzte_mitarbeiter: 'HR, Führungskräfte und Mitarbeiter:in',
 };
+
+/** Erklaerung je Stufe fuer das Formular der HR. */
+export const MEETING_VISIBILITY_HINTS: Record<MeetingVisibility, string> = {
+  nur_hr: 'Nur die Personalabteilung sieht dieses Protokoll.',
+  hr_vorgesetzte:
+    'Führungskräfte haben noch keine eigene Ansicht; bis dahin sieht nur die Personalabteilung das Protokoll.',
+  hr_vorgesetzte_mitarbeiter: 'Sichtbar im Portal der Person unter „Gespräche“.',
+};
+
+/** Eigenes Gespraechsprotokoll im Portal (GET /api/me/meetings). */
+export interface MeMeeting {
+  id: number;
+  meeting_date: string;
+  occasion: MeetingOccasion;
+  participants: string | null;
+  content: string | null;
+  agreements: string | null;
+  follow_up_date: string | null;
+}
+
+/**
+ * Eintrag des Verzeichnisses (HR: GET /api/communication/directory, Portal:
+ * GET /api/me/directory). Felder fehlen, wenn die HR sie ausgeblendet hat;
+ * `fields` in der Antwort sagt, welche.
+ */
+export interface DirectoryEmployee {
+  id: number;
+  first_name: string;
+  last_name: string;
+  job_title?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  photo_file_id?: number | null;
+  /** Kurzlebig signiert (core/files.ts): sofort laden, nicht merken. */
+  photo_url?: string | null;
+  department_name?: string | null;
+  team_name?: string | null;
+  location_name?: string | null;
+  skills?: { name: string; level: number }[];
+}
+
+export interface MeDirectoryResponse {
+  employees: DirectoryEmployee[];
+  fields: Record<DirectoryFieldKey, boolean>;
+  /** Fuer den Abteilungsfilter; leer, wenn das Feld Abteilung ausgeblendet ist. */
+  departments: { id: number; name: string; parent_id: number | null }[];
+}
 
 /** Konfigurierbare Felder des Mitarbeiterverzeichnisses. */
 export type DirectoryFieldKey =

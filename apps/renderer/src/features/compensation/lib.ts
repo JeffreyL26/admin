@@ -66,7 +66,6 @@ export const STATUS_TONES: Record<string, BadgeTone> = {
   // Rechnungen
   bezahlt: 'green',
   // Bescheinigungen
-  angefordert: 'yellow',
   erstellt: 'blue',
   ausgehaendigt: 'green',
 };

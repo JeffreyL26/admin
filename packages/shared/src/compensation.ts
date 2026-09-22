@@ -123,10 +123,10 @@ export const CERTIFICATE_KIND_LABELS: Record<CertificateKind, string> = {
   entgeltbescheinigung_108: 'Entgeltbescheinigung (§ 108 GewO)',
 };
 
-export type CertificateStatus = 'angefordert' | 'erstellt' | 'ausgehaendigt';
+/** Bescheinigungen entstehen fertig (erstellt) und werden ausgehaendigt; eine Anfrage aus dem Portal gibt es nicht. */
+export type CertificateStatus = 'erstellt' | 'ausgehaendigt';
 
 export const CERTIFICATE_STATUS_LABELS: Record<CertificateStatus, string> = {
-  angefordert: 'Angefordert',
   erstellt: 'Erstellt',
   ausgehaendigt: 'Ausgehändigt',
 };

@@ -49,9 +49,11 @@ export interface AbsenceType {
   portal_visibility: PortalVisibility;
   /**
    * Angereichert in der HR-Liste (GET /api/absences/types): Rollen-Allowlist
-   * zur Anzeige. Leere Liste ⇒ alle Rollen dürfen (die Liste filtert nicht).
+   * und Personenregeln zur Anzeige. Leere Rollenliste ⇒ alle Rollen dürfen
+   * (die Liste filtert nicht). Feldnamen wie im Backend (absences/routes.ts).
    */
-  role_ids?: number[];
+  eligible_role_ids?: number[];
+  employee_rules?: AbsenceTypeEligibility['employee_rules'];
 }
 
 /**

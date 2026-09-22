@@ -248,6 +248,22 @@ export const meModule: FastifyPluginAsync = async (app) => {
     }
 
     const sickNoteId = inTransaction(() => {
+      // Folgebescheinigung: Endet die juengste eigene, nicht stornierte
+      // Krankmeldung derselben Art genau am Vortag, setzt sie sich nahtlos
+      // fort. Das Portal fragt das nicht ab (die Person kennt den Begriff
+      // nicht); ohne die Verkettung begaenne fuer die HR eine neue
+      // AU-Kette und die Entgeltfortzahlung (42 Kalendertage) zaehlte falsch.
+      const previous = db()
+        .prepare(
+          `SELECT s.id FROM sick_notes s
+           JOIN absence_requests r ON r.id = s.absence_request_id
+           WHERE r.employee_id = ? AND r.status != 'storniert' AND s.child_sick = ?
+             AND r.date_to = ?
+           ORDER BY r.date_to DESC, s.id DESC LIMIT 1`,
+        )
+        .get([emp.id, body.child_sick ? 1 : 0, addDaysIso(body.date_from, -1)]) as
+        | { id: number }
+        | undefined;
       const requestId = createRequest(
         req,
         {
@@ -261,21 +277,22 @@ export const meModule: FastifyPluginAsync = async (app) => {
       );
       const result = db()
         .prepare(
-          `INSERT INTO sick_notes (absence_request_id, certificate_due_date, child_sick)
-           VALUES (?, ?, ?)`,
+          `INSERT INTO sick_notes (absence_request_id, certificate_due_date, child_sick, follow_up_of_id)
+           VALUES (?, ?, ?, ?)`,
         )
         // Ausstellungspflicht am 3. Kalendertag der Erkrankung.
-        .run(requestId, addDaysIso(body.date_from, 2), body.child_sick ? 1 : 0);
-      return Number(result.lastInsertRowid);
+        .run(requestId, addDaysIso(body.date_from, 2), body.child_sick ? 1 : 0, previous?.id ?? null);
+      return { id: Number(result.lastInsertRowid), followUpOfId: previous?.id ?? null };
     });
-    audit(req, 'create', 'sick_note', sickNoteId, {
+    audit(req, 'create', 'sick_note', sickNoteId.id, {
       employee_id: emp.id,
       date_from: body.date_from,
       date_to: body.date_to,
       child_sick: !!body.child_sick,
       self_service: true,
+      ...(sickNoteId.followUpOfId !== null ? { follow_up_of_id: sickNoteId.followUpOfId } : {}),
     });
     reply.status(201);
-    return { sick_note: db().prepare(`${MY_SICK_SELECT} WHERE s.id = ?`).get(sickNoteId) };
+    return { sick_note: db().prepare(`${MY_SICK_SELECT} WHERE s.id = ?`).get(sickNoteId.id) };
   });
 };

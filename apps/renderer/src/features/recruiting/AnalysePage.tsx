@@ -29,7 +29,7 @@ export function AnalysePage() {
 
       <div className="grid-stats" style={{ marginBottom: 16 }}>
         <StatCard label="Offene Stellen" value={stats.openPostings} icon={<Briefcase size={15} />} sub={`${stats.openSeats} zu besetzende Plätze`} />
-        <StatCard label="Aktive Bewerbungen" value={stats.activeApplications} icon={<Users size={15} />} onClick={() => navigate('/recruiting/bewerber')} />
+        <StatCard label="Aktive Bewerbungen" value={stats.activeApplications} icon={<Users size={15} />} onClick={() => navigate('/recruiting/bewerber?tab=bewerbungen&status=aktiv')} />
         <StatCard label="Einstellungen (Jahr)" value={stats.hiresYtd} icon={<UserCheck size={15} />} />
         <StatCard label="Anstehende Interviews" value={stats.upcomingInterviews} icon={<CalendarClock size={15} />} />
         <StatCard label="Ø Time-to-Hire" value={stats.avgTimeToHire !== null ? `${stats.avgTimeToHire} T` : '—'} icon={<Timer size={15} />} sub="Eingang → Einstellung" />

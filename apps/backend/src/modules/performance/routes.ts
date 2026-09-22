@@ -23,7 +23,9 @@ import { getCategory as getRatingCategory, listCategories as listRatingCategorie
 import { buildOrgChart } from '../employees/orgRoutes.js';
 
 // Modul: Leistungsverwaltung & Entwicklung — Ziele/OKR, Beurteilungen,
-// Entwicklungspläne & Karrierepfade, Skills, Trainings, Feedback-Zyklen.
+// Skills, Trainings, Feedback-Zyklen. Entwicklungspläne und Karrierestufen
+// gab es nur als API ohne Oberfläche; sie sind entfernt (Migration
+// 330_drop_development_plans).
 
 // ---------------------------------------------------------------------------
 // Helfer
@@ -128,44 +130,13 @@ const reviewSaveSchema = z.object({
     .array(
       z.object({
         key: z.string().min(1),
-        score: z.number().int().min(1),
+        // 0 = noch nicht bewertet (Zwischenstand mit Kommentar), sonst 1..max der Skala.
+        score: z.number().int().min(0),
         comment: z.string().optional(),
       }),
     )
     .default([]),
   summary: z.string().nullish(),
-});
-
-const planStatus = z.enum(['aktiv', 'abgeschlossen', 'abgebrochen']);
-const planCreateSchema = z.object({
-  employee_id: z.number().int().positive(),
-  title: z.string().trim().min(1, 'Titel ist erforderlich'),
-  goal: z.string().nullish(),
-  status: planStatus.default('aktiv'),
-});
-const planUpdateSchema = planCreateSchema.omit({ employee_id: true }).partial();
-
-const measureStatus = z.enum(['offen', 'laufend', 'erledigt', 'verworfen']);
-const measureCreateSchema = z.object({
-  title: z.string().trim().min(1, 'Titel ist erforderlich'),
-  due_date: isoDate.nullish(),
-  owner_employee_id: z.number().int().positive().nullish(),
-  status: measureStatus.default('offen'),
-  note: z.string().nullish(),
-});
-const measureUpdateSchema = measureCreateSchema.partial();
-
-const careerLevelSchema = z.object({
-  role_name: z.string().trim().min(1, 'Rolle ist erforderlich'),
-  level: z.number().int().min(1),
-  title: z.string().trim().min(1, 'Titel ist erforderlich'),
-  requirements: z.string().nullish(),
-});
-
-const employeeLevelSchema = z.object({
-  employee_id: z.number().int().positive(),
-  career_level_id: z.number().int().positive(),
-  since_date: isoDate,
 });
 
 const skillSchema = z.object({
@@ -305,14 +276,18 @@ function reviewToApi(row: Record<string, unknown>): Review {
   return { ...row, scores: JSON.parse(String(row.scores ?? '[]')) } as unknown as Review;
 }
 
-/** Prüft Scores gegen die Kriterien des Bogens (Key bekannt, Skala eingehalten). */
+/**
+ * Prüft Scores gegen die Kriterien des Bogens (Key bekannt, Skala
+ * eingehalten). score 0 ist ein Zwischenstand ohne Bewertung (nur Kommentar)
+ * und zählt nirgends mit; der Abschluss verlangt für jedes Kriterium >= 1.
+ */
 function validateScores(scores: ReviewScore[], criteria: ReviewCriterion[]): void {
   const byKey = new Map(criteria.map((c) => [c.key, c]));
   for (const s of scores) {
     const criterion = byKey.get(s.key);
     if (!criterion) throw badRequest(`Unbekanntes Kriterium: ${s.key}`);
     const max = RATING_SCALES[criterion.scale].max;
-    if (s.score < 1 || s.score > max) {
+    if (s.score < 0 || s.score > max) {
       throw badRequest(`Bewertung für „${criterion.label}“ muss zwischen 1 und ${max} liegen`);
     }
   }
@@ -324,8 +299,11 @@ function validateScores(scores: ReviewScore[], criteria: ReviewCriterion[]): voi
 function percentOf(scores: ReviewScore[], criteria: ReviewCriterion[]): number | null {
   const byKey = new Map(criteria.map((c) => [c.key, c]));
   const values = scores
-    .map((s) => byKey.get(s.key))
-    .map((c, i) => (c ? normalizedScore(c.scale, scores[i]!.score) : null))
+    .filter((s) => s.score >= 1)
+    .map((s) => {
+      const c = byKey.get(s.key);
+      return c ? normalizedScore(c.scale, s.score) : null;
+    })
     .filter((v): v is number => v !== null);
   if (values.length === 0) return null;
   return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 100);
@@ -804,7 +782,7 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     const criteria = parseTemplateCriteria(template);
     const scores = JSON.parse(String(existing.scores ?? '[]')) as ReviewScore[];
     validateScores(scores, criteria);
-    const missing = criteria.filter((c) => !scores.some((s) => s.key === c.key));
+    const missing = criteria.filter((c) => !scores.some((s) => s.key === c.key && s.score >= 1));
     if (missing.length > 0) {
       throw badRequest(`Es fehlen Bewertungen für: ${missing.map((c) => c.label).join(', ')}`);
     }
@@ -863,6 +841,7 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     for (const row of rows) {
       const criteria = criteriaByTemplate.get(row.template_id);
       for (const s of JSON.parse(row.scores) as ReviewScore[]) {
+        if (s.score < 1) continue;
         const c = criteria?.get(s.key);
         const scale: RatingScaleKey = c?.scale ?? 'stars5';
         const entry = sums.get(s.key) ?? { label: c?.label ?? s.key, scale, sum: 0, pct: 0, count: 0 };
@@ -893,184 +872,6 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
         supervisor: supervisorRatings(p.employeeId, cycle.period_from, cycle.period_to),
       },
     };
-  });
-
-  // ======================= Entwicklungspläne =======================
-
-  app.get('/api/performance/development-plans', async (req) => {
-    const q = parse(z.object({ employee_id: z.coerce.number().int().positive().optional() }), req.query);
-    const plans = getDb()
-      .prepare(
-        `SELECT * FROM development_plans ${q.employee_id ? 'WHERE employee_id = ?' : ''}
-         ORDER BY created_at DESC, id DESC`,
-      )
-      .all(...(q.employee_id ? [q.employee_id] : []));
-    return { plans };
-  });
-
-  app.get('/api/performance/development-plans/:id', async (req) => {
-    const id = idParam(req);
-    const plan = getRowOrThrow('development_plans', id, 'Entwicklungsplan nicht gefunden');
-    const measures = getDb()
-      .prepare('SELECT * FROM development_measures WHERE plan_id = ? ORDER BY due_date IS NULL, due_date, id')
-      .all(id);
-    return { plan, measures };
-  });
-
-  app.post('/api/performance/development-plans', async (req, reply) => {
-    const body = parse(planCreateSchema, req.body);
-    ensureEmployeeExists(body.employee_id);
-    const info = getDb()
-      .prepare('INSERT INTO development_plans (employee_id, title, goal, status) VALUES (?, ?, ?, ?)')
-      .run(body.employee_id, body.title, body.goal ?? null, body.status);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'development_plan.created', 'development_plan', id, { title: body.title });
-    reply.code(201);
-    return { plan: getRowOrThrow('development_plans', id, 'Entwicklungsplan nicht gefunden') };
-  });
-
-  app.put('/api/performance/development-plans/:id', async (req) => {
-    const id = idParam(req);
-    const existing = getRowOrThrow<Record<string, unknown>>('development_plans', id, 'Entwicklungsplan nicht gefunden');
-    const body = parse(planUpdateSchema, req.body);
-    const merged = { ...existing, ...body } as Record<string, unknown>;
-    getDb()
-      .prepare('UPDATE development_plans SET title = ?, goal = ?, status = ? WHERE id = ?')
-      .run(merged.title, merged.goal ?? null, merged.status, id);
-    audit(req, 'development_plan.updated', 'development_plan', id, body);
-    return { plan: getRowOrThrow('development_plans', id, 'Entwicklungsplan nicht gefunden') };
-  });
-
-  app.delete('/api/performance/development-plans/:id', async (req, reply) => {
-    const id = idParam(req);
-    getRowOrThrow('development_plans', id, 'Entwicklungsplan nicht gefunden');
-    getDb().prepare('DELETE FROM development_plans WHERE id = ?').run(id);
-    audit(req, 'development_plan.deleted', 'development_plan', id);
-    reply.code(204);
-  });
-
-  app.post('/api/performance/development-plans/:id/measures', async (req, reply) => {
-    const planId = idParam(req);
-    getRowOrThrow('development_plans', planId, 'Entwicklungsplan nicht gefunden');
-    const body = parse(measureCreateSchema, req.body);
-    if (body.owner_employee_id) ensureEmployeeExists(body.owner_employee_id);
-    const info = getDb()
-      .prepare(
-        `INSERT INTO development_measures (plan_id, title, due_date, owner_employee_id, status, note)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(planId, body.title, body.due_date ?? null, body.owner_employee_id ?? null, body.status, body.note ?? null);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'development_measure.created', 'development_measure', id, { title: body.title });
-    reply.code(201);
-    return { measure: getRowOrThrow('development_measures', id, 'Maßnahme nicht gefunden') };
-  });
-
-  app.put('/api/performance/development-measures/:id', async (req) => {
-    const id = idParam(req);
-    const existing = getRowOrThrow<Record<string, unknown>>('development_measures', id, 'Maßnahme nicht gefunden');
-    const body = parse(measureUpdateSchema, req.body);
-    const merged = { ...existing, ...body } as Record<string, unknown>;
-    getDb()
-      .prepare(
-        'UPDATE development_measures SET title = ?, due_date = ?, owner_employee_id = ?, status = ?, note = ? WHERE id = ?',
-      )
-      .run(merged.title, merged.due_date ?? null, merged.owner_employee_id ?? null, merged.status, merged.note ?? null, id);
-    audit(req, 'development_measure.updated', 'development_measure', id, body);
-    return { measure: getRowOrThrow('development_measures', id, 'Maßnahme nicht gefunden') };
-  });
-
-  app.delete('/api/performance/development-measures/:id', async (req, reply) => {
-    const id = idParam(req);
-    getRowOrThrow('development_measures', id, 'Maßnahme nicht gefunden');
-    getDb().prepare('DELETE FROM development_measures WHERE id = ?').run(id);
-    audit(req, 'development_measure.deleted', 'development_measure', id);
-    reply.code(204);
-  });
-
-  // ======================= Karrierepfade =======================
-
-  app.get('/api/performance/career-levels', async (req) => {
-    const q = parse(z.object({ role_name: z.string().optional() }), req.query);
-    const levels = getDb()
-      .prepare(
-        `SELECT * FROM career_levels ${q.role_name ? 'WHERE role_name = ?' : ''}
-         ORDER BY role_name, level`,
-      )
-      .all(...(q.role_name ? [q.role_name] : []));
-    return { levels };
-  });
-
-  app.post('/api/performance/career-levels', async (req, reply) => {
-    const body = parse(careerLevelSchema, req.body);
-    const dup = getDb()
-      .prepare('SELECT id FROM career_levels WHERE role_name = ? AND level = ?')
-      .get(body.role_name, body.level);
-    if (dup) throw conflict('Für diese Rolle existiert das Level bereits');
-    const info = getDb()
-      .prepare('INSERT INTO career_levels (role_name, level, title, requirements) VALUES (?, ?, ?, ?)')
-      .run(body.role_name, body.level, body.title, body.requirements ?? null);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'career_level.created', 'career_level', id, { role_name: body.role_name, level: body.level });
-    reply.code(201);
-    return { level: getRowOrThrow('career_levels', id, 'Karrierestufe nicht gefunden') };
-  });
-
-  app.put('/api/performance/career-levels/:id', async (req) => {
-    const id = idParam(req);
-    const existing = getRowOrThrow<Record<string, unknown>>('career_levels', id, 'Karrierestufe nicht gefunden');
-    const body = parse(careerLevelSchema.partial(), req.body);
-    const merged = { ...existing, ...body } as Record<string, unknown>;
-    const dup = getDb()
-      .prepare('SELECT id FROM career_levels WHERE role_name = ? AND level = ? AND id != ?')
-      .get(merged.role_name, merged.level, id);
-    if (dup) throw conflict('Für diese Rolle existiert das Level bereits');
-    getDb()
-      .prepare('UPDATE career_levels SET role_name = ?, level = ?, title = ?, requirements = ? WHERE id = ?')
-      .run(merged.role_name, merged.level, merged.title, merged.requirements ?? null, id);
-    audit(req, 'career_level.updated', 'career_level', id, body);
-    return { level: getRowOrThrow('career_levels', id, 'Karrierestufe nicht gefunden') };
-  });
-
-  app.delete('/api/performance/career-levels/:id', async (req, reply) => {
-    const id = idParam(req);
-    getRowOrThrow('career_levels', id, 'Karrierestufe nicht gefunden');
-    getDb().prepare('DELETE FROM career_levels WHERE id = ?').run(id);
-    audit(req, 'career_level.deleted', 'career_level', id);
-    reply.code(204);
-  });
-
-  /** Aktuelles Level, nächster Karriereschritt (Level+1 derselben Rolle) und Historie. */
-  app.get('/api/performance/employee-levels/:id', async (req) => {
-    const employeeId = idParam(req);
-    ensureEmployeeExists(employeeId);
-    const history = getDb()
-      .prepare(
-        `SELECT el.*, cl.role_name, cl.level, cl.title, cl.requirements
-         FROM employee_levels el JOIN career_levels cl ON cl.id = el.career_level_id
-         WHERE el.employee_id = ? ORDER BY el.since_date DESC, el.id DESC`,
-      )
-      .all(employeeId) as ({ role_name: string; level: number } & Record<string, unknown>)[];
-    const current = history[0] ?? null;
-    const next = current
-      ? (getDb()
-          .prepare('SELECT * FROM career_levels WHERE role_name = ? AND level = ?')
-          .get(current.role_name, current.level + 1) ?? null)
-      : null;
-    return { current, next, history };
-  });
-
-  app.post('/api/performance/employee-levels', async (req, reply) => {
-    const body = parse(employeeLevelSchema, req.body);
-    ensureEmployeeExists(body.employee_id);
-    getRowOrThrow('career_levels', body.career_level_id, 'Karrierestufe nicht gefunden');
-    const info = getDb()
-      .prepare('INSERT INTO employee_levels (employee_id, career_level_id, since_date) VALUES (?, ?, ?)')
-      .run(body.employee_id, body.career_level_id, body.since_date);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'employee_level.assigned', 'employee_level', id, body);
-    reply.code(201);
-    return { employee_level: getRowOrThrow('employee_levels', id, 'Eintrag nicht gefunden') };
   });
 
   // ======================= Skills =======================
@@ -1476,7 +1277,12 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     const id = idParam(req);
     const meeting = getRowOrThrow('feedback_meetings', id, 'Gespräch nicht gefunden');
     const actions = getDb()
-      .prepare('SELECT * FROM feedback_actions WHERE meeting_id = ? ORDER BY due_date IS NULL, due_date, id')
+      .prepare(
+        `SELECT a.*, o.first_name || ' ' || o.last_name AS owner_name
+         FROM feedback_actions a
+         LEFT JOIN employees o ON o.id = a.owner_employee_id
+         WHERE a.meeting_id = ? ORDER BY a.due_date IS NULL, a.due_date, a.id`,
+      )
       .all(id);
     return { meeting, actions };
   });
@@ -1622,10 +1428,12 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     const open_actions = getDb()
       .prepare(
         `SELECT a.*, m.employee_id, m.kind AS meeting_kind, m.scheduled_date AS meeting_date,
-                e.first_name, e.last_name
+                e.first_name, e.last_name,
+                o.first_name || ' ' || o.last_name AS owner_name
          FROM feedback_actions a
          JOIN feedback_meetings m ON m.id = a.meeting_id
          JOIN employees e ON e.id = m.employee_id
+         LEFT JOIN employees o ON o.id = a.owner_employee_id
          WHERE a.status = 'offen'
          ORDER BY a.due_date IS NULL, a.due_date, a.id`,
       )

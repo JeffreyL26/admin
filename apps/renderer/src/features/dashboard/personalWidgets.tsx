@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { BarChart3, Check, Megaphone, Paperclip } from 'lucide-react';
 import { formatDate, formatDateTime, moduleEnabled, type MeAnnouncement, type MeSurvey } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
-import { downloadFile } from '../../api/client';
+import { downloadSignedFile } from '../../api/client';
 import { Card } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
@@ -81,16 +81,20 @@ function AnnouncementDialog({ announcement, onClose }: { announcement: MeAnnounc
           {a.attachments.length > 0 && (
             <div className="stack" style={{ gap: 6 }}>
               <div className="hm-field__label">Anhänge</div>
-              {/* Signiert erst beim Klick (POST /api/files/:id/sign), wie die HR-Seite:
-                  eine vorab signierte URL waere nach 60 Sekunden tot und unter
-                  file:// ohnehin nicht erreichbar. */}
+              {/* Signiert erst beim Klick ueber die Self-Service-Route (prueft die
+                  Zielgruppe, nicht den Bereich personal): eine vorab signierte URL
+                  waere nach 60 Sekunden tot und unter file:// ohnehin nicht erreichbar. */}
               {a.attachments.map((f) => (
                 <button
                   key={f.file_id}
                   type="button"
                   className="hm-btn hm-btn--secondary hm-btn--sm"
                   style={{ alignSelf: 'flex-start' }}
-                  onClick={() => downloadFile(f.file_id).catch((e: Error) => toast.error(e.message))}
+                  onClick={() =>
+                    downloadSignedFile(`/api/me/announcements/${a.id}/attachments/${f.file_id}/sign`).catch(
+                      (e: Error) => toast.error(e.message),
+                    )
+                  }
                 >
                   <Paperclip size={13} /> {f.original_name}
                 </button>

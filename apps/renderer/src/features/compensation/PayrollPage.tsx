@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Calculator, CheckCircle2, Download, FileSpreadsheet, Plus } from 'lucide-react';
+import { ArrowLeft, Calculator, CheckCircle2, Download, FileSpreadsheet, Plus, Trash2 } from 'lucide-react';
 import {
   formatEuro,
   PAYROLL_FLAG_LABELS,
@@ -12,7 +12,7 @@ import {
 } from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, StatCard } from '../../components/ui';
-import { Modal } from '../../components/Modal';
+import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { currentMonth, downloadAuthenticated, FLAG_TONES, formatMonth, STATUS_TONES } from './lib';
 import { Tooltip } from '../../components/Tooltip';
@@ -60,6 +60,18 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
     queryFn: () => api.get<{ run: RunRow; items: ItemRow[] }>(`/api/compensation/payroll-runs/${runId}`),
   });
 
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const discard = useMutation({
+    mutationFn: () => api.delete(`/api/compensation/payroll-runs/${runId}`),
+    onSuccess: () => {
+      toast.success('Abrechnungslauf verworfen');
+      queryClient.invalidateQueries({ queryKey: ['compensation'] });
+      onBack();
+    },
+    onError: (e) =>
+      toast.error(e instanceof ApiRequestError ? e.message : 'Lauf konnte nicht verworfen werden'),
+  });
+
   const setStatus = useMutation({
     mutationFn: (status: string) => api.post(`/api/compensation/payroll-runs/${runId}/status`, { status }),
     onSuccess: () => {
@@ -101,13 +113,22 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
               <ArrowLeft size={16} /> Zurück
             </button>
             {run.status === 'offen' && (
-              <button
-                className="hm-btn hm-btn--primary"
-                disabled={setStatus.isPending}
-                onClick={() => setStatus.mutate('geprueft')}
-              >
-                <CheckCircle2 size={16} /> Als geprüft markieren
-              </button>
+              <>
+                <button
+                  className="hm-btn hm-btn--danger"
+                  disabled={discard.isPending}
+                  onClick={() => setDiscardOpen(true)}
+                >
+                  <Trash2 size={16} /> Lauf verwerfen
+                </button>
+                <button
+                  className="hm-btn hm-btn--primary"
+                  disabled={setStatus.isPending}
+                  onClick={() => setStatus.mutate('geprueft')}
+                >
+                  <CheckCircle2 size={16} /> Als geprüft markieren
+                </button>
+              </>
             )}
             <Tooltip content={run.status === 'offen' ? <span className="hm-tooltip__title">{'Der Lauf muss zuerst geprüft werden'}</span> : null}>
               <button
@@ -130,6 +151,13 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
           </>
         }
       />
+      {run.status === 'offen' && (
+        <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginTop: 0 }}>
+          Der Lauf ist ein Snapshot zum Zeitpunkt der Zusammenstellung. Haben sich Komponenten, Boni
+          oder Abwesenheiten seither geändert, verwerfen Sie den Lauf; ein neuer Lauf desselben Monats
+          stellt die Bewegungsdaten aus dem aktuellen Stand zusammen.
+        </p>
+      )}
       <div className="grid-stats">
         <StatCard label="Status" value={statusBadge(run.status)} />
         <StatCard label="Gesamtsumme" value={formatEuro(items.reduce((s, i) => s + i.total_cents, 0))} />
@@ -211,6 +239,14 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
           </div>
         )}
       </Card>
+      <ConfirmDialog
+        open={discardOpen}
+        title="Abrechnungslauf verwerfen"
+        message={`Soll der offene Lauf ${formatMonth(run.month)} verworfen werden? Die zusammengestellten Bewegungsdaten gehen verloren; ein neuer Lauf für diesen Monat stellt sie aus dem aktuellen Stand zusammen.`}
+        confirmLabel="Verwerfen"
+        onConfirm={() => discard.mutate()}
+        onClose={() => setDiscardOpen(false)}
+      />
     </>
   );
 }

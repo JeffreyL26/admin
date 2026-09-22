@@ -221,6 +221,37 @@ check(
   sick.statusCode === 201 && s.request_status === 'genehmigt' && s.certificate_due_date === '2026-06-03',
   sick.json(),
 );
+check('Erstbescheinigung ohne Vorgaenger (follow_up_of_id null)', s.follow_up_of_id === null, s);
+// Nahtlose Fortsetzung (Vortag = Ende der letzten Krankmeldung) wird
+// automatisch als Folgebescheinigung verkettet; mit Luecke beginnt eine neue Kette.
+const sickFollowUp = await empPost('/api/me/sick-notes', {
+  date_from: '2026-06-04',
+  date_to: '2026-06-05',
+});
+check(
+  'Krankmeldung ab dem Folgetag → follow_up_of_id zeigt auf die Erstbescheinigung',
+  sickFollowUp.statusCode === 201 && sickFollowUp.json().sick_note.follow_up_of_id === s.id,
+  sickFollowUp.json(),
+);
+const sickGap = await empPost('/api/me/sick-notes', {
+  date_from: '2026-06-08',
+  date_to: '2026-06-09',
+});
+check(
+  'Krankmeldung mit Luecke → keine Folgebescheinigung',
+  sickGap.statusCode === 201 && sickGap.json().sick_note.follow_up_of_id === null,
+  sickGap.json(),
+);
+const sickChild = await empPost('/api/me/sick-notes', {
+  date_from: '2026-06-10',
+  date_to: '2026-06-10',
+  child_sick: true,
+});
+check(
+  'Kind krank direkt nach eigener Erkrankung → keine Folgebescheinigung (andere Art)',
+  sickChild.statusCode === 201 && sickChild.json().sick_note.follow_up_of_id === null,
+  sickChild.json(),
+);
 const mySick = await empGet('/api/me/sick-notes');
 check('Eigene Krankmeldungen gelistet', mySick.json().sick_notes.some((n: { id: number }) => n.id === s.id));
 const adminSick = await app.inject({ method: 'GET', url: '/api/absences/sick-notes/missing', headers: adminAuth });
@@ -298,12 +329,8 @@ const bon = bonuses.json().bonuses as { title: string; payout_cents: number; is_
 const fix = bon.find((b) => b.title === 'Projektprämie')!;
 const ziel = bon.find((b) => b.title === 'Jahresziel 2027')!;
 check(
-  'Boni: Fixbetrag fest, Zielbonus als voraussichtlich markiert',
-  bonuses.statusCode === 200 &&
-    bon.length === 2 &&
-    fix.is_projected === false &&
-    fix.payout_cents === 100000 &&
-    ziel.is_projected === true,
+  'Boni: nur freigegebene und ausgezahlte im Portal, geplanter Zielbonus fehlt',
+  bonuses.statusCode === 200 && bon.length === 1 && fix.is_projected === false && fix.payout_cents === 100000 && ziel === undefined,
   bon,
 );
 check(
@@ -1098,7 +1125,9 @@ check('HR-Seite zaehlt die Bestaetigung (1 von 3)', hrQuote.json().announcement.
 
 // Umfragen
 const svTeam = await adminPostComm('/api/communication/surveys', {
-  title: 'Team-Puls', description: null, audience_type: 'team', audience_id: 1, date_from: '2020-01-01', date_to: '2999-01-01', min_participants: 1,
+  // Mindestens 2 (Schema-Untergrenze): Mit 1 waere die einzige Antwort einer
+  // Person zuzuordnen; die Auswertung unten bleibt deshalb gesperrt.
+  title: 'Team-Puls', description: null, audience_type: 'team', audience_id: 1, date_from: '2020-01-01', date_to: '2999-01-01', min_participants: 2,
   questions: [
     { kind: 'skala', text: 'Stimmung?', scale_max: 5 },
     { kind: 'einfachauswahl', text: 'Homeoffice?', options: ['Nie', 'Oft'] },
@@ -1137,7 +1166,13 @@ check('participated nach Teilnahme true', afterSv.json().surveys[0].participated
 const participationOwner = db.prepare('SELECT employee_id FROM survey_participations WHERE survey_id = ?').all(svId) as { employee_id: number }[];
 check('Teilnahme-Marker gehoert Anna (1), nicht dem Body-Wert', participationOwner.length === 1 && participationOwner[0].employee_id === 1, participationOwner);
 const hrResults = await app.inject({ method: 'GET', url: `/api/communication/surveys/${svId}/results`, headers: adminAuth });
-check('HR-Auswertung sieht die Portal-Antwort', hrResults.statusCode === 200 && hrResults.json().results.response_count === 1, hrResults.json());
+check(
+  'HR-Auswertung zaehlt die Portal-Antwort, bleibt unter der Mindestteilnehmerzahl aber gesperrt',
+  hrResults.statusCode === 403 &&
+    hrResults.json().error.code === 'MIN_PARTICIPANTS_NOT_REACHED' &&
+    hrResults.json().error.details.current === 1,
+  hrResults.json(),
+);
 check('Entwurf-Fixture angelegt', svEntwurf.statusCode === 201);
 
 // ------------------------------------------------------ Sofortiger Widerruf ---

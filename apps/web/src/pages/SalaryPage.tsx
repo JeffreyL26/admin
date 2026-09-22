@@ -18,6 +18,13 @@ import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
 import { formatDate, todayIso } from '../lib/format';
 
 /**
+ * /api/me/salary liefert zusaetzlich zum Kontrakt MeSalary die
+ * Beschaeftigungsart (modules/me/salaryRoutes.ts); der geteilte Typ bleibt
+ * unangetastet, die Erweiterung lebt hier.
+ */
+type MeSalaryWithType = { employee_type?: string };
+
+/**
  * Eigene Vergütung. Ton der Seite: sachlich und zurückhaltend — Gehalt ist ein
  * sensibles Thema, die Zahlen sprechen für sich.
  *
@@ -320,10 +327,14 @@ function SalaryHistory() {
 
 // ---------------------------------------------------------------- Boni ---
 
-function Bonuses() {
+function Bonuses({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
   const { data: bonuses, isLoading, error } = useMyBonuses();
   const list = bonuses ?? [];
   const hasProjected = list.some((b) => b.is_projected);
+
+  // Freiberufler:innen bekommen keine Boni mehr (Backend: 400); Altbestand
+  // bleibt sichtbar, ein leerer Kasten entfaellt.
+  if (hideWhenEmpty && !error && !isLoading && list.length === 0) return null;
 
   return (
     <>
@@ -335,7 +346,7 @@ function Bonuses() {
         empty={
           <EmptyState
             title="Keine Boni erfasst"
-            hint="Geplante und ausgezahlte Sonderzahlungen erscheinen hier."
+            hint="Freigegebene und ausgezahlte Sonderzahlungen erscheinen hier."
           />
         }
       >
@@ -394,8 +405,11 @@ function Bonuses() {
  * vollständig aus, statt leere Kästen zu zeigen. Aus demselben Grund wird
  * während des Ladens nichts gerendert: ein Skeleton, der gleich darauf
  * verschwindet, wäre für die große Mehrheit nur Unruhe.
+ *
+ * Für Freiberufler:innen (`isFreelancer`) ist dieser Abschnitt die ganze
+ * Vergütungsseite; er erscheint dann auch leer, mit Erklärung statt Kasten.
  */
-function Freelancer() {
+function Freelancer({ isFreelancer = false }: { isFreelancer?: boolean }) {
   const { data, isLoading, error } = useMyFreelancer();
 
   if (error) {
@@ -406,7 +420,17 @@ function Freelancer() {
     );
   }
   if (isLoading || !data) return null;
-  if (data.rates.length === 0 && data.invoices.length === 0) return null;
+  if (data.rates.length === 0 && data.invoices.length === 0) {
+    if (!isFreelancer) return null;
+    return (
+      <Card title="Honorare" flush>
+        <EmptyState
+          title="Noch keine Honorare erfasst"
+          hint="Sobald die Personalabteilung Honorarsätze oder Ihre Rechnungen erfasst hat, erscheinen sie hier."
+        />
+      </Card>
+    );
+  }
 
   return (
     <>
@@ -502,20 +526,27 @@ function Freelancer() {
 }
 
 export function SalaryPage() {
+  // Freiberufler:innen haben kein Monatsbrutto und keinen Gehaltsverlauf;
+  // ihre Vergütung sind Honorarsätze und Rechnungen.
+  const { data: salary } = useMySalary();
+  const isFreelancer = (salary as MeSalaryWithType | undefined)?.employee_type === 'freiberufler';
+
   return (
     <div>
       <header className="portal-page-header">
-        <h1 className="portal-title">Gehalt</h1>
+        <h1 className="portal-title">{isFreelancer ? 'Honorare' : 'Gehalt'}</h1>
         <p className="portal-subtitle">
-          Ihre aktuellen Gehaltsbestandteile, die Entwicklung und Ihre Boni.
+          {isFreelancer
+            ? 'Ihre Honorarsätze und der Stand Ihrer Rechnungen.'
+            : 'Ihre aktuellen Gehaltsbestandteile, die Entwicklung und Ihre Boni.'}
         </p>
       </header>
 
       <div className="stack">
-        <CurrentSalary />
-        <SalaryHistory />
-        <Bonuses />
-        <Freelancer />
+        {!isFreelancer && <CurrentSalary />}
+        {!isFreelancer && <SalaryHistory />}
+        <Bonuses hideWhenEmpty={isFreelancer} />
+        <Freelancer isFreelancer={isFreelancer} />
 
         <p
           style={{

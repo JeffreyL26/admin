@@ -35,6 +35,45 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "204": { description: Gelöscht }
+  /api/admin/onboarding/templates:
+    get:
+      summary: Standard-Checklisten je Prozessart (Vorlagen fuer neue Prozesse)
+      parameters:
+        - { name: kind, in: query, schema: { type: string, enum: [onboarding, offboarding] } }
+      responses:
+        "200": { description: Vorlagenliste (kind, title, sort_order, active) }
+    post:
+      summary: Vorlage anlegen (sort_order ohne Angabe ans Ende)
+      responses:
+        "201": { description: Vorlage angelegt }
+  /api/admin/onboarding/templates/order:
+    put:
+      summary: Reihenfolge einer Prozessart setzen (kind, ids in gewuenschter Reihenfolge)
+      responses:
+        "200": { description: Vorlagen der Art in neuer Reihenfolge }
+        "400":
+          description: Mindestens eine id gehoert nicht zu dieser Prozessart
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/admin/onboarding/templates/{id}:
+    put:
+      summary: Vorlage aendern (title, sort_order, active); laufende Prozesse bleiben unberuehrt
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: Aktualisierte Vorlage }
+        "404":
+          description: Vorlage nicht gefunden
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      summary: Vorlage loeschen (nur kuenftige Prozesse betroffen)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "204": { description: Geloescht }
   /api/admin/onboarding:
     get:
       summary: On-/Offboarding-Prozesse auflisten (mit Aufgaben-Fortschritt)

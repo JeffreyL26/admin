@@ -43,6 +43,8 @@ const post = (url: string, payload?: Record<string, unknown>) =>
   app.inject({ method: 'POST', url, headers: auth, payload });
 const patch = (url: string, payload?: Record<string, unknown>) =>
   app.inject({ method: 'PATCH', url, headers: auth, payload });
+const put = (url: string, payload?: Record<string, unknown>) =>
+  app.inject({ method: 'PUT', url, headers: auth, payload });
 const del = (url: string) => app.inject({ method: 'DELETE', url, headers: auth });
 
 // -------------------------------------------------------------- HR-Vorlagen ---
@@ -73,6 +75,22 @@ check(
   tplPatch.statusCode === 200 && tplPatch.json().template.original_name === 'musterschreiben-v2.docx',
   tplPatch.json(),
 );
+
+// --------------------------------------------------- Checklisten-Vorlagen ---
+const tplList = await get('/api/admin/onboarding/templates?kind=onboarding');
+check('Vorlagen: 7 Standardaufgaben Onboarding', tplList.statusCode === 200 && tplList.json().templates.length === 7, tplList.json());
+const tplNew = await post('/api/admin/onboarding/templates', { kind: 'onboarding', title: 'Zugangskarte bestellen' });
+check('Vorlage anlegen → 201, ans Ende sortiert', tplNew.statusCode === 201 && tplNew.json().template.sort_order === 80, tplNew.json());
+const tplNewId = tplNew.json().template.id as number;
+const tplRename = await put(`/api/admin/onboarding/templates/${tplNewId}`, { title: 'Zugangskarte beantragen' });
+check('Vorlage umbenennen', tplRename.statusCode === 200 && tplRename.json().template.title === 'Zugangskarte beantragen');
+const tplOrderIds = (tplList.json().templates as { id: number }[]).map((t) => t.id);
+const reorder = await put('/api/admin/onboarding/templates/order', { kind: 'onboarding', ids: [tplNewId, ...tplOrderIds] });
+check('Vorlagen: Reihenfolge setzen', reorder.statusCode === 200 && reorder.json().templates[0].id === tplNewId, reorder.json());
+const reorderWrong = await put('/api/admin/onboarding/templates/order', { kind: 'offboarding', ids: [tplNewId] });
+check('Vorlagen: fremde Art in der Reihenfolge → 400', reorderWrong.statusCode === 400);
+const tplOff = await put(`/api/admin/onboarding/templates/${tplNewId}`, { active: false });
+check('Vorlage deaktivieren', tplOff.json().template.active === 0);
 
 // ----------------------------------------------------------- On-/Offboarding ---
 const proc = await post('/api/admin/onboarding', {
@@ -141,6 +159,11 @@ const again = await post('/api/admin/onboarding', { employee_id: 1, kind: 'onboa
 check('Neues Onboarding nach Abschluss → 201', again.statusCode === 201);
 const delProc = await del(`/api/admin/onboarding/${again.json().process.id}`);
 check('Prozess löschen → 204', delProc.statusCode === 204);
+
+const delTaskTpl = await del(`/api/admin/onboarding/templates/${tplNewId}`);
+check('Vorlage löschen → 204', delTaskTpl.statusCode === 204);
+const delTaskTplAgain = await del(`/api/admin/onboarding/templates/${tplNewId}`);
+check('Vorlage erneut löschen → 404', delTaskTplAgain.statusCode === 404);
 
 const delTpl = await del(`/api/admin/templates/${tplId}`);
 check('Vorlage löschen → 204', delTpl.statusCode === 204);

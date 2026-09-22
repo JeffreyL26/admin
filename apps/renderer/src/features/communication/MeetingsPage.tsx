@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { AlarmClock, FileText, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   MEETING_OCCASION_LABELS,
+  MEETING_VISIBILITY_HINTS,
   MEETING_VISIBILITY_LABELS,
   formatDate,
   todayIsoLocal,
@@ -165,10 +167,7 @@ function MeetingEditor({
             onChange={(e) => setForm((f) => ({ ...f, follow_up_date: e.target.value }))}
           />
         </Field>
-        <Field
-          label="Sichtbarkeit"
-          hint="Gilt für den späteren Mitarbeitenden-Web-Client; im Desktop informativ"
-        >
+        <Field label="Sichtbarkeit" hint={MEETING_VISIBILITY_HINTS[form.visibility]}>
           <Select
             className="hm-select"
             value={form.visibility}
@@ -189,7 +188,30 @@ function MeetingEditor({
 export function MeetingsPage() {
   const toast = useToast();
   const invalidate = useInvalidate();
-  const { data: meetings, isLoading } = useMeetings();
+  // Filter in der URL (?employee=, ?occasion=), damit das Dashboard-Widget
+  // „Wiedervorlagen“ direkt auf die Protokolle einer Person verlinken kann.
+  const [params, setParams] = useSearchParams();
+  const employeeParam = Number(params.get('employee'));
+  const employeeFilter = Number.isInteger(employeeParam) && employeeParam > 0 ? employeeParam : null;
+  const occasionParam = params.get('occasion');
+  const occasionFilter =
+    occasionParam && occasionParam in MEETING_OCCASION_LABELS ? (occasionParam as MeetingOccasion) : null;
+  const setFilter = (patch: { employee?: number | null; occasion?: MeetingOccasion | null }) => {
+    const next = new URLSearchParams(params);
+    if (patch.employee !== undefined) {
+      if (patch.employee === null) next.delete('employee');
+      else next.set('employee', String(patch.employee));
+    }
+    if (patch.occasion !== undefined) {
+      if (patch.occasion === null) next.delete('occasion');
+      else next.set('occasion', patch.occasion);
+    }
+    setParams(next, { replace: true });
+  };
+  const { data: meetings, isLoading } = useMeetings({
+    employee_id: employeeFilter ?? undefined,
+    occasion: occasionFilter ?? undefined,
+  });
   const { data: followUps } = useFollowUps();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorInitial, setEditorInitial] = useState<DraftMeeting>(emptyDraft());
@@ -225,7 +247,7 @@ export function MeetingsPage() {
   return (
     <>
       <PageHeader
-        title="Gespräche"
+        title="Gesprächsprotokolle"
         subtitle="Protokolle von Mitarbeitergesprächen mit Wiedervorlagen"
         actions={
           <button
@@ -256,7 +278,7 @@ export function MeetingsPage() {
                     <strong>
                       {m.first_name} {m.last_name}
                     </strong>{' '}
-                    · {MEETING_OCCASION_LABELS[m.occasion]} vom {formatDate(m.meeting_date)} - fällig am{' '}
+                    · {MEETING_OCCASION_LABELS[m.occasion]} vom {formatDate(m.meeting_date)} · fällig am{' '}
                     {formatDate(m.follow_up_date)}
                   </span>
                   <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => openEdit(m)}>
@@ -269,14 +291,59 @@ export function MeetingsPage() {
         </div>
       )}
 
+      <div className="hm-card" style={{ marginBottom: 16 }}>
+        <div className="hm-card__body" style={{ padding: 14 }}>
+          <div className="row row--wrap">
+            <div style={{ minWidth: 240 }}>
+              <EmployeeSelect
+                value={employeeFilter}
+                onChange={(id) => setFilter({ employee: id })}
+                allowEmpty
+                emptyLabel="Alle Mitarbeitenden"
+                includeInactive
+              />
+            </div>
+            <Select
+              className="hm-select"
+              style={{ maxWidth: 220 }}
+              value={occasionFilter ?? ''}
+              onChange={(e) => setFilter({ occasion: e.target.value ? (e.target.value as MeetingOccasion) : null })}
+            >
+              <option value="">Alle Anlässe</option>
+              {(Object.keys(MEETING_OCCASION_LABELS) as MeetingOccasion[]).map((o) => (
+                <option key={o} value={o}>
+                  {MEETING_OCCASION_LABELS[o]}
+                </option>
+              ))}
+            </Select>
+            {(employeeFilter !== null || occasionFilter !== null) && (
+              <button
+                className="hm-btn hm-btn--ghost hm-btn--sm"
+                onClick={() => setFilter({ employee: null, occasion: null })}
+              >
+                Filter zurücksetzen
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {isLoading ? (
         <Spinner center />
       ) : (meetings?.length ?? 0) === 0 ? (
         <div className="hm-card">
           <EmptyState
             icon={<FileText size={40} />}
-            title="Noch keine Gesprächsprotokolle"
-            hint="Dokumentieren Sie Mitarbeitergespräche strukturiert und vertraulich."
+            title={
+              employeeFilter !== null || occasionFilter !== null
+                ? 'Keine Protokolle zu diesem Filter'
+                : 'Noch keine Gesprächsprotokolle'
+            }
+            hint={
+              employeeFilter !== null || occasionFilter !== null
+                ? 'Passen Sie Person oder Anlass an.'
+                : 'Dokumentieren Sie Mitarbeitergespräche strukturiert und vertraulich.'
+            }
           />
         </div>
       ) : (
@@ -301,9 +368,13 @@ export function MeetingsPage() {
                       <td>{formatDate(m.meeting_date)}</td>
                       <td>{MEETING_OCCASION_LABELS[m.occasion]}</td>
                       <td>
-                        <Badge tone={m.visibility === 'nur_hr' ? 'navy' : 'blue'}>
-                          {MEETING_VISIBILITY_LABELS[m.visibility]}
-                        </Badge>
+                        <Tooltip content={<span className="hm-tooltip__title">{MEETING_VISIBILITY_HINTS[m.visibility]}</span>}>
+                          <Badge tone={m.visibility === 'nur_hr' ? 'navy' : m.visibility === 'hr_vorgesetzte' ? 'neutral' : 'blue'}>
+                            {m.visibility === 'hr_vorgesetzte_mitarbeiter'
+                              ? 'Im Portal sichtbar'
+                              : MEETING_VISIBILITY_LABELS[m.visibility]}
+                          </Badge>
+                        </Tooltip>
                       </td>
                       <td>
                         {m.follow_up_date === null ? (
