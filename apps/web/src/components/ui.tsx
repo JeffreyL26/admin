@@ -6,16 +6,20 @@ export function Card({
   title,
   actions,
   flush,
+  accent,
   children,
 }: {
   title?: string;
   actions?: React.ReactNode;
   /** Ohne Innenabstand (für Tabellen/Listen). */
   flush?: boolean;
+  /** Akzent im Stil „Farbenfroh“ als Token-Name, z. B. '--org-2'. */
+  accent?: string;
   children: React.ReactNode;
 }) {
+  const style = accent ? ({ '--pt-accent': `var(${accent})` } as React.CSSProperties) : undefined;
   return (
-    <section className="pt-card">
+    <section className="pt-card" style={style}>
       {(title || actions) && (
         <header className="pt-card__header">
           {title && <span className="pt-label">{title}</span>}

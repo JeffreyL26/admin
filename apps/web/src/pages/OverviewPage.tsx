@@ -1,11 +1,16 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { AbsenceRequest, MeCalendarEmployee } from '@ohrganize/shared';
 import { useMyBalance, useMyCalendar, useMyProfile, useMyRequests } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
 import { NoticeSection } from '../features/communication/NoticeCards';
+import {
+  DASHBOARD_STYLE_LABELS, loadDashboardStyle, saveDashboardStyle, type DashboardStyle,
+} from '../lib/dashboardStyle';
 import { formatDate, formatDays, formatLongDate, formatRange, formatRequestDays, greeting, todayIso } from '../lib/format';
+
+const STYLES = Object.keys(DASHBOARD_STYLE_LABELS) as DashboardStyle[];
 
 function BalanceCard() {
   const year = Number(todayIso().slice(0, 4));
@@ -13,14 +18,14 @@ function BalanceCard() {
 
   if (error) {
     return (
-      <Card title={`Urlaubskonto ${year}`}>
+      <Card title={`Urlaubskonto ${year}`} accent="--org-1">
         <LoadError error={error} />
       </Card>
     );
   }
   if (isLoading || !balance) {
     return (
-      <Card title={`Urlaubskonto ${year}`}>
+      <Card title={`Urlaubskonto ${year}`} accent="--org-1">
         <Skeleton width={130} height={44} />
         <div style={{ marginTop: 18 }}>
           <Skeleton width="80%" height={16} />
@@ -37,7 +42,7 @@ function BalanceCard() {
   const plannedShare = Math.min(balance.planned / available, 1 - takenShare);
 
   return (
-    <Card title={`Urlaubskonto ${year}`}>
+    <Card title={`Urlaubskonto ${year}`} accent="--org-1">
       <div className="row" style={{ alignItems: 'baseline', gap: 12 }}>
         <span className="pt-big">{formatDays(balance.remaining)}</span>
         <span style={{ color: 'var(--text-secondary)' }}>
@@ -220,6 +225,7 @@ function AwayThisWeekCard() {
     <Card
       title="Diese Woche abwesend"
       flush
+      accent="--org-6"
       actions={
         <Link to="/kalender" className="pt-btn pt-btn--quiet pt-btn--sm">
           Alle ansehen
@@ -283,6 +289,11 @@ export function OverviewPage() {
   const { canViewCalendar } = useAuth();
   const { data: profile, isLoading: profileLoading } = useMyProfile();
   const { data: requests, isLoading: requestsLoading, error: requestsError } = useMyRequests();
+  const [style, setStyle] = useState<DashboardStyle>(loadDashboardStyle);
+  const changeStyle = (next: DashboardStyle) => {
+    setStyle(next);
+    saveDashboardStyle(next);
+  };
 
   const today = todayIso();
   const open = (requests ?? []).filter((r) => r.status === 'beantragt');
@@ -296,14 +307,29 @@ export function OverviewPage() {
     .slice(0, 3);
 
   return (
-    <div>
-      <header className="portal-page-header">
-        {profileLoading || !profile ? (
-          <Skeleton width={280} height={30} />
-        ) : (
-          <h1 className="portal-title">{greeting(profile.first_name)}</h1>
-        )}
-        <p className="portal-subtitle">{formatLongDate(today)}</p>
+    <div className={`pt-dash${style === 'farbenfroh' ? ' pt-dash--bunt' : ''}`}>
+      <header className="portal-page-header portal-page-header--split">
+        <div>
+          {profileLoading || !profile ? (
+            <Skeleton width={280} height={30} />
+          ) : (
+            <h1 className="portal-title">{greeting(profile.first_name)}</h1>
+          )}
+          <p className="portal-subtitle">{formatLongDate(today)}</p>
+        </div>
+        <div className="pt-seg" role="group" aria-label="Darstellung der Übersicht">
+          {STYLES.map((key) => (
+            <button
+              key={key}
+              type="button"
+              className="pt-seg__btn"
+              aria-pressed={style === key}
+              onClick={() => changeStyle(key)}
+            >
+              {DASHBOARD_STYLE_LABELS[key]}
+            </button>
+          ))}
+        </div>
       </header>
 
       {/* Hinweise an diese Person: erscheinen nur mit Inhalt (NoticeCards). */}
@@ -312,7 +338,7 @@ export function OverviewPage() {
       <div className="grid-overview">
         <div className="stack">
           <BalanceCard />
-          <Card title="Offene Anträge" flush>
+          <Card title="Offene Anträge" flush accent="--org-4">
             {requestsError ? (
               <div className="pt-card__body">
                 <LoadError error={requestsError} />
@@ -337,7 +363,7 @@ export function OverviewPage() {
         </div>
 
         <div className="stack">
-          <Card title="Nächste Abwesenheit">
+          <Card title="Nächste Abwesenheit" accent="--org-2">
             {requestsError ? (
               <LoadError error={requestsError} />
             ) : requestsLoading ? (
@@ -369,7 +395,7 @@ export function OverviewPage() {
             )}
           </Card>
 
-          <Card title="Zuletzt entschieden" flush>
+          <Card title="Zuletzt entschieden" flush accent="--org-3">
             {requestsError ? (
               <div className="pt-card__body">
                 <LoadError error={requestsError} />

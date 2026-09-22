@@ -346,6 +346,7 @@ button {
 
 /* ============================================================ Bausteine === */
 .pt-card {
+  --pt-accent: var(--brand-primary);
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1000,6 +1001,106 @@ button {
   grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: 20px;
   align-items: start;
+}
+.portal-page-header--split {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* Kompakter Umschalter (Optik wie hm-tabs--sm der Desktop-App). */
+.pt-seg {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--gray-100);
+}
+.pt-seg__btn {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 550;
+  color: var(--text-muted);
+  padding: 5px 11px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+.pt-seg__btn:hover {
+  color: var(--text-primary);
+}
+.pt-seg__btn[aria-pressed='true'] {
+  background: var(--bg-surface);
+  color: var(--brand-primary);
+  box-shadow: var(--shadow-sm);
+}
+.pt-seg__btn:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 1px;
+}
+
+/* Stil "Farbenfroh" der Übersicht: jede Karte trägt ihren Akzent
+   (--pt-accent, Card-Prop accent) auf Schimmer, Linie, Plakette und
+   Kennzahl. Nur Tokens und color-mix, damit alle vier Themes mitgehen. */
+.pt-dash--bunt .pt-card {
+  position: relative;
+  isolation: isolate;
+}
+.pt-dash--bunt .pt-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(240px 130px at 100% 0%, color-mix(in srgb, var(--pt-accent) 14%, transparent), transparent 70%),
+    linear-gradient(160deg, color-mix(in srgb, var(--pt-accent) 4%, transparent), transparent 55%);
+}
+.pt-dash--bunt .pt-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 22px;
+  right: 22px;
+  height: 3px;
+  border-radius: 0 0 3px 3px;
+  background: linear-gradient(90deg, var(--pt-accent), color-mix(in srgb, var(--pt-accent) 35%, transparent));
+  opacity: 0.85;
+}
+.pt-dash--bunt .pt-card__header {
+  border-bottom-color: color-mix(in srgb, var(--pt-accent) 16%, var(--border));
+}
+.pt-dash--bunt .pt-card__header > .pt-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+}
+.pt-dash--bunt .pt-card__header > .pt-label::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pt-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pt-accent) 22%, transparent);
+}
+.pt-dash--bunt .pt-big {
+  color: var(--pt-accent);
+}
+.pt-dash--bunt .pt-meter {
+  background: color-mix(in srgb, var(--pt-accent) 14%, var(--bg-surface));
+}
+.pt-dash--bunt .pt-meter__taken {
+  background: var(--pt-accent);
+}
+.pt-dash--bunt .pt-meter__planned {
+  background: color-mix(in srgb, var(--pt-accent) 40%, var(--bg-surface));
 }
 
 /* ============================================================ Responsiv === */

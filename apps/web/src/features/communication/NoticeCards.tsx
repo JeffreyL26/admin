@@ -105,6 +105,7 @@ function AnnouncementsCard({ items }: { items: MeAnnouncement[] }) {
     <Card
       title="Ankündigungen für Sie"
       flush
+      accent="--org-5"
       actions={pending > 0 ? <span className="pt-chip pt-chip--warning">{pending} zu bestätigen</span> : undefined}
     >
       <div style={{ marginTop: -1 }}>
@@ -296,7 +297,7 @@ function SurveyItem({ survey: s }: { survey: MeSurvey }) {
 
 function SurveysCard({ items }: { items: MeSurvey[] }) {
   return (
-    <Card title="Ihre Meinung ist gefragt" flush>
+    <Card title="Ihre Meinung ist gefragt" flush accent="--org-2">
       <div style={{ marginTop: -1 }}>
         {items.map((s) => (
           <SurveyItem key={s.id} survey={s} />
