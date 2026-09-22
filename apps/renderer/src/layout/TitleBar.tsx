@@ -8,6 +8,7 @@ import { VARIANT } from '@variant-manifest';
 import { IS_ELECTRON } from '../api/client';
 import { Modal } from '../components/Modal';
 import logo from '../assets/logo.png';
+import { Tooltip } from '../components/Tooltip';
 
 const isMac = window.ohrganize?.platform === 'darwin';
 const DOCS_URL = 'https://www.ohrganize.com/docs';
@@ -63,14 +64,15 @@ export function TitleBar() {
   return (
     <header className={`titlebar${isMac ? ' titlebar--mac' : ''}`}>
       <div className="titlebar__left" ref={menuRef}>
-        <button
-          className={`titlebar__menu-btn${menuOpen ? ' is-open' : ''}`}
-          onClick={() => setMenuOpen((o) => !o)}
-          title="Menü"
-        >
-          <PanelsTopLeft size={15} />
-          <span>Menü</span>
-        </button>
+        <Tooltip content={<span className="hm-tooltip__title">Menü</span>}>
+          <button
+            className={`titlebar__menu-btn${menuOpen ? ' is-open' : ''}`}
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            <PanelsTopLeft size={15} />
+            <span>Menü</span>
+          </button>
+        </Tooltip>
         {menuOpen && (
           <div className="titlebar__menu" role="menu">
             <MenuItem icon={<RefreshCw size={15} />} label="Neu laden" hint="Strg R" onClick={run(act.reload)} />
@@ -100,20 +102,25 @@ export function TitleBar() {
 
       {IS_ELECTRON && !isMac ? (
         <div className="titlebar__controls">
-          <button className="titlebar__control" onClick={() => window.ohrganize?.window?.minimize()} title="Minimieren" aria-label="Minimieren">
-            <Minus size={16} />
-          </button>
-          <button
-            className="titlebar__control"
-            onClick={() => window.ohrganize?.window?.toggleMaximize()}
-            title={maximized ? 'Wiederherstellen' : 'Maximieren'}
-            aria-label={maximized ? 'Wiederherstellen' : 'Maximieren'}
-          >
-            {maximized ? <Copy size={13} /> : <Square size={13} />}
-          </button>
-          <button className="titlebar__control titlebar__control--close" onClick={() => window.ohrganize?.window?.close()} title="Schließen" aria-label="Schließen">
-            <X size={16} />
-          </button>
+          <Tooltip content={<span className="hm-tooltip__title">Minimieren</span>}>
+            <button className="titlebar__control" onClick={() => window.ohrganize?.window?.minimize()} aria-label="Minimieren">
+              <Minus size={16} />
+            </button>
+          </Tooltip>
+          <Tooltip content={<span className="hm-tooltip__title">{maximized ? 'Wiederherstellen' : 'Maximieren'}</span>}>
+            <button
+              className="titlebar__control"
+              onClick={() => window.ohrganize?.window?.toggleMaximize()}
+              aria-label={maximized ? 'Wiederherstellen' : 'Maximieren'}
+            >
+              {maximized ? <Copy size={13} /> : <Square size={13} />}
+            </button>
+          </Tooltip>
+          <Tooltip content={<span className="hm-tooltip__title">Schließen</span>}>
+            <button className="titlebar__control titlebar__control--close" onClick={() => window.ohrganize?.window?.close()} aria-label="Schließen">
+              <X size={16} />
+            </button>
+          </Tooltip>
         </div>
       ) : (
         <div className="titlebar__spacer" />
@@ -172,7 +179,9 @@ function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
             <span className="hm-badge hm-badge--yellow">{CHANNEL_LABELS.beta}</span>
           )}
           <span className="hm-badge hm-badge--neutral">Desktop</span>
-          <span className="hm-badge hm-badge--neutral" title={VARIANT.id}>{VARIANT.label}</span>
+          <Tooltip content={<><span className="hm-tooltip__title">Variante</span><span className="hm-tooltip__line">{VARIANT.id}</span></>}>
+            <span className="hm-badge hm-badge--neutral">{VARIANT.label}</span>
+          </Tooltip>
         </div>
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', margin: 0 }}>
           © {new Date().getFullYear()} jba-team

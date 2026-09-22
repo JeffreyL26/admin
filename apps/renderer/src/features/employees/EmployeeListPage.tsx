@@ -33,6 +33,7 @@ import {
 import { EmployeeCreateModal } from './EmployeeCreateModal';
 import { BulkEditModal } from './BulkEditModal';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 export const TYPE_TONES: Record<EmployeeType, BadgeTone> = {
   vollzeit: 'blue',
@@ -390,29 +391,30 @@ export function EmployeeListPage() {
           <div style={{ flex: 1 }} />
 
           {abweichendeFilter.length > 0 && (
-            <button
-              className="hm-btn hm-btn--quiet hm-btn--sm"
-              // Nennt beim Überfahren, WELCHE Filter greifen — sonst sucht man
-              // bei sieben Auswahlfeldern, welches den Bestand ausblendet.
-              title={`Gesetzt: ${abweichendeFilter.join(', ')}. Setzt auf die Standardansicht zurück (nur aktive Mitarbeitende).`}
-              // Zurück auf die Standardansicht, nicht auf "gar kein Filter":
-              // Alles zu leeren würde Ausgeschiedene einblenden — das erwartet
-              // niemand hinter „zurücksetzen“.
-              onClick={() =>
-                set({
-                  status: EMPTY_FILTERS.status,
-                  employee_type: EMPTY_FILTERS.employee_type,
-                  job_title: EMPTY_FILTERS.job_title,
-                  department_id: EMPTY_FILTERS.department_id,
-                  team_id: EMPTY_FILTERS.team_id,
-                  location_id: EMPTY_FILTERS.location_id,
-                })
-              }
-            >
-              {abweichendeFilter.length === 1
-                ? `Filter „${abweichendeFilter[0]}“ zurücksetzen`
-                : `${abweichendeFilter.length} Filter zurücksetzen`}
-            </button>
+            <Tooltip content={<><span className="hm-tooltip__title">Filter zurücksetzen</span><span className="hm-tooltip__line">Gesetzt: {abweichendeFilter.join(', ')}</span><span className="hm-tooltip__line">Zurück zur Standardansicht · nur aktive Mitarbeitende</span></>}>
+              <button
+                className="hm-btn hm-btn--quiet hm-btn--sm"
+                // Nennt beim Überfahren, WELCHE Filter greifen, sonst sucht man
+                // bei sieben Auswahlfeldern, welches den Bestand ausblendet.
+                // Zurück auf die Standardansicht, nicht auf "gar kein Filter":
+                // Alles zu leeren würde Ausgeschiedene einblenden, das erwartet
+                // niemand hinter „zurücksetzen“.
+                onClick={() =>
+                  set({
+                    status: EMPTY_FILTERS.status,
+                    employee_type: EMPTY_FILTERS.employee_type,
+                    job_title: EMPTY_FILTERS.job_title,
+                    department_id: EMPTY_FILTERS.department_id,
+                    team_id: EMPTY_FILTERS.team_id,
+                    location_id: EMPTY_FILTERS.location_id,
+                  })
+                }
+              >
+                {abweichendeFilter.length === 1
+                  ? `Filter „${abweichendeFilter[0]}“ zurücksetzen`
+                  : `${abweichendeFilter.length} Filter zurücksetzen`}
+              </button>
+            </Tooltip>
           )}
 
           <div className="hm-multi" style={{ width: 150 }}>
@@ -442,25 +444,22 @@ export function EmployeeListPage() {
                     {EMPLOYEE_LIST_COLUMNS.map((c) => {
                       const on = c.fixed || view.columns.includes(c.id);
                       return (
-                        <label
-                          key={c.id}
-                          className={`hm-multi__option${on ? ' hm-multi__option--on' : ''}`}
-                          style={c.fixed ? { opacity: 0.65, cursor: 'default' } : undefined}
-                          title={
-                            c.fixed
-                              ? 'Ohne Name und Personalnummer ließe sich eine Zeile nicht mehr zuordnen.'
-                              : undefined
-                          }
-                        >
-                          <input
-                            type="checkbox"
-                            checked={on}
-                            disabled={c.fixed}
-                            onChange={() => !c.fixed && toggleColumn(c.id)}
-                          />
-                          <span className="hm-multi__text">{c.label}</span>
-                          {c.fixed && <span className="hm-multi__hint">immer</span>}
-                        </label>
+                        <Tooltip content={c.fixed ? <><span className="hm-tooltip__title">Immer sichtbar</span><span className="hm-tooltip__line">Ohne Name und Personalnummer wäre keine Zeile zuzuordnen</span></> : null}>
+                          <label
+                            key={c.id}
+                            className={`hm-multi__option${on ? ' hm-multi__option--on' : ''}`}
+                            style={c.fixed ? { opacity: 0.65, cursor: 'default' } : undefined}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              disabled={c.fixed}
+                              onChange={() => !c.fixed && toggleColumn(c.id)}
+                            />
+                            <span className="hm-multi__text">{c.label}</span>
+                            {c.fixed && <span className="hm-multi__hint">immer</span>}
+                          </label>
+                        </Tooltip>
                       );
                     })}
                   </div>

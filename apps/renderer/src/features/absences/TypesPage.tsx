@@ -20,6 +20,7 @@ import { EmployeeSelect, employeeName, useEmployees } from '../../components/Emp
 import { useAbsenceTypes, useClosures } from './api';
 import { Select } from '../../components/Select';
 import { ColorPicker } from '../../components/ColorPicker';
+import { Tooltip } from '../../components/Tooltip';
 
 interface TypeForm {
   name: string;
@@ -191,9 +192,11 @@ export function TypesPage() {
                             ohne jede Art einzeln öffnen zu müssen (Art. 9 DSGVO).
                           */}
                           {t.category === 'krankheit' && (t.portal_visibility ?? 'name') === 'name' && (
-                            <span title="Der Firmenkalender im Portal zeigt allen Kolleg:innen den Klartext-Grund. Gesundheitsdaten sind nach Art. 9 DSGVO besonders geschützt. Bitte prüfen.">
-                              <Badge tone="red">Portal: Klartext</Badge>
-                            </span>
+                            <Tooltip content={<><span className="hm-tooltip__title">Portal zeigt den Klartext-Grund</span><span className="hm-tooltip__line">Gesundheitsdaten nach Art. 9 DSGVO · Sichtbarkeit „neutral“ empfohlen</span></>}>
+                              <span>
+                                <Badge tone="red">Portal: Klartext</Badge>
+                              </span>
+                            </Tooltip>
                           )}
                         </span>
                       </td>
@@ -202,12 +205,13 @@ export function TypesPage() {
                         {t.category === 'krankheit' ? (
                           // Krankmeldungen werden nie geprüft — das muss hier stehen,
                           // sonst wirken hinterlegte Regeln so, als griffen sie.
-                          <span
-                            style={{ color: 'var(--text-muted)' }}
-                            title="Krankmeldungen sind von der Berechtigungsprüfung ausgenommen: Diese Art darf immer beantragt werden."
-                          >
-                            Immer alle
-                          </span>
+                          <Tooltip content={<><span className="hm-tooltip__title">Keine Berechtigungsprüfung</span><span className="hm-tooltip__line">Krankmeldungen darf immer jede Person einreichen</span></>}>
+                            <span
+                              style={{ color: 'var(--text-muted)' }}
+                            >
+                              Immer alle
+                            </span>
+                          </Tooltip>
                         ) : (
                           eligibilitySummary(t)
                         )}
@@ -626,15 +630,17 @@ function TypeDialog({
                 }}
               >
                 {visibleRoles.map((r) => (
-                  <label className="hm-checkbox" key={r.id} title={r.description ?? undefined}>
-                    <input
-                      type="checkbox"
-                      checked={eligibility.role_ids.includes(r.id)}
-                      onChange={(e) => toggleRole(r.id, e.target.checked)}
-                    />
-                    {r.name}
-                    {r.active !== 1 && <span style={{ color: 'var(--text-muted)' }}>(deaktiviert)</span>}
-                  </label>
+                  <Tooltip content={r.description ? <span className="hm-tooltip__title">{r.description}</span> : null}>
+                    <label className="hm-checkbox" key={r.id}>
+                      <input
+                        type="checkbox"
+                        checked={eligibility.role_ids.includes(r.id)}
+                        onChange={(e) => toggleRole(r.id, e.target.checked)}
+                      />
+                      {r.name}
+                      {r.active !== 1 && <span style={{ color: 'var(--text-muted)' }}>(deaktiviert)</span>}
+                    </label>
+                  </Tooltip>
                 ))}
               </div>
             )}

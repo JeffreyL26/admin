@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { FileText, Loader2, Paperclip, UploadCloud, X } from 'lucide-react';
 import { Avatar } from './ui';
+import { Tooltip } from './Tooltip';
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -44,14 +45,15 @@ export function FilePicker({
           <span className="hm-filepick__sub">{busy ? 'Wird hochgeladen …' : formatSize(file.size)}</span>
         </span>
         {!busy && (
-          <button
-            type="button"
-            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-            onClick={() => onFile(null)}
-            title="Entfernen"
-          >
-            <X size={15} />
-          </button>
+          <Tooltip content={<span className="hm-tooltip__title">Entfernen</span>}>
+            <button
+              type="button"
+              className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+              onClick={() => onFile(null)}
+            >
+              <X size={15} />
+            </button>
+          </Tooltip>
         )}
       </div>
     );
@@ -135,22 +137,23 @@ export function PhotoPicker({
 
   return (
     <div className="row" style={{ gap: 14 }}>
-      <button
-        type="button"
-        className="hm-photopick"
-        disabled={disabled || busy}
-        onClick={() => inputRef.current?.click()}
-        title="Foto auswählen"
-      >
-        {shown ? (
-          <img src={shown} alt={name} />
-        ) : (
-          <Avatar name={name} size={64} />
-        )}
-        <span className="hm-photopick__overlay">
-          {busy ? <Loader2 size={18} className="hm-spin" /> : <UploadCloud size={18} />}
-        </span>
-      </button>
+      <Tooltip content={<span className="hm-tooltip__title">Foto auswählen</span>}>
+        <button
+          type="button"
+          className="hm-photopick"
+          disabled={disabled || busy}
+          onClick={() => inputRef.current?.click()}
+        >
+          {shown ? (
+            <img src={shown} alt={name} />
+          ) : (
+            <Avatar name={name} size={64} />
+          )}
+          <span className="hm-photopick__overlay">
+            {busy ? <Loader2 size={18} className="hm-spin" /> : <UploadCloud size={18} />}
+          </span>
+        </button>
+      </Tooltip>
       <div>
         <button
           type="button"

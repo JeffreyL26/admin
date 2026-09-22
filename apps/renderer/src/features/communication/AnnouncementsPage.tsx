@@ -573,20 +573,22 @@ export function AnnouncementsPage() {
                           className="row"
                           style={{ justifyContent: "flex-end", gap: 4 }}
                         >
-                          <button
-                            className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                            title="Bearbeiten"
-                            onClick={() => openEdit(a)}
-                          >
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                            title="Löschen"
-                            onClick={() => setDeleteTarget(a)}
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          <Tooltip content={<span className="hm-tooltip__title">Bearbeiten</span>}>
+                            <button
+                              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                              onClick={() => openEdit(a)}
+                            >
+                              <Pencil size={15} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+                            <button
+                              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                              onClick={() => setDeleteTarget(a)}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </Tooltip>
                         </div>
                       </td>
                     </tr>

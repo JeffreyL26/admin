@@ -19,6 +19,7 @@ import {
   IconSickNote,
   type IconProps,
 } from '../components/icons';
+import { Tooltip } from '../components/Tooltip';
 
 interface NavItem {
   to: string;
@@ -210,15 +211,16 @@ export function PortalShell() {
               <div className="portal-user__name">{user.name}</div>
               <div className="portal-user__role">Mitarbeiter-Portal</div>
             </div>
-            <button
-              type="button"
-              className="portal-user__logout"
-              onClick={logout}
-              aria-label="Abmelden"
-              title="Abmelden"
-            >
-              <IconLogout size={16} />
-            </button>
+            <Tooltip content={<span className="hm-tooltip__title">Abmelden</span>}>
+              <button
+                type="button"
+                className="portal-user__logout"
+                onClick={logout}
+                aria-label="Abmelden"
+              >
+                <IconLogout size={16} />
+              </button>
+            </Tooltip>
           </div>
         )}
       </aside>

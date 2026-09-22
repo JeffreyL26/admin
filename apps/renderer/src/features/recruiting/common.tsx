@@ -24,6 +24,7 @@ import {
   type ApplicationDetail,
 } from './api';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 export const APPLICATION_STATUS_TONES: Record<ApplicationStatus, BadgeTone> = {
   aktiv: 'blue',
@@ -117,14 +118,15 @@ function InterviewerPicker({
             return (
               <span key={id} className="hm-badge hm-badge--blue" style={{ gap: 4 }}>
                 {e ? employeeName(e) : `#${id}`}
-                <button
-                  className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                  style={{ width: 18, height: 18 }}
-                  onClick={() => onChange(value.filter((v) => v !== id))}
-                  title="Entfernen"
-                >
-                  ×
-                </button>
+                <Tooltip content={<span className="hm-tooltip__title">Entfernen</span>}>
+                  <button
+                    className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                    style={{ width: 18, height: 18 }}
+                    onClick={() => onChange(value.filter((v) => v !== id))}
+                  >
+                    ×
+                  </button>
+                </Tooltip>
               </span>
             );
           })}
@@ -629,9 +631,11 @@ export function ApplicationDrawer({
                         <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => { setInterviewEdit(iv); setInterviewOpen(true); }}>
                           Feedback
                         </button>
-                        <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" title="Löschen" onClick={() => setDeleteInterview(iv)}>
-                          <Trash2 size={14} />
-                        </button>
+                        <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+                          <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" onClick={() => setDeleteInterview(iv)}>
+                            <Trash2 size={14} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </div>
                   ))}

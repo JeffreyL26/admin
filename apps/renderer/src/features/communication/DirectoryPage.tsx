@@ -14,6 +14,7 @@ import { useDebounced } from '../../components/useDebounced';
 import { usePhotoUrl } from '../employees/api';
 import { useDirectory, useDirectoryFields, useOrg, useSaveDirectoryFields } from './api';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 /**
  * Eigener Baustein, weil je Karte ein Hook nötig ist. Die vom Server je
@@ -126,13 +127,14 @@ export function DirectoryPage() {
         title="Mitarbeiterverzeichnis"
         subtitle="Dienstliche Kontaktdaten und Skills der aktiven Mitarbeitenden"
         actions={
-          <button
-            className="hm-btn hm-btn--secondary"
-            onClick={() => setSettingsOpen(true)}
-            title="Sichtbare Felder konfigurieren"
-          >
-            <Settings size={16} /> Felder
-          </button>
+          <Tooltip content={<span className="hm-tooltip__title">Sichtbare Felder konfigurieren</span>}>
+            <button
+              className="hm-btn hm-btn--secondary"
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Settings size={16} /> Felder
+            </button>
+          </Tooltip>
         }
       />
 
@@ -204,64 +206,65 @@ export function DirectoryPage() {
           {employees.map((e) => {
             const name = `${e.first_name} ${e.last_name}`;
             return (
-              <div
-                key={e.id}
-                className="hm-card hm-card--clickable"
-                title="Personalakte öffnen"
-                onClick={() =>
-                  navigate(`/personal/mitarbeitende/${e.id}`, {
-                    state: backToState('/kommunikation/verzeichnis', 'Zurück zum Verzeichnis'),
-                  })
-                }
-              >
-                <div className="hm-card__body" style={{ padding: 16 }}>
-                  <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
-                    <DirectoryAvatar name={name} photoFileId={e.photo_file_id} signedUrl={e.photo_url} />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontWeight: 650 }}>{name}</div>
-                      {fields?.job_title && (
-                        <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                          {e.job_title ?? '—'}
-                        </div>
-                      )}
-                      {(fields?.department || fields?.location) && (
-                        <div
-                          className="row"
-                          style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', gap: 4, marginTop: 2 }}
-                        >
-                          <MapPin size={12} />
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {[e.department_name, e.team_name, e.location_name].filter(Boolean).join(' · ') || '—'}
+              <Tooltip content={<span className="hm-tooltip__title">Personalakte öffnen</span>}>
+                <div
+                  key={e.id}
+                  className="hm-card hm-card--clickable"
+                  onClick={() =>
+                    navigate(`/personal/mitarbeitende/${e.id}`, {
+                      state: backToState('/kommunikation/verzeichnis', 'Zurück zum Verzeichnis'),
+                    })
+                  }
+                >
+                  <div className="hm-card__body" style={{ padding: 16 }}>
+                    <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
+                      <DirectoryAvatar name={name} photoFileId={e.photo_file_id} signedUrl={e.photo_url} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontWeight: 650 }}>{name}</div>
+                        {fields?.job_title && (
+                          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+                            {e.job_title ?? '—'}
+                          </div>
+                        )}
+                        {(fields?.department || fields?.location) && (
+                          <div
+                            className="row"
+                            style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', gap: 4, marginTop: 2 }}
+                          >
+                            <MapPin size={12} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {[e.department_name, e.team_name, e.location_name].filter(Boolean).join(' · ') || '—'}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {(fields?.email || fields?.phone) && (
+                      <div className="stack" style={{ gap: 4, marginTop: 12, fontSize: 'var(--text-sm)' }}>
+                        {fields?.email && e.email && (
+                          <span className="row" style={{ gap: 7, color: 'var(--text-secondary)' }}>
+                            <Mail size={14} /> {e.email}
                           </span>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                        {fields?.phone && e.phone && (
+                          <span className="row" style={{ gap: 7, color: 'var(--text-secondary)' }}>
+                            <Phone size={14} /> {e.phone}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {fields?.skills && (e.skills?.length ?? 0) > 0 && (
+                      <div className="row row--wrap" style={{ gap: 6, marginTop: 12 }}>
+                        {e.skills!.map((s) => (
+                          <Badge key={s.name} tone="blue">
+                            {s.name} · {s.level}/5
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  {(fields?.email || fields?.phone) && (
-                    <div className="stack" style={{ gap: 4, marginTop: 12, fontSize: 'var(--text-sm)' }}>
-                      {fields?.email && e.email && (
-                        <span className="row" style={{ gap: 7, color: 'var(--text-secondary)' }}>
-                          <Mail size={14} /> {e.email}
-                        </span>
-                      )}
-                      {fields?.phone && e.phone && (
-                        <span className="row" style={{ gap: 7, color: 'var(--text-secondary)' }}>
-                          <Phone size={14} /> {e.phone}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {fields?.skills && (e.skills?.length ?? 0) > 0 && (
-                    <div className="row row--wrap" style={{ gap: 6, marginTop: 12 }}>
-                      {e.skills!.map((s) => (
-                        <Badge key={s.name} tone="blue">
-                          {s.name} · {s.level}/5
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              </div>
+              </Tooltip>
             );
           })}
         </div>

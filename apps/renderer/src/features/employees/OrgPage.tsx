@@ -15,6 +15,7 @@ import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useLocations, useOrgTree, type Location } from './api';
 import { PeopleOrgChart } from './OrgChart';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 type DragPayload = { kind: 'department' | 'team'; id: number };
 
@@ -153,17 +154,20 @@ function InlineNameEditor({
           if (e.key === 'Escape') onCancel();
         }}
       />
-      <button
-        className="hm-btn hm-btn--primary hm-btn--sm hm-btn--icon"
-        disabled={!value.trim()}
-        onClick={() => onSave(value.trim())}
-        title="Speichern"
-      >
-        <Check size={14} />
-      </button>
-      <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" onClick={onCancel} title="Abbrechen">
-        <X size={14} />
-      </button>
+      <Tooltip content={<span className="hm-tooltip__title">Speichern</span>}>
+        <button
+          className="hm-btn hm-btn--primary hm-btn--sm hm-btn--icon"
+          disabled={!value.trim()}
+          onClick={() => onSave(value.trim())}
+        >
+          <Check size={14} />
+        </button>
+      </Tooltip>
+      <Tooltip content={<span className="hm-tooltip__title">Abbrechen</span>}>
+        <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" onClick={onCancel}>
+          <X size={14} />
+        </button>
+      </Tooltip>
     </span>
   );
 }
@@ -346,37 +350,43 @@ function DepartmentNode({
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Leitung: {node.head_name}</span>
         )}
         <span style={{ flex: 1 }} />
-        <button className="hm-btn hm-btn--ghost hm-btn--sm" title="Leitung festlegen" onClick={() => setHeadOpen(true)}>
-          Leitung
-        </button>
-        <button
-          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-          title="Umbenennen"
-          onClick={() => setRenaming(true)}
-        >
-          <Pencil size={14} />
-        </button>
-        <button
-          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-          title="Unterabteilung anlegen"
-          onClick={() => setAddingChild('department')}
-        >
-          <Plus size={14} />
-        </button>
-        <button
-          className="hm-btn hm-btn--ghost hm-btn--sm"
-          title="Team anlegen"
-          onClick={() => setAddingChild('team')}
-        >
-          <Plus size={13} /> Team
-        </button>
-        <button
-          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-          title="Löschen"
-          onClick={() => setConfirmDelete(true)}
-        >
-          <Trash2 size={14} />
-        </button>
+        <Tooltip content={<span className="hm-tooltip__title">Leitung festlegen</span>}>
+          <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => setHeadOpen(true)}>
+            Leitung
+          </button>
+        </Tooltip>
+        <Tooltip content={<span className="hm-tooltip__title">Umbenennen</span>}>
+          <button
+            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+            onClick={() => setRenaming(true)}
+          >
+            <Pencil size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip content={<span className="hm-tooltip__title">Unterabteilung anlegen</span>}>
+          <button
+            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+            onClick={() => setAddingChild('department')}
+          >
+            <Plus size={14} />
+          </button>
+        </Tooltip>
+        <Tooltip content={<span className="hm-tooltip__title">Team anlegen</span>}>
+          <button
+            className="hm-btn hm-btn--ghost hm-btn--sm"
+            onClick={() => setAddingChild('team')}
+          >
+            <Plus size={13} /> Team
+          </button>
+        </Tooltip>
+        <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+          <button
+            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+            onClick={() => setConfirmDelete(true)}
+          >
+            <Trash2 size={14} />
+          </button>
+        </Tooltip>
       </div>
 
       {addingChild && (
@@ -494,20 +504,22 @@ function TeamNode({
         <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>Lead: {team.lead_name}</span>
       )}
       <span style={{ flex: 1 }} />
-      <button
-        className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-        title="Umbenennen"
-        onClick={() => setRenaming(true)}
-      >
-        <Pencil size={13} />
-      </button>
-      <button
-        className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-        title="Löschen"
-        onClick={() => setConfirmDelete(true)}
-      >
-        <Trash2 size={13} />
-      </button>
+      <Tooltip content={<span className="hm-tooltip__title">Umbenennen</span>}>
+        <button
+          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+          onClick={() => setRenaming(true)}
+        >
+          <Pencil size={13} />
+        </button>
+      </Tooltip>
+      <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+        <button
+          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+          onClick={() => setConfirmDelete(true)}
+        >
+          <Trash2 size={13} />
+        </button>
+      </Tooltip>
       <ConfirmDialog
         open={confirmDelete}
         title="Team löschen?"
@@ -883,18 +895,24 @@ function DepartmentChart() {
             boxShadow: 'var(--shadow)',
           }}
         >
-          <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" title="Verkleinern" onClick={() => zoomBy(1 / 1.25)}>
-            <ZoomOut size={15} />
-          </button>
+          <Tooltip content={<span className="hm-tooltip__title">Verkleinern</span>}>
+            <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" onClick={() => zoomBy(1 / 1.25)}>
+              <ZoomOut size={15} />
+            </button>
+          </Tooltip>
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', minWidth: 38, textAlign: 'center' }}>
             {Math.round(view.k * 100)} %
           </span>
-          <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" title="Vergrößern" onClick={() => zoomBy(1.25)}>
-            <ZoomIn size={15} />
-          </button>
-          <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" title="Einpassen" onClick={fit}>
-            <Maximize2 size={15} />
-          </button>
+          <Tooltip content={<span className="hm-tooltip__title">Vergrößern</span>}>
+            <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" onClick={() => zoomBy(1.25)}>
+              <ZoomIn size={15} />
+            </button>
+          </Tooltip>
+          <Tooltip content={<span className="hm-tooltip__title">Einpassen</span>}>
+            <button className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon" onClick={fit}>
+              <Maximize2 size={15} />
+            </button>
+          </Tooltip>
         </div>
       </div>
     </Card>
@@ -963,20 +981,22 @@ function LocationsTab() {
                   <td className="num">{l.employee_count ?? 0}</td>
                   <td>
                     <div className="row" style={{ justifyContent: 'flex-end' }}>
-                      <button
-                        className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                        title="Bearbeiten"
-                        onClick={() => setEditing(l)}
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button
-                        className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                        title="Löschen"
-                        onClick={() => setConfirmDelete(l)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <Tooltip content={<span className="hm-tooltip__title">Bearbeiten</span>}>
+                        <button
+                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                          onClick={() => setEditing(l)}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      </Tooltip>
+                      <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+                        <button
+                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                          onClick={() => setConfirmDelete(l)}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </Tooltip>
                     </div>
                   </td>
                 </tr>

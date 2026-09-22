@@ -11,6 +11,7 @@ import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { useMissingSickNotes, useSickNotes } from './api';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 /** Name mit Absprung in die Personalakte; Krankmeldungen ohne Profil-ID (Altbestand) bleiben Text. */
 function personName(note: SickNote) {
@@ -43,11 +44,12 @@ function missedDaysCell(note: SickNote) {
         <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>laufend</span>
       )}
       {note.sick_pay_exceeded && (
-        <span
-          title={`Entgeltfortzahlung überzogen: ${note.sick_pay_days_used} von ${SICK_PAY_LIMIT_DAYS} Kalendertagen seit Beginn der AU-Kette. Übergang ins Krankengeld prüfen.`}
-        >
-          <Badge tone="red">Überzogen ❗</Badge>
-        </span>
+        <Tooltip content={<><span className="hm-tooltip__title">Entgeltfortzahlung überzogen</span><span className="hm-tooltip__line">{note.sick_pay_days_used} von {SICK_PAY_LIMIT_DAYS} Kalendertagen seit Beginn der AU-Kette · Übergang ins Krankengeld prüfen</span></>}>
+          <span
+          >
+            <Badge tone="red">Überzogen ❗</Badge>
+          </span>
+        </Tooltip>
       )}
     </span>
   );

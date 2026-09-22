@@ -14,6 +14,7 @@ import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { useOnboardingProcess, useOnboardingProcesses } from './api';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 function kindBadge(kind: OnboardingKind) {
   return kind === 'onboarding' ? (
@@ -161,13 +162,14 @@ export function OnboardingPage() {
                         >
                           <ClipboardList size={14} /> Checkliste
                         </button>
-                        <button
-                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Prozess löschen"
-                          onClick={() => setConfirmDelete(p)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <Tooltip content={<span className="hm-tooltip__title">Prozess löschen</span>}>
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            onClick={() => setConfirmDelete(p)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </td>
                   </tr>
@@ -345,14 +347,15 @@ function ChecklistDialog({ processId, onClose }: { processId: number | null; onC
             Schließen
           </button>
           {running && (
-            <button
-              className="hm-btn hm-btn--primary"
-              disabled={!allDone || complete.isPending}
-              title={allDone ? undefined : 'Erst alle Aufgaben abhaken'}
-              onClick={() => complete.mutate()}
-            >
-              <CheckCircle2 size={15} /> Prozess abschließen
-            </button>
+            <Tooltip content={allDone ? null : <span className="hm-tooltip__title">{'Erst alle Aufgaben abhaken'}</span>}>
+              <button
+                className="hm-btn hm-btn--primary"
+                disabled={!allDone || complete.isPending}
+                onClick={() => complete.mutate()}
+              >
+                <CheckCircle2 size={15} /> Prozess abschließen
+              </button>
+            </Tooltip>
           )}
         </>
       }
@@ -397,13 +400,14 @@ function ChecklistDialog({ processId, onClose }: { processId: number | null; onC
                     </span>
                   )}
                   {running && (
-                    <button
-                      className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                      title="Aufgabe entfernen"
-                      onClick={() => removeTask.mutate(t.id)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <Tooltip content={<span className="hm-tooltip__title">Aufgabe entfernen</span>}>
+                      <button
+                        className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                        onClick={() => removeTask.mutate(t.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </Tooltip>
                   )}
                 </span>
               </div>

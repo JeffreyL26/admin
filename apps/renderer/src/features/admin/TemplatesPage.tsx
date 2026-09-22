@@ -14,6 +14,7 @@ import { FilePicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
 import { useHrTemplates } from './api';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 /**
  * HR-Dokumentverzeichnis der Abteilung: zentrale Vorlagen (Schreiben, Verträge,
@@ -131,30 +132,33 @@ export function TemplatesPage() {
                     <td>{formatDate(t.updated_at.slice(0, 10))}</td>
                     <td>
                       <div className="row" style={{ justifyContent: 'flex-end' }}>
-                        <button
-                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Herunterladen"
-                          onClick={() => downloadFile(t.file_id)}
-                        >
-                          <Download size={15} />
-                        </button>
-                        <button
-                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Bearbeiten / neue Datei"
-                          onClick={() => {
-                            setEditTemplate(t);
-                            setDialogOpen(true);
-                          }}
-                        >
-                          <Pencil size={15} />
-                        </button>
-                        <button
-                          className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
-                          title="Löschen"
-                          onClick={() => setConfirmDelete(t)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <Tooltip content={<span className="hm-tooltip__title">Herunterladen</span>}>
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            onClick={() => downloadFile(t.file_id)}
+                          >
+                            <Download size={15} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content={<span className="hm-tooltip__title">Bearbeiten / neue Datei</span>}>
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            onClick={() => {
+                              setEditTemplate(t);
+                              setDialogOpen(true);
+                            }}
+                          >
+                            <Pencil size={15} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+                          <button
+                            className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
+                            onClick={() => setConfirmDelete(t)}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </td>
                   </tr>

@@ -355,13 +355,14 @@ function ContractsTab({ employeeId }: { employeeId: number }) {
               </div>
               <div className="row">
                 {c.document_file_id && (
-                  <button
-                    className="hm-btn hm-btn--ghost hm-btn--sm"
-                    title="Vertragsdokument herunterladen"
-                    onClick={() => downloadFile(c.document_file_id!)}
-                  >
-                    <Download size={15} />
-                  </button>
+                  <Tooltip content={<span className="hm-tooltip__title">Vertragsdokument herunterladen</span>}>
+                    <button
+                      className="hm-btn hm-btn--ghost hm-btn--sm"
+                      onClick={() => downloadFile(c.document_file_id!)}
+                    >
+                      <Download size={15} />
+                    </button>
+                  </Tooltip>
                 )}
                 {c.valid_to === null && (
                   <button

@@ -9,6 +9,7 @@ import { EmployeeSelect } from '../../components/EmployeeSelect';
 import type { Skill, SkillGapEntry } from '@ohrganize/shared';
 import { SKILL_LEVEL_COLORS } from './common';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 interface MatrixData {
   employees: { id: number; first_name: string; last_name: string; job_title: string | null; department_id: number | null; team_id: number | null }[];
@@ -324,9 +325,11 @@ function MatrixTab() {
                 <tr>
                   <th>Mitarbeiter:in</th>
                   {d.skills.map((s) => (
-                    <th key={s.id} title={s.category ?? undefined} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                      {s.name}
-                    </th>
+                    <Tooltip content={s.category ? <span className="hm-tooltip__title">{s.category}</span> : null}>
+                      <th key={s.id} style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        {s.name}
+                      </th>
+                    </Tooltip>
                   ))}
                 </tr>
               </thead>
@@ -358,7 +361,6 @@ function MatrixTab() {
                             color: colors?.fg,
                             fontWeight: 600,
                           }}
-                          title={`${e.first_name} ${e.last_name} · ${s.name}: Level ${level ?? '—'}`}
                         >
                           {level ?? ''}
                         </td>

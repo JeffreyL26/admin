@@ -230,30 +230,29 @@ function AccountsTab() {
                         // ausschließlich den Self-Service (Hook in server.ts).
                         <span style={{ color: 'var(--text-muted)' }}>Self-Service</span>
                       ) : (
-                        <Select
-                          className="hm-select"
-                          style={{ width: 210 }}
-                          value={a.admin_role_id ?? ''}
-                          disabled={self || assign.isPending}
-                          title={
-                            self
-                              ? 'Die eigene Rolle kann nur eine andere Person mit Benutzerverwaltung ändern.'
-                              : undefined
-                          }
-                          onChange={(e) =>
-                            assign.mutate({
-                              id: a.id,
-                              admin_role_id: e.target.value === '' ? null : Number(e.target.value),
-                            })
-                          }
-                        >
-                          <option value="">Vollzugriff (keine Rolle)</option>
-                          {(roles ?? []).map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </Select>
+                        <Tooltip content={self ? <><span className="hm-tooltip__title">Eigene Rolle</span><span className="hm-tooltip__line">Nur eine andere Person mit Benutzerverwaltung ändert sie</span></> : null}>
+                          <span style={{ display: 'inline-block' }}>
+                          <Select
+                            className="hm-select"
+                            style={{ width: 210 }}
+                            value={a.admin_role_id ?? ''}
+                            disabled={self || assign.isPending}
+                            onChange={(e) =>
+                              assign.mutate({
+                                id: a.id,
+                                admin_role_id: e.target.value === '' ? null : Number(e.target.value),
+                              })
+                            }
+                          >
+                            <option value="">Vollzugriff (keine Rolle)</option>
+                            {(roles ?? []).map((r) => (
+                              <option key={r.id} value={r.id}>
+                                {r.name}
+                              </option>
+                            ))}
+                          </Select>
+                          </span>
+                        </Tooltip>
                       )}
                     </td>
                     <td>
@@ -777,14 +776,15 @@ function RolesTab() {
                           >
                             <Pencil size={14} /> Bearbeiten
                           </button>
-                          <button
-                            className="hm-btn hm-btn--quiet hm-btn--sm"
-                            onClick={() => setDeleting(r)}
-                            disabled={own}
-                            title={own ? 'Die eigene Rolle kann nicht gelöscht werden.' : undefined}
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <Tooltip content={own ? <span className="hm-tooltip__title">{'Die eigene Rolle kann nicht gelöscht werden.'}</span> : null}>
+                            <button
+                              className="hm-btn hm-btn--quiet hm-btn--sm"
+                              onClick={() => setDeleting(r)}
+                              disabled={own}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </Tooltip>
                         </div>
                       </td>
                     </tr>

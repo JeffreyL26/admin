@@ -43,7 +43,6 @@ interface Props {
   name?: string;
   required?: boolean;
   autoFocus?: boolean;
-  title?: string;
   'aria-label'?: string;
   'aria-labelledby'?: string;
   'aria-invalid'?: React.AriaAttributes['aria-invalid'];
@@ -94,7 +93,6 @@ export function Select({
   name,
   required,
   autoFocus,
-  title,
   menuMinWidth,
   ...aria
 }: Props) {
@@ -313,7 +311,6 @@ export function Select({
         type="button"
         id={id}
         name={name}
-        title={title}
         className={`hm-select hm-select--btn${className ? ` ${className.replace(/\bhm-select\b/g, '').trim()}` : ''}`}
         style={style}
         disabled={disabled}

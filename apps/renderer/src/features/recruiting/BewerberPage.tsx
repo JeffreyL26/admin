@@ -15,6 +15,7 @@ import {
   APPLICATION_STATUS_TONES,
 } from './common';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 interface Draft {
   first_name: string;
@@ -306,12 +307,16 @@ export function BewerberPage() {
                     <td>{c.application_count ?? 0}</td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
-                        <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" title="Bearbeiten" onClick={() => openEdit(c)}>
-                          <Pencil size={15} />
-                        </button>
-                        <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" title="Löschen" onClick={() => setDeleteTarget(c)}>
-                          <Trash2 size={15} />
-                        </button>
+                        <Tooltip content={<span className="hm-tooltip__title">Bearbeiten</span>}>
+                          <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" onClick={() => openEdit(c)}>
+                            <Pencil size={15} />
+                          </button>
+                        </Tooltip>
+                        <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+                          <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" onClick={() => setDeleteTarget(c)}>
+                            <Trash2 size={15} />
+                          </button>
+                        </Tooltip>
                       </div>
                     </td>
                   </tr>

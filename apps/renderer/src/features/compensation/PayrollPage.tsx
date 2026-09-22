@@ -15,6 +15,7 @@ import { Badge, Card, EmptyState, Field, PageHeader, Spinner, StatCard } from '.
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { currentMonth, downloadAuthenticated, FLAG_TONES, formatMonth, STATUS_TONES } from './lib';
+import { Tooltip } from '../../components/Tooltip';
 
 interface RunRow {
   id: number;
@@ -108,22 +109,24 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
                 <CheckCircle2 size={16} /> Als geprüft markieren
               </button>
             )}
-            <button
-              className="hm-btn hm-btn--secondary"
-              disabled={run.status === 'offen'}
-              title={run.status === 'offen' ? 'Der Lauf muss zuerst geprüft werden' : undefined}
-              onClick={() => doExport('datev')}
-            >
-              <Download size={16} /> DATEV-Export
-            </button>
-            <button
-              className="hm-btn hm-btn--secondary"
-              disabled={run.status === 'offen'}
-              title={run.status === 'offen' ? 'Der Lauf muss zuerst geprüft werden' : undefined}
-              onClick={() => doExport('csv')}
-            >
-              <FileSpreadsheet size={16} /> CSV-Export
-            </button>
+            <Tooltip content={run.status === 'offen' ? <span className="hm-tooltip__title">{'Der Lauf muss zuerst geprüft werden'}</span> : null}>
+              <button
+                className="hm-btn hm-btn--secondary"
+                disabled={run.status === 'offen'}
+                onClick={() => doExport('datev')}
+              >
+                <Download size={16} /> DATEV-Export
+              </button>
+            </Tooltip>
+            <Tooltip content={run.status === 'offen' ? <span className="hm-tooltip__title">{'Der Lauf muss zuerst geprüft werden'}</span> : null}>
+              <button
+                className="hm-btn hm-btn--secondary"
+                disabled={run.status === 'offen'}
+                onClick={() => doExport('csv')}
+              >
+                <FileSpreadsheet size={16} /> CSV-Export
+              </button>
+            </Tooltip>
           </>
         }
       />

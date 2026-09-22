@@ -16,6 +16,7 @@ import { useToast } from '../../components/Toast';
 import { EmployeeSelect, employeeName } from '../../components/EmployeeSelect';
 import { useFollowUps, useInvalidate, useMeetings, type Meeting } from './api';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 interface DraftMeeting {
   employee_id: number | null;
@@ -315,20 +316,22 @@ export function MeetingsPage() {
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
-                          <button
-                            className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                            title="Bearbeiten"
-                            onClick={() => openEdit(m)}
-                          >
-                            <Pencil size={15} />
-                          </button>
-                          <button
-                            className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                            title="Löschen"
-                            onClick={() => setDeleteTarget(m)}
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          <Tooltip content={<span className="hm-tooltip__title">Bearbeiten</span>}>
+                            <button
+                              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                              onClick={() => openEdit(m)}
+                            >
+                              <Pencil size={15} />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+                            <button
+                              className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                              onClick={() => setDeleteTarget(m)}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </Tooltip>
                         </div>
                       </td>
                     </tr>

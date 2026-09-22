@@ -15,6 +15,7 @@ import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { usePostings, useRecruitingOrg, useInvalidate, type Posting } from './api';
 import { POSTING_STATUS_TONES, parseEuroInput, centsToInput } from './common';
 import { Select } from '../../components/Select';
+import { Tooltip } from '../../components/Tooltip';
 
 interface Draft {
   title: string;
@@ -292,12 +293,16 @@ export function StellenPage() {
                         <option key={s} value={s}>{JOB_POSTING_STATUS_LABELS[s]}</option>
                       ))}
                     </Select>
-                    <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" title="Bearbeiten" onClick={() => openEdit(p)}>
-                      <Pencil size={15} />
-                    </button>
-                    <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" title="Löschen" onClick={() => setDeleteTarget(p)}>
-                      <Trash2 size={15} />
-                    </button>
+                    <Tooltip content={<span className="hm-tooltip__title">Bearbeiten</span>}>
+                      <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" onClick={() => openEdit(p)}>
+                        <Pencil size={15} />
+                      </button>
+                    </Tooltip>
+                    <Tooltip content={<span className="hm-tooltip__title">Löschen</span>}>
+                      <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" onClick={() => setDeleteTarget(p)}>
+                        <Trash2 size={15} />
+                      </button>
+                    </Tooltip>
                   </div>
                 </div>
               </div>
