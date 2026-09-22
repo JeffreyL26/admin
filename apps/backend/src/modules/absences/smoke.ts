@@ -146,6 +146,18 @@ const previewHalf = await get(
 );
 check('Vorschau mit halbem Starttag = 3.5', previewHalf.json().days_counted === 3.5, previewHalf.json());
 
+// ------------------------------------ Betriebsruhe deckt Antrag ganz ab ---
+{
+  const inside = await post('/api/absences/requests', { employee_id: 2, type_id: 1, date_from: '2026-11-09', date_to: '2026-11-10' });
+  const insideId = inside.json().request?.id as number;
+  const cover = await post('/api/absences/closures', { name: 'Inventur', date_from: '2026-11-09', date_to: '2026-11-10' });
+  const row = db.prepare('SELECT status, days_counted FROM absence_requests WHERE id = ?').get(insideId) as
+    | { status: string; days_counted: number }
+    | undefined;
+  check('Antrag vollstaendig in Betriebsruhe wird storniert', inside.statusCode === 201 && cover.statusCode === 201 && row?.status === 'storniert' && row.days_counted === 0, { inside: inside.json(), row });
+  await app.inject({ method: 'DELETE', url: `/api/absences/closures/${cover.json().closure.id}`, headers: auth });
+}
+
 // ----------------------------------------------------------- Betriebsruhe ---
 const closure = await post('/api/absences/closures', {
   name: 'Zwischen den Jahren',

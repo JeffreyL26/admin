@@ -416,7 +416,7 @@ function RegistrationsModal({ training, onClose }: { training: TrainingRow; onCl
           <Field label="Termin">
             <input className="hm-input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </Field>
-          <Field label="Notiz">
+          <Field label="Notiz" hint="Nur für die Personalabteilung">
             <input
               className="hm-input"
               style={{ minWidth: 200 }}

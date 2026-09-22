@@ -339,6 +339,23 @@ let interviewId = 0;
   check('Lookup: nur aktive Profile, keine Fachdaten', active.statusCode === 200 && rows.every((r) => r.status === 'aktiv') && rows.every((r) => r.iban === undefined), rows);
   const all = await app.inject({ method: 'GET', url: '/api/lookup/employees?include_inactive=1', headers: auth });
   check('Lookup: include_inactive liefert Ausgeschiedene', (all.json().employees as { id: number }[]).some((r) => r.id === 1));
+  // Rolle ohne Fachbereich (Fuehrungskraft: alles 'kein') bekommt die Liste nicht.
+  const bcrypt = (await import('bcryptjs')).default;
+  const leaderRole = db.prepare("SELECT id FROM admin_roles WHERE name = 'Führungskraft'").get() as { id: number } | undefined;
+  if (leaderRole) {
+    db.prepare(
+      "INSERT INTO users (email, name, password_hash, role, admin_role_id) VALUES ('lead@test.de', 'Lead', ?, 'admin', ?)",
+    ).run(bcrypt.hashSync('geheim123456', 10), leaderRole.id);
+    const leadLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'lead@test.de', password: 'geheim123456' } });
+    const leadLookup = await app.inject({
+      method: 'GET',
+      url: '/api/lookup/employees',
+      headers: { authorization: `Bearer ${leadLogin.json().token as string}` },
+    });
+    check('Lookup: Rolle ohne Fachbereich -> 403', leadLookup.statusCode === 403, leadLookup.json());
+  } else {
+    check('Lookup: Rolle Fuehrungskraft vorhanden', false);
+  }
   db.prepare("UPDATE employees SET status = 'aktiv' WHERE id = 1").run();
 }
 

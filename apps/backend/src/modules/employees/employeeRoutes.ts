@@ -314,17 +314,32 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       }).length;
       assertSeatsAvailable(reactivating);
     }
+    let teamsCleared = 0;
     inTransaction(() => {
       const update = db.prepare(
         `UPDATE employees SET ${fields.map(([k]) => `${k} = ?`).join(', ')},
          updated_at = datetime('now') WHERE id = ?`,
       );
+      const clearTeam = db.prepare('UPDATE employees SET team_id = NULL WHERE id = ?');
       for (const id of ids) {
         const existing = db.prepare('SELECT * FROM employees WHERE id = ?').get(id) as
           | Record<string, unknown>
           | undefined;
         if (!existing) throw notFound(`Mitarbeiter:in mit ID ${id} nicht gefunden`);
-        const merged = { ...existing, ...set };
+        const merged: Record<string, unknown> = { ...existing, ...set };
+        // Reiner Abteilungswechsel: Ein Team der alten Abteilung passt nicht
+        // mehr und wird geloest, statt den ganzen Vorgang abzubrechen (das
+        // Personalformular setzt das Team beim Abteilungswechsel ebenso zurueck).
+        let clearsTeam = false;
+        if (set.department_id !== undefined && set.team_id === undefined && typeof existing.team_id === 'number') {
+          const team = db.prepare('SELECT department_id FROM teams WHERE id = ?').get(existing.team_id) as
+            | { department_id: number | null }
+            | undefined;
+          if (team && team.department_id !== null && team.department_id !== set.department_id) {
+            merged.team_id = null;
+            clearsTeam = true;
+          }
+        }
         assertTypeRules(merged);
         if (set.team_id !== undefined || set.department_id !== undefined) {
           try {
@@ -337,10 +352,14 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
           }
         }
         update.run(...fields.map(([, v]) => v), id);
+        if (clearsTeam) {
+          clearTeam.run(id);
+          teamsCleared++;
+        }
       }
     });
-    audit(req, 'bulk_update', 'employee', undefined, { ids, set });
-    return { updated: ids.length };
+    audit(req, 'bulk_update', 'employee', undefined, { ids, set, teams_cleared: teamsCleared });
+    return { updated: ids.length, teams_cleared: teamsCleared };
   });
 
   app.get('/api/employees/:id', async (req) => {

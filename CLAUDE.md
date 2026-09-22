@@ -199,7 +199,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `330_drop_development_plans`) waren genau solche Sackgassen. Portal-Sicht
   auf Fachdaten der Person: `me/performanceRoutes.ts` (`GET
   /api/me/development`: Ziele, Trainings, Gespraeche mit Massnahmen,
-  Skills, eigene Vorgesetztenbewertung; Seite `/entwicklung`),
+  Skills; Seite `/entwicklung`. Bewusst NICHT: Vorgesetztenbewertungen samt
+  Kommentaren und die HR-Notiz zur Trainingsanmeldung, beide bleiben HR und
+  Fuehrung vorbehalten),
   `me/communicationRoutes.ts` (`/api/me/meetings` nur Protokolle mit
   `visibility = hr_vorgesetzte_mitarbeiter`, Seite `/gespraeche`;
   `/api/me/directory` mit derselben Feldsichtbarkeit wie das

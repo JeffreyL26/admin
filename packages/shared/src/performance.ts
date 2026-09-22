@@ -361,7 +361,6 @@ export interface MeDevelopmentTraining {
   status: TrainingRegistrationStatus;
   date: string | null;
   completed_at: string | null;
-  note: string | null;
 }
 
 /** Vereinbarte Maßnahme aus einem eigenen Gespräch. */
@@ -397,28 +396,9 @@ export interface MeDevelopmentSkill {
   assessed_at: string | null;
 }
 
-/** Eine Kategorie der eigenen Vorgesetztenbewertung (Wert und Kommentar der Führungskraft). */
-export interface MeDevelopmentRatingEntry {
-  category_name: string;
-  is_overall: number;
-  scale: RatingScaleKey;
-  score: number;
-  comment: string;
-  updated_at: string;
-}
-
-/** Eigene Vorgesetztenbewertung je Zeitraum, wie sie die Führungskraft abgegeben hat. */
-export interface MeDevelopmentRatingPeriod {
-  period_key: string;
-  period_label: string;
-  leader_name: string | null;
-  entries: MeDevelopmentRatingEntry[];
-}
-
 export interface MeDevelopmentResponse {
   goals: MeDevelopmentGoal[];
   trainings: MeDevelopmentTraining[];
   meetings: MeDevelopmentMeeting[];
   skills: MeDevelopmentSkill[];
-  ratings: MeDevelopmentRatingPeriod[];
 }

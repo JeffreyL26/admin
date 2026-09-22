@@ -53,6 +53,13 @@ export function FeedbackPage() {
   const [employeeFilter, setEmployeeFilter] = useState<number | null>(
     employeeParam && Number.isInteger(Number(employeeParam)) && Number(employeeParam) > 0 ? Number(employeeParam) : null,
   );
+  // Aenderung des Parameters von aussen (neuer Deep-Link bei geoeffneter
+  // Seite) in den Filter uebernehmen; der Effekt darunter schreibt zurueck.
+  useEffect(() => {
+    const fromUrl =
+      employeeParam && Number.isInteger(Number(employeeParam)) && Number(employeeParam) > 0 ? Number(employeeParam) : null;
+    setEmployeeFilter((current) => (current === fromUrl ? current : fromUrl));
+  }, [employeeParam]);
   useEffect(() => {
     const params = new URLSearchParams(searchParams);
     if (employeeFilter) params.set('employee', String(employeeFilter));

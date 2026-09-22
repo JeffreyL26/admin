@@ -73,8 +73,9 @@ const ALWAYS_ALLOWED = [
   '/api/regions',
   '/api/bundeslaender',
   // Personenliste fuer Auswahlfelder in ALLEN Modulen (core/lookupRoutes.ts):
-  // nur Name, Status und Zuordnung, keine Fachdaten. Haengt sie am Bereich
-  // `personal`, sieht jede Rolle ohne diesen Bereich leere Auswahlfelder.
+  // nur Name, Status und Zuordnung, keine Fachdaten. Die Route prueft selbst,
+  // dass die Rolle mindestens einen Fachbereich lesen darf (sonst 403) und
+  // Ausgeschiedene nur mit `personal` oder `verwaltung` sieht.
   '/api/lookup',
 ];
 

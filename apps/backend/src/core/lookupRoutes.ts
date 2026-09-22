@@ -14,7 +14,20 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getDb } from '../db/db.js';
-import { parse } from './errors.js';
+import { forbidden, parse } from './errors.js';
+import { ADMIN_AREAS, permits, type AdminArea } from '@ohrganize/shared';
+import { permissionsFor } from './permissions.js';
+
+/**
+ * Bereiche, in denen Auswahlfelder Personen anbieten. Wer keinen davon lesen
+ * darf (etwa die Rolle „Führungskraft“ mit allen Bereichen auf `kein`), bekommt
+ * die Liste nicht: Sie haette sonst ueber diese Route die ganze Belegschaft
+ * gesehen, obwohl ihr die Personalakte verschlossen ist. Die Fuehrung holt
+ * ihre Auswahl ueber GET /api/leadership/lookup (Bereich `fuehrung`).
+ */
+const PICKER_AREAS: readonly AdminArea[] = ADMIN_AREAS.filter((a) => a !== 'einstellungen' && a !== 'fuehrung');
+/** Ausgeschiedene nur mit Einblick in Personal oder Verwaltung (Offboarding, Vorgesetzte). */
+const INACTIVE_AREAS: readonly AdminArea[] = ['personal', 'verwaltung'];
 
 const LITE_COLUMNS =
   'id, first_name, last_name, employee_type, status, job_title, department_id, team_id, location_id';
@@ -25,7 +38,13 @@ export async function lookupRoutes(app: FastifyInstance): Promise<void> {
       z.object({ include_inactive: z.enum(['1', 'true', '0', 'false']).optional() }),
       req.query ?? {},
     );
-    const includeInactive = q.include_inactive === '1' || q.include_inactive === 'true';
+    const permissions = permissionsFor(req.user.admin_role_id);
+    if (!PICKER_AREAS.some((a) => permits(permissions[a], 'lesen'))) {
+      throw forbidden('Für die Personenauswahl fehlt Ihnen die Berechtigung');
+    }
+    const includeInactive =
+      (q.include_inactive === '1' || q.include_inactive === 'true') &&
+      INACTIVE_AREAS.some((a) => permits(permissions[a], 'lesen'));
     const rows = getDb()
       .prepare(
         `SELECT ${LITE_COLUMNS} FROM employees

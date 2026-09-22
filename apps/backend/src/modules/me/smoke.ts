@@ -333,6 +333,13 @@ check(
   bonuses.statusCode === 200 && bon.length === 1 && fix.is_projected === false && fix.payout_cents === 100000 && ziel === undefined,
   bon,
 );
+// Freigegebener Zielbonus: im Portal sichtbar und als voraussichtlich markiert.
+db.prepare("UPDATE bonuses SET status = 'freigegeben' WHERE title = 'Jahresziel 2027'").run();
+const bonusesReleased = await empGet('/api/me/bonuses');
+const zielReleased = (bonusesReleased.json().bonuses as { title: string; is_projected: boolean }[]).find(
+  (b) => b.title === 'Jahresziel 2027',
+);
+check('Boni: freigegebener Zielbonus sichtbar und voraussichtlich', zielReleased?.is_projected === true, bonusesReleased.json());
 check(
   'Boni: weder "note" noch "goal_id" in der Antwort',
   !hasKeyDeep(bonuses.json(), 'note') && !hasKeyDeep(bonuses.json(), 'goal_id'),

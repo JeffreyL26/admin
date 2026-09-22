@@ -535,7 +535,8 @@ const devBody = dev.json() as {
   trainings: { training_title: string }[];
   meetings: { id: number; actions: { title: string }[]; notes?: unknown }[];
   skills: { name: string; level: number }[];
-  ratings: unknown[];
+  ratings?: unknown;
+  trainings_note?: unknown;
 };
 check(
   'Meine Entwicklung: nur eigene Ziele (Anna)',
@@ -557,7 +558,8 @@ check(
 );
 check('Meine Entwicklung: Trainings mit Titel', devBody.trainings.every((t) => typeof t.training_title === 'string'));
 check('Meine Entwicklung: Skills mit Level', devBody.skills.every((sk) => sk.level >= 1 && sk.level <= 5));
-check('Meine Entwicklung: Bewertungen als Liste', Array.isArray(devBody.ratings));
+check('Meine Entwicklung: keine Fuehrungsbewertung im Portal', !('ratings' in devBody), Object.keys(devBody));
+check('Meine Entwicklung: keine HR-Notiz zur Trainingsanmeldung', devBody.trainings.every((t) => !('note' in t)), devBody.trainings);
 
 const devAsAdmin = await app.inject({ method: 'GET', url: '/api/me/development', headers: auth });
 check('Meine Entwicklung: Admin ohne Personalprofil → 403', devAsAdmin.statusCode === 403);

@@ -641,6 +641,24 @@ const bulkRule = await app.inject({
 });
 check('Bulk verletzt Werkstudenten-Limit → 400', bulkRule.statusCode === 400);
 
+// Reiner Abteilungswechsel per Massenbearbeitung: Das Team der alten
+// Abteilung wird geloest, statt den Vorgang abzubrechen.
+const bulkMove = await app.inject({
+  method: 'POST',
+  url: '/api/employees/bulk',
+  headers: auth,
+  payload: { ids: [empId], set: { department_id: depCId } },
+});
+const movedTeam = (await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: auth })).json().employee.team_id as number | null;
+check('Bulk-Abteilungswechsel loest unpassendes Team', bulkMove.statusCode === 200 && bulkMove.json().teams_cleared === 1 && movedTeam === null, bulkMove.json());
+const bulkBack = await app.inject({
+  method: 'POST',
+  url: '/api/employees/bulk',
+  headers: auth,
+  payload: { ids: [empId], set: { department_id: depBId, team_id: teamId } },
+});
+check('Bulk: Abteilung und Team gemeinsam zurueck', bulkBack.statusCode === 200 && bulkBack.json().teams_cleared === 0, bulkBack.json());
+
 // ---------- CSV-Export ----------
 const csv = await app.inject({ method: 'GET', url: '/api/employees/export.csv?status=aktiv', headers: auth });
 const csvBody = csv.body;

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { signDownloadUrl } from '../../core/files.js';
+import { deleteFileIfUnreferenced, signDownloadUrl } from '../../core/files.js';
 import { todayIso } from '../../core/dates.js';
 import { assertSeatsAvailable } from '../../core/license.js';
 import { isoDateString } from '../../core/validation.js';
@@ -14,6 +14,7 @@ import { VARIANT } from '@variant-manifest';
 // entstuende ueber das Recruiting ein Profil, das die Personalakte so nie
 // annaehme (modul-kontrakte.md §2).
 import { assertExitNotBeforeHire, assertTypeRules } from '../employees/validation.js';
+import { assertTeamMatchesDepartment } from '../employees/employeeRoutes.js';
 
 // ---------------------------------------------------------------------------
 // Gemeinsame Helfer
@@ -698,6 +699,10 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
         body.consent_until ?? null,
         id,
       );
+    // Ersetztes oder entferntes Foto aufraeumen (nur wenn nirgends mehr verknuepft).
+    if (existing.photo_file_id && existing.photo_file_id !== photoFileId) {
+      deleteFileIfUnreferenced(existing.photo_file_id);
+    }
     audit(req, 'update', 'candidate', id, { name: `${body.first_name} ${body.last_name}` });
     return { candidate: candidateToJson(getCandidate(id)) };
   });
@@ -861,8 +866,8 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
 
   app.patch('/api/recruiting/applications/:id', async (req) => {
     const { id } = parse(idParam, req.params);
-    const existing = getDb().prepare('SELECT rating FROM applications WHERE id = ?').get(id) as
-      | { rating: number | null }
+    const existing = getDb().prepare('SELECT rating, cv_file_id FROM applications WHERE id = ?').get(id) as
+      | { rating: number | null; cv_file_id: number | null }
       | undefined;
     if (!existing) throw notFound('Bewerbung nicht gefunden');
     const body = parse(
@@ -881,6 +886,10 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     getDb()
       .prepare(`UPDATE applications SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`)
       .run(...fields.map(([, v]) => v ?? null), id);
+    // Ersetzter Lebenslauf: alte Datei aufraeumen, sonst bliebe sie signierbar.
+    if (body.cv_file_id !== undefined && existing.cv_file_id && existing.cv_file_id !== body.cv_file_id) {
+      deleteFileIfUnreferenced(existing.cv_file_id);
+    }
     if (body.rating !== undefined && body.rating !== existing.rating) {
       logEvent(id, 'bewertung', { body: body.rating ? `${body.rating} von 5` : 'zurückgesetzt', userId: userId(req) });
     }
@@ -1053,6 +1062,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     };
     assertTypeRules(employee);
     assertExitNotBeforeHire(employee);
+    assertTeamMatchesDepartment(employee);
 
     // Die Einstellung legt ein aktives Personalprofil an — Platzgrenze der
     // Lizenz prüfen, bevor die Transaktion beginnt (core/license.ts).

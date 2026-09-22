@@ -65,13 +65,13 @@ export function MyTeamPage() {
   if (isLoading || !data) return <Spinner center />;
 
   const total = data.team.length;
-  // „Bewertet“ heißt: Im Zeitraum liegt die Gesamtbewertung vor. Dieselbe
-  // Definition nutzen Status (leaderStatus), Dashboard und Report; wer nur
-  // einzelne Kategorien erfasst hat, bleibt ausstehend und die Karte zeigt
-  // „Kategorien begonnen“.
-  const ratedMembers = filtered.filter((m) => m.overall !== null);
-  const openMembers = filtered.filter((m) => m.overall === null);
-  const ratedTotal = data.team.filter((m) => m.overall !== null).length;
+  // „Bewertet“ heißt: In diesem Zeitraum liegt mindestens eine Kategorie vor
+  // (CLAUDE.md, Führung & Bewertung). Wer nur „Leistung“ ohne Gesamtbewertung
+  // erfasst hat, steht nicht mehr als ausstehend in der Liste; die Karte zeigt
+  // die Lücke stattdessen an.
+  const ratedMembers = filtered.filter((m) => m.rated_categories > 0);
+  const openMembers = filtered.filter((m) => m.rated_categories === 0);
+  const ratedTotal = data.team.filter((m) => m.rated_categories > 0).length;
 
   const openMember = (id: number) => {
     // Nur vom aktuellen Zeitraum abweichende Auswahl wandert in die URL:
@@ -149,8 +149,8 @@ export function MyTeamPage() {
               <TeamSection
                 icon={<ClipboardList size={16} aria-hidden="true" />}
                 title="Ausstehende Bewertungen"
-                hint={`Noch keine Gesamtbewertung für ${data.period.label} · Klick öffnet die Bewertungsmaske`}
-                empty={`Für ${data.period.label} liegt zu jeder Person eine Gesamtbewertung vor.`}
+                hint={`Noch keine Bewertung für ${data.period.label} · Klick öffnet die Bewertungsmaske`}
+                empty={`Für ${data.period.label} liegt zu jeder Person eine Bewertung vor.`}
                 members={openMembers}
                 cta="Jetzt bewerten"
                 onOpen={openMember}
@@ -159,7 +159,7 @@ export function MyTeamPage() {
               <TeamSection
                 icon={<CheckCheck size={16} aria-hidden="true" />}
                 title="Bereits bewertet"
-                hint={`Gesamtbewertung für ${data.period.label} abgegeben · Klick öffnet sie zum Ändern`}
+                hint={`Bewertung für ${data.period.label} abgegeben · Klick öffnet sie zum Ändern`}
                 empty={`Für ${data.period.label} wurde noch niemand bewertet.`}
                 members={ratedMembers}
                 cta="Bewertung öffnen"

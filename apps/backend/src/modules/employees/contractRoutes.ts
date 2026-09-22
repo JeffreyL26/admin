@@ -3,6 +3,8 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { addDaysIso, todayIso } from '../../core/dates.js';
 import { AppError, badRequest, conflict, notFound, parse } from '../../core/errors.js';
+import { employeeTypeRulesFor, type EmployeeType } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { assertTypeRules, contractBodySchema, contractPatchSchema, type ContractBody } from './validation.js';
 
 interface ContractRow {
@@ -59,6 +61,16 @@ function newestContract(employeeId: number): ContractRow | undefined {
     .get(employeeId) as ContractRow | undefined;
 }
 
+/** Stundenobergrenze der Beschaeftigungsart fuer die gespiegelten Wochenstunden. */
+function assertMirroredHours(employee: Record<string, unknown>, mirrored: Record<string, unknown>): void {
+  const hours = mirrored.weekly_hours;
+  if (typeof hours !== 'number') return;
+  const rules = employeeTypeRulesFor(VARIANT.country)[employee.employee_type as EmployeeType];
+  if (rules?.maxWeeklyHours !== undefined && hours > rules.maxWeeklyHours) {
+    throw badRequest(`Höchstens ${rules.maxWeeklyHours} Wochenstunden für diese Beschäftigungsart`);
+  }
+}
+
 /**
  * Wochenstunden/Urlaubsanspruch der aktuellen Vertragsversion auf employees
  * spiegeln, dort liegt die eine Quelle für alle anderen Module.
@@ -90,8 +102,20 @@ function mirrorToEmployee(
     | Record<string, unknown>
     | undefined;
   if (!employee) throw notFound('Mitarbeiter:in nicht gefunden');
+  // Nur blockieren, was die Spiegelung SELBST verursacht: Verstoesst schon der
+  // heutige Stand der Personalakte gegen die Typregeln (etwa eine fehlende
+  // IBAN), liegt das nicht am Vertrag; dann nur die gespiegelten Felder
+  // gegen die Stundenobergrenze pruefen, statt das Anlegen zu sperren.
+  let preexisting = false;
   try {
-    assertTypeRules({ ...employee, ...mirrored });
+    assertTypeRules(employee);
+  } catch (e) {
+    if (!(e instanceof AppError)) throw e;
+    preexisting = true;
+  }
+  try {
+    if (preexisting) assertMirroredHours(employee, mirrored);
+    else assertTypeRules({ ...employee, ...mirrored });
   } catch (e) {
     if (e instanceof AppError) {
       throw badRequest(

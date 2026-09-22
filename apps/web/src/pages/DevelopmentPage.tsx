@@ -5,15 +5,12 @@ import {
   FEEDBACK_MEETING_STATUS_LABELS,
   GOAL_KIND_LABELS,
   GOAL_STATUS_LABELS,
-  RATING_SCALES,
   TRAINING_REGISTRATION_STATUS_LABELS,
-  scaleLevelLabel,
   scoreTone,
   type FeedbackMeetingStatus,
   type GoalStatus,
   type MeDevelopmentGoal,
   type MeDevelopmentMeeting,
-  type MeDevelopmentRatingPeriod,
   type MeDevelopmentResponse,
   type MeDevelopmentSkill,
   type MeDevelopmentTraining,
@@ -26,8 +23,7 @@ import { formatDate, todayIso } from '../lib/format';
 
 /**
  * „Meine Entwicklung“: die eigene Sicht auf Ziele, Trainings, Gespräche,
- * Skills und die Bewertung durch die Führungskraft. Eine Anfrage, fünf
- * Karten; leere Blöcke erscheinen nicht, und wenn alles leer ist, sagt die
+ * Skills. Eine Anfrage, vier Karten; leere Blöcke erscheinen nicht, und wenn alles leer ist, sagt die
  * Seite das einmal statt fünfmal.
  */
 function useMyDevelopment() {
@@ -178,13 +174,9 @@ function TrainingsCard({ trainings }: { trainings: MeDevelopmentTraining[] }) {
                     <span style={{ fontWeight: 600 }}>{t.training_title}</span>
                     {t.mandatory ? <Chip tone="neutral">Pflicht</Chip> : null}
                   </div>
-                  {(t.provider || t.note) && (
+                  {t.provider && (
                     <div>
-                      <Muted>
-                        {t.provider ?? ''}
-                        {t.provider && t.note ? ' · ' : ''}
-                        {t.note ?? ''}
-                      </Muted>
+                      <Muted>{t.provider}</Muted>
                     </div>
                   )}
                 </td>
@@ -311,58 +303,6 @@ function SkillsCard({ skills }: { skills: MeDevelopmentSkill[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Vorgesetztenbewertung
-// ---------------------------------------------------------------------------
-
-function RatingPeriodBlock({ period }: { period: MeDevelopmentRatingPeriod }) {
-  const overall = period.entries.find((e) => e.is_overall === 1);
-  const rest = period.entries.filter((e) => e.is_overall !== 1);
-  return (
-    <div style={{ borderLeft: '3px solid var(--border)', paddingLeft: 12, display: 'grid', gap: 8 }}>
-      <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-        <span style={{ fontWeight: 600 }}>{period.period_label}</span>
-        <Muted>{period.leader_name ? `von ${period.leader_name}` : 'Führungskraft nicht mehr im Bestand'}</Muted>
-        {overall && (
-          <Chip tone={SCORE_TONES[scoreTone(overall.scale, overall.score)]}>
-            Gesamt: {scaleLevelLabel(overall.scale, overall.score)}
-          </Chip>
-        )}
-      </div>
-      {overall?.comment && <p style={{ margin: 0 }}>{overall.comment}</p>}
-      {rest.length > 0 && (
-        <div style={{ display: 'grid', gap: 6 }}>
-          {rest.map((e) => (
-            <div key={e.category_name} style={{ display: 'grid', gap: 2 }}>
-              <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
-                <span>{e.category_name}</span>
-                <Chip tone={SCORE_TONES[scoreTone(e.scale, e.score)]}>{scaleLevelLabel(e.scale, e.score)}</Chip>
-                <Muted>{RATING_SCALES[e.scale].label}</Muted>
-              </div>
-              {e.comment && <Muted>{e.comment}</Muted>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function RatingsCard({ ratings }: { ratings: MeDevelopmentRatingPeriod[] }) {
-  return (
-    <Card title="Bewertung durch die Führungskraft">
-      <p style={{ marginTop: 0, color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
-        Werte und Kommentare, wie sie Ihre Führungskraft je Zeitraum abgegeben hat.
-      </p>
-      <div style={{ display: 'grid', gap: 16 }}>
-        {ratings.map((p) => (
-          <RatingPeriodBlock key={p.period_key} period={p} />
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Seite
 // ---------------------------------------------------------------------------
 
@@ -373,15 +313,14 @@ export function DevelopmentPage() {
     data.goals.length === 0 &&
     data.trainings.length === 0 &&
     data.meetings.length === 0 &&
-    data.skills.length === 0 &&
-    data.ratings.length === 0;
+    data.skills.length === 0;
 
   return (
     <div>
       <header className="portal-page-header">
         <h1 className="portal-title">Meine Entwicklung</h1>
         <p className="portal-subtitle">
-          Ziele, Trainings, Gespräche, Skills und die Rückmeldung Ihrer Führungskraft auf einen Blick.
+          Ziele, Trainings, Gespräche und Skills auf einen Blick.
         </p>
       </header>
 
@@ -398,13 +337,12 @@ export function DevelopmentPage() {
           <Card flush>
             <EmptyState
               title="Noch nichts hinterlegt"
-              hint="Sobald die Personalabteilung Ziele, Trainings oder Gespräche für Sie anlegt oder Ihre Führungskraft eine Bewertung abgibt, erscheint sie hier."
+              hint="Sobald die Personalabteilung Ziele, Trainings oder Gespräche für Sie anlegt, erscheint es hier."
             />
           </Card>
         ) : (
           <>
             {data.goals.length > 0 && <GoalsCard goals={data.goals} />}
-            {data.ratings.length > 0 && <RatingsCard ratings={data.ratings} />}
             {data.meetings.length > 0 && <MeetingsCard meetings={data.meetings} />}
             {data.trainings.length > 0 && <TrainingsCard trainings={data.trainings} />}
             {data.skills.length > 0 && <SkillsCard skills={data.skills} />}

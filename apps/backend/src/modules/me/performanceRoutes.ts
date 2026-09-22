@@ -7,13 +7,15 @@
  *
  * EINE Antwort mit allem, was die Person ueber sich sehen darf: eigene Ziele,
  * eigene Trainings-Anmeldungen, eigene Gespraeche samt vereinbarter
- * Massnahmen, eigene Skill-Levels und die Vorgesetztenbewertung je Zeitraum.
+ * Massnahmen und eigene Skill-Levels.
  * Alles ist strikt ueber employee_id gefiltert; es gibt keine IDs anderer
  * Personen im Pfad, also auch nichts, was 404 werden koennte.
  *
- * Bewusst NICHT enthalten: die Gespraechsnotizen (Vorbereitungs- und
- * Verlaufsnotizen der HR, kein Feld fuer die Person), das Protokoll der
- * Fuehrungsbewertung und die Konto-Namen der Schreibenden.
+ * Bewusst NICHT enthalten (Entscheidung der Produktverantwortung): die
+ * Vorgesetztenbewertung samt Kommentaren (leadership_ratings bleiben HR und
+ * Fuehrung vorbehalten, Fuehrungskraefte schreiben sie nicht fuer die
+ * Person), die Notiz der HR zur Trainingsanmeldung und die
+ * Gespraechsnotizen (Vorbereitungs- und Verlaufsnotizen der HR).
  */
 import type { FastifyPluginAsync } from 'fastify';
 import type {
@@ -25,7 +27,6 @@ import type {
   MeDevelopmentTraining,
 } from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
-import { ownRatings } from '../leadership/service.js';
 import { requireEmployee } from './lib.js';
 
 function myGoals(employeeId: number): MeDevelopmentGoal[] {
@@ -43,7 +44,7 @@ function myTrainings(employeeId: number): MeDevelopmentTraining[] {
   return getDb()
     .prepare(
       `SELECT r.id, r.training_id, t.title AS training_title, t.provider, t.kind AS training_kind,
-              t.mandatory, r.status, r.date, r.completed_at, r.note
+              t.mandatory, r.status, r.date, r.completed_at
        FROM training_registrations r
        JOIN trainings t ON t.id = r.training_id
        WHERE r.employee_id = ?
@@ -97,7 +98,6 @@ export const mePerformanceRoutes: FastifyPluginAsync = async (app) => {
       trainings: myTrainings(me.id),
       meetings: myMeetings(me.id),
       skills: mySkills(me.id),
-      ratings: ownRatings(me.id),
     };
   });
 };

@@ -335,7 +335,7 @@ paths:
         "200": { description: Erinnerungslisten }
   /api/me/development:
     get:
-      summary: Meine Entwicklung (Portal), eigene Ziele, Trainings-Anmeldungen, Gespräche mit Maßnahmen, Skill-Levels und Vorgesetztenbewertung je Zeitraum in einer Antwort; ohne Gesprächsnotizen und Protokoll
+      summary: Meine Entwicklung (Portal), eigene Ziele, Trainings-Anmeldungen, Gespräche mit Maßnahmen, Skill-Levels in einer Antwort; ohne Vorgesetztenbewertung, Gesprächsnotizen und HR-Notizen zur Trainingsanmeldung
       responses:
         "200": { description: Eigene Entwicklungsdaten }
         "403": { description: Kein aktives Personalprofil verknüpft }

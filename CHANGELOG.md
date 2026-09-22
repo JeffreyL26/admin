@@ -15,7 +15,7 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 ### Durchgaengigkeitspruefung aller Module (22.09.2026)
 - Sackgassen geschlossen: Gespraechsprotokolle mit Sichtbarkeit
   „HR + Vorgesetzte + Mitarbeiter:in“, Ziele, Trainings, Gespraeche,
-  Skills und die eigene Vorgesetztenbewertung erreichen das Portal
+  und Skills erreichen das Portal (ohne Vorgesetztenbewertung und HR-Notizen)
   (`/gespraeche`, `/entwicklung`); Verzeichnis im Portal (`/kollegen`)
   mit derselben Feldsichtbarkeit wie in der HR, die auch das
   Portal-Organigramm filtert; ausgehaendigte Bescheinigungen erscheinen
