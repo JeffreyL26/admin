@@ -683,6 +683,16 @@ export const CREATED_BY_PROXY_SQL = `
   CASE WHEN c.id IS NOT NULL AND (c.employee_id IS NULL OR c.employee_id != r.employee_id) THEN 1 ELSE 0 END
     AS created_by_proxy`;
 
+/**
+ * 1, wenn ein Antrag (Alias `r`) keinen zu zaehlenden Tag hat UND eine
+ * Betriebsruhe ueberlappt. Die Clients zeigen dann „Betriebsruhe“ statt 0;
+ * eine 0 ohne Betriebsruhe (Wochenende, Feiertag) bleibt eine 0.
+ */
+export const CLOSURE_COVERED_SQL = `
+  CASE WHEN r.days_counted = 0 AND EXISTS (
+    SELECT 1 FROM company_closures cc WHERE cc.date_from <= r.date_to AND cc.date_to >= r.date_from
+  ) THEN 1 ELSE 0 END AS closure_covered`;
+
 export function createRequest(
   req: Parameters<typeof audit>[0],
   body: CreateRequestBody,
@@ -760,7 +770,11 @@ export function createRequest(
       halfDayEnd: body.half_day_end,
       closures,
     });
-    if (days <= 0) {
+    // Krankmeldungen sind auch ohne zu zaehlenden Arbeitstag zu erfassen (etwa
+    // vollstaendig in einer Betriebsruhe oder am Wochenende): AU-Frist,
+    // Bescheinigung und Kette der Entgeltfortzahlung haengen am Kalender, nicht
+    // an days_counted. Alle anderen Arten waeren ein Antrag auf nichts.
+    if (days <= 0 && !sick) {
       throw badRequest('Der Zeitraum enthält keine zu zählenden Arbeitstage (Wochenende, Feiertage oder Betriebsruhe)');
     }
 

@@ -12,6 +12,7 @@ import { useToast } from '../../components/Toast';
 import { useMissingSickNotes, useSickNotes } from './api';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
+import { DaysCounted } from './DaysCounted';
 
 /** Name mit Absprung in die Personalakte; Krankmeldungen ohne Profil-ID (Altbestand) bleiben Text. */
 function personName(note: SickNote) {
@@ -229,7 +230,7 @@ export function SickNotesPage() {
                       <td>
                         {formatDate(n.date_from)} – {formatDate(n.date_to)}
                       </td>
-                      <td className="num">{n.days_counted?.toLocaleString('de-DE')}</td>
+                      <td className="num"><DaysCounted days={n.days_counted} closureCovered={n.closure_covered} /></td>
                       <td className="num">{missedDaysCell(n)}</td>
                       <td>
                         <span className="row" style={{ gap: 6 }}>

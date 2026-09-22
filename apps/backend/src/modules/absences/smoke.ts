@@ -155,6 +155,19 @@ check('Vorschau mit halbem Starttag = 3.5', previewHalf.json().days_counted === 
     | { status: string; days_counted: number }
     | undefined;
   check('Antrag vollstaendig in Betriebsruhe: 0 Tage, Status bleibt', inside.statusCode === 201 && cover.statusCode === 201 && row?.status === 'beantragt' && row.days_counted === 0, { inside: inside.json(), row });
+  const listed = (await get('/api/absences/requests?employee_id=2')).json().requests as { id: number; closure_covered: number }[];
+  check('Liste kennzeichnet den Antrag als Betriebsruhe', listed.find((r) => r.id === insideId)?.closure_covered === 1, listed);
+  // Krankmeldungen bleiben auch vollstaendig in einer Betriebsruhe erfassbar
+  // (AU-Frist und Entgeltfortzahlung haengen am Kalender).
+  const sickInside = await post('/api/absences/sick-notes', { employee_id: 3, date_from: '2026-11-09', date_to: '2026-11-10' });
+  const sickNote = sickInside.json().sick_note as { id: number; absence_request_id: number; days_counted: number; closure_covered: number } | undefined;
+  check('Krankmeldung in Betriebsruhe → 201 mit 0 Tagen', sickInside.statusCode === 201 && sickNote?.days_counted === 0 && sickNote.closure_covered === 1, sickInside.json());
+  if (sickNote) {
+    db.prepare('DELETE FROM sick_notes WHERE id = ?').run(sickNote.id);
+    db.prepare('DELETE FROM absence_requests WHERE id = ?').run(sickNote.absence_request_id);
+  }
+  const vacationInside = await post('/api/absences/requests', { employee_id: 3, type_id: 1, date_from: '2026-11-09', date_to: '2026-11-10' });
+  check('Urlaub nur in Betriebsruhe bleibt abgewiesen → 400', vacationInside.statusCode === 400, vacationInside.json());
   await app.inject({ method: 'DELETE', url: `/api/absences/closures/${cover.json().closure.id}`, headers: auth });
   const back = db.prepare('SELECT status, days_counted FROM absence_requests WHERE id = ?').get(insideId) as
     | { status: string; days_counted: number }

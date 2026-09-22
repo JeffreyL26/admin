@@ -182,8 +182,8 @@ export function RequestsPage() {
                       )}
                     </td>
                     <td className="num">
-                      {r.days_counted === 0 ? (
-                        <span className="pt-chip">Betriebsruhe</span>
+                      {r.closure_covered === 1 ? (
+                        <span className="pt-chip pt-chip--neutral">Betriebsruhe</span>
                       ) : (
                         formatDays(r.days_counted)
                       )}

@@ -76,7 +76,8 @@ const ALWAYS_ALLOWED = [
 
 /**
  * Routen, die an KEINEM einzelnen Bereich haengen, aber mindestens einen der
- * genannten Bereiche lesend verlangen. `/api/lookup` ist die Personenliste
+ * genannten Bereiche verlangen, mit derselben Stufe wie sonst (neededFor:
+ * lesen fuer GET/HEAD, bearbeiten fuer Schreibrouten). `/api/lookup` ist die Personenliste
  * fuer Auswahlfelder aller Module (core/lookupRoutes.ts: nur Name, Status und
  * Zuordnung). Eine Rolle ohne jeden Fachbereich (etwa „Führungskraft“ mit
  * allem auf `kein`) bekommt sie nicht; die Fuehrung holt ihre Auswahl ueber
@@ -151,7 +152,8 @@ export function assertRouteAllowed(req: FastifyRequest, permissions: AdminPermis
   if (SELF_GATED.some((p) => route === p || route.startsWith(`${p}/`))) return;
   for (const [prefix, areas] of ANY_AREA_ROUTES) {
     if (route === prefix || route.startsWith(`${prefix}/`)) {
-      if (areas.some((a) => permits(permissions[a], 'lesen'))) return;
+      const needed = neededFor(req.method, route);
+      if (areas.some((a) => permits(permissions[a], needed))) return;
       throw forbidden('Für diesen Bereich haben Sie keine Berechtigung.');
     }
   }

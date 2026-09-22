@@ -16,6 +16,7 @@ import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Spinner, StatCard } from '../../components/ui';
 import { Select } from '../../components/Select';
 import { backToState } from '../../lib/backTo';
+import { DaysCounted } from '../absences/DaysCounted';
 
 /**
  * Modulübergreifende Tabs der Personalakte: Abwesenheit und Vergütung werden
@@ -109,7 +110,7 @@ export function EmployeeAbsenceTab({ employeeId }: { employeeId: number }) {
                     <td>
                       {formatDate(r.date_from)} – {formatDate(r.date_to)}
                     </td>
-                    <td className="num">{r.days_counted}</td>
+                    <td className="num"><DaysCounted days={r.days_counted} closureCovered={r.closure_covered} /></td>
                     <td>
                       <Badge tone={STATUS_TONES[r.status]}>{ABSENCE_STATUS_LABELS[r.status]}</Badge>
                     </td>

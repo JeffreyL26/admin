@@ -372,6 +372,22 @@ const werkstudentContracts = await app.inject({
 });
 check('Abgewiesener Vertrag wurde nicht gespeichert', werkstudentContracts.json().contracts.length === 0);
 
+// Altbestand verletzt schon die Stundengrenze (Typwechsel ohne Stundenanpassung):
+// Ein Vertrag, der nur Urlaubstage spiegelt, verursacht das nicht und bleibt erlaubt.
+const { weekly_hours: werkstudentHours } = getDb()
+  .prepare('SELECT weekly_hours FROM employees WHERE id = ?')
+  .get(werkstudentId) as { weekly_hours: number | null };
+getDb().prepare('UPDATE employees SET weekly_hours = 30 WHERE id = ?').run(werkstudentId);
+const leaveOnly = await app.inject({
+  method: 'POST',
+  url: `/api/employees/${werkstudentId}/contracts`,
+  headers: auth,
+  payload: { contract_type: 'befristet', valid_from: '2026-01-01', annual_leave_days: 20 },
+});
+check('Vertrag nur mit Urlaubstagen trotz Alt-Stundenverstoss → 201', leaveOnly.statusCode === 201, leaveOnly.json());
+getDb().prepare('DELETE FROM contracts WHERE employee_id = ?').run(werkstudentId);
+getDb().prepare('UPDATE employees SET weekly_hours = ? WHERE id = ?').run(werkstudentHours, werkstudentId);
+
 // ---------- Org-Baum ----------
 const tree = await app.inject({ method: 'GET', url: '/api/org/tree', headers: auth });
 const roots = tree.json().tree as {

@@ -560,7 +560,7 @@ function EmployeeRow({
     });
 
   const barTip = (a: CalendarAbsenceEntry) => {
-    const details = [formatDays(a.days_counted)];
+    const details = [a.closure_covered === 1 ? 'Betriebsruhe' : formatDays(a.days_counted)];
     if (a.half_day_start === 1) details.push('erster Tag halb');
     if (a.half_day_end === 1) details.push('letzter Tag halb');
     return (

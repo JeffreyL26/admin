@@ -16,7 +16,13 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 - Betriebsruhe rechnet ueberlappende Antraege neu, storniert aber nie:
   vollstaendig abgedeckte Antraege stehen mit 0 Tagen und Kennzeichnung
   „Betriebsruhe“ in den Listen, Krankmeldungen bleiben erhalten, und das
-  Loeschen der Betriebsruhe rechnet die Tage zurueck.
+  Loeschen der Betriebsruhe rechnet die Tage zurueck. Die Kennzeichnung
+  kommt als `closure_covered` vom Backend und steht ueberall, wo Tage
+  erscheinen (Antraege, Krankmeldungen, Personalakte, Kalender,
+  Portal-Uebersicht). Krankmeldungen lassen sich auch vollstaendig in einer
+  Betriebsruhe oder am Wochenende erfassen.
+- Vertragsspiegelung: Ein Vertrag, der nur Urlaubstage aendert, scheitert
+  nicht mehr an zu hohen Altstunden der Personalakte.
 - Sackgassen geschlossen: Gespraechsprotokolle mit Sichtbarkeit
   „HR + Vorgesetzte + Mitarbeiter:in“, Ziele, Trainings, Gespraeche,
   und Skills erreichen das Portal (ohne Vorgesetztenbewertung und HR-Notizen)

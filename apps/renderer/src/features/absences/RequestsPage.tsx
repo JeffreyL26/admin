@@ -8,8 +8,7 @@ import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs, type BadgeTo
 import { Modal, ConfirmDialog } from '../../components/Modal';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
-import { LOCALE } from '../../lib/locale';
-import { Tooltip } from '../../components/Tooltip';
+import { DaysCounted } from './DaysCounted';
 import { useFocusRow } from '../../lib/focusRow';
 import { useAuth } from '../../auth/AuthContext';
 import {
@@ -175,13 +174,7 @@ function RequestRows({
                 {r.half_day_end === 1 && ' (½ Ende)'}
               </td>
               <td className="num">
-                {r.days_counted === 0 ? (
-                  <Tooltip content={<span className="hm-tooltip__title">Vollständig in einer Betriebsruhe</span>}>
-                    <span className="hm-badge hm-badge--neutral" tabIndex={0}>Betriebsruhe</span>
-                  </Tooltip>
-                ) : (
-                  r.days_counted.toLocaleString(LOCALE)
-                )}
+                <DaysCounted days={r.days_counted} closureCovered={r.closure_covered} />
               </td>
               <td>
                 <Badge tone={STATUS_TONES[r.status]}>{ABSENCE_STATUS_LABELS[r.status]}</Badge>

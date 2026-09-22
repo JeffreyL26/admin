@@ -102,7 +102,12 @@ function mirrorToEmployee(
     preexisting = true;
   }
   try {
-    if (preexisting) assertWeeklyHoursWithinRule({ ...employee, ...mirrored });
+    // Ohne gespiegelte Stunden bleibt der Bestand unangetastet, also auch
+    // nichts zu pruefen: Ein Vertrag, der nur Urlaubstage aendert, darf an
+    // zu hohen Altstunden nicht scheitern.
+    if (preexisting) {
+      if (mirrored.weekly_hours !== undefined) assertWeeklyHoursWithinRule({ ...employee, ...mirrored });
+    }
     else assertTypeRules({ ...employee, ...mirrored });
   } catch (e) {
     if (e instanceof AppError) {

@@ -19,6 +19,7 @@ import {
   computeBalance,
   countAbsenceDays,
   createRequest,
+  CLOSURE_COVERED_SQL,
   CREATED_BY_PROXY_SQL,
   type AbsenceTypeRow,
 } from '../absences/service.js';
@@ -51,7 +52,8 @@ const sickNoteBodySchema = z.object({
 /** Eigene Anträge, angereichert um Art und Namen der entscheidenden Person. */
 const MY_REQUEST_SELECT = `
   SELECT r.*, t.name AS type_name, t.color AS type_color, t.category AS type_category,
-         u.name AS decided_by_name, c.name AS created_by_name, ${CREATED_BY_PROXY_SQL}
+         u.name AS decided_by_name, c.name AS created_by_name, ${CREATED_BY_PROXY_SQL},
+         ${CLOSURE_COVERED_SQL}
   FROM absence_requests r
   JOIN absence_types t ON t.id = r.type_id
   LEFT JOIN users u ON u.id = r.decided_by_user_id
@@ -60,7 +62,7 @@ const MY_REQUEST_SELECT = `
 const MY_SICK_SELECT = `
   SELECT s.id, s.absence_request_id, s.certificate_file_id, s.certificate_due_date,
          s.received_date, s.follow_up_of_id, s.child_sick, s.created_at,
-         r.date_from, r.date_to, r.days_counted, r.status AS request_status
+         r.date_from, r.date_to, r.days_counted, r.status AS request_status, ${CLOSURE_COVERED_SQL}
   FROM sick_notes s
   JOIN absence_requests r ON r.id = s.absence_request_id`;
 

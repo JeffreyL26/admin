@@ -52,7 +52,6 @@ const MEETING_TONES: Record<FeedbackMeetingStatus, string> = {
   abgesagt: 'neutral',
 };
 
-
 function Chip({ tone, children }: { tone: string; children: React.ReactNode }) {
   return <span className={`pt-chip pt-chip--${tone}`}>{children}</span>;
 }
