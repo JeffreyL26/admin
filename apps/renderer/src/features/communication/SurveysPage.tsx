@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import React, { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
@@ -11,16 +11,16 @@ import {
   Plus,
   Square,
   Trash2,
-} from 'lucide-react';
+} from "lucide-react";
 import {
   Bar,
   BarChart,
   CartesianGrid,
   ResponsiveContainer,
-  Tooltip,
+  Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
-} from 'recharts';
+} from "recharts";
 import {
   MIN_PARTICIPANTS_NOT_REACHED,
   SURVEY_QUESTION_KIND_LABELS,
@@ -29,21 +29,39 @@ import {
   todayIsoLocal,
   type SurveyQuestionKind,
   type SurveyStatus,
-} from '@ohrganize/shared';
-import { ApiRequestError, api } from '../../api/client';
-import { Badge, EmptyState, Field, PageHeader, Spinner, type BadgeTone } from '../../components/ui';
-import { ConfirmDialog, Modal } from '../../components/Modal';
-import { useToast } from '../../components/Toast';
-import { EmployeeSelect } from '../../components/EmployeeSelect';
-import { AudienceSelect, audienceLabel, type AudienceValue } from './AudienceSelect';
-import { useInvalidate, useSurvey, useSurveys, type Survey, type SurveyResults } from './api';
-import { Select } from '../../components/Select';
-import { ChartTooltip } from '../../components/ChartTooltip';
+} from "@ohrganize/shared";
+import { ApiRequestError, api } from "../../api/client";
+import {
+  Badge,
+  EmptyState,
+  Field,
+  PageHeader,
+  Spinner,
+  type BadgeTone,
+} from "../../components/ui";
+import { ConfirmDialog, Modal } from "../../components/Modal";
+import { useToast } from "../../components/Toast";
+import { Tooltip } from "../../components/Tooltip";
+import { EmployeeSelect } from "../../components/EmployeeSelect";
+import {
+  AudienceSelect,
+  audienceLabel,
+  type AudienceValue,
+} from "./AudienceSelect";
+import {
+  useInvalidate,
+  useSurvey,
+  useSurveys,
+  type Survey,
+  type SurveyResults,
+} from "./api";
+import { Select } from "../../components/Select";
+import { ChartTooltip } from "../../components/ChartTooltip";
 
 const STATUS_TONE: Record<SurveyStatus, BadgeTone> = {
-  entwurf: 'neutral',
-  laufend: 'green',
-  beendet: 'blue',
+  entwurf: "neutral",
+  laufend: "green",
+  beendet: "blue",
 };
 
 // ---------------------------------------------------------------------------
@@ -68,13 +86,13 @@ interface DraftSurvey {
 }
 
 const emptyDraft = (): DraftSurvey => ({
-  title: '',
-  description: '',
-  audience: { audience_type: 'alle', audience_id: null },
+  title: "",
+  description: "",
+  audience: { audience_type: "alle", audience_id: null },
   date_from: todayIsoLocal(),
   date_to: todayIsoLocal(),
-  min_participants: '',
-  questions: [{ kind: 'skala', text: '', options: '', scale_max: 5 }],
+  min_participants: "",
+  questions: [{ kind: "skala", text: "", options: "", scale_max: 5 }],
 });
 
 function SurveyBuilder({
@@ -101,7 +119,9 @@ function SurveyBuilder({
   const setQuestion = (i: number, patch: Partial<DraftQuestion>) =>
     setForm((f) => ({
       ...f,
-      questions: f.questions.map((q, idx) => (idx === i ? { ...q, ...patch } : q)),
+      questions: f.questions.map((q, idx) =>
+        idx === i ? { ...q, ...patch } : q,
+      ),
     }));
 
   const moveQuestion = (i: number, delta: -1 | 1) =>
@@ -122,27 +142,30 @@ function SurveyBuilder({
         audience_id: form.audience.audience_id,
         date_from: form.date_from,
         date_to: form.date_to,
-        min_participants: form.min_participants === '' ? null : Number(form.min_participants),
+        min_participants:
+          form.min_participants === "" ? null : Number(form.min_participants),
         questions: form.questions.map((q) => ({
           kind: q.kind,
           text: q.text,
           options:
-            q.kind === 'einfachauswahl' || q.kind === 'mehrfachauswahl'
+            q.kind === "einfachauswahl" || q.kind === "mehrfachauswahl"
               ? q.options
-                  .split('\n')
+                  .split("\n")
                   .map((o) => o.trim())
                   .filter(Boolean)
               : null,
-          scale_max: q.kind === 'skala' ? q.scale_max : null,
+          scale_max: q.kind === "skala" ? q.scale_max : null,
         })),
       };
       return editId === null
-        ? api.post('/api/communication/surveys', payload)
+        ? api.post("/api/communication/surveys", payload)
         : api.put(`/api/communication/surveys/${editId}`, payload);
     },
     onSuccess: () => {
-      toast.success(editId === null ? 'Umfrage angelegt' : 'Umfrage aktualisiert');
-      invalidate('surveys');
+      toast.success(
+        editId === null ? "Umfrage angelegt" : "Umfrage aktualisiert",
+      );
+      invalidate("surveys");
       onClose();
     },
     onError: (e) => toast.error(e.message),
@@ -150,7 +173,7 @@ function SurveyBuilder({
 
   return (
     <Modal
-      title={editId === null ? 'Neue Umfrage' : 'Umfrage bearbeiten'}
+      title={editId === null ? "Neue Umfrage" : "Umfrage bearbeiten"}
       open={open}
       onClose={onClose}
       wide
@@ -159,8 +182,12 @@ function SurveyBuilder({
           <button className="hm-btn hm-btn--secondary" onClick={onClose}>
             Abbrechen
           </button>
-          <button className="hm-btn hm-btn--primary" disabled={save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? 'Speichert …' : 'Als Entwurf speichern'}
+          <button
+            className="hm-btn hm-btn--primary"
+            disabled={save.isPending}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending ? "Speichert …" : "Als Entwurf speichern"}
           </button>
         </>
       }
@@ -179,16 +206,23 @@ function SurveyBuilder({
             className="hm-textarea"
             rows={2}
             value={form.description}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, description: e.target.value }))
+            }
           />
         </Field>
-        <AudienceSelect value={form.audience} onChange={(audience) => setForm((f) => ({ ...f, audience }))} />
+        <AudienceSelect
+          value={form.audience}
+          onChange={(audience) => setForm((f) => ({ ...f, audience }))}
+        />
         <Field label="Zeitraum von" required>
           <input
             type="date"
             className="hm-input"
             value={form.date_from}
-            onChange={(e) => setForm((f) => ({ ...f, date_from: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, date_from: e.target.value }))
+            }
           />
         </Field>
         <Field label="Zeitraum bis" required>
@@ -196,7 +230,9 @@ function SurveyBuilder({
             type="date"
             className="hm-input"
             value={form.date_to}
-            onChange={(e) => setForm((f) => ({ ...f, date_to: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, date_to: e.target.value }))
+            }
           />
         </Field>
         <Field
@@ -208,7 +244,9 @@ function SurveyBuilder({
             min={1}
             className="hm-input"
             value={form.min_participants}
-            onChange={(e) => setForm((f) => ({ ...f, min_participants: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, min_participants: e.target.value }))
+            }
           />
         </Field>
       </div>
@@ -219,42 +257,64 @@ function SurveyBuilder({
           <div
             key={i}
             style={{
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
               padding: 14,
             }}
           >
             <div className="row row--between" style={{ marginBottom: 10 }}>
-              <span style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-muted)' }}>
+              <span
+                style={{
+                  fontSize: "var(--text-sm)",
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                }}
+              >
                 Frage {i + 1}
               </span>
               <div className="row" style={{ gap: 2 }}>
-                <button
-                  className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                  title="Nach oben"
-                  disabled={i === 0}
-                  onClick={() => moveQuestion(i, -1)}
+                <Tooltip
+                  content={<span className="hm-tooltip__title">Nach oben</span>}
                 >
-                  <ArrowUp size={14} />
-                </button>
-                <button
-                  className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                  title="Nach unten"
-                  disabled={i === form.questions.length - 1}
-                  onClick={() => moveQuestion(i, 1)}
-                >
-                  <ArrowDown size={14} />
-                </button>
-                <button
-                  className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                  title="Frage entfernen"
-                  disabled={form.questions.length === 1}
-                  onClick={() =>
-                    setForm((f) => ({ ...f, questions: f.questions.filter((_, idx) => idx !== i) }))
+                  <button
+                    className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                    disabled={i === 0}
+                    onClick={() => moveQuestion(i, -1)}
+                  >
+                    <ArrowUp size={14} />
+                  </button>
+                </Tooltip>
+                <Tooltip
+                  content={
+                    <span className="hm-tooltip__title">Nach unten</span>
                   }
                 >
-                  <Trash2 size={14} />
-                </button>
+                  <button
+                    className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                    disabled={i === form.questions.length - 1}
+                    onClick={() => moveQuestion(i, 1)}
+                  >
+                    <ArrowDown size={14} />
+                  </button>
+                </Tooltip>
+                <Tooltip
+                  content={
+                    <span className="hm-tooltip__title">Frage entfernen</span>
+                  }
+                >
+                  <button
+                    className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                    disabled={form.questions.length === 1}
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        questions: f.questions.filter((_, idx) => idx !== i),
+                      }))
+                    }
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </Tooltip>
               </div>
             </div>
             <div className="hm-form-grid">
@@ -262,21 +322,31 @@ function SurveyBuilder({
                 <Select
                   className="hm-select"
                   value={q.kind}
-                  onChange={(e) => setQuestion(i, { kind: e.target.value as SurveyQuestionKind })}
+                  onChange={(e) =>
+                    setQuestion(i, {
+                      kind: e.target.value as SurveyQuestionKind,
+                    })
+                  }
                 >
-                  {(Object.keys(SURVEY_QUESTION_KIND_LABELS) as SurveyQuestionKind[]).map((k) => (
+                  {(
+                    Object.keys(
+                      SURVEY_QUESTION_KIND_LABELS,
+                    ) as SurveyQuestionKind[]
+                  ).map((k) => (
                     <option key={k} value={k}>
                       {SURVEY_QUESTION_KIND_LABELS[k]}
                     </option>
                   ))}
                 </Select>
               </Field>
-              {q.kind === 'skala' && (
+              {q.kind === "skala" && (
                 <Field label="Skala bis" hint="Bewertung von 1 bis N">
                   <Select
                     className="hm-select"
                     value={q.scale_max}
-                    onChange={(e) => setQuestion(i, { scale_max: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setQuestion(i, { scale_max: Number(e.target.value) })
+                    }
                   >
                     {[3, 4, 5, 6, 7, 10].map((n) => (
                       <option key={n} value={n}>
@@ -294,13 +364,20 @@ function SurveyBuilder({
                   onChange={(e) => setQuestion(i, { text: e.target.value })}
                 />
               </Field>
-              {(q.kind === 'einfachauswahl' || q.kind === 'mehrfachauswahl') && (
-                <Field label="Optionen" hint="Eine Option pro Zeile (mindestens zwei)" span2>
+              {(q.kind === "einfachauswahl" ||
+                q.kind === "mehrfachauswahl") && (
+                <Field
+                  label="Optionen"
+                  hint="Eine Option pro Zeile (mindestens zwei)"
+                  span2
+                >
                   <textarea
                     className="hm-textarea"
                     rows={3}
                     value={q.options}
-                    onChange={(e) => setQuestion(i, { options: e.target.value })}
+                    onChange={(e) =>
+                      setQuestion(i, { options: e.target.value })
+                    }
                   />
                 </Field>
               )}
@@ -313,7 +390,10 @@ function SurveyBuilder({
             onClick={() =>
               setForm((f) => ({
                 ...f,
-                questions: [...f.questions, { kind: 'skala', text: '', options: '', scale_max: 5 }],
+                questions: [
+                  ...f.questions,
+                  { kind: "skala", text: "", options: "", scale_max: 5 },
+                ],
               }))
             }
           >
@@ -331,12 +411,20 @@ function SurveyBuilder({
 // durch surveyService.recordParticipation im Backend.
 // ---------------------------------------------------------------------------
 
-function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; onClose: () => void }) {
+function TestResponseDialog({
+  surveyId,
+  onClose,
+}: {
+  surveyId: number | null;
+  onClose: () => void;
+}) {
   const toast = useToast();
   const invalidate = useInvalidate();
   const { data: survey } = useSurvey(surveyId);
   const [employeeId, setEmployeeId] = useState<number | null>(null);
-  const [answers, setAnswers] = useState<Record<number, string | number | string[]>>({});
+  const [answers, setAnswers] = useState<
+    Record<number, string | number | string[]>
+  >({});
 
   const [lastId, setLastId] = useState<number | null>(null);
   if (surveyId !== lastId) {
@@ -350,12 +438,17 @@ function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; on
       api.post(`/api/communication/surveys/${surveyId}/responses`, {
         employee_id: employeeId,
         answers: Object.entries(answers)
-          .filter(([, v]) => (Array.isArray(v) ? v.length > 0 : v !== '' && v !== undefined))
-          .map(([question_id, value]) => ({ question_id: Number(question_id), value })),
+          .filter(([, v]) =>
+            Array.isArray(v) ? v.length > 0 : v !== "" && v !== undefined,
+          )
+          .map(([question_id, value]) => ({
+            question_id: Number(question_id),
+            value,
+          })),
       }),
     onSuccess: () => {
-      toast.success('Antwort erfasst und anonym gespeichert');
-      invalidate('surveys');
+      toast.success("Antwort erfasst und anonym gespeichert");
+      invalidate("surveys");
       onClose();
     },
     onError: (e) => toast.error(e.message),
@@ -386,35 +479,53 @@ function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; on
         <Spinner center />
       ) : (
         <div className="stack">
-          <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-            Zum Durchspielen der Umfrage. Die Teilnahme wird pro Person nur einmal gezählt; die
-            Antworten werden ohne Personenbezug gespeichert.
+          <p
+            style={{
+              color: "var(--text-secondary)",
+              fontSize: "var(--text-sm)",
+            }}
+          >
+            Zum Durchspielen der Umfrage. Die Teilnahme wird pro Person nur
+            einmal gezählt; die Antworten werden ohne Personenbezug gespeichert.
           </p>
           <Field label="Teilnehmer:in (nur für Teilnahme-Marker)" required>
             <EmployeeSelect value={employeeId} onChange={setEmployeeId} />
           </Field>
           {survey.questions.map((q) => (
-            <Field key={q.id} label={q.text} hint={SURVEY_QUESTION_KIND_LABELS[q.kind]}>
-              {q.kind === 'skala' ? (
+            <Field
+              key={q.id}
+              label={q.text}
+              hint={SURVEY_QUESTION_KIND_LABELS[q.kind]}
+            >
+              {q.kind === "skala" ? (
                 <Select
                   className="hm-select"
-                  value={(answers[q.id] as number | undefined) ?? ''}
+                  value={(answers[q.id] as number | undefined) ?? ""}
                   onChange={(e) =>
-                    setAnswers((a) => ({ ...a, [q.id]: e.target.value === '' ? '' : Number(e.target.value) }))
+                    setAnswers((a) => ({
+                      ...a,
+                      [q.id]:
+                        e.target.value === "" ? "" : Number(e.target.value),
+                    }))
                   }
                 >
                   <option value="">— keine Angabe —</option>
-                  {Array.from({ length: q.scale_max ?? 5 }, (_, i) => i + 1).map((n) => (
+                  {Array.from(
+                    { length: q.scale_max ?? 5 },
+                    (_, i) => i + 1,
+                  ).map((n) => (
                     <option key={n} value={n}>
                       {n}
                     </option>
                   ))}
                 </Select>
-              ) : q.kind === 'einfachauswahl' ? (
+              ) : q.kind === "einfachauswahl" ? (
                 <Select
                   className="hm-select"
-                  value={(answers[q.id] as string | undefined) ?? ''}
-                  onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
+                  value={(answers[q.id] as string | undefined) ?? ""}
+                  onChange={(e) =>
+                    setAnswers((a) => ({ ...a, [q.id]: e.target.value }))
+                  }
                 >
                   <option value="">— keine Angabe —</option>
                   {(q.options ?? []).map((o) => (
@@ -423,20 +534,25 @@ function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; on
                     </option>
                   ))}
                 </Select>
-              ) : q.kind === 'mehrfachauswahl' ? (
+              ) : q.kind === "mehrfachauswahl" ? (
                 <div className="row row--wrap" style={{ gap: 12 }}>
                   {(q.options ?? []).map((o) => {
-                    const selected = ((answers[q.id] as string[] | undefined) ?? []).includes(o);
+                    const selected = (
+                      (answers[q.id] as string[] | undefined) ?? []
+                    ).includes(o);
                     return (
                       <label key={o} className="hm-checkbox">
                         <input
                           type="checkbox"
                           checked={selected}
                           onChange={(e) => {
-                            const prev = (answers[q.id] as string[] | undefined) ?? [];
+                            const prev =
+                              (answers[q.id] as string[] | undefined) ?? [];
                             setAnswers((a) => ({
                               ...a,
-                              [q.id]: e.target.checked ? [...prev, o] : prev.filter((x) => x !== o),
+                              [q.id]: e.target.checked
+                                ? [...prev, o]
+                                : prev.filter((x) => x !== o),
                             }));
                           }}
                         />
@@ -449,8 +565,10 @@ function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; on
                 <textarea
                   className="hm-textarea"
                   rows={2}
-                  value={(answers[q.id] as string | undefined) ?? ''}
-                  onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
+                  value={(answers[q.id] as string | undefined) ?? ""}
+                  onChange={(e) =>
+                    setAnswers((a) => ({ ...a, [q.id]: e.target.value }))
+                  }
                 />
               )}
             </Field>
@@ -465,9 +583,19 @@ function TestResponseDialog({ surveyId, onClose }: { surveyId: number | null; on
 // Ergebnisse
 // ---------------------------------------------------------------------------
 
-function ResultsDialog({ survey, onClose }: { survey: Survey | null; onClose: () => void }) {
+function ResultsDialog({
+  survey,
+  onClose,
+}: {
+  survey: Survey | null;
+  onClose: () => void;
+}) {
   const [results, setResults] = useState<SurveyResults | null>(null);
-  const [lockInfo, setLockInfo] = useState<{ required: number; current: number; missing: number } | null>(null);
+  const [lockInfo, setLockInfo] = useState<{
+    required: number;
+    current: number;
+    missing: number;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
 
   const [lastId, setLastId] = useState<number | null>(null);
@@ -478,11 +606,22 @@ function ResultsDialog({ survey, onClose }: { survey: Survey | null; onClose: ()
     if (survey) {
       setLoading(true);
       api
-        .get<{ results: SurveyResults }>(`/api/communication/surveys/${survey.id}/results`)
+        .get<{ results: SurveyResults }>(
+          `/api/communication/surveys/${survey.id}/results`,
+        )
         .then((d) => setResults(d.results))
         .catch((e: unknown) => {
-          if (e instanceof ApiRequestError && e.code === MIN_PARTICIPANTS_NOT_REACHED) {
-            setLockInfo(e.details as { required: number; current: number; missing: number });
+          if (
+            e instanceof ApiRequestError &&
+            e.code === MIN_PARTICIPANTS_NOT_REACHED
+          ) {
+            setLockInfo(
+              e.details as {
+                required: number;
+                current: number;
+                missing: number;
+              },
+            );
           }
         })
         .finally(() => setLoading(false));
@@ -490,53 +629,107 @@ function ResultsDialog({ survey, onClose }: { survey: Survey | null; onClose: ()
   }
 
   return (
-    <Modal title={`Ergebnisse: ${survey?.title ?? ''}`} open={survey !== null} onClose={onClose} wide>
+    <Modal
+      title={`Ergebnisse: ${survey?.title ?? ""}`}
+      open={survey !== null}
+      onClose={onClose}
+      wide
+    >
       {loading ? (
         <Spinner center />
       ) : lockInfo ? (
         <EmptyState
           icon={<Lock size={40} />}
           title={`Ergebnisse werden ab ${lockInfo.required} Teilnahmen angezeigt`}
-          hint={`Bisher ${lockInfo.current} ${lockInfo.current === 1 ? 'Teilnahme' : 'Teilnahmen'}: Es ${lockInfo.missing === 1 ? 'fehlt noch 1 Teilnahme' : `fehlen noch ${lockInfo.missing} Teilnahmen`}. Zum Schutz der Anonymität werden vorher keine Teilergebnisse angezeigt.`}
+          hint={`Bisher ${lockInfo.current} ${lockInfo.current === 1 ? "Teilnahme" : "Teilnahmen"}: Es ${lockInfo.missing === 1 ? "fehlt noch 1 Teilnahme" : `fehlen noch ${lockInfo.missing} Teilnahmen`}. Zum Schutz der Anonymität werden vorher keine Teilergebnisse angezeigt.`}
         />
       ) : results ? (
         <div className="stack" style={{ gap: 20 }}>
-          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+          <div
+            style={{ fontSize: "var(--text-sm)", color: "var(--text-muted)" }}
+          >
             {results.response_count} Teilnahmen · anonym ausgewertet
           </div>
           {results.questions.map((q) => (
             <div key={q.id}>
               <div style={{ fontWeight: 650, marginBottom: 8 }}>{q.text}</div>
-              {q.kind === 'skala' && (
+              {q.kind === "skala" && (
                 <>
-                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    Durchschnitt: <strong>{q.average ?? '—'}</strong> von {q.scale_max}
+                  <div
+                    style={{
+                      fontSize: "var(--text-sm)",
+                      color: "var(--text-secondary)",
+                      marginBottom: 6,
+                    }}
+                  >
+                    Durchschnitt: <strong>{q.average ?? "—"}</strong> von{" "}
+                    {q.scale_max}
                   </div>
                   <ResponsiveContainer width="100%" height={180}>
                     <BarChart data={q.distribution}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                      />
                       <XAxis dataKey="value" tick={{ fontSize: 12 }} />
                       <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                      <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--blue-50)' }} />
-                      <Bar dataKey="count" name="Antworten" fill="var(--brand-primary)" radius={[3, 3, 0, 0]} />
+                      <RechartsTooltip
+                        content={<ChartTooltip />}
+                        cursor={{ fill: "var(--blue-50)" }}
+                      />
+                      <Bar
+                        dataKey="count"
+                        name="Antworten"
+                        fill="var(--brand-primary)"
+                        radius={[3, 3, 0, 0]}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </>
               )}
-              {(q.kind === 'einfachauswahl' || q.kind === 'mehrfachauswahl') && (
-                <ResponsiveContainer width="100%" height={Math.max(120, (q.frequencies?.length ?? 0) * 44)}>
+              {(q.kind === "einfachauswahl" ||
+                q.kind === "mehrfachauswahl") && (
+                <ResponsiveContainer
+                  width="100%"
+                  height={Math.max(120, (q.frequencies?.length ?? 0) * 44)}
+                >
                   <BarChart data={q.frequencies} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
-                    <YAxis type="category" dataKey="option" width={140} tick={{ fontSize: 12 }} />
-                    <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--blue-50)' }} />
-                    <Bar dataKey="count" name="Antworten" fill="var(--brand-primary)" radius={[0, 3, 3, 0]} />
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="var(--border)"
+                    />
+                    <XAxis
+                      type="number"
+                      allowDecimals={false}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="option"
+                      width={140}
+                      tick={{ fontSize: 12 }}
+                    />
+                    <RechartsTooltip
+                      content={<ChartTooltip />}
+                      cursor={{ fill: "var(--blue-50)" }}
+                    />
+                    <Bar
+                      dataKey="count"
+                      name="Antworten"
+                      fill="var(--brand-primary)"
+                      radius={[0, 3, 3, 0]}
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               )}
-              {q.kind === 'freitext' &&
+              {q.kind === "freitext" &&
                 ((q.texts?.length ?? 0) === 0 ? (
-                  <div style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+                  <div
+                    style={{
+                      color: "var(--text-muted)",
+                      fontSize: "var(--text-sm)",
+                    }}
+                  >
                     Keine Freitextantworten.
                   </div>
                 ) : (
@@ -545,11 +738,11 @@ function ResultsDialog({ survey, onClose }: { survey: Survey | null; onClose: ()
                       <div
                         key={i}
                         style={{
-                          background: 'var(--gray-50)',
-                          border: '1px solid var(--border)',
-                          borderRadius: 'var(--radius-sm)',
-                          padding: '8px 12px',
-                          fontSize: 'var(--text-sm)',
+                          background: "var(--gray-50)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "var(--radius-sm)",
+                          padding: "8px 12px",
+                          fontSize: "var(--text-sm)",
                         }}
                       >
                         {t}
@@ -574,18 +767,26 @@ export function SurveysPage() {
   const invalidate = useInvalidate();
   const { data: surveys, isLoading } = useSurveys();
   const [builderOpen, setBuilderOpen] = useState(false);
-  const [builderInitial, setBuilderInitial] = useState<DraftSurvey>(emptyDraft());
+  const [builderInitial, setBuilderInitial] =
+    useState<DraftSurvey>(emptyDraft());
   const [editId, setEditId] = useState<number | null>(null);
   const [testSurveyId, setTestSurveyId] = useState<number | null>(null);
   const [resultsSurvey, setResultsSurvey] = useState<Survey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Survey | null>(null);
 
   const changeStatus = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: 'laufend' | 'beendet' }) =>
-      api.post(`/api/communication/surveys/${id}/status`, { status }),
+    mutationFn: ({
+      id,
+      status,
+    }: {
+      id: number;
+      status: "laufend" | "beendet";
+    }) => api.post(`/api/communication/surveys/${id}/status`, { status }),
     onSuccess: (_, vars) => {
-      toast.success(vars.status === 'laufend' ? 'Umfrage gestartet' : 'Umfrage beendet');
-      invalidate('surveys');
+      toast.success(
+        vars.status === "laufend" ? "Umfrage gestartet" : "Umfrage beendet",
+      );
+      invalidate("surveys");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -593,27 +794,37 @@ export function SurveysPage() {
   const remove = useMutation({
     mutationFn: (id: number) => api.delete(`/api/communication/surveys/${id}`),
     onSuccess: () => {
-      toast.success('Umfrage gelöscht');
-      invalidate('surveys');
+      toast.success("Umfrage gelöscht");
+      invalidate("surveys");
     },
     onError: (e) => toast.error(e.message),
   });
 
   const openEdit = async (s: Survey) => {
     const detail = await api.get<{
-      survey: Survey & { questions: { kind: SurveyQuestionKind; text: string; options: string[] | null; scale_max: number | null }[] };
+      survey: Survey & {
+        questions: {
+          kind: SurveyQuestionKind;
+          text: string;
+          options: string[] | null;
+          scale_max: number | null;
+        }[];
+      };
     }>(`/api/communication/surveys/${s.id}`);
     setBuilderInitial({
       title: detail.survey.title,
-      description: detail.survey.description ?? '',
-      audience: { audience_type: detail.survey.audience_type, audience_id: detail.survey.audience_id },
+      description: detail.survey.description ?? "",
+      audience: {
+        audience_type: detail.survey.audience_type,
+        audience_id: detail.survey.audience_id,
+      },
       date_from: detail.survey.date_from,
       date_to: detail.survey.date_to,
-      min_participants: detail.survey.min_participants?.toString() ?? '',
+      min_participants: detail.survey.min_participants?.toString() ?? "",
       questions: detail.survey.questions.map((q) => ({
         kind: q.kind,
         text: q.text,
-        options: (q.options ?? []).join('\n'),
+        options: (q.options ?? []).join("\n"),
         scale_max: q.scale_max ?? 5,
       })),
     });
@@ -667,12 +878,17 @@ export function SurveysPage() {
                 </thead>
                 <tbody>
                   {surveys!.map((s) => {
-                    const pct = s.recipients > 0 ? Math.round((s.participant_count / s.recipients) * 100) : 0;
+                    const pct =
+                      s.recipients > 0
+                        ? Math.round((s.participant_count / s.recipients) * 100)
+                        : 0;
                     return (
                       <tr key={s.id}>
                         <td style={{ fontWeight: 600 }}>{s.title}</td>
                         <td>
-                          <Badge tone={STATUS_TONE[s.status]}>{SURVEY_STATUS_LABELS[s.status]}</Badge>
+                          <Badge tone={STATUS_TONE[s.status]}>
+                            {SURVEY_STATUS_LABELS[s.status]}
+                          </Badge>
                         </td>
                         <td>{audienceLabel(s)}</td>
                         <td>
@@ -682,58 +898,113 @@ export function SurveysPage() {
                           {s.participant_count}/{s.recipients} ({pct} %)
                         </td>
                         <td>
-                          <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
-                            {s.status === 'entwurf' && (
+                          <div
+                            className="row"
+                            style={{ justifyContent: "flex-end", gap: 4 }}
+                          >
+                            {s.status === "entwurf" && (
                               <>
-                                <button
-                                  className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                                  title="Bearbeiten"
-                                  onClick={() => openEdit(s)}
+                                <Tooltip
+                                  content={
+                                    <span className="hm-tooltip__title">
+                                      Bearbeiten
+                                    </span>
+                                  }
                                 >
-                                  <Pencil size={15} />
-                                </button>
-                                <button
-                                  className="hm-btn hm-btn--secondary hm-btn--sm"
-                                  title="Umfrage starten"
-                                  onClick={() => changeStatus.mutate({ id: s.id, status: 'laufend' })}
+                                  <button
+                                    className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                                    onClick={() => openEdit(s)}
+                                  >
+                                    <Pencil size={15} />
+                                  </button>
+                                </Tooltip>
+                                <Tooltip
+                                  content={
+                                    <span className="hm-tooltip__title">
+                                      Umfrage starten
+                                    </span>
+                                  }
                                 >
-                                  <Play size={14} /> Starten
-                                </button>
-                                <button
-                                  className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-                                  title="Löschen"
-                                  onClick={() => setDeleteTarget(s)}
+                                  <button
+                                    className="hm-btn hm-btn--secondary hm-btn--sm"
+                                    onClick={() =>
+                                      changeStatus.mutate({
+                                        id: s.id,
+                                        status: "laufend",
+                                      })
+                                    }
+                                  >
+                                    <Play size={14} /> Starten
+                                  </button>
+                                </Tooltip>
+                                <Tooltip
+                                  content={
+                                    <span className="hm-tooltip__title">
+                                      Löschen
+                                    </span>
+                                  }
                                 >
-                                  <Trash2 size={15} />
-                                </button>
+                                  <button
+                                    className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+                                    onClick={() => setDeleteTarget(s)}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </Tooltip>
                               </>
                             )}
-                            {s.status === 'laufend' && (
+                            {s.status === "laufend" && (
                               <>
+                                <Tooltip
+                                  content={
+                                    <span className="hm-tooltip__title">
+                                      Test-Antwort erfassen
+                                    </span>
+                                  }
+                                >
+                                  <button
+                                    className="hm-btn hm-btn--ghost hm-btn--sm"
+                                    onClick={() => setTestSurveyId(s.id)}
+                                  >
+                                    <FlaskConical size={14} /> Testen
+                                  </button>
+                                </Tooltip>
+                                <Tooltip
+                                  content={
+                                    <span className="hm-tooltip__title">
+                                      Umfrage beenden
+                                    </span>
+                                  }
+                                >
+                                  <button
+                                    className="hm-btn hm-btn--secondary hm-btn--sm"
+                                    onClick={() =>
+                                      changeStatus.mutate({
+                                        id: s.id,
+                                        status: "beendet",
+                                      })
+                                    }
+                                  >
+                                    <Square size={13} /> Beenden
+                                  </button>
+                                </Tooltip>
+                              </>
+                            )}
+                            {s.status !== "entwurf" && (
+                              <Tooltip
+                                content={
+                                  <span className="hm-tooltip__title">
+                                    Ergebnisse ansehen
+                                  </span>
+                                }
+                              >
                                 <button
                                   className="hm-btn hm-btn--ghost hm-btn--sm"
-                                  title="Test-Antwort erfassen"
-                                  onClick={() => setTestSurveyId(s.id)}
+                                  onClick={() => setResultsSurvey(s)}
                                 >
-                                  <FlaskConical size={14} /> Testen
+                                  <BarChart3 size={14} /> Ergebnisse
                                 </button>
-                                <button
-                                  className="hm-btn hm-btn--secondary hm-btn--sm"
-                                  title="Umfrage beenden"
-                                  onClick={() => changeStatus.mutate({ id: s.id, status: 'beendet' })}
-                                >
-                                  <Square size={13} /> Beenden
-                                </button>
-                              </>
-                            )}
-                            {s.status !== 'entwurf' && (
-                              <button
-                                className="hm-btn hm-btn--ghost hm-btn--sm"
-                                title="Ergebnisse ansehen"
-                                onClick={() => setResultsSurvey(s)}
-                              >
-                                <BarChart3 size={14} /> Ergebnisse
-                              </button>
+                              </Tooltip>
                             )}
                           </div>
                         </td>
@@ -747,9 +1018,20 @@ export function SurveysPage() {
         </div>
       )}
 
-      <SurveyBuilder open={builderOpen} initial={builderInitial} editId={editId} onClose={() => setBuilderOpen(false)} />
-      <TestResponseDialog surveyId={testSurveyId} onClose={() => setTestSurveyId(null)} />
-      <ResultsDialog survey={resultsSurvey} onClose={() => setResultsSurvey(null)} />
+      <SurveyBuilder
+        open={builderOpen}
+        initial={builderInitial}
+        editId={editId}
+        onClose={() => setBuilderOpen(false)}
+      />
+      <TestResponseDialog
+        surveyId={testSurveyId}
+        onClose={() => setTestSurveyId(null)}
+      />
+      <ResultsDialog
+        survey={resultsSurvey}
+        onClose={() => setResultsSurvey(null)}
+      />
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Umfrage löschen"

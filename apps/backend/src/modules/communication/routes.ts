@@ -434,7 +434,17 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
          WHERE aa.announcement_id = ? ORDER BY aa.id`,
       )
       .all(id);
-    return { announcement: { ...announcementToJson(row), attachments } };
+    // Wer hat bestaetigt (Detail, nicht in der Liste): Name und Zeitpunkt,
+    // neueste zuerst. Die Quote allein sagt der HR nicht, wen sie noch
+    // erinnern muss.
+    const acks = getDb()
+      .prepare(
+        `SELECT k.employee_id, (e.first_name || ' ' || e.last_name) AS name, k.acked_at
+         FROM announcement_acks k JOIN employees e ON e.id = k.employee_id
+         WHERE k.announcement_id = ? ORDER BY k.acked_at DESC, k.id DESC`,
+      )
+      .all(id);
+    return { announcement: { ...announcementToJson(row), attachments, acks } };
   });
 
   app.post('/api/communication/announcements', async (req, reply) => {

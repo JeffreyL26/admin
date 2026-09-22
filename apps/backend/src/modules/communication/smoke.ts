@@ -155,6 +155,7 @@ check('Auth-Pflicht auf Modulrouten', noAuth.statusCode === 401);
   db.prepare('INSERT INTO announcement_acks (announcement_id, employee_id) VALUES (?, 1)').run(annId);
   const detail = await app.inject({ method: 'GET', url: `/api/communication/announcements/${annId}`, headers: auth });
   check('Ankündigung: Lesequote (1/1)', detail.json().announcement.ack_count === 1 && detail.json().announcement.recipients === 1);
+  check('Ankuendigung: Detail nennt, wer bestaetigt hat', detail.json().announcement.acks.length === 1 && detail.json().announcement.acks[0].name === 'Anna Adler', detail.json().announcement.acks);
 
   const del = await app.inject({ method: 'DELETE', url: `/api/communication/announcements/${planned.json().announcement.id}`, headers: auth });
   check('Ankündigung: löschen', del.statusCode === 204);

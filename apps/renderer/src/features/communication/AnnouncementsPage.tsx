@@ -1,23 +1,48 @@
-import React, { useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { Megaphone, Paperclip, Pencil, Plus, Trash2, Download } from 'lucide-react';
+import React, { useRef, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import {
+  Megaphone,
+  Paperclip,
+  Pencil,
+  Plus,
+  Trash2,
+  Download,
+} from "lucide-react";
 import {
   ANNOUNCEMENT_STATUS_LABELS,
   formatDate,
+  formatDateTime,
   todayIsoLocal,
   type AnnouncementStatus,
-} from '@ohrganize/shared';
-import { api, downloadFile, uploadFile } from '../../api/client';
-import { Badge, EmptyState, Field, PageHeader, Spinner, type BadgeTone } from '../../components/ui';
-import { ConfirmDialog, Modal } from '../../components/Modal';
-import { useToast } from '../../components/Toast';
-import { AudienceSelect, audienceLabel, type AudienceValue } from './AudienceSelect';
-import { useAnnouncement, useAnnouncements, useInvalidate, type Announcement } from './api';
+} from "@ohrganize/shared";
+import { api, downloadFile, uploadFile } from "../../api/client";
+import {
+  Badge,
+  EmptyState,
+  Field,
+  PageHeader,
+  Spinner,
+  type BadgeTone,
+} from "../../components/ui";
+import { ConfirmDialog, Modal } from "../../components/Modal";
+import { useToast } from "../../components/Toast";
+import { Tooltip } from "../../components/Tooltip";
+import {
+  AudienceSelect,
+  audienceLabel,
+  type AudienceValue,
+} from "./AudienceSelect";
+import {
+  useAnnouncement,
+  useAnnouncements,
+  useInvalidate,
+  type Announcement,
+} from "./api";
 
 const STATUS_TONE: Record<AnnouncementStatus, BadgeTone> = {
-  geplant: 'yellow',
-  aktiv: 'green',
-  abgelaufen: 'neutral',
+  geplant: "yellow",
+  aktiv: "green",
+  abgelaufen: "neutral",
 };
 
 interface EditorState {
@@ -31,42 +56,64 @@ interface EditorState {
 }
 
 const emptyEditor = (): EditorState => ({
-  title: '',
-  body: '',
-  audience: { audience_type: 'alle', audience_id: null },
+  title: "",
+  body: "",
+  audience: { audience_type: "alle", audience_id: null },
   publish_at: todayIsoLocal(),
-  expires_at: '',
+  expires_at: "",
   requires_ack: false,
   attachments: [],
 });
 
-function AckBar({ ackCount, recipients }: { ackCount: number; recipients: number }) {
+function AckBar({
+  ackCount,
+  recipients,
+}: {
+  ackCount: number;
+  recipients: number;
+}) {
   const pct = recipients > 0 ? Math.round((ackCount / recipients) * 100) : 0;
   return (
-    <div className="row" style={{ gap: 8, minWidth: 150 }}>
-      <div
-        style={{
-          flex: 1,
-          height: 6,
-          borderRadius: 3,
-          background: 'var(--gray-100)',
-          overflow: 'hidden',
-        }}
-        title={`${ackCount} von ${recipients} bestätigt`}
-      >
+    <Tooltip
+      content={
+        <>
+          <span className="hm-tooltip__title">Lesequote</span>
+          <span className="hm-tooltip__line">
+            {ackCount} von {recipients} bestätigt · {pct} %
+          </span>
+        </>
+      }
+    >
+      <div className="row" style={{ gap: 8, minWidth: 150 }}>
         <div
           style={{
-            width: `${pct}%`,
-            height: '100%',
+            flex: 1,
+            height: 6,
             borderRadius: 3,
-            background: 'var(--brand-primary)',
+            background: "var(--gray-100)",
+            overflow: "hidden",
           }}
-        />
+        >
+          <div
+            style={{
+              width: `${pct}%`,
+              height: "100%",
+              borderRadius: 3,
+              background: "var(--brand-primary)",
+            }}
+          />
+        </div>
+        <span
+          style={{
+            fontSize: "var(--text-xs)",
+            color: "var(--text-muted)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {ackCount}/{recipients}
+        </span>
       </div>
-      <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-        {ackCount}/{recipients}
-      </span>
-    </div>
+    </Tooltip>
   );
 }
 
@@ -106,12 +153,14 @@ function AnnouncementEditor({
         attachment_file_ids: form.attachments.map((a) => a.file_id),
       };
       return editId === null
-        ? api.post('/api/communication/announcements', payload)
+        ? api.post("/api/communication/announcements", payload)
         : api.put(`/api/communication/announcements/${editId}`, payload);
     },
     onSuccess: () => {
-      toast.success(editId === null ? 'Ankündigung angelegt' : 'Ankündigung aktualisiert');
-      invalidate('announcements');
+      toast.success(
+        editId === null ? "Ankündigung angelegt" : "Ankündigung aktualisiert",
+      );
+      invalidate("announcements");
       onClose();
     },
     onError: (e) => toast.error(e.message),
@@ -122,14 +171,17 @@ function AnnouncementEditor({
     onSuccess: (res) =>
       setForm((f) => ({
         ...f,
-        attachments: [...f.attachments, { file_id: res.file.id, original_name: res.file.original_name }],
+        attachments: [
+          ...f.attachments,
+          { file_id: res.file.id, original_name: res.file.original_name },
+        ],
       })),
     onError: (e) => toast.error(e.message),
   });
 
   return (
     <Modal
-      title={editId === null ? 'Neue Ankündigung' : 'Ankündigung bearbeiten'}
+      title={editId === null ? "Neue Ankündigung" : "Ankündigung bearbeiten"}
       open={open}
       onClose={onClose}
       wide
@@ -143,7 +195,7 @@ function AnnouncementEditor({
             disabled={save.isPending}
             onClick={() => save.mutate()}
           >
-            {save.isPending ? 'Speichert …' : 'Speichern'}
+            {save.isPending ? "Speichert …" : "Speichern"}
           </button>
         </>
       }
@@ -174,15 +226,22 @@ function AnnouncementEditor({
             type="date"
             className="hm-input"
             value={form.publish_at}
-            onChange={(e) => setForm((f) => ({ ...f, publish_at: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, publish_at: e.target.value }))
+            }
           />
         </Field>
-        <Field label="Läuft ab am" hint="Leer lassen, wenn die Ankündigung nicht abläuft">
+        <Field
+          label="Läuft ab am"
+          hint="Leer lassen, wenn die Ankündigung nicht abläuft"
+        >
           <input
             type="date"
             className="hm-input"
             value={form.expires_at}
-            onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, expires_at: e.target.value }))
+            }
           />
         </Field>
         <Field label="Lesebestätigung" span2>
@@ -190,7 +249,9 @@ function AnnouncementEditor({
             <input
               type="checkbox"
               checked={form.requires_ack}
-              onChange={(e) => setForm((f) => ({ ...f, requires_ack: e.target.checked }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, requires_ack: e.target.checked }))
+              }
             />
             Mitarbeitende müssen den Erhalt bestätigen
           </label>
@@ -199,7 +260,10 @@ function AnnouncementEditor({
           <div className="stack" style={{ gap: 8 }}>
             {form.attachments.map((a) => (
               <div key={a.file_id} className="row row--between">
-                <span className="row" style={{ gap: 7, fontSize: 'var(--text-sm)' }}>
+                <span
+                  className="row"
+                  style={{ gap: 7, fontSize: "var(--text-sm)" }}
+                >
                   <Paperclip size={14} /> {a.original_name}
                 </span>
                 <button
@@ -207,7 +271,9 @@ function AnnouncementEditor({
                   onClick={() =>
                     setForm((f) => ({
                       ...f,
-                      attachments: f.attachments.filter((x) => x.file_id !== a.file_id),
+                      attachments: f.attachments.filter(
+                        (x) => x.file_id !== a.file_id,
+                      ),
                     }))
                   }
                 >
@@ -223,7 +289,7 @@ function AnnouncementEditor({
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) upload.mutate(file);
-                  e.target.value = '';
+                  e.target.value = "";
                 }}
               />
               <button
@@ -231,7 +297,8 @@ function AnnouncementEditor({
                 disabled={upload.isPending}
                 onClick={() => fileInput.current?.click()}
               >
-                <Paperclip size={14} /> {upload.isPending ? 'Lädt hoch …' : 'Datei anhängen'}
+                <Paperclip size={14} />{" "}
+                {upload.isPending ? "Lädt hoch …" : "Datei anhängen"}
               </button>
             </div>
           </div>
@@ -241,18 +308,29 @@ function AnnouncementEditor({
   );
 }
 
-function AnnouncementDetail({ id, onClose, onEdit }: { id: number | null; onClose: () => void; onEdit: (a: Announcement) => void }) {
+function AnnouncementDetail({
+  id,
+  onClose,
+  onEdit,
+}: {
+  id: number | null;
+  onClose: () => void;
+  onEdit: (a: Announcement) => void;
+}) {
   const { data: a } = useAnnouncement(id);
   return (
     <Modal
-      title={a?.title ?? 'Ankündigung'}
+      title={a?.title ?? "Ankündigung"}
       open={id !== null}
       onClose={onClose}
       wide
       footer={
         a && (
           <>
-            <button className="hm-btn hm-btn--secondary" onClick={() => onEdit(a)}>
+            <button
+              className="hm-btn hm-btn--secondary"
+              onClick={() => onEdit(a)}
+            >
               <Pencil size={15} /> Bearbeiten
             </button>
             <button className="hm-btn hm-btn--primary" onClick={onClose}>
@@ -267,32 +345,86 @@ function AnnouncementDetail({ id, onClose, onEdit }: { id: number | null; onClos
       ) : (
         <div className="stack">
           <div className="row row--wrap" style={{ gap: 8 }}>
-            <Badge tone={STATUS_TONE[a.status]}>{ANNOUNCEMENT_STATUS_LABELS[a.status]}</Badge>
+            <Badge tone={STATUS_TONE[a.status]}>
+              {ANNOUNCEMENT_STATUS_LABELS[a.status]}
+            </Badge>
             <Badge tone="navy">{audienceLabel(a)}</Badge>
             {a.requires_ack && <Badge tone="blue">Lesebestätigung</Badge>}
           </div>
-          <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
+          <div
+            style={{ fontSize: "var(--text-sm)", color: "var(--text-muted)" }}
+          >
             Veröffentlichung {formatDate(a.publish_at)}
-            {a.expires_at ? ` · läuft ab ${formatDate(a.expires_at)}` : ''} · {a.recipients} Empfänger:innen
+            {a.expires_at
+              ? ` · läuft ab ${formatDate(a.expires_at)}`
+              : ""} · {a.recipients} Empfänger:innen
           </div>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{a.body}</p>
+          <p style={{ whiteSpace: "pre-wrap" }}>{a.body}</p>
           {a.requires_ack && (
             <div>
-              <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 6 }}>
+              <div
+                style={{
+                  fontSize: "var(--text-sm)",
+                  fontWeight: 600,
+                  marginBottom: 6,
+                }}
+              >
                 Lesequote
               </div>
               <AckBar ackCount={a.ack_count} recipients={a.recipients} />
+              {a.acks.length === 0 ? (
+                <p
+                  style={{
+                    fontSize: "var(--text-sm)",
+                    color: "var(--text-muted)",
+                    marginTop: 8,
+                  }}
+                >
+                  Noch niemand hat bestätigt.
+                </p>
+              ) : (
+                <div
+                  className="hm-table-wrap"
+                  style={{ marginTop: 8, maxHeight: 220, overflowY: "auto" }}
+                >
+                  <table className="hm-table">
+                    <thead>
+                      <tr>
+                        <th>Bestätigt von</th>
+                        <th>Zeitpunkt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {a.acks.map((k) => (
+                        <tr key={k.employee_id}>
+                          <td>{k.name}</td>
+                          <td>{formatDateTime(k.acked_at)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
           {a.attachments.length > 0 && (
             <div>
-              <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, marginBottom: 6 }}>
+              <div
+                style={{
+                  fontSize: "var(--text-sm)",
+                  fontWeight: 600,
+                  marginBottom: 6,
+                }}
+              >
                 Anhänge
               </div>
               <div className="stack" style={{ gap: 6 }}>
                 {a.attachments.map((att) => (
                   <div key={att.id} className="row row--between">
-                    <span className="row" style={{ gap: 7, fontSize: 'var(--text-sm)' }}>
+                    <span
+                      className="row"
+                      style={{ gap: 7, fontSize: "var(--text-sm)" }}
+                    >
                       <Paperclip size={14} /> {att.original_name}
                     </span>
                     <button
@@ -317,16 +449,18 @@ export function AnnouncementsPage() {
   const invalidate = useInvalidate();
   const { data: announcements, isLoading } = useAnnouncements();
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editorInitial, setEditorInitial] = useState<EditorState>(emptyEditor());
+  const [editorInitial, setEditorInitial] =
+    useState<EditorState>(emptyEditor());
   const [editId, setEditId] = useState<number | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Announcement | null>(null);
 
   const remove = useMutation({
-    mutationFn: (id: number) => api.delete(`/api/communication/announcements/${id}`),
+    mutationFn: (id: number) =>
+      api.delete(`/api/communication/announcements/${id}`),
     onSuccess: () => {
-      toast.success('Ankündigung gelöscht');
-      invalidate('announcements');
+      toast.success("Ankündigung gelöscht");
+      invalidate("announcements");
     },
     onError: (e) => toast.error(e.message),
   });
@@ -334,7 +468,9 @@ export function AnnouncementsPage() {
   const openEdit = async (a: Announcement) => {
     setDetailId(null);
     const detail = await api.get<{
-      announcement: Announcement & { attachments: { file_id: number; original_name: string }[] };
+      announcement: Announcement & {
+        attachments: { file_id: number; original_name: string }[];
+      };
     }>(`/api/communication/announcements/${a.id}`);
     setEditorInitial({
       title: detail.announcement.title,
@@ -344,7 +480,7 @@ export function AnnouncementsPage() {
         audience_id: detail.announcement.audience_id,
       },
       publish_at: detail.announcement.publish_at,
-      expires_at: detail.announcement.expires_at ?? '',
+      expires_at: detail.announcement.expires_at ?? "",
       requires_ack: detail.announcement.requires_ack,
       attachments: detail.announcement.attachments.map((x) => ({
         file_id: x.file_id,
@@ -401,7 +537,11 @@ export function AnnouncementsPage() {
                 </thead>
                 <tbody>
                   {announcements!.map((a) => (
-                    <tr key={a.id} className="clickable" onClick={() => setDetailId(a.id)}>
+                    <tr
+                      key={a.id}
+                      className="clickable"
+                      onClick={() => setDetailId(a.id)}
+                    >
                       <td style={{ fontWeight: 600 }}>{a.title}</td>
                       <td>
                         <Badge tone={STATUS_TONE[a.status]}>
@@ -412,18 +552,27 @@ export function AnnouncementsPage() {
                       <td>
                         {formatDate(a.publish_at)}
                         {a.expires_at && (
-                          <span style={{ color: 'var(--text-muted)' }}> – {formatDate(a.expires_at)}</span>
+                          <span style={{ color: "var(--text-muted)" }}>
+                            {" "}
+                            – {formatDate(a.expires_at)}
+                          </span>
                         )}
                       </td>
                       <td>
                         {a.requires_ack ? (
-                          <AckBar ackCount={a.ack_count} recipients={a.recipients} />
+                          <AckBar
+                            ackCount={a.ack_count}
+                            recipients={a.recipients}
+                          />
                         ) : (
-                          <span style={{ color: 'var(--text-muted)' }}>—</span>
+                          <span style={{ color: "var(--text-muted)" }}>—</span>
                         )}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
+                        <div
+                          className="row"
+                          style={{ justifyContent: "flex-end", gap: 4 }}
+                        >
                           <button
                             className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
                             title="Bearbeiten"
@@ -455,7 +604,11 @@ export function AnnouncementsPage() {
         editId={editId}
         onClose={() => setEditorOpen(false)}
       />
-      <AnnouncementDetail id={detailId} onClose={() => setDetailId(null)} onEdit={openEdit} />
+      <AnnouncementDetail
+        id={detailId}
+        onClose={() => setDetailId(null)}
+        onEdit={openEdit}
+      />
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Ankündigung löschen"

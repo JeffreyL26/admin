@@ -190,11 +190,17 @@ export function useAnnouncements() {
   });
 }
 
+export interface AnnouncementAck {
+  employee_id: number;
+  name: string;
+  acked_at: string;
+}
+
 export function useAnnouncement(id: number | null) {
   return useQuery({
     queryKey: ['communication', 'announcements', id],
     queryFn: () =>
-      api.get<{ announcement: Announcement & { attachments: AnnouncementAttachment[] } }>(
+      api.get<{ announcement: Announcement & { attachments: AnnouncementAttachment[]; acks: AnnouncementAck[] } }>(
         `/api/communication/announcements/${id}`,
       ),
     select: (d) => d.announcement,
