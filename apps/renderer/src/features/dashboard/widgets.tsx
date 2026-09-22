@@ -3,40 +3,40 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
+import { Megaphone } from 'lucide-react';
 import {
-  formatDate, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, ONBOARDING_KIND_LABELS,
+  formatDate, todayIsoLocal, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, ONBOARDING_KIND_LABELS,
 } from '@ohrganize/shared';
 import { useOnboardingProcesses } from '../admin/api';
 import { useLeaderStatus, useLeadershipReport } from '../leadership/api';
 import { useAuth } from '../../auth/AuthContext';
-import { Badge } from '../../components/ui';
+import { Badge, initialsOf } from '../../components/ui';
 import { ChartTooltip } from '../../components/ChartTooltip';
 import {
   LICENSE_PATH, LICENSE_STATE_LABELS, licenseStateTone, remainingLabel, seatsLabel,
 } from '../settings/license';
 import type { DashboardData } from './api';
-import { useDashboardStyle } from './dashboardStyle';
+import { ORG_ACCENTS } from './dashboardConfig';
 
 /* Reine Widget-Inhalte des Dashboards — der Card-Rahmen (Titel, Icon,
    Bearbeitungs-Controls) kommt aus DashboardPage. Alle Listen folgen einem
    Rezept: Avatar oder Kennung in der Akzentfarbe des Widgets, Haupttext,
-   rechts ein Chip mit Datum oder Zahl (Klassen hm-dash-*). */
+   rechts ein Chip mit Datum oder Zahl (Klassen hm-dash-*). Der Dashboard-Stil
+   wirkt allein ueber CSS (.hm-dash--bunt); die Diagramme lesen ihre Farben aus
+   den Custom Properties --hm-bar* (components.css), die in SVG vererbt werden. */
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
-const ORG_ACCENTS = ['--org-1', '--org-2', '--org-3', '--org-4', '--org-5', '--org-6'];
 
-function initials(first?: string | null, last?: string | null): string {
-  return `${first?.[0] ?? ''}${last?.[0] ?? ''}`.toUpperCase();
-}
+const initials = (first?: string | null, last?: string | null) => initialsOf(`${first ?? ''} ${last ?? ''}`);
 
 /** Kurzdatum fuer Chips: 24.09. (Jahr nur, wenn es nicht das laufende ist). */
 function shortDate(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split('-');
-  return y === String(new Date().getFullYear()) ? `${d}.${m}.` : `${d}.${m}.${y}`;
+  return y === todayIsoLocal().slice(0, 4) ? `${d}.${m}.` : `${d}.${m}.${y}`;
 }
 
-function Empty({ text, padded }: { text: string; padded?: boolean }) {
-  return <p className="hm-dash-empty" style={{ padding: padded ? 16 : 0 }}>{text}</p>;
+function Empty({ text }: { text: string }) {
+  return <p className="hm-dash-empty">{text}</p>;
 }
 
 /**
@@ -47,8 +47,8 @@ function Empty({ text, padded }: { text: string; padded?: boolean }) {
  * fehlt. Regulär blendet DashboardPage solche Widgets ohnehin aus; das hier ist
  * der doppelte Boden.
  */
-function Restricted({ padded }: { padded?: boolean }) {
-  return <Empty text="Für diesen Bereich fehlt Ihnen die Berechtigung." padded={padded} />;
+function Restricted() {
+  return <Empty text="Für diesen Bereich fehlt Ihnen die Berechtigung." />;
 }
 
 function Row({
@@ -84,16 +84,15 @@ function Row({
 function Progress({ value, max }: { value: number; max: number }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
-    <span className="hm-dash-progress" role="progressbar" aria-valuemin={0} aria-valuemax={max} aria-valuenow={value}>
-      <span style={{ width: `${pct}%` }} />
+    <span className="hm-progress" role="progressbar" aria-valuemin={0} aria-valuemax={max} aria-valuenow={value}>
+      <span className="hm-progress__fill" style={{ width: `${pct}%` }} />
     </span>
   );
 }
 
 export function AbsenceChartWidget({ data }: { data: DashboardData }) {
-  const bunt = useDashboardStyle() === 'farbenfroh';
   if (!data.absenceDaysByMonth) return <Restricted />;
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = todayIsoLocal().slice(0, 7);
   const monthData = data.absenceDaysByMonth.map((m) => ({
     name: MONTH_NAMES[Number(m.month.slice(5)) - 1],
     Tage: m.days,
@@ -113,16 +112,7 @@ export function AbsenceChartWidget({ data }: { data: DashboardData }) {
           <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--blue-50)' }} />
           <Bar dataKey="Tage" radius={[5, 5, 0, 0]}>
             {monthData.map((m) => (
-              <Cell
-                key={m.name}
-                fill={
-                  !bunt
-                    ? 'var(--brand-primary)'
-                    : m.current
-                      ? 'var(--hm-accent)'
-                      : 'color-mix(in srgb, var(--hm-accent) 45%, var(--bg-surface))'
-                }
-              />
+              <Cell key={m.name} fill={m.current ? 'var(--hm-bar-current)' : 'var(--hm-bar)'} />
             ))}
           </Bar>
         </BarChart>
@@ -136,7 +126,6 @@ type DepartmentRow = NonNullable<DashboardData['byDepartment']>[number];
 /** Balken wie Beschriftung führen ins Organigramm mit dieser Abteilung als Filter (wie in Organisation → Struktur). */
 export function DepartmentChartWidget({ data }: { data: DashboardData }) {
   const navigate = useNavigate();
-  const bunt = useDashboardStyle() === 'farbenfroh';
   if (!data.byDepartment) return <Restricted />;
   const rows = data.byDepartment;
   const open = (row: DepartmentRow | undefined) => {
@@ -176,7 +165,7 @@ export function DepartmentChartWidget({ data }: { data: DashboardData }) {
             onClick={(entry: unknown) => open((entry as { payload?: DepartmentRow }).payload)}
           >
             {rows.map((r, i) => (
-              <Cell key={r.department} fill={bunt ? `var(${ORG_ACCENTS[i % ORG_ACCENTS.length]})` : 'var(--brand-navy)'} />
+              <Cell key={r.department_id ?? 'ohne'} fill={`var(--hm-bar-${(i % ORG_ACCENTS.length) + 1})`} />
             ))}
           </Bar>
         </BarChart>
@@ -254,7 +243,7 @@ export function AnnouncementsWidget({ data }: { data: DashboardData }) {
         <Row
           key={a.id}
           to="/kommunikation/ankuendigungen"
-          avatar={shortDate(a.publish_at).slice(0, 3)}
+          avatar={<Megaphone size={14} />}
           title={a.title}
           meta={`veröffentlicht ${formatDate(a.publish_at.slice(0, 10))}`}
           chip={a.requires_ack ? 'Bestätigung' : undefined}

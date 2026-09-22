@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { SlidersHorizontal, Check, RotateCcw, Plus, X, GripVertical } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
 import { RequestDialog } from '../absences/RequestDialog';
-import { Card, PageHeader, Spinner, StatCard, EmptyState } from '../../components/ui';
+import { Card, PageHeader, Spinner, StatCard, EmptyState, Tabs } from '../../components/ui';
+import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useDashboard, type DashboardData } from './api';
 import {
@@ -17,12 +18,13 @@ import {
   LeadershipTeamWidget, LeadershipReportWidget, LicenseWidget,
 } from './widgets';
 import {
-  DASHBOARD_STYLE_LABELS, DashboardStyleContext, loadDashboardStyle, saveDashboardStyle,
-  type DashboardStyle,
+  DASHBOARD_STYLE_LABELS, loadDashboardStyle, saveDashboardStyle, type DashboardStyle,
 } from './dashboardStyle';
 
-/** Widgets, deren Inhalt bis an den Card-Rand läuft (Tabellen); derzeit keines. */
-const FLUSH_WIDGETS: WidgetKey[] = [];
+const STYLE_TABS = (Object.keys(DASHBOARD_STYLE_LABELS) as DashboardStyle[]).map((key) => ({
+  key,
+  label: DASHBOARD_STYLE_LABELS[key],
+}));
 
 function widgetBody(key: WidgetKey, data: DashboardData): React.ReactNode {
   switch (key) {
@@ -136,52 +138,50 @@ export function DashboardPage() {
     edit ? (
       <>
         <GripVertical size={15} style={{ color: 'var(--gray-400)' }} />
-        <button
-          className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-          title="Widget entfernen"
-          onClick={() => removeWidget(key)}
-        >
-          <X size={14} />
-        </button>
+        <Tooltip content={<span className="hm-tooltip__title">Widget entfernen</span>}>
+          <button
+            className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+            aria-label="Widget entfernen"
+            onClick={() => removeWidget(key)}
+          >
+            <X size={14} />
+          </button>
+        </Tooltip>
       </>
     ) : key === 'absent-today' ? (
       // Schnelleintrag: Abwesenheit direkt vom Dashboard aus erfassen.
-      <button
-        className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-        title="Abwesenheit schnell erfassen"
-        onClick={() => setQuickAbsenceOpen(true)}
-      >
-        <Plus size={15} />
-      </button>
+      <Tooltip content={<span className="hm-tooltip__title">Abwesenheit schnell erfassen</span>}>
+        <button
+          className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
+          aria-label="Abwesenheit schnell erfassen"
+          onClick={() => setQuickAbsenceOpen(true)}
+        >
+          <Plus size={15} />
+        </button>
+      </Tooltip>
     ) : undefined;
 
   return (
-    <DashboardStyleContext.Provider value={style}>
     <div className={`hm-dash${style === 'farbenfroh' ? ' hm-dash--bunt' : ''}`}>
       <PageHeader
         title={`${greeting}, ${user?.name?.split(' ')[0] ?? ''} 👋`}
         subtitle={`${today} — Ihr persönlicher Überblick.`}
         actions={
           <div className="row" style={{ gap: 8 }}>
-            <div className="hm-tabs hm-tabs--sm" role="tablist" aria-label="Darstellung des Dashboards">
-              {(Object.keys(DASHBOARD_STYLE_LABELS) as DashboardStyle[]).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  role="tab"
-                  aria-selected={style === s}
-                  className={`hm-tab${style === s ? ' hm-tab--active' : ''}`}
-                  onClick={() => changeStyle(s)}
-                >
-                  {DASHBOARD_STYLE_LABELS[s]}
-                </button>
-              ))}
-            </div>
+            <Tabs
+              size="sm"
+              ariaLabel="Darstellung des Dashboards"
+              tabs={STYLE_TABS}
+              active={style}
+              onChange={(key) => changeStyle(key as DashboardStyle)}
+            />
             {edit ? (
               <>
-                <button className="hm-btn hm-btn--ghost" onClick={reset} title="Standard-Layout wiederherstellen">
-                  <RotateCcw size={15} /> Zurücksetzen
-                </button>
+                <Tooltip content={<span className="hm-tooltip__title">Standard-Layout wiederherstellen</span>}>
+                  <button className="hm-btn hm-btn--ghost" onClick={reset}>
+                    <RotateCcw size={15} /> Zurücksetzen
+                  </button>
+                </Tooltip>
                 <button className="hm-btn hm-btn--primary" onClick={() => setEdit(false)}>
                   <Check size={15} /> Fertig
                 </button>
@@ -214,9 +214,11 @@ export function DashboardPage() {
           {hiddenWidgets.map((key) => {
             const def = WIDGET_DEFS[key];
             return (
-              <button key={key} className="hm-btn hm-btn--secondary hm-btn--sm" title={def.description} onClick={() => addWidget(key)}>
-                <Plus size={13} /> <def.icon size={13} /> {def.title}
-              </button>
+              <Tooltip key={key} content={<span className="hm-tooltip__title">{def.description}</span>}>
+                <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => addWidget(key)}>
+                  <Plus size={13} /> <def.icon size={13} /> {def.title}
+                </button>
+              </Tooltip>
             );
           })}
         </div>
@@ -255,9 +257,11 @@ export function DashboardPage() {
                       <span className="row" style={{ gap: 6, fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
                         <GripVertical size={15} style={{ color: 'var(--gray-400)' }} /> Kennzahlen wählen:
                       </span>
-                      <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" title="Widget entfernen" onClick={() => removeWidget(key)}>
-                        <X size={14} />
-                      </button>
+                      <Tooltip content={<span className="hm-tooltip__title">Widget entfernen</span>}>
+                        <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" aria-label="Widget entfernen" onClick={() => removeWidget(key)}>
+                          <X size={14} />
+                        </button>
+                      </Tooltip>
                     </div>
                   )}
                   {edit && (
@@ -327,7 +331,6 @@ export function DashboardPage() {
                     </span>
                   }
                   actions={editActions(key)}
-                  flush={FLUSH_WIDGETS.includes(key)}
                 >
                   {widgetBody(key, data)}
                 </Card>
@@ -339,6 +342,5 @@ export function DashboardPage() {
 
       <RequestDialog open={quickAbsenceOpen} onClose={() => setQuickAbsenceOpen(false)} />
     </div>
-    </DashboardStyleContext.Provider>
   );
 }

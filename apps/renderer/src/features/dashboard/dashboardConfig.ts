@@ -46,7 +46,8 @@ type StatsWithProfileChanges = DashboardStats & { openProfileChanges?: number };
  * ist. Die Palette ist bewusst die des Organigramms (`--org-1` bis `--org-6`)
  * plus die semantischen Farben, damit nichts Neues in tokens.css entsteht.
  */
-export type Accent = '--org-1' | '--org-2' | '--org-3' | '--org-4' | '--org-5' | '--org-6' | '--success' | '--warning' | '--danger';
+export const ORG_ACCENTS = ['--org-1', '--org-2', '--org-3', '--org-4', '--org-5', '--org-6'] as const;
+export type Accent = (typeof ORG_ACCENTS)[number] | '--success' | '--warning' | '--danger';
 
 export type SubTone = 'neutral' | 'success' | 'warning' | 'danger';
 

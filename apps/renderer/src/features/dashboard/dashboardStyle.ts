@@ -1,10 +1,10 @@
-import { createContext, useContext } from 'react';
-
 /**
  * Optik des Dashboards: 'standard' ist die nuechterne Darstellung, 'farbenfroh'
  * gibt jeder Kachel einen eigenen Akzent (Plakette, Farbschimmer, Chips,
  * Avatare). Wie Theme und Widget-Auswahl eine Arbeitsplatz-Einstellung im
- * localStorage, keine Firmeneinstellung.
+ * localStorage, keine Firmeneinstellung. Der Stil wirkt allein ueber die
+ * Klasse .hm-dash--bunt; auch die Diagrammfarben kommen als Custom Properties
+ * (--hm-bar*) aus components.css, weil sie in Inline-SVG vererbt werden.
  */
 export type DashboardStyle = 'standard' | 'farbenfroh';
 
@@ -29,11 +29,4 @@ export function saveDashboardStyle(style: DashboardStyle): void {
   } catch {
     /* Speicher nicht verfuegbar: Wahl gilt nur fuer diese Sitzung. */
   }
-}
-
-/** Diagramme lesen den Stil hierueber, weil SVG-Fuellungen nicht an der CSS-Klasse haengen. */
-export const DashboardStyleContext = createContext<DashboardStyle>('standard');
-
-export function useDashboardStyle(): DashboardStyle {
-  return useContext(DashboardStyleContext);
 }

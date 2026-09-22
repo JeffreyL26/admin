@@ -700,6 +700,22 @@
   border-color: var(--blue-300);
 }
 
+/* ---------- Fortschrittsbalken ---------- */
+.hm-progress {
+  display: block;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  overflow: hidden;
+}
+.hm-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--brand-primary);
+  transition: width 0.25s ease;
+}
+
 /* ---------- Kennzahlen-Karten ----------
    Grundoptik ist "Standard" (nuechtern, Markenblau). Der Dashboard-Stil
    "Farbenfroh" (.hm-dash--bunt, Schalter in DashboardPage) legt je Kachel
@@ -806,6 +822,26 @@
    Chip in der Akzentfarbe des Widgets. */
 .hm-widget {
   --hm-accent: var(--brand-primary);
+  /* Diagrammfarben: Custom Properties erben in Inline-SVG, deshalb braucht
+     der Stilschalter keinen zweiten Weg in die Recharts-Fuellungen. */
+  --hm-bar: var(--brand-primary);
+  --hm-bar-current: var(--brand-primary);
+  --hm-bar-1: var(--brand-navy);
+  --hm-bar-2: var(--brand-navy);
+  --hm-bar-3: var(--brand-navy);
+  --hm-bar-4: var(--brand-navy);
+  --hm-bar-5: var(--brand-navy);
+  --hm-bar-6: var(--brand-navy);
+}
+.hm-dash--bunt .hm-widget {
+  --hm-bar: color-mix(in srgb, var(--hm-accent) 45%, var(--bg-surface));
+  --hm-bar-current: var(--hm-accent);
+  --hm-bar-1: var(--org-1);
+  --hm-bar-2: var(--org-2);
+  --hm-bar-3: var(--org-3);
+  --hm-bar-4: var(--org-4);
+  --hm-bar-5: var(--org-5);
+  --hm-bar-6: var(--org-6);
 }
 .hm-widget__icon {
   display: grid;
@@ -901,21 +937,15 @@
   background: var(--gray-100);
   color: var(--text-secondary);
 }
-.hm-dash-progress {
+.hm-widget .hm-progress {
   display: none;
 }
-.hm-dash--bunt .hm-dash-progress {
+.hm-dash--bunt .hm-widget .hm-progress {
   display: block;
-  position: relative;
   height: 6px;
-  border-radius: 3px;
   background: color-mix(in srgb, var(--hm-accent) 14%, var(--bg-surface));
-  overflow: hidden;
 }
-.hm-dash-progress > span {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 3px;
+.hm-dash--bunt .hm-widget .hm-progress__fill {
   background: var(--hm-accent);
 }
 .hm-dash-empty {
@@ -1626,19 +1656,6 @@ button.lead-card:focus-visible .lead-card__cta svg {
 .lead-progress__text strong {
   font-size: var(--text-md);
   color: var(--text-primary);
-}
-.lead-progress {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--gray-100);
-  overflow: hidden;
-}
-.lead-progress__fill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--brand-primary);
-  transition: width 0.25s ease;
 }
 .lead-progress__hint {
   font-size: var(--text-xs);

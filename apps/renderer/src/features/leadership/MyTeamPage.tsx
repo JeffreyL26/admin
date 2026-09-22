@@ -229,11 +229,11 @@ function ScopeHeader({
             <strong>{rated}</strong> von {total} bewertet
           </div>
           <div
-            className="lead-progress"
+            className="hm-progress"
             role="img"
             aria-label={`${rated} von ${total} Personen im Zeitraum ${period.label} bewertet`}
           >
-            <span className="lead-progress__fill" style={{ width: `${percent}%` }} />
+            <span className="hm-progress__fill" style={{ width: `${percent}%` }} />
           </div>
           <div className="lead-progress__hint">
             {total === 0

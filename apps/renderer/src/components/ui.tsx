@@ -1,5 +1,6 @@
 import React from 'react';
 import { SearchX } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 
 /* Kleine Primitiven des Designsystems. Buttons/Inputs nutzen direkt die
    hm-*-Klassen; hier stehen die Komponenten mit etwas Verhalten. */
@@ -40,21 +41,23 @@ export function Badge({ tone = 'neutral', children }: { tone?: BadgeTone; childr
   return <span className={`hm-badge hm-badge--${tone}`}>{children}</span>;
 }
 
-export function Avatar({ name, size = 32, src }: { name: string; size?: number; src?: string }) {
-  const initials = name
+/** Initialen aus einem Anzeigenamen: erste Buchstaben der ersten beiden Woerter. */
+export function initialsOf(name: string): string {
+  return name
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase())
     .join('');
+}
+
+export function Avatar({ name, size = 32, src }: { name: string; size?: number; src?: string }) {
   return (
-    <span
-      className="hm-avatar"
-      style={{ width: size, height: size, fontSize: size * 0.38 }}
-      title={name}
-    >
-      {src ? <img src={src} alt={name} /> : initials}
-    </span>
+    <Tooltip content={<span className="hm-tooltip__title">{name}</span>}>
+      <span className="hm-avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>
+        {src ? <img src={src} alt={name} /> : initialsOf(name)}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -93,13 +96,18 @@ export function Tabs({
   tabs,
   active,
   onChange,
+  size,
+  ariaLabel,
 }: {
   tabs: { key: string; label: React.ReactNode }[];
   active: string;
   onChange: (key: string) => void;
+  /** 'sm': kompakte Form fuer Seitenkoepfe. */
+  size?: 'sm';
+  ariaLabel?: string;
 }) {
   return (
-    <div className="hm-tabs" role="tablist">
+    <div className={`hm-tabs${size === 'sm' ? ' hm-tabs--sm' : ''}`} role="tablist" aria-label={ariaLabel}>
       {tabs.map((t) => (
         <button
           key={t.key}
