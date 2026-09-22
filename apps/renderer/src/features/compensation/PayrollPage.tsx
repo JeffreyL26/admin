@@ -153,7 +153,7 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
       />
       {run.status === 'offen' && (
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginTop: 0 }}>
-          Der Lauf ist ein Snapshot zum Zeitpunkt der Zusammenstellung. Haben sich Komponenten, Boni
+          Der Lauf ist eine Momentaufnahme zum Zeitpunkt der Zusammenstellung. Haben sich Komponenten, Boni
           oder Abwesenheiten seither geändert, verwerfen Sie den Lauf; ein neuer Lauf desselben Monats
           stellt die Bewegungsdaten aus dem aktuellen Stand zusammen.
         </p>

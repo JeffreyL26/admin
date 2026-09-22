@@ -794,7 +794,7 @@ function ClosuresCard() {
           </button>
         </div>
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 8 }}>
-          Betriebsruhetage werden bei der Berechnung der Abwesenheitstage nicht mitgezählt. Die Tage bestehender offener und genehmigter Anträge im Zeitraum werden beim Anlegen und Löschen neu berechnet.
+          Betriebsruhetage werden bei der Berechnung der Abwesenheitstage nicht mitgezählt. Die Tage offener und genehmigter Anträge im Zeitraum werden beim Anlegen und Löschen neu berechnet. Abgelehnte und stornierte Anträge bleiben unverändert, außer sie stehen wegen einer Betriebsruhe auf 0 Tagen.
         </div>
       </div>
       {isLoading ? (
@@ -838,7 +838,7 @@ function ClosuresCard() {
       <ConfirmDialog
         open={deleting !== null}
         title="Betriebsruhe löschen"
-        message={deleting ? `"${deleting.name}" (${formatDate(deleting.date_from)} – ${formatDate(deleting.date_to)}) löschen? Die Tage bestehender offener und genehmigter Anträge im Zeitraum werden neu berechnet.` : ''}
+        message={deleting ? `"${deleting.name}" (${formatDate(deleting.date_from)} – ${formatDate(deleting.date_to)}) löschen? Die Tage offener und genehmigter Anträge im Zeitraum werden neu berechnet, ebenso die abgelehnter und stornierter Anträge, die wegen einer Betriebsruhe auf 0 Tagen stehen.` : ''}
         onConfirm={() => deleting && remove.mutate(deleting.id)}
         onClose={() => setDeleting(null)}
       />

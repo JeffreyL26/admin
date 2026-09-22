@@ -178,7 +178,7 @@ export const MEETING_VISIBILITY_HINTS: Record<MeetingVisibility, string> = {
   nur_hr: 'Nur die Personalabteilung sieht dieses Protokoll.',
   hr_vorgesetzte:
     'Führungskräfte haben noch keine eigene Ansicht; bis dahin sieht nur die Personalabteilung das Protokoll.',
-  hr_vorgesetzte_mitarbeiter: 'Sichtbar im Portal der Person unter „Gespräche“.',
+  hr_vorgesetzte_mitarbeiter: 'Sichtbar im Portal der Person unter „Gesprächsprotokolle“.',
 };
 
 /** Eigenes Gespraechsprotokoll im Portal (GET /api/me/meetings). */

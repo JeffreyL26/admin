@@ -145,7 +145,7 @@ function PostingEditor({
             {(org?.locations ?? []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           </Select>
         </Field>
-        <Field label="Hiring Manager">
+        <Field label="Verantwortliche Führungskraft">
           <EmployeeSelect value={form.hiring_manager_id} onChange={(id) => setForm((f) => ({ ...f, hiring_manager_id: id }))} allowEmpty emptyLabel="— keiner —" />
         </Field>
         <Field label="Gewünschter Eintritt">
@@ -200,7 +200,7 @@ function PostingDetailDialog({ postingId, onClose }: { postingId: number | null;
             <div><dt style={{ color: 'var(--text-muted)' }}>Abteilung</dt><dd style={{ margin: 0 }}>{p.department_name ?? 'keine Angabe'}</dd></div>
             <div><dt style={{ color: 'var(--text-muted)' }}>Team</dt><dd style={{ margin: 0 }}>{p.team_name ?? 'keine Angabe'}</dd></div>
             <div><dt style={{ color: 'var(--text-muted)' }}>Standort</dt><dd style={{ margin: 0 }}>{p.location_name ?? 'keine Angabe'}</dd></div>
-            <div><dt style={{ color: 'var(--text-muted)' }}>Hiring Manager</dt><dd style={{ margin: 0 }}>{p.hiring_manager_name ?? 'keine Angabe'}</dd></div>
+            <div><dt style={{ color: 'var(--text-muted)' }}>Verantwortliche Führungskraft</dt><dd style={{ margin: 0 }}>{p.hiring_manager_name ?? 'keine Angabe'}</dd></div>
             <div><dt style={{ color: 'var(--text-muted)' }}>Gewünschter Eintritt</dt><dd style={{ margin: 0 }}>{p.employment_start ? formatDate(p.employment_start) : 'keine Angabe'}</dd></div>
             <div>
               <dt style={{ color: 'var(--text-muted)' }}>Gehaltsspanne (€/Monat)</dt>

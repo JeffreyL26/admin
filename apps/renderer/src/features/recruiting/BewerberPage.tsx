@@ -383,8 +383,8 @@ export function BewerberPage() {
   return (
     <>
       <PageHeader
-        title="Bewerber:innen"
-        subtitle="Talentpool aller erfassten Bewerber:innen und ihre Bewerbungen"
+        title="Bewerbungen"
+        subtitle="Alle Bewerbungen und der Talentpool der erfassten Bewerber:innen"
         actions={
           <button className="hm-btn hm-btn--primary" onClick={() => { setEditorInitial(emptyDraft()); setEditId(null); setEditorOpen(true); }}>
             <Plus size={16} /> Neue:r Bewerber:in
@@ -396,7 +396,7 @@ export function BewerberPage() {
         <Tabs
           tabs={[
             { key: 'talentpool', label: 'Talentpool' },
-            { key: 'bewerbungen', label: 'Bewerbungen' },
+            { key: 'bewerbungen', label: 'Eingegangen' },
           ]}
           active={tab}
           onChange={setTab}

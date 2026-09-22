@@ -192,7 +192,7 @@ export const adminModule: FastifyPluginAsync = async (app) => {
       )
       .all(body.kind, ...ids) as { id: number }[];
     if (found.length !== ids.length) {
-      throw badRequest('Mindestens eine Vorlage gehoert nicht zu dieser Prozessart');
+      throw badRequest('Mindestens eine Vorlage gehört nicht zu dieser Prozessart');
     }
     inTransaction(() => {
       const update = db().prepare('UPDATE onboarding_task_templates SET sort_order = ? WHERE id = ?');

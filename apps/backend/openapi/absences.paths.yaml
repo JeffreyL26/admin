@@ -208,12 +208,12 @@ paths:
       responses:
         "200": { description: Liste der Betriebsruhen }
     post:
-      summary: Betriebsruhe anlegen; days_counted der ueberlappenden offenen und genehmigten Antraege wird neu berechnet
+      summary: Betriebsruhe anlegen; days_counted der ueberlappenden offenen und genehmigten Antraege (sowie abgeschlossener mit closure_covered = 1) wird neu berechnet
       responses:
         "201": { description: "{ closure, recounted_requests }" }
   /api/absences/closures/{id}:
     delete:
-      summary: Betriebsruhe löschen; days_counted der ueberlappenden offenen und genehmigten Antraege wird neu berechnet
+      summary: Betriebsruhe löschen; days_counted der ueberlappenden offenen und genehmigten Antraege (sowie abgeschlossener mit closure_covered = 1) wird neu berechnet
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:

@@ -719,7 +719,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     ).n;
     if (hired > 0) {
       throw conflict(
-        'Diese Person wurde ueber eine Bewerbung eingestellt. Der Talentpool-Eintrag bleibt als Nachweis erhalten.',
+        'Diese Person wurde über eine Bewerbung eingestellt. Der Talentpool-Eintrag bleibt als Nachweis erhalten.',
       );
     }
     getDb().prepare('DELETE FROM candidates WHERE id = ?').run(id);

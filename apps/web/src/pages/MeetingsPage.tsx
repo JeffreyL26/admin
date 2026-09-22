@@ -72,7 +72,7 @@ export function MeetingsPage() {
   return (
     <div style={{ maxWidth: 860 }}>
       <header className="portal-page-header">
-        <h1 className="portal-title">Gespräche</h1>
+        <h1 className="portal-title">Gesprächsprotokolle</h1>
         <p className="portal-subtitle">
           Protokolle Ihrer Mitarbeitergespräche, die die Personalabteilung für Sie freigegeben hat.
           Bei Rückfragen oder Einwänden wenden Sie sich bitte an die Personalabteilung.

@@ -125,7 +125,7 @@ export const ALL_NAV_SECTIONS: NavSection[] = [
     items: [
       { path: '/recruiting/stellen', label: 'Stellen', icon: Briefcase },
       { path: '/recruiting/pipeline', label: 'Pipeline', icon: KanbanSquare },
-      { path: '/recruiting/bewerber', label: 'Bewerber:innen', icon: UserSearch },
+      { path: '/recruiting/bewerber', label: 'Bewerbungen', icon: UserSearch },
       { path: '/recruiting/interviews', label: 'Interviews', icon: CalendarClock },
       { path: '/recruiting/analyse', label: 'Analyse', icon: LineChart },
     ],
