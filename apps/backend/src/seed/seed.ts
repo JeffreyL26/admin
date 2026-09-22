@@ -732,7 +732,7 @@ inTransaction(() => {
   });
   insert('announcements', {
     title: 'Neuer Standort-Parkplatz Köln', body: 'Ab 1. August stehen am Standort Köln zehn zusätzliche Stellplätze in der Tiefgarage Mediapark zur Verfügung. Zuteilung über das Office-Team.',
-    audience_type: 'standort', audience_id: locK, publish_at: '2026-08-01', requires_ack: 0, created_by_user_id: adminId,
+    audience_type: 'standort', audience_id: locK, publish_at: '2026-08-01', requires_ack: 1, created_by_user_id: adminId,
   });
 
   // Umfragen: eine auswertbar (9 Teilnahmen), eine unter der Schwelle (3)
@@ -768,6 +768,15 @@ inTransaction(() => {
   const q5 = insert('survey_questions', { survey_id: sv2, kind: 'skala', text: 'Wie gut hat dich das Onboarding auf deine Rolle vorbereitet?', scale_max: 5, sort_order: 1 });
   [[4], [5], [3]].forEach((v) => insert('survey_responses', { survey_id: sv2, answers: JSON.stringify([{ question_id: q5, value: v[0] }]) }));
   [SDR, WS2, PRAKT].forEach((emp) => insert('survey_participations', { survey_id: sv2, employee_id: emp }));
+
+  // Laufende Umfrage fuer alle, noch ohne Teilnahmen: im Portal und auf dem
+  // Desktop-Dashboard sichtbar, damit sich die Teilnahme durchspielen laesst.
+  const sv3 = insert('surveys', { title: 'Jahresumfrage 2026', description: 'Wie geht es dir bei uns? Fuenf Fragen, anonym.', audience_type: 'alle', date_from: '2026-09-15', date_to: '2026-12-31', status: 'laufend', created_by_user_id: adminId });
+  insert('survey_questions', { survey_id: sv3, kind: 'skala', text: 'Wie wahrscheinlich ist es, dass du uns als Arbeitgeber weiterempfiehlst?', scale_max: 10, sort_order: 1 });
+  insert('survey_questions', { survey_id: sv3, kind: 'skala', text: 'Wie gut fuehlst du dich ueber Entscheidungen im Unternehmen informiert?', scale_max: 5, sort_order: 2 });
+  insert('survey_questions', { survey_id: sv3, kind: 'einfachauswahl', text: 'Welches Arbeitsmodell passt am besten zu dir?', options: JSON.stringify(['Vor Ort', 'Hybrid', 'Remote']), sort_order: 3 });
+  insert('survey_questions', { survey_id: sv3, kind: 'mehrfachauswahl', text: 'Welche Angebote nutzt du?', options: JSON.stringify(['Jobrad', 'Weiterbildung', 'Betriebssport', 'Essenszuschuss']), sort_order: 4 });
+  insert('survey_questions', { survey_id: sv3, kind: 'freitext', text: 'Was wuerdest du als Erstes aendern?', sort_order: 5 });
 
   // Gesprächsprotokolle
   insert('meeting_protocols', {

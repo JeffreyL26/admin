@@ -271,13 +271,6 @@ function SurveyBuilder({
                   ))}
                 </Select>
               </Field>
-              <Field label="Fragetext" required>
-                <input
-                  className="hm-input"
-                  value={q.text}
-                  onChange={(e) => setQuestion(i, { text: e.target.value })}
-                />
-              </Field>
               {q.kind === 'skala' && (
                 <Field label="Skala bis" hint="Bewertung von 1 bis N">
                   <Select
@@ -293,6 +286,14 @@ function SurveyBuilder({
                   </Select>
                 </Field>
               )}
+              <Field label="Fragetext" required span2>
+                <textarea
+                  className="hm-textarea"
+                  rows={3}
+                  value={q.text}
+                  onChange={(e) => setQuestion(i, { text: e.target.value })}
+                />
+              </Field>
               {(q.kind === 'einfachauswahl' || q.kind === 'mehrfachauswahl') && (
                 <Field label="Optionen" hint="Eine Option pro Zeile (mindestens zwei)" span2>
                   <textarea

@@ -352,7 +352,7 @@ export function DistributionListsPage() {
     <>
       <PageHeader
         title="Verteiler"
-        subtitle="Zielgruppen für Ankündigungen und Umfragen aus Abteilungen, Teams, Standorten und einzelnen Personen"
+        subtitle="Zielgruppen für Ankündigungen und Umfragen"
         actions={
           <button className="hm-btn hm-btn--primary" onClick={() => setCreating(true)}>
             <Plus size={16} /> Neuer Verteiler
