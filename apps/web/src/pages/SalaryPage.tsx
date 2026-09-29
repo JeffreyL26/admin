@@ -534,11 +534,11 @@ export function SalaryPage() {
   return (
     <div>
       <header className="portal-page-header">
-        <h1 className="portal-title">{isFreelancer ? 'Honorare' : 'Gehalt'}</h1>
+        <h1 className="portal-title">{isFreelancer ? 'Honorare (für freiberufliche Mitarbeiter)' : 'Gehalt (für alle anderen)'}</h1>
         <p className="portal-subtitle">
           {isFreelancer
-            ? 'Ihre Honorarsätze und der Stand Ihrer Rechnungen.'
-            : 'Ihre aktuellen Gehaltsbestandteile, die Entwicklung und Ihre Boni.'}
+            ? 'Ihre Honorarsätze und der Stand Ihrer Rechnungen. (Freiberufliche Mitarbeiter)'
+            : 'Ihre aktuellen Gehaltsbestandteile, die Entwicklung und Ihre Boni. (alle anderen)'}
         </p>
       </header>
 

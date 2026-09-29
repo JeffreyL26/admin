@@ -225,8 +225,7 @@ function SurveyForm({ surveyId, onDone }: { surveyId: number; onDone: () => void
         <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>{survey.description}</p>
       )}
       <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-        Läuft bis {formatDate(survey.date_to)}. Ihre Antworten werden ohne Personenbezug gespeichert; nur die
-        Teilnahme selbst wird vermerkt, damit niemand doppelt zählt.
+        Läuft bis {formatDate(survey.date_to)}. Ihre Antworten werden ohne Personenbezug gespeichert; nur die Teilnahme selbst wird vermerkt.
       </p>
       {survey.questions.map((q, i) => (
         <Question

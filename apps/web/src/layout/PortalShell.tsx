@@ -89,7 +89,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'Unternehmen',
     items: [
       { to: '/organigramm', label: 'Organigramm', icon: IconOrg },
-      { to: '/kollegen', label: 'Kolleg:innen', icon: IconColleagues, module: 'communication' },
+      { to: '/kollegen', label: 'Team', icon: IconColleagues, module: 'communication' },
     ],
   },
   {

@@ -112,7 +112,7 @@ export function ColleaguesPage() {
   return (
     <div>
       <header className="portal-page-header">
-        <h1 className="portal-title">Kolleg:innen</h1>
+        <h1 className="portal-title">Team</h1>
         <p className="portal-subtitle">
           Dienstliche Kontaktdaten aller aktiven Mitarbeitenden. Welche Angaben hier stehen, legt Ihre
           Personalabteilung fest.
@@ -178,7 +178,7 @@ export function ColleaguesPage() {
         ) : employees.length === 0 ? (
           <Card>
             <EmptyState
-              title={filtered ? 'Keine Kolleg:innen zu dieser Suche' : 'Noch keine Kolleg:innen'}
+              title={filtered ? 'Keine Personen zu dieser Suche' : 'Noch keine Personen'}
               hint={filtered ? 'Passen Sie Suche oder Abteilung an.' : undefined}
             />
           </Card>
