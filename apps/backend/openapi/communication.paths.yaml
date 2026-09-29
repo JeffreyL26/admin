@@ -202,7 +202,7 @@ paths:
       parameters:
         - { name: employee_id, in: query, required: true, schema: { type: integer } }
       responses:
-        "200": { description: "{ leaders: [{ employee_id, name, has_account, sources? }] }; sources nur für Konten mit fuehrung: lesen" }
+        "200": { description: "{ leaders: [{ employee_id, name, has_account, can_read, sources? }] }; can_read = darf die Protokolle unter Mein Team lesen; sources nur für Konten mit fuehrung: lesen" }
         "404": { description: Person nicht gefunden }
   /api/communication/meetings/{id}:
     get:

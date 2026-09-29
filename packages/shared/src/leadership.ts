@@ -552,6 +552,13 @@ export interface LeaderStatus {
   team_size: number;
   /** Personen mit Gesamtbewertung im aktuellen Zeitraum. */
   rated_count: number;
+  /**
+   * Darf das Konto freigegebene Gesprächsprotokolle unter „Mein Team“ lesen?
+   * false bei Konten, die ihre Zuständigkeit selbst formen können, aber kein
+   * Leserecht in „Kommunikation“ haben (Selbstschutz beim Lesen), und immer
+   * bei `is_leader: false`.
+   */
+  protocols_readable: boolean;
 }
 
 /** GET /api/leadership/me/team?period=… */

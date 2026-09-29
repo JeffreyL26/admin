@@ -28,10 +28,17 @@ import { Select } from '../../components/Select';
 export function SetupScopeModal({
   leader,
   canEdit,
+  own = false,
   onClose,
 }: {
   leader: Leader | null;
   canEdit: boolean;
+  /**
+   * Das eigene Profil (Selbstschutz, service.assertNotOwnLeadership): nur
+   * Änderungen, die den Bereich verkleinern, also Ausnahmen anlegen und
+   * Ergänzungen entfernen.
+   */
+  own?: boolean;
   onClose: () => void;
 }) {
   const open = leader !== null;
@@ -69,6 +76,14 @@ export function SetupScopeModal({
             </SetupNote>
           )}
 
+          {canEdit && own && (
+            <SetupNote>
+              Das ist Ihr eigenes Profil. Den eigenen Bereich <strong>verkleinern</strong> können Sie hier
+              (Ausnahme anlegen, Ergänzung entfernen); <strong>erweitern</strong> muss ihn eine andere Person mit
+              Recht „Führung“, denn „Mein Team“ öffnet auch Gesprächsprotokolle.
+            </SetupNote>
+          )}
+
           <section>
             <h3 className="lead-setup-section__title">Aktuelle Zuständigkeit</h3>
             <TeamPreview team={data.team} />
@@ -76,13 +91,13 @@ export function SetupScopeModal({
 
           <section>
             <h3 className="lead-setup-section__title">Manuelle Zuweisungen</h3>
-            <AssignmentTable assignments={data.assignments} canEdit={canEdit} />
+            <AssignmentTable assignments={data.assignments} canEdit={canEdit} own={own} />
           </section>
 
           {canEdit && (
             <section>
               <h3 className="lead-setup-section__title">Zuweisung hinzufügen</h3>
-              <AssignmentForm leaderId={current.employee_id} />
+              <AssignmentForm leaderId={current.employee_id} own={own} />
             </section>
           )}
         </div>
@@ -158,7 +173,15 @@ function validityLabel(a: LeadershipAssignment): string {
   return `bis ${formatDate(a.valid_to)}`;
 }
 
-function AssignmentTable({ assignments, canEdit }: { assignments: LeadershipAssignment[]; canEdit: boolean }) {
+function AssignmentTable({
+  assignments,
+  canEdit,
+  own,
+}: {
+  assignments: LeadershipAssignment[];
+  canEdit: boolean;
+  own: boolean;
+}) {
   const toast = useToast();
   const remove = useDeleteAssignment();
   const [deleting, setDeleting] = useState<LeadershipAssignment | null>(null);
@@ -197,6 +220,8 @@ function AssignmentTable({ assignments, canEdit }: { assignments: LeadershipAssi
                 <td style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>{a.note || '—'}</td>
                 {canEdit && (
                   <td>
+                    {/* Eigenes Profil: eine Ausnahme zu löschen erweitert den Bereich. */}
+                    {!(own && a.kind === 'exclude') && (
                     <button
                       type="button"
                       className="hm-btn hm-btn--ghost hm-btn--sm hm-btn--icon"
@@ -206,6 +231,7 @@ function AssignmentTable({ assignments, canEdit }: { assignments: LeadershipAssi
                     >
                       <Trash2 size={15} />
                     </button>
+                    )}
                   </td>
                 )}
               </tr>
@@ -241,10 +267,12 @@ function AssignmentTable({ assignments, canEdit }: { assignments: LeadershipAssi
 const TARGET_TYPES: AssignmentTargetType[] = ['employee', 'department', 'team', 'role'];
 const KINDS: AssignmentKind[] = ['include', 'exclude'];
 
-function AssignmentForm({ leaderId }: { leaderId: number }) {
+function AssignmentForm({ leaderId, own }: { leaderId: number; own: boolean }) {
   const toast = useToast();
   const create = useCreateAssignment();
-  const [kind, setKind] = useState<AssignmentKind>('include');
+  // Eigenes Profil: nur Ausnahmen, eine Ergänzung erweiterte den eigenen Bereich.
+  const kinds: AssignmentKind[] = own ? ['exclude'] : KINDS;
+  const [kind, setKind] = useState<AssignmentKind>(own ? 'exclude' : 'include');
   const [targetType, setTargetType] = useState<AssignmentTargetType>('employee');
   const [targetId, setTargetId] = useState<number | null>(null);
   const [validFrom, setValidFrom] = useState('');
@@ -299,7 +327,7 @@ function AssignmentForm({ leaderId }: { leaderId: number }) {
       <div className="hm-form-grid">
         <Field label="Art" required>
           <Select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value as AssignmentKind)}>
-            {KINDS.map((k) => (
+            {kinds.map((k) => (
               <option key={k} value={k}>
                 {ASSIGNMENT_KIND_LABELS[k]}
               </option>

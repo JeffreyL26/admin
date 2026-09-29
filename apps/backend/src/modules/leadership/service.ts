@@ -59,6 +59,12 @@ import { audit } from '../../core/audit.js';
 import { todayIso } from '../../core/dates.js';
 import { signDownloadUrl } from '../../core/files.js';
 import { badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
+import {
+  assertMayRaise,
+  desktopAccountOf,
+  effectiveRights,
+  mayReadProtocolsAsLeader,
+} from '../../core/accountRights.js';
 
 // ---------------------------------------------------------------------------
 // Einstellungen
@@ -339,25 +345,61 @@ export function loadLeader(employeeId: number): Leader {
  * Umkehrung von `scopeFor`: aktive Führungskräfte, die die Person HEUTE im
  * Bereich haben (Empfänger freigegebener Gesprächsprotokolle). `has_account`
  * heißt: ein Desktop-Konto ist verknüpft, „Mein Team“ also erreichbar;
- * dieselbe Definition wie `Leader.user_id`. Eine nicht aktive Person hat nie
- * jemanden (scopeFor enthält nur aktive Profile).
+ * dieselbe Definition wie `Leader.user_id`. `can_read`: dazu dürfen die
+ * Protokolle gelesen werden (`mayReadProtocolsAsLeader`). Eine nicht aktive
+ * Person hat nie jemanden (scopeFor enthält nur aktive Profile). Berechnet
+ * wird scopeFor nur für die Vorauswahl `leadersPossiblyResponsibleFor`, nicht
+ * für jede Führungskraft: Die Route läuft bei jeder Personenwahl im Editor.
  */
-export function responsibleLeaders(
-  employeeId: number,
-): { employee_id: number; name: string; sources: ScopeSource[]; has_account: 0 | 1 }[] {
+export function responsibleLeaders(employeeId: number): {
+  employee_id: number;
+  name: string;
+  sources: ScopeSource[];
+  has_account: 0 | 1;
+  can_read: 0 | 1;
+}[] {
   const person = getDb().prepare('SELECT status FROM employees WHERE id = ?').get(employeeId) as
     | { status: string }
     | undefined;
   if (!person) throw notFound('Person nicht gefunden');
   if (person.status !== 'aktiv') return [];
   const leaders = getDb()
-    .prepare(`${LEADER_SELECT} WHERE e.status = 'aktiv' ORDER BY e.last_name COLLATE NOCASE, e.first_name COLLATE NOCASE`)
-    .all() as LeaderRow[];
+    .prepare(
+      `${LEADER_SELECT} WHERE e.status = 'aktiv' AND l.employee_id IN (SELECT value FROM json_each(?))
+       ORDER BY e.last_name COLLATE NOCASE, e.first_name COLLATE NOCASE`,
+    )
+    .all(JSON.stringify(leadersPossiblyResponsibleFor(employeeId))) as LeaderRow[];
+  // Admin-Rolle je Konto in EINER Abfrage, Rechte je Rolle nur einmal auflösen.
+  const roleOfUser = new Map(
+    (
+      getDb()
+        .prepare(
+          `SELECT u.id, u.admin_role_id FROM users u
+           JOIN leadership_leaders l ON l.employee_id = u.employee_id WHERE u.role = 'admin'`,
+        )
+        .all() as { id: number; admin_role_id: number | null }[]
+    ).map((r) => [r.id, r.admin_role_id]),
+  );
+  const readableByRole = new Map<number | null, boolean>();
+  const readable = (roleId: number | null) => {
+    if (!readableByRole.has(roleId)) readableByRole.set(roleId, mayReadProtocolsAsLeader(roleId));
+    return readableByRole.get(roleId) as boolean;
+  };
   return leaders.flatMap((l) => {
     const sources = scopeFor(l.employee_id).get(employeeId);
-    return sources
-      ? [{ employee_id: l.employee_id, name: `${l.first_name} ${l.last_name}`, sources, has_account: l.user_id === null ? 0 : 1 } as const]
-      : [];
+    if (!sources) return [];
+    // Erreicht wird nur, wer ein Desktop-Konto hat UND Protokolle lesen darf
+    // (Selbstschutz beim Lesen, gleiche Regel wie in meetingRoutes.ts).
+    const canRead = l.user_id !== null && roleOfUser.has(l.user_id) && readable(roleOfUser.get(l.user_id) ?? null);
+    return [
+      {
+        employee_id: l.employee_id,
+        name: `${l.first_name} ${l.last_name}`,
+        sources,
+        has_account: l.user_id === null ? (0 as const) : (1 as const),
+        can_read: canRead ? (1 as const) : (0 as const),
+      },
+    ];
   });
 }
 
@@ -373,15 +415,16 @@ export function listLeaders(): Leader[] {
  * Führungskraft frei oder erweitert dessen Zuständigkeit. Die Führungsfunktion
  * öffnet Daten anderer Bereiche (etwa freigegebene Gesprächsprotokolle, die
  * sonst `kommunikation` verlangen); `fuehrung: bearbeiten` darf nicht der Weg
- * sein, sich diese Rechte selbst zu geben. Entziehen bleibt erlaubt, das
- * nimmt nur Zugriff weg. Gleiche Regel wie in der Benutzerverwaltung:
- * niemand ändert die eigene Zuweisung.
+ * sein, sich diese Rechte selbst zu geben. Aufgerufen nur bei Änderungen, die
+ * den Bereich ERWEITERN (Freischalten, Automatik an, Ergänzung anlegen,
+ * Ausnahme löschen); alles, was nur Zugriff wegnimmt (Entziehen, Automatik
+ * aus, Notiz, Ausnahme anlegen, Ergänzung löschen), bleibt auch selbst erlaubt.
  */
 function assertNotOwnLeadership(req: FastifyRequest, leaderId: number | null): void {
   const own = req.user.employee_id ?? null;
   if (own !== null && leaderId === own) {
     throw forbidden(
-      'Die eigene Freischaltung als Führungskraft und die eigene Zuständigkeit ändert eine andere Person mit Recht „Führung“.',
+      'Den eigenen Bereich als Führungskraft erweitert eine andere Person mit Recht „Führung“ (Freischalten, Automatik einschalten, Ergänzung anlegen, Ausnahme entfernen).',
     );
   }
 }
@@ -401,6 +444,19 @@ export function grantLeader(
   }
   if (isLeaderEmployee(employeeId)) {
     throw conflict(`${employee.first_name} ${employee.last_name} ist bereits als Führungskraft freigeschaltet.`);
+  }
+  // Hat die Person schon ein Desktop-Konto, bekommt es mit der Freischaltung
+  // mehr Rechte (core/accountRights.ts): Bewerten, und Protokolle lesen. Die
+  // freischaltende Person muss sie selbst haben, und wer das Passwort des
+  // Kontos ausgegeben hat, muss sie gehabt haben; sonst könnte das Konto
+  // eigens als Strohmann angelegt worden sein.
+  const account = desktopAccountOf(employeeId);
+  if (account) {
+    assertMayRaise(
+      req,
+      [{ account, before: effectiveRights(account, { leader: false }), after: effectiveRights(account, { leader: true }) }],
+      'Diese Person hat bereits ein Konto, das nach der Freischaltung Rechte hätte, die Sie selbst nicht haben.',
+    );
   }
   const settings = getSettings();
   const warnings: string[] = [];
@@ -435,7 +491,9 @@ export function updateLeader(
   employeeId: number,
   patch: { auto_scope?: boolean; note?: string | null },
 ): { leader: Leader; warnings: string[] } {
-  assertNotOwnLeadership(req, employeeId);
+  // Nur das EINschalten der Automatik erweitert den Bereich; Notiz ändern und
+  // Automatik ausschalten nehmen nichts hinzu und bleiben auch selbst erlaubt.
+  if (patch.auto_scope === true) assertNotOwnLeadership(req, employeeId);
   loadLeader(employeeId);
   const sets: string[] = [];
   const params: Record<string, unknown> = { employee_id: employeeId };
@@ -620,6 +678,35 @@ export function scopeFor(leaderId: number, asOf: string = todayIso()): Map<numbe
     for (const id of resolveTargetMembers(a)) result.delete(id);
   }
   return result;
+}
+
+/**
+ * Obermenge der Führungskräfte, in deren `scopeFor` die Person stehen KANN:
+ * Vorgesetzte, Leitung ihrer Abteilung oder einer darüber, Leitung ihres
+ * Teams und jede Führungskraft mit einer Ergänzung (deren Ziele aufzulösen
+ * hieße scopeFor nachbauen). Nur eine Vorauswahl für `responsibleLeaders`;
+ * entschieden wird weiter allein über scopeFor. Eine neue Quelle dort gehört
+ * auch hierher, `leadership/smoke.ts` vergleicht beides über alle Personen.
+ */
+function leadersPossiblyResponsibleFor(employeeId: number): number[] {
+  return (
+    getDb()
+      .prepare(
+        `WITH RECURSIVE up(id, depth) AS (
+           SELECT department_id, 0 FROM employees WHERE id = @id AND department_id IS NOT NULL
+           UNION ALL
+           SELECT d.parent_id, up.depth + 1 FROM departments d JOIN up ON d.id = up.id
+           WHERE d.parent_id IS NOT NULL AND up.depth < 50
+         )
+         SELECT employee_id FROM leadership_leaders WHERE employee_id IN (
+           SELECT manager_id FROM employees WHERE id = @id
+           UNION SELECT head_employee_id FROM departments WHERE id IN (SELECT id FROM up)
+           UNION SELECT t.lead_employee_id FROM teams t JOIN employees e ON e.team_id = t.id WHERE e.id = @id
+           UNION SELECT leader_employee_id FROM leadership_assignments WHERE kind = 'include'
+         )`,
+      )
+      .all({ id: employeeId }) as { employee_id: number }[]
+  ).map((r) => r.employee_id);
 }
 
 /**
@@ -848,7 +935,9 @@ export function createAssignment(
   leaderId: number,
   input: LeadershipAssignmentInput,
 ): AssignmentCreateResponse {
-  assertNotOwnLeadership(req, leaderId);
+  // Nur eine Ergänzung erweitert den Bereich; eine Ausnahme für sich selbst
+  // anzulegen verkleinert ihn und bleibt erlaubt.
+  if (input.kind === 'include') assertNotOwnLeadership(req, leaderId);
   loadLeader(leaderId);
   const [table, column, missing] = TARGET_TABLES[input.target_type];
   if (!getDb().prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(input.target_id)) {
@@ -895,8 +984,9 @@ export function createAssignment(
 
 export function deleteAssignment(req: FastifyRequest, id: number): void {
   const existing = getAssignment(id);
-  // Auch das Entfernen: Eine gelöschte Ausnahme holt Personen in den Bereich.
-  assertNotOwnLeadership(req, existing.leader_employee_id);
+  // Eine gelöschte AUSNAHME holt Personen in den Bereich; eine gelöschte
+  // Ergänzung verkleinert ihn nur und bleibt auch für das eigene Profil erlaubt.
+  if (existing.kind === 'exclude') assertNotOwnLeadership(req, existing.leader_employee_id);
   const settings = getSettings();
   const before = pairKeys(mutualPairs());
   inTransaction(() => {
@@ -1190,10 +1280,17 @@ export function leaderEmployeeIdFor(user: { employee_id?: number | null }): numb
   return row && row.status === 'aktiv' ? employeeId : null;
 }
 
-export function leaderStatus(user: { employee_id?: number | null }): LeaderStatus {
+export function leaderStatus(user: { employee_id?: number | null; admin_role_id?: number | null }): LeaderStatus {
   const leaderId = leaderEmployeeIdFor(user);
   if (leaderId === null) {
-    return { is_leader: false, employee_id: user.employee_id ?? null, period: null, team_size: 0, rated_count: 0 };
+    return {
+      is_leader: false,
+      employee_id: user.employee_id ?? null,
+      period: null,
+      team_size: 0,
+      rated_count: 0,
+      protocols_readable: false,
+    };
   }
   const settings = getSettings();
   const period = currentPeriod(settings);
@@ -1211,6 +1308,7 @@ export function leaderStatus(user: { employee_id?: number | null }): LeaderStatu
     period,
     team_size: scope.size,
     rated_count: rated.filter((r) => scope.has(r.employee_id)).length,
+    protocols_readable: mayReadProtocolsAsLeader(user.admin_role_id ?? null),
   };
 }
 

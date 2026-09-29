@@ -8,6 +8,9 @@
  * (`must_change_password = 1`) und macht alle laufenden Sitzungen ungueltig
  * (`sessions_valid_from`): Wer bis eben mit dem alten Passwort angemeldet war,
  * fliegt heraus, denn beim Zuruecksetzen weiss niemand, warum es noetig wurde.
+ * Geschrieben ueber dieselbe Funktion wie das Zuruecksetzen in der
+ * Benutzerverwaltung (core/credentials.ts); als Aussteller gilt der Betreiber
+ * mit Vollzugriff, er hat die Datenbank ohnehin in der Hand.
  *
  * Das neue Passwort erscheint GENAU EINMAL auf stdout und wird nirgends
  * gespeichert. Der Vorgang steht im `audit_log` mit `user_id NULL` (es gibt
@@ -19,11 +22,10 @@
  *
  * Kein Import von config.ts (siehe toolkit.ts).
  */
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import Database from 'better-sqlite3';
-import bcrypt from 'bcryptjs';
+import { storeIssuedPassword } from '../core/credentials.js';
 import { dataDirFrom, fail, parseArgs, refuseRoot, variantBanner } from './toolkit.js';
 
 const { values } = parseArgs(process.argv.slice(2));
@@ -36,6 +38,14 @@ if (!email) fail('--email fehlt. Beispiel: --email admin@ohrganize.de');
 if (!fs.existsSync(paths.db)) fail(`${paths.db} existiert nicht (Instanz noch nie gestartet?).`);
 
 const db = new Database(paths.db, { fileMustExist: true });
+
+// storeIssuedPassword schreibt auch den Aussteller (Migration 005). Laeuft das
+// Werkzeug nach einem Update vor dem ersten Start, fehlt die Spalte noch.
+const userColumns = db.pragma('table_info(users)') as { name: string }[];
+if (!userColumns.some((c) => c.name === 'credentials_issuer_rights')) {
+  db.close();
+  fail('Die Datenbank hat ausstehende Migrationen. Instanz einmal starten (oder migrate-check), dann erneut.');
+}
 
 const user = db.prepare('SELECT id, email, name, role FROM users WHERE lower(email) = ?').get(email) as
   | { id: number; email: string; name: string; role: string }
@@ -51,17 +61,11 @@ if (!user) {
   );
 }
 
-// 12 Zufallsbytes ergeben 16 Zeichen base64url: keine Sonderzeichen, die eine
-// Shell interpretiert, und aus einem Terminal fehlerfrei kopierbar. Dieselbe
-// Erzeugung wie bei der Erstinbetriebnahme (core/auth.ts).
-const password = crypto.randomBytes(12).toString('base64url');
-const now = Math.floor(Date.now() / 1000);
 const operator = os.userInfo().username;
 
+let password = '';
 db.transaction(() => {
-  db.prepare(
-    'UPDATE users SET password_hash = ?, must_change_password = 1, sessions_valid_from = ? WHERE id = ?',
-  ).run(bcrypt.hashSync(password, 10), now, user.id);
+  password = storeIssuedPassword(db, user.id, null);
   db.prepare(
     "INSERT INTO audit_log (user_id, action, entity, entity_id, details) VALUES (NULL, 'user.password_reset', 'user', ?, ?)",
   ).run(

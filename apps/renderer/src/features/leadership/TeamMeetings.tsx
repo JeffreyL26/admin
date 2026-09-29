@@ -12,7 +12,7 @@ import {
 } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { Badge, Card, EmptyState, Spinner } from '../../components/ui';
-import { leaderFollowUpsQuery, useLeaderFollowUps, useTeamMemberMeetings } from './api';
+import { leaderFollowUpsQuery, useLeaderFollowUps, useProtocolsReadable, useTeamMemberMeetings } from './api';
 import { TeamNotice } from './TeamShared';
 
 /**
@@ -63,11 +63,17 @@ function MeetingItem({
   onToggle: (open: boolean) => void;
 }) {
   const ref = useRef<HTMLDetailsElement>(null);
+  const scrolled = useRef(false);
   const due = isFollowUpDue(meeting.follow_up_date, todayIsoLocal());
-  // Aus „Fällige Wiedervorlagen“ angesprungen: einmal in den Blick holen.
+  // Aus „Fällige Wiedervorlagen“ angesprungen: einmal in den Blick holen, und
+  // zwar erst, wenn der Eintrag aufgeklappt ist (das setzt die Karte in einem
+  // eigenen Effekt nach dem ersten Rendern). Oberkante in den Blick, damit
+  // langer Inhalt nach unten weiterläuft statt aus dem Bild zu rutschen.
   useEffect(() => {
-    if (focused) ref.current?.scrollIntoView({ block: 'center' });
-  }, [focused]);
+    if (!focused || !open || scrolled.current) return;
+    scrolled.current = true;
+    ref.current?.scrollIntoView({ block: 'start' });
+  }, [focused, open]);
   return (
     <details
       ref={ref}
@@ -126,29 +132,59 @@ function TeamMemberMeetingsCard({
   firstName: string;
   focusId: number | null;
 }) {
-  const { data, error, isLoading } = useTeamMemberMeetings(employeeId);
-  const [openIds, setOpenIds] = useState<Set<number> | null>(null);
+  const readable = useProtocolsReadable();
+  const { data, error, isLoading } = useTeamMemberMeetings(employeeId, readable === true);
+  const [openIds, setOpenIds] = useState<Set<number>>(() => new Set());
+  /** Bereits gesehene Protokolle je Person und Sprungziel. */
+  const seen = useRef<{ key: string; ids: Set<number> } | null>(null);
 
-  // Erste Antwort (oder neues Sprungziel) legt fest, was offen ist; danach
-  // entscheidet allein die Person.
+  // Nur NEU hinzukommende Protokolle können aufklappen, was die Person selbst
+  // zu- oder aufgeklappt hat, bleibt so: erste Antwort (oder leere Liste, die
+  // sich füllt) öffnet das Sprungziel bzw. das neueste; ein Sprungziel, das
+  // erst beim Nachladen ankommt, öffnet sich dann.
   useEffect(() => {
     if (!data) return;
-    const initial = focusId !== null && data.some((m) => m.id === focusId) ? focusId : data[0]?.id;
-    setOpenIds(new Set(initial === undefined ? [] : [initial]));
-    // `data` bewusst nicht: Nachladen soll den Aufklappzustand nicht zurücksetzen.
-  }, [employeeId, focusId, data === undefined]);
+    const key = `${employeeId}|${focusId ?? ''}`;
+    const prev = seen.current?.key === key ? seen.current.ids : null;
+    const toOpen: number[] = [];
+    if (prev === null || prev.size === 0) {
+      const initial = focusId !== null && data.some((m) => m.id === focusId) ? focusId : data[0]?.id;
+      if (initial !== undefined) toOpen.push(initial);
+    } else if (focusId !== null && !prev.has(focusId) && data.some((m) => m.id === focusId)) {
+      toOpen.push(focusId);
+    }
+    if (prev === null) setOpenIds(new Set(toOpen));
+    else if (toOpen.length > 0) setOpenIds((p) => new Set([...p, ...toOpen]));
+    seen.current = { key, ids: new Set(data.map((m) => m.id)) };
+  }, [employeeId, focusId, data]);
 
   const toggle = (id: number, open: boolean) =>
     setOpenIds((prev) => {
-      const next = new Set(prev ?? []);
+      const next = new Set(prev);
       if (open) next.add(id);
       else next.delete(id);
       return next;
     });
 
   return (
-    <Card title="Gesprächsprotokolle" flush={!!data && data.length > 0}>
-      {error ? (
+    <Card title="Gesprächsprotokolle" flush={readable === true && !!data && data.length > 0}>
+      {readable === 'not_leader' ? (
+        <TeamNotice>
+          Sie sind derzeit nicht als Führungskraft freigeschaltet. Gesprächsprotokolle Ihres Teams erscheinen hier
+          nur mit Freischaltung.
+        </TeamNotice>
+      ) : readable === false ? (
+        <TeamNotice>
+          Ihr Konto kann die Zuständigkeit selbst verändern (etwa über Personal- oder Führungsrechte).
+          Freigegebene Gesprächsprotokolle sehen Sie deshalb nur mit Leserecht im Bereich „Kommunikation“;
+          das vergibt eine Person mit Benutzerverwaltung.
+        </TeamNotice>
+      ) : readable === 'error' ? (
+        <TeamNotice tone="warning">
+          Ob Sie Gesprächsprotokolle sehen dürfen, konnte nicht geprüft werden (Server nicht erreichbar). Bitte später
+          erneut öffnen.
+        </TeamNotice>
+      ) : error ? (
         <TeamNotice tone="warning">Die Gesprächsprotokolle konnten nicht geladen werden: {error.message}</TeamNotice>
       ) : isLoading || !data ? (
         <Spinner center />
@@ -164,7 +200,7 @@ function TeamMemberMeetingsCard({
             <MeetingItem
               key={m.id}
               meeting={m}
-              open={openIds?.has(m.id) ?? false}
+              open={openIds.has(m.id)}
               focused={m.id === focusId}
               onToggle={(open) => toggle(m.id, open)}
             />
@@ -181,9 +217,13 @@ function TeamMemberMeetingsCard({
  */
 export function usePrefetchLeaderFollowUps(): void {
   const qc = useQueryClient();
+  // Nur für Führungskräfte, die Protokolle lesen dürfen (protocols_readable ist
+  // für Nicht-Freigeschaltete false): sonst endete der Vorabruf in 403 samt
+  // Wiederholung. Der Status liegt meist schon vor (Seitenleiste).
+  const readable = useProtocolsReadable() === true;
   useEffect(() => {
-    if (COMMUNICATION) void qc.prefetchQuery(leaderFollowUpsQuery);
-  }, [qc]);
+    if (COMMUNICATION && readable) void qc.prefetchQuery(leaderFollowUpsQuery);
+  }, [qc, readable]);
 }
 
 /**
@@ -196,8 +236,11 @@ export function FollowUpsCard(props: { onOpen: (employeeId: number, meetingId: n
 }
 
 function FollowUpsList({ onOpen }: { onOpen: (employeeId: number, meetingId: number) => void }) {
-  const { data } = useLeaderFollowUps();
-  if (!data || data.length === 0) return null;
+  const readable = useProtocolsReadable() === true;
+  const { data, isError } = useLeaderFollowUps(readable);
+  // Eine abgeschaltete Abfrage liefert weiter, was im Cache liegt, und ein
+  // 403 behält die alten Daten: Ohne Leserecht zeigt die Karte deshalb nichts.
+  if (!readable || isError || !data || data.length === 0) return null;
   const today = todayIsoLocal();
 
   return (

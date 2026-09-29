@@ -92,7 +92,7 @@ export function MeetingsPage() {
         <h1 className="portal-title">Gesprächsprotokolle</h1>
         <p className="portal-subtitle">
           Protokolle Ihrer Mitarbeitergespräche, die die Personalabteilung für Sie freigegeben hat.
-          {LEADERS_SEE_IT && ' Diese Protokolle sehen auch Ihre zuständigen Führungskräfte.'} Bei Rückfragen
+          {LEADERS_SEE_IT && ' Auch Ihre zuständigen Führungskräfte können diese Protokolle einsehen.'} Bei Rückfragen
           oder Einwänden wenden Sie sich bitte an die Personalabteilung.
         </p>
       </header>

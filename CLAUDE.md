@@ -42,7 +42,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   ändert die eigene Zuweisung, hebt in der eigenen Rolle Rechte an oder entzieht
   sich die Benutzerverwaltung; das letzte Konto mit `benutzer: bearbeiten` bleibt
   erhalten, und eine Rolle mit Mitgliedern ist nicht löschbar (sonst hätten
-  deren Konten schlagartig Vollzugriff).
+  deren Konten schlagartig Vollzugriff). Rang und Aussteller der Zugangsdaten
+  (wer mehr Rechte bekommt, braucht ein Passwort von jemandem, der sie hatte):
+  `core/accountRights.ts`, Einzelheiten unter „Rang eines Kontos“ bei Führung.
 - **Zwei getrennte Rollenbegriffe — nicht verwechseln.** `users.role` ist der
   **Systemzugang** und bleibt zweiwertig (`admin`/`mitarbeiter`); wer daran dreht,
   sperrt Konten aus. Die **Admin-Rolle** oben regelt Rechte innerhalb der
@@ -135,10 +137,11 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   geprüft an JEDER Stelle, die Zuständigkeit verändert (Freischalten,
   Zuweisen, Ausnahme entfernen, Automatik umschalten, Einstellungen), jeweils
   in der Transaktion (409 + Rollback, `service.assertMutualAllowed`).
-  Verknüpfen oder Lösen eines freigeschalteten Profils in der
-  Benutzerverwaltung verlangt `fuehrung: bearbeiten`
-  (`userRoutes.ts#assertMayLinkProfile`), sonst verschaffte sich
-  `benutzer: bearbeiten` über ein Zweitkonto fremde Teams. Die Einrichtung
+  Ein DESKTOP-Konto mit freigeschaltetem Profil zählt in der
+  Benutzerverwaltung mit den Rechten seiner Führungsfunktion (Rang, siehe
+  „Rang eines Kontos“ unten), sonst verschaffte sich `benutzer: bearbeiten`
+  über ein Zweitkonto fremde Teams; Portal-Konten öffnen „Mein Team“ nie und
+  sind ausgenommen. Die Einrichtung
   holt ihre Auswahllisten über `GET /api/leadership/lookup` (Bereich
   `fuehrung`), nicht über `/api/employees` (`personal`). Organisationsänderungen
   (Vorgesetzte, Abteilungs-/Teamleitung) laufen NICHT durch dieses Modul und
@@ -165,12 +168,45 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   registriert: eingekapseltes Plugin, preHandler `requireLeader`, Handler holen
   die ID mit `leaderIdOf`, das außerhalb des Gates 403 wirft. Nie eine
   `/me`-Route direkt auf `app`, sonst fehlt wegen SELF_GATED jede Prüfung.
-  **Selbstschutz der Verwaltung:** Niemand schaltet das eigene Profil frei,
-  ändert die eigene Freischaltung oder die eigenen Zuweisungen (auch nicht das
-  Entfernen einer Ausnahme), 403 aus `service.assertNotOwnLeadership`;
-  Entziehen bleibt erlaubt. Grund: Die Führungsfunktion öffnet Daten anderer
-  Bereiche (Gesprächsprotokolle), `fuehrung: bearbeiten` darf nicht der Weg
-  sein, sie sich selbst zu geben. **Gesprächsprotokolle in „Mein Team“:**
+  **Selbstschutz der Verwaltung:** Niemand ERWEITERT den eigenen Bereich
+  (eigenes Profil freischalten, eigene Automatik einschalten, eigene Ergänzung
+  anlegen, eigene Ausnahme entfernen), 403 aus `service.assertNotOwnLeadership`;
+  was nur verkleinert (Entziehen, Automatik aus, Notiz, Ausnahme anlegen,
+  Ergänzung entfernen), bleibt erlaubt, und die Einrichtung bietet genau das an. Grund: Die Führungsfunktion öffnet Daten anderer Bereiche
+  (Gesprächsprotokolle), `fuehrung: bearbeiten` darf nicht der Weg sein, sie
+  sich selbst zu geben. Weil `scopeFor` aber auch aus Organisationsdaten und
+  Einstellungen gespeist wird, die keine dieser Sperren kennt, gilt für die
+  Protokolle zusätzlich ein **Selbstschutz beim Lesen**
+  (`mayReadProtocols` und `SCOPE_SHAPING_AREAS` in `core/accountRights.ts`):
+  Ein Konto, das die Zuständigkeit selbst formen oder die eigenen
+  Rechte danach senken kann (`personal`, `verwaltung`, `fuehrung`,
+  `recruiting` oder `benutzer` auf `bearbeiten`), liest sie über „Mein Team“
+  nur mit `kommunikation: lesen`, sonst 403; `/me/status` meldet das als
+  `protocols_readable`, die Oberfläche fragt dann gar nicht erst. Die Rolle
+  „Führungskraft“ (alles `kein`) ist nicht betroffen, das Bewerten auch nicht.
+  **Rang eines Kontos** (`core/accountRights.ts`, gilt für die ganze
+  Benutzerverwaltung, nicht nur für Führung): `effectiveRights` ist die
+  Admin-Rolle plus, bei freigeschaltetem Profil eines Desktop-Kontos,
+  `fuehrung: bearbeiten` und (solange es Protokolle lesen darf)
+  `kommunikation: lesen`. Wer ein Konto anlegt, zurücksetzt, verknüpft,
+  löst, dessen Rolle ändert oder es löscht, braucht mindestens diese Rechte
+  (`assertWithinOwnRights`, 403). Außerdem merkt sich jedes Konto die Rechte
+  der Person, die sein Passwort zuletzt im Klartext ausgegeben hat
+  (`users.credentials_issuer_rights`, Migration `005_credentials_issuer`,
+  NULL = Vollzugriff bzw. Betreiber; geschrieben NUR über
+  `core/credentials.ts#storeIssuedPassword`, auch von `admin-reset`). Steigen
+  die Rechte eines bestehenden Kontos (Rolle zuweisen, Rolle erweitern für
+  jedes Mitglied, Profil verknüpfen, Profil freischalten, eine Herabstufung,
+  die das Lesen der Protokolle öffnet), muss die handelnde Person jeden
+  gestiegenen Bereich haben (403) und die ausgebende ihn gehabt haben
+  (`assertMayRaise`, 409 mit der Bitte, das Passwort zuerst neu ausgeben zu
+  lassen). Ein eigener Passwortwechsel ändert daran nichts, sonst hülfe er
+  jedem Strohmann; die Freischaltung gibt nie ein Passwort heraus. Eine neue
+  Stelle, an der Rechte steigen, ruft `assertMayRaise` auf;
+  `leadership/smoke.ts` prüft, dass jede Passwort ausgebende Route
+  `storeIssuedPassword` und `effectiveRights` nutzt und kein anderer Code
+  `password_hash` schreibt. Neue Bereiche, deren Rechte Eingaben von
+  `scopeFor` verändern, gehören in `SCOPE_SHAPING_AREAS`. **Gesprächsprotokolle in „Mein Team“:**
   Welche Stufe wen erreicht, steht allein in `MEETING_VISIBILITY_READERS`
   (packages/shared/src/communication.ts); Portal- und Führungsrouten filtern
   über `meetingVisibilitySql` (communication/meetingVisibility.ts), Badges und
@@ -190,7 +226,8 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   dafür die derzeit erreichten Führungskräfte
   (`GET /api/communication/meetings/recipients?employee_id=`, Bereich
   `kommunikation`, Umkehrung `service.responsibleLeaders`) und warnt, wenn
-  keine davon „Mein Team“ öffnen kann (Desktop-Konto). Die QUELLEN der
+  keine davon die Protokolle lesen kann (`can_read`: Desktop-Konto und
+  Selbstschutz beim Lesen). Die QUELLEN der
   Zuständigkeit liefert diese Route nur Konten mit `fuehrung: lesen`, sonst
   weitete `kommunikation` still auf die Zuweisungen aus. In einer Variante ohne
   Führung bietet der Editor keine reine Führungsstufe neu an und sagt, dass

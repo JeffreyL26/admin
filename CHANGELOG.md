@@ -33,7 +33,29 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   Fuehrungsansicht.
 - Selbstschutz in der Fuehrungsverwaltung: Niemand schaltet das eigene Profil
   frei oder erweitert die eigene Zustaendigkeit (403); sonst oeffnete
-  `fuehrung: bearbeiten` die Protokolle ohne Recht `kommunikation`.
+  `fuehrung: bearbeiten` die Protokolle ohne Recht `kommunikation`. Was den
+  eigenen Bereich nur verkleinert (Automatik aus, Ausnahme, Ergaenzung
+  entfernen, Notiz, Entziehen), bleibt erlaubt; die Einrichtung zeigt das.
+- Selbstschutz beim Lesen: Wer die Zustaendigkeit selbst formen oder die
+  eigenen Rechte danach senken kann (`personal`, `verwaltung`, `fuehrung`,
+  `recruiting` oder `benutzer` auf bearbeiten), sieht Protokolle unter
+  „Mein Team“ nur mit `kommunikation: lesen` (`/me/status`:
+  `protocols_readable`). Der Editor zaehlt solche Konten nicht als erreicht
+  (`can_read`).
+- Rang eines Kontos (`core/accountRights.ts`): Ein Desktop-Konto mit
+  freigeschaltetem Profil zaehlt in der Benutzerverwaltung mit
+  `fuehrung: bearbeiten` und `kommunikation: lesen`. Zuruecksetzen,
+  Verknuepfen, Loesen, Rolle aendern und Loeschen verlangen diese Rechte.
+  Jedes Konto merkt sich die Rechte der Person, die sein Passwort zuletzt
+  ausgegeben hat (Migration `005_credentials_issuer`, auch beim
+  Betreiberwerkzeug `admin-reset`). Bekommt ein Konto mehr Rechte (Rolle
+  zuweisen oder erweitern, Profil verknuepfen oder freischalten, Herabstufung,
+  die das Lesen der Protokolle oeffnet), muss diese Person sie gehabt haben,
+  sonst 409 mit der Bitte, das Passwort zuerst neu auszugeben. Die
+  Freischaltung gibt kein Passwort mehr heraus.
+- Empfaengerliste im Protokolleditor: Vorauswahl der moeglichen
+  Fuehrungskraefte statt `scopeFor` fuer alle, dazu Indizes auf Vorgesetzte,
+  Team und Leitungen (Migration `311_leadership_scope_indexes`).
 - Sichtbarkeit zentral: `MEETING_VISIBILITY_READERS` (shared) bestimmt, welche
   Stufe Fuehrung und Person erreicht; Portal, Fuehrung und HR-Oberflaeche
   leiten sich daraus ab. `/me`-Routen der Fuehrung laufen ueber

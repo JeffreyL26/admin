@@ -18,13 +18,14 @@
  * - Nur lesen. Das Protokoll fuehrt die HR.
  * - Ausserhalb des Bereichs 403, wie bei den uebrigen `/me`-Routen der Fuehrung.
  */
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { permits, type LeaderMeeting, type MeetingRecipientsResponse } from '@ohrganize/shared';
 import { getDb } from '../../db/db.js';
-import { parse } from '../../core/errors.js';
+import { forbidden, parse } from '../../core/errors.js';
 import { todayIso } from '../../core/dates.js';
 import { permissionsFor } from '../../core/permissions.js';
+import { mayReadProtocolsAsLeader } from '../../core/accountRights.js';
 import { meetingVisibilitySql } from '../communication/meetingVisibility.js';
 import { leaderIdOf, registerLeaderRoutes } from './routes.js';
 import * as service from './service.js';
@@ -48,6 +49,18 @@ const LEADER_MEETING_SELECT = `
          (${meetingVisibilitySql('m.visibility', 'employee')}
           AND EXISTS (SELECT 1 FROM users u WHERE u.employee_id = m.employee_id)) AS visible_to_employee
   ${LEADER_MEETING_FROM}`;
+
+/**
+ * Selbstschutz beim LESEN (Regel und Bereiche: core/accountRights.ts,
+ * `mayReadProtocols` und `SCOPE_SHAPING_AREAS`).
+ */
+function assertMayReadAsLeader(req: FastifyRequest): void {
+  if (!mayReadProtocolsAsLeader(req.user.admin_role_id ?? null)) {
+    throw forbidden(
+      'Ihr Konto kann die Zuständigkeit selbst verändern. Gesprächsprotokolle sehen Sie deshalb nur mit Leserecht im Bereich „Kommunikation“.',
+    );
+  }
+}
 
 const idParam = z.object({ id: z.coerce.number().int().positive() });
 const recipientsQuery = z.object({ employee_id: z.coerce.number().int().positive() });
@@ -95,9 +108,7 @@ export const leaderMeetingRoutes: FastifyPluginAsync = async (app) => {
     const withSources = permits(permissionsFor(req.user.admin_role_id ?? null).fuehrung, 'lesen');
     const leaders = service.responsibleLeaders(employee_id);
     return {
-      leaders: leaders.map((l) =>
-        withSources ? l : { employee_id: l.employee_id, name: l.name, has_account: l.has_account },
-      ),
+      leaders: leaders.map(({ sources, ...l }) => (withSources ? { ...l, sources } : l)),
     };
   });
 
@@ -109,10 +120,12 @@ export const leaderMeetingRoutes: FastifyPluginAsync = async (app) => {
     app.get('/api/leadership/me/employees/:id/meetings', async (req) => {
       const { id } = parse(idParam, req.params);
       service.assertInScope(leaderIdOf(req), id);
+      assertMayReadAsLeader(req);
       return { meetings: meetingsOf(id) };
     });
 
     app.get('/api/leadership/me/meetings/follow-ups', async (req) => {
+      assertMayReadAsLeader(req);
       return { meetings: followUpsFor(leaderIdOf(req)) };
     });
   });

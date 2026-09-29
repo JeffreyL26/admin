@@ -11,6 +11,11 @@ import { audit } from './audit.js';
 import { getSetting } from './settings.js';
 import { licenseForRole } from './license.js';
 import { portalAccessFor } from './portalAccess.js';
+import { nextSessionsValidFrom } from './credentials.js';
+
+// Liegen in credentials.ts (ohne config-Import, damit auch die
+// Betreiberwerkzeuge sie nutzen); hier weiter erreichbar wie bisher.
+export { generateInitialPassword, nextSessionsValidFrom } from './credentials.js';
 
 /** Rollen: 'admin' = HR-Administration (Desktop), 'mitarbeiter' = Web-Portal. */
 export interface AuthUser {
@@ -75,24 +80,6 @@ function signToken(app: FastifyInstance, user: AuthUser): Promise<string> {
   return Promise.resolve(
     (app as FastifyInstance & { jwt: { sign: (p: AuthUser) => string } }).jwt.sign(user),
   );
-}
-
-/**
- * Zeitpunkt, ab dem neu ausgestellte Tokens gelten sollen (Unix-SEKUNDEN).
- *
- * Warum +1 und nicht "jetzt": Das JWT-Feld `iat` hat nur Sekundenauflösung.
- * Setzte ein Passwortwechsel `sessions_valid_from` auf die LAUFENDE Sekunde,
- * bliebe jedes Token gültig, das in derselben Sekunde ausgestellt wurde
- * (der Hook prüft `iat < sessions_valid_from`) — und zwar für die volle
- * Token-Laufzeit. "Anmelden, Passwort wechseln, altes Token weiterbenutzen"
- * funktionierte damit nachweislich. Erst die nächste Sekunde ist eindeutig
- * größer als jedes bereits ausgestellte `iat`.
- *
- * Damit dabei niemand ausgesperrt wird, tragen frisch ausgestellte Tokens
- * ausdrücklich dieses `iat` (siehe issueIat) statt der laufenden Sekunde.
- */
-export function nextSessionsValidFrom(): number {
-  return Math.floor(Date.now() / 1000) + 1;
 }
 
 /**

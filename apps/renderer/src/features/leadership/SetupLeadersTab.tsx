@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Handshake, Plus, Users, UserX } from 'lucide-react';
-import { formatDateTime, type Leader } from '@ohrganize/shared';
+import { formatDateTime, moduleEnabled, type Leader } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { Avatar, Badge, Card, EmptyState, Field, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
+import { useAuth } from '../../auth/AuthContext';
 import { usePhotoUrl } from '../employees/api';
 import { useGrantLeader, useLeaders, useRevokeLeader, useUpdateLeader } from './api';
 import { SetupScopeModal } from './SetupScopeModal';
@@ -17,6 +19,10 @@ import { SetupEmployeeSelect, SetupNote, errorMessage, personCount } from './Set
  */
 export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
   const toast = useToast();
+  // Selbstschutz (Backend: service.assertNotOwnLeadership): den eigenen Bereich
+  // ERWEITERN (freischalten, Automatik an, Ergänzung, Ausnahme entfernen) macht
+  // eine andere Person; verkleinern und entziehen bleibt möglich.
+  const ownId = useAuth().user?.employee_id ?? null;
   const { data: leaders, isLoading, error } = useLeaders();
   const update = useUpdateLeader();
   const revoke = useRevokeLeader();
@@ -103,6 +109,7 @@ export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
                     key={l.employee_id}
                     leader={l}
                     canEdit={canEdit}
+                    own={l.employee_id === ownId}
                     busy={update.isPending || revoke.isPending}
                     onScope={() => setScopeFor(l)}
                     onToggleAuto={() => toggleAuto(l)}
@@ -118,10 +125,16 @@ export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
       <GrantDialog
         open={granting}
         existing={leaders ?? []}
+        ownId={ownId}
         onClose={() => setGranting(false)}
         onWarnings={setWarnings}
       />
-      <SetupScopeModal leader={scopeFor} canEdit={canEdit} onClose={() => setScopeFor(null)} />
+      <SetupScopeModal
+        leader={scopeFor}
+        canEdit={canEdit}
+        own={scopeFor !== null && scopeFor.employee_id === ownId}
+        onClose={() => setScopeFor(null)}
+      />
       <ConfirmDialog
         open={revoking !== null}
         title={`Freischaltung für „${revoking ? `${revoking.first_name} ${revoking.last_name}` : ''}“ entziehen?`}
@@ -156,6 +169,7 @@ export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
 function LeaderRow({
   leader,
   canEdit,
+  own,
   busy,
   onScope,
   onToggleAuto,
@@ -163,6 +177,8 @@ function LeaderRow({
 }: {
   leader: Leader;
   canEdit: boolean;
+  /** Das eigene Profil: nur ansehen und entziehen (Selbstschutz). */
+  own: boolean;
   busy: boolean;
   onScope: () => void;
   onToggleAuto: () => void;
@@ -236,8 +252,25 @@ function LeaderRow({
           <button type="button" className="hm-btn hm-btn--sm hm-btn--secondary" onClick={onScope}>
             <Users size={14} /> Zuständigkeit
           </button>
+          {canEdit && own && (
+            <Tooltip
+              content={
+                <>
+                  <div className="hm-tooltip__title">Eigenes Profil</div>
+                  <div className="hm-tooltip__line">Bereich erweitern · nur eine andere Person mit Recht „Führung“</div>
+                  <div className="hm-tooltip__line">Verkleinern · Automatik aus, Ausnahmen, Entziehen</div>
+                </>
+              }
+            >
+              <span>
+                <Badge tone="neutral">Eigenes Profil</Badge>
+              </span>
+            </Tooltip>
+          )}
           {canEdit && (
             <>
+              {/* Eigenes Profil: nur ausschalten (verkleinert den Bereich). */}
+              {(!own || leader.auto_scope === 1) && (
               <Tooltip
                 content={
                   <>
@@ -259,6 +292,7 @@ function LeaderRow({
                   {leader.auto_scope === 1 ? 'Automatik aus' : 'Automatik an'}
                 </button>
               </Tooltip>
+              )}
               <button
                 type="button"
                 className="hm-btn hm-btn--sm hm-btn--ghost"
@@ -283,21 +317,33 @@ function LeaderRow({
 function GrantDialog({
   open,
   existing,
+  ownId,
   onClose,
   onWarnings,
 }: {
   open: boolean;
   existing: Leader[];
+  /** Eigenes Profil: wird nicht angeboten (Selbstschutz). */
+  ownId: number | null;
   onClose: () => void;
   onWarnings: (warnings: string[]) => void;
 }) {
   const toast = useToast();
   const grant = useGrantLeader();
+  // Rang (backend core/accountRights.ts): Ein vorhandenes Konto liest nach der
+  // Freischaltung Protokolle; freischalten darf es nur, wer das selbst darf.
+  // Vorher sagen, statt nach dem Klick. Nur in Varianten mit Protokollen.
+  const { can } = useAuth();
+  const protocolsInVariant = moduleEnabled(VARIANT, 'communication');
+  const mayGrantWithAccount = !protocolsInVariant || can('kommunikation', 'lesen');
   const [employeeId, setEmployeeId] = useState<number | null>(null);
   const [autoScope, setAutoScope] = useState(true);
   const [note, setNote] = useState('');
 
-  const exclude = useMemo(() => new Set(existing.map((l) => l.employee_id)), [existing]);
+  const exclude = useMemo(
+    () => new Set([...existing.map((l) => l.employee_id), ...(ownId === null ? [] : [ownId])]),
+    [existing, ownId],
+  );
 
   const reset = () => {
     setEmployeeId(null);
@@ -350,7 +396,7 @@ function GrantDialog({
           label="Person"
           required
           span2
-          hint="Nur aktive Mitarbeitende; bereits freigeschaltete Personen werden nicht angeboten."
+          hint="Nur aktive Mitarbeitende; bereits freigeschaltete Personen und das eigene Profil werden nicht angeboten."
         >
           <SetupEmployeeSelect value={employeeId} onChange={setEmployeeId} exclude={exclude} autoFocus />
         </Field>
@@ -361,7 +407,7 @@ function GrantDialog({
           </label>
           <p style={{ margin: '6px 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
             Empfohlen. Ohne Automatik gelten ausschließlich manuelle Zuweisungen. Das eignet sich etwa für
-            HR-Sachbearbeiter:innen, die gezielt einzelne Personen bewerten sollen.
+            Sachbearbeitende in der HR, die gezielt einzelne Personen bewerten sollen.
           </p>
         </div>
         <Field label="Notiz" span2 hint="Optional, z. B. Anlass der Freischaltung. Nur in der Verwaltung sichtbar.">
@@ -373,8 +419,20 @@ function GrantDialog({
             onChange={(e) => setNote(e.target.value)}
           />
         </Field>
+        {!mayGrantWithAccount && (
+          <div className="span-2">
+            <SetupNote tone="warning">
+              Ohne Leserecht „Kommunikation“ können Sie nur Personen <strong>ohne</strong> Desktop-Konto
+              freischalten: Mit Konto läse die Person danach Gesprächsprotokolle, und dieses Recht können Sie
+              nicht weitergeben.
+            </SetupNote>
+          </div>
+        )}
         <div className="span-2">
           <SetupNote>
+            Hat jemand das Passwort eines vorhandenen Kontos ausgegeben, dem „Führung“
+            {protocolsInVariant && ' oder „Kommunikation“'} fehlte, lehnt die Freischaltung ab. Dann setzt zuerst
+            jemand mit diesen Rechten und der Benutzerverwaltung das Passwort zurück.{' '}
             Ein Personalprofil ohne Desktop-Konto darf freigeschaltet werden. Damit die Person „Mein Team“
             sieht, legen Sie unter <strong>Verwaltung → Benutzer &amp; Rechte</strong> ein Konto an und verknüpfen
             es mit dem Profil (z. B. mit der Admin-Rolle „Führungskraft“).

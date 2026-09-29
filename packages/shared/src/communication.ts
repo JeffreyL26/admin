@@ -253,6 +253,12 @@ export interface MeetingRecipient {
    * gehoeren zur Fuehrungsverwaltung, nicht zur Kommunikation.
    */
   sources?: ScopeSource[];
+  /**
+   * 1 = das Konto darf die Protokolle unter „Mein Team“ auch lesen. 0 bei
+   * einem Konto, das die Zustaendigkeit selbst veraendern kann, aber kein
+   * Leserecht in „Kommunikation“ hat (Selbstschutz beim Lesen).
+   */
+  can_read: 0 | 1;
   /** 1 = die Fuehrungskraft hat ein Desktop-Konto und sieht „Mein Team“ auch. */
   has_account: 0 | 1;
 }

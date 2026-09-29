@@ -14,6 +14,8 @@ import {
   type AdminRole,
   type PermissionLevel,
 } from '@ohrganize/shared';
+import { moduleEnabled } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
@@ -83,6 +85,7 @@ function AccountsTab() {
   const toast = useToast();
   const qc = useQueryClient();
   const { user } = useAuth();
+  const leaderGuardHint = useLeaderGuardHint();
   const { data: accounts, isLoading } = useAdminAccounts();
   const { data: roles } = useAdminRoles();
   const [creating, setCreating] = useState(false);
@@ -342,6 +345,7 @@ function AccountsTab() {
             erzeugt. Alle offenen Sitzungen dieses Kontos werden sofort beendet, und der Zugang ist
             bis zum Setzen eines eigenen Passworts gesperrt. Das neue Passwort wird{' '}
             <strong>nur einmal</strong> angezeigt.
+            {leaderGuardHint && <> {leaderGuardHint}</>}
           </>
         }
         onConfirm={() => resetting && reset.mutate(resetting.id)}
@@ -387,6 +391,7 @@ function LinkProfileDialog({ account, onClose }: { account: AdminAccount; onClos
   const toast = useToast();
   const qc = useQueryClient();
   const portal = account.role === 'mitarbeiter';
+  const leaderGuardHint = useLeaderGuardHint();
   const [employeeId, setEmployeeId] = useState<number | null>(account.employee_id);
 
   const save = useMutation({
@@ -425,6 +430,7 @@ function LinkProfileDialog({ account, onClose }: { account: AdminAccount; onClos
           {portal
             ? 'Das Portal zeigt ausschließlich die Daten des verknüpften Profils.'
             : 'Mit verknüpftem Profil kann das Konto zusätzlich im Portal anmelden und (nach Freischaltung unter Führung → Einrichtung sein Team unter „Mein Team“) bewerten.'}
+          {!portal && leaderGuardHint && <> {leaderGuardHint}</>}
         </p>
         <Field label="Personalprofil" required={portal}>
           <EmployeeSelect
@@ -584,6 +590,26 @@ function AccountDialog({
       </p>
     </Modal>
   );
+}
+
+/**
+ * Rang (backend core/accountRights.ts): Ein Konto, dessen Profil als
+ * Führungskraft freigeschaltet ist, bewertet und liest Gesprächsprotokolle.
+ * Zurücksetzen, verknüpfen, lösen, Rolle ändern oder löschen darf es darum
+ * nur, wer „Führung & Bewertung“ bearbeiten und (in Varianten mit
+ * Protokollen) „Kommunikation“ lesen darf. Die Liste zeigt nicht, welche
+ * Konten das sind; scheitert ein Eingriff daran, nennt die Meldung die
+ * fehlenden Bereiche wie bei jedem ranghöheren Konto. Das ist hingenommen:
+ * Wer Führungskraft ist, steht ohnehin im Organigramm.
+ */
+function useLeaderGuardHint(): string | null {
+  const { can } = useAuth();
+  if (!moduleEnabled(VARIANT, 'leadership')) return null;
+  const protocols = moduleEnabled(VARIANT, 'communication');
+  if (can('fuehrung', 'bearbeiten') && (!protocols || can('kommunikation', 'lesen'))) return null;
+  return protocols
+    ? 'Gehört das Konto einer freigeschalteten Führungskraft, braucht dieser Schritt Bearbeitungsrecht in „Führung & Bewertung“ und Leserecht in „Kommunikation“: Die Führungskraft bewertet und liest Gesprächsprotokolle.'
+    : 'Gehört das Konto einer freigeschalteten Führungskraft, braucht dieser Schritt Bearbeitungsrecht in „Führung & Bewertung“.';
 }
 
 /**

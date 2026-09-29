@@ -198,4 +198,17 @@ export const coreMigrations: Migration[] = [
         VALUES (1, lower(hex(randomblob(16))));
     `,
   },
+  {
+    name: '005_credentials_issuer',
+    // Rechte der Person, die das Passwort eines Kontos zuletzt im Klartext
+    // ausgegeben hat (Anlegen, Zurücksetzen, Betreiberwerkzeug), als JSON je
+    // Bereich, festgehalten im Moment der Ausgabe. Sie kennt das Passwort
+    // womöglich noch; mehr Rechte bekommt das Konto deshalb nur, wenn sie sie
+    // auch hatte (core/credentials.ts, core/accountRights.ts). NULL heißt
+    // Vollzugriff (Konto ohne Admin-Rolle, Betreiber) und gilt auch für alle
+    // bestehenden Konten: Wer sie ausgegeben hat, ist nicht mehr feststellbar.
+    sql: `
+      ALTER TABLE users ADD COLUMN credentials_issuer_rights TEXT;
+    `,
+  },
 ];

@@ -11,21 +11,29 @@
  * dass niemand die Rechteverwaltung gegen sich selbst, gegen ranghöhere Konten
  * oder gegen die Erreichbarkeit der Installation wenden kann.
  *
+ * Rang (core/accountRights.ts): Wer ein Konto anfasst, braucht mindestens
+ * dessen tatsächliche Rechte, einschließlich der Führungsfunktion eines
+ * verknüpften Profils. Die Admin-Rolle allein sieht diese nicht: Sonst könnte
+ * ein Konto mit `benutzer: bearbeiten`, aber ohne `fuehrung` das Konto einer
+ * Führungskraft zurücksetzen oder ein Zweitkonto mit ihrem Profil verknüpfen
+ * und damit deren Team lesen und in deren Namen bewerten. Die Prüfung sperrt
+ * beide Richtungen: Ein eingeschränktes Konto darf ranghöhere Rollen und
+ * Konten auch nicht beschneiden oder löschen, sonst wird aus der
+ * Rechteverwaltung ein Hebel gegen die Geschäftsführung.
+ *
  * Passwörter: Diese Routen nehmen NIE ein Passwort entgegen. Erst- und
- * Ersatzpasswörter erzeugt der Server zufällig, gibt sie genau einmal in der
- * Antwort zurück und erzwingt über `must_change_password` den Wechsel beim
- * ersten Login. Damit gibt es keinen Weg mehr, ein schwaches oder aus der
- * Dokumentation bekanntes Passwort zu setzen — genau das war der Grund, warum
+ * Ersatzpasswörter erzeugt der Server zufällig (core/credentials.ts
+ * `storeIssuedPassword`, dort auch, wessen Rechte das Konto sich dabei merkt),
+ * gibt sie genau einmal in der Antwort zurück und erzwingt über
+ * `must_change_password` den Wechsel beim ersten Login. Damit gibt es keinen Weg mehr, ein schwaches oder aus der
+ * Dokumentation bekanntes Passwort zu setzen, genau das war der Grund, warum
  * `npm run seed` mit seinen Demo-Passwörtern bisher der De-facto-Weg war,
  * Konten anzulegen. Passwörter dürfen weder ins Audit-Log noch in req.log.
  */
-import { randomBytes } from 'node:crypto';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
-import bcrypt from 'bcryptjs';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   ADMIN_AREAS,
-  ADMIN_AREA_LABELS,
   PERMISSION_LEVELS,
   type AdminArea,
   type AdminPermissions,
@@ -35,7 +43,15 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { permissionsFor } from '../../core/permissions.js';
-import { nextSessionsValidFrom } from '../../core/auth.js';
+import {
+  assertMayRaise,
+  assertWithinOwnRights,
+  effectiveRights,
+  issuerRightsOf,
+  rank,
+  type RightsChange,
+} from '../../core/accountRights.js';
+import { storeIssuedPassword } from '../../core/credentials.js';
 
 const permissionsSchema = z.record(z.enum(PERMISSION_LEVELS)).refine(
   (p) => Object.keys(p).every((k) => (ADMIN_AREAS as readonly string[]).includes(k)),
@@ -95,11 +111,6 @@ interface UserRow {
   admin_role_id: number | null;
 }
 
-/** Rechte eines Kontos ohne jede Admin-Berechtigung (Portal-Konten). */
-const NO_ACCESS: AdminPermissions = Object.fromEntries(
-  ADMIN_AREAS.map((a) => [a, 'kein' as PermissionLevel]),
-) as AdminPermissions;
-
 function loadPermissions(roleId: number): AdminPermissions {
   return permissionsFor(roleId);
 }
@@ -116,85 +127,6 @@ function userAdminCount(excludeUserId?: number): number {
   return rows.filter(
     (r) => r.id !== excludeUserId && permissionsFor(r.admin_role_id).benutzer === 'bearbeiten',
   ).length;
-}
-
-/**
- * Rechte, die ein Konto tatsächlich ausübt.
- *
- * `admin_role_id = NULL` bedeutet nur bei role 'admin' Vollzugriff (Migration
- * 002). Ein Portal-Konto hat ebenfalls keine Rolle, aber keinerlei
- * Admin-Rechte — `permissionsFor` allein würde es fälschlich als das mächtigste
- * Konto der Installation einstufen und wäre damit gegen jede Änderung geschützt.
- */
-function effectivePermissions(account: { role: string; admin_role_id: number | null }): AdminPermissions {
-  return account.role === 'admin' ? permissionsFor(account.admin_role_id) : NO_ACCESS;
-}
-
-/** Rechte der handelnden Person. Der globale Hook garantiert hier role 'admin'. */
-function ownPermissions(req: FastifyRequest): AdminPermissions {
-  return permissionsFor(req.user.admin_role_id ?? null);
-}
-
-/**
- * Profilverknüpfung mit einer freigeschalteten Führungskraft.
- *
- * Die Führungsfunktion (modules/leadership, „Mein Team“) hängt an der PERSON
- * hinter `users.employee_id`, nicht an einem Admin-Bereich — assertWithinOwnRights
- * sieht sie deshalb nicht. Ohne diese Prüfung könnte ein Konto mit
- * `benutzer: bearbeiten`, aber `fuehrung: kein` das Konto einer Führungskraft
- * vom Profil lösen und ein eigenes Zweitkonto daran hängen — und damit deren
- * Team lesen und in deren Namen bewerten. Verknüpfen und Lösen eines
- * freigeschalteten Profils verlangen darum dasselbe Recht wie die
- * Freischaltung selbst. Bewusst per SQL statt über das Leadership-Modul:
- * Die Benutzerverwaltung soll keine Fachmodule importieren.
- */
-function assertMayLinkProfile(req: FastifyRequest, employeeId: number | null): void {
-  if (employeeId === null) return;
-  const leader = getDb()
-    .prepare('SELECT 1 FROM leadership_leaders WHERE employee_id = ?')
-    .get(employeeId);
-  if (!leader) return;
-  if (ownPermissions(req).fuehrung !== 'bearbeiten') {
-    throw forbidden(
-      'Dieses Personalprofil ist als Führungskraft freigeschaltet. Die Verknüpfung darf nur ändern, wer „Führung & Bewertung“ bearbeiten darf.',
-    );
-  }
-}
-
-/**
- * Eskalationsdeckel: Niemand darf Rechte vergeben oder anfassen, die über die
- * eigenen hinausgehen.
- *
- * Ohne diese Prüfung genügt der Bereich `benutzer` = bearbeiten für den
- * Vollzugriff: eine neue Rolle mit allen Rechten anlegen (oder eine bestehende
- * hochziehen), sie einem frisch angelegten Zweitkonto geben — dessen
- * Erstpasswort man in der Antwort selbst bekommt — und sich damit anmelden.
- * Dieselbe Prüfung sperrt die Gegenrichtung: Ein eingeschränktes Konto darf
- * ranghöhere Rollen und Konten auch nicht beschneiden oder löschen, sonst wird
- * aus der Rechteverwaltung ein Hebel gegen die Geschäftsführung.
- */
-function assertWithinOwnRights(
-  req: FastifyRequest,
-  levels: Partial<AdminPermissions>,
-  message: string,
-): void {
-  const own = ownPermissions(req);
-  const exceeded = ADMIN_AREAS.filter((a) => rank(levels[a] ?? 'kein') > rank(own[a]));
-  if (exceeded.length > 0) {
-    throw forbidden(
-      `${message} Betroffene Bereiche: ${exceeded.map((a) => ADMIN_AREA_LABELS[a]).join(', ')}.`,
-    );
-  }
-}
-
-/**
- * Erstpasswort: 12 zufällige Bytes (96 Bit) als base64url — 16 Zeichen, in
- * jeder Umgebung ohne Kodierungsfragen weiterzugeben. Es wird nur gehasht
- * gespeichert und genau einmal in der Antwort ausgegeben; erraten lässt es sich
- * nicht, und die Zeit bis zum erzwungenen Wechsel ist kurz.
- */
-function generateInitialPassword(): string {
-  return randomBytes(12).toString('base64url');
 }
 
 /**
@@ -329,6 +261,27 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    // Mehr Rechte für jedes Mitglied (auch über die Führungsfunktion, etwa
+    // wenn eine Herabstufung das Lesen der Protokolle öffnet): Wer ihre
+    // Passwörter ausgegeben hat, muss die neuen Rechte gehabt haben.
+    const newPermissions = Object.fromEntries(
+      ADMIN_AREAS.map((a) => [a, body.permissions[a] ?? 'kein']),
+    ) as AdminPermissions;
+    const members = db()
+      .prepare("SELECT id, email, name, role, admin_role_id, employee_id FROM users WHERE admin_role_id = ? AND role = 'admin'")
+      .all(id) as UserRow[];
+    assertMayRaise(
+      req,
+      members.map(
+        (m): RightsChange => ({
+          account: m,
+          before: effectiveRights(m),
+          after: effectiveRights(m, { rolePermissions: newPermissions }),
+        }),
+      ),
+      'Nach dieser Änderung hätten Mitglieder der Rolle Rechte, die Sie selbst nicht haben.',
+    );
+
     inTransaction(() => {
       const clash = db()
         .prepare('SELECT id FROM admin_roles WHERE name = ? AND id != ?')
@@ -426,21 +379,16 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
         'Konten ohne Admin-Rolle haben Vollzugriff. Diese Zuweisung kann nur eine Person mit Vollzugriff vornehmen.',
       );
     }
-    if (adminRoleId !== null) {
-      loadRole(adminRoleId);
-      assertWithinOwnRights(
-        req,
-        loadPermissions(adminRoleId),
-        'Sie können kein Konto mit mehr Rechten anlegen, als Sie selbst haben.',
-      );
-    }
+    if (adminRoleId !== null) loadRole(adminRoleId);
+    // Rechte des neuen Kontos samt Führungsfunktion des Profils: Die anlegende
+    // Person bekommt das Erstpasswort in dieser Antwort.
+    assertWithinOwnRights(
+      req,
+      effectiveRights({ role: body.role, admin_role_id: adminRoleId, employee_id: employeeId }),
+      'Sie können kein Konto mit mehr Rechten anlegen, als Sie selbst haben.',
+    );
 
-    // Freigeschaltete Führungskraft: Verknüpfung nur mit fuehrung: bearbeiten.
-    assertMayLinkProfile(req, employeeId);
-
-    const initialPassword = generateInitialPassword();
-    const passwordHash = bcrypt.hashSync(initialPassword, 10);
-
+    let initialPassword = '';
     const id = inTransaction(() => {
       // Doppelte Adressen bewusst ohne Rücksicht auf Groß-/Kleinschreibung
       // ablehnen: Die Anlage soll an einer verwechselbaren Adresse scheitern,
@@ -462,13 +410,16 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           );
         }
       }
+      // Kein gültiger Hash bis zur nächsten Zeile; beides in einer Transaktion.
       const res = db()
         .prepare(
           `INSERT INTO users (email, name, password_hash, role, employee_id, admin_role_id, must_change_password)
-           VALUES (?, ?, ?, ?, ?, ?, 1)`,
+           VALUES (?, ?, '!', ?, ?, ?, 1)`,
         )
-        .run(body.email, body.name, passwordHash, body.role, employeeId, adminRoleId);
-      return Number(res.lastInsertRowid);
+        .run(body.email, body.name, body.role, employeeId, adminRoleId);
+      const userId = Number(res.lastInsertRowid);
+      initialPassword = storeIssuedPassword(db(), userId, issuerRightsOf(req));
+      return userId;
     });
 
     // Ohne Passwort und ohne Hash — das Audit-Log ist für viele Augen sichtbar.
@@ -494,27 +445,16 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
     const id = Number((req.params as { id: string }).id);
     const target = loadUser(id);
     // Eskalationsdeckel (Audit S4): Wer ein Passwort zurücksetzt, bekommt es in
-    // dieser Antwort — das ist eine vollständige Kontoübernahme. Ranghöhere
-    // Konten sind deshalb tabu.
+    // dieser Antwort, das ist eine vollständige Kontoübernahme. Ranghöhere
+    // Konten sind deshalb tabu, auch über die Führungsfunktion.
     assertWithinOwnRights(
       req,
-      effectivePermissions(target),
+      effectiveRights(target),
       'Dieses Konto hat mehr Rechte als Sie selbst. Das Passwort kann nur eine entsprechend berechtigte Person zurücksetzen.',
     );
-
-    const newPassword = generateInitialPassword();
-    // Unix-SEKUNDEN, dieselbe Quelle wie der Passwortwechsel in core/auth.ts.
-    // nextSessionsValidFrom() liefert bewusst die NÄCHSTE Sekunde: `iat` hat
-    // nur Sekundenauflösung, mit der laufenden Sekunde überlebte ein in
-    // derselben Sekunde ausgestelltes Token das Zurücksetzen. Der unmittelbar
-    // folgende Login des Kontos wird dadurch nicht entwertet — die Login-Route
-    // hebt das `iat` eines frischen Tokens auf sessions_valid_from an.
-    const validFrom = nextSessionsValidFrom();
-    db()
-      .prepare(
-        'UPDATE users SET password_hash = ?, must_change_password = 1, sessions_valid_from = ? WHERE id = ?',
-      )
-      .run(bcrypt.hashSync(newPassword, 10), validFrom, id);
+    // Sitzungen entwerten, Wechsel erzwingen, Aussteller festhalten:
+    // core/credentials.ts.
+    const newPassword = storeIssuedPassword(db(), id, issuerRightsOf(req));
 
     audit(req, 'reset_password', 'user', id, { email: target.email, name: target.name });
     return { user: loadUser(id), initial_password: newPassword };
@@ -536,7 +476,7 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
     }
     assertWithinOwnRights(
       req,
-      effectivePermissions(target),
+      effectiveRights(target),
       'Dieses Konto hat mehr Rechte als Sie selbst und kann deshalb nur von einer entsprechend berechtigten Person gelöscht werden.',
     );
     // Erreichbarkeit sichern: Es muss jemand übrig bleiben, der Rechte vergibt.
@@ -586,7 +526,7 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
     // eingeschränktes weder kapern noch beschneiden — gilt für beide Felder.
     assertWithinOwnRights(
       req,
-      effectivePermissions(target),
+      effectiveRights(target),
       'Dieses Konto hat mehr Rechte als Sie selbst und kann deshalb nur von einer entsprechend berechtigten Person geändert werden.',
     );
 
@@ -610,10 +550,6 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           );
         }
       }
-      // Bisheriges wie neues Profil: Ist eines davon als Führungskraft
-      // freigeschaltet, braucht die Änderung fuehrung: bearbeiten.
-      assertMayLinkProfile(req, target.employee_id);
-      assertMayLinkProfile(req, employeeId);
     }
 
     const adminRoleId = body.admin_role_id;
@@ -633,15 +569,25 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           'Konten ohne Admin-Rolle haben Vollzugriff. Diese Zuweisung kann nur eine Person mit Vollzugriff vornehmen.',
         );
       }
-      if (adminRoleId !== null) {
-        loadRole(adminRoleId);
-        assertWithinOwnRights(
-          req,
-          loadPermissions(adminRoleId),
-          'Sie können keine Rolle zuweisen, die mehr Rechte hat als Sie selbst.',
-        );
-      }
+      if (adminRoleId !== null) loadRole(adminRoleId);
     }
+
+    // Rechte NACH der Änderung, samt Führungsfunktion des (neuen) Profils:
+    // Die handelnde Person muss sie haben (Rang), und wer das Passwort
+    // ausgegeben hat, muss jeden gestiegenen Bereich gehabt haben. Das deckt
+    // Rolle und Verknüpfung mit einer freigeschalteten Führungskraft ab,
+    // gleich in welcher Reihenfolge freigeschaltet und verknüpft wird.
+    const afterRights = effectiveRights({
+      role: target.role,
+      admin_role_id: adminRoleId === undefined ? target.admin_role_id : adminRoleId,
+      employee_id: employeeId === undefined ? target.employee_id : employeeId,
+    });
+    assertWithinOwnRights(req, afterRights, 'Sie können einem Konto keine Rechte geben, die Sie selbst nicht haben.');
+    assertMayRaise(
+      req,
+      [{ account: target, before: effectiveRights(target), after: afterRights }],
+      'Sie können einem Konto keine Rechte geben, die Sie selbst nicht haben.',
+    );
 
     // ---- Schreiben in EINER Transaktion; die Erreichbarkeitsprüfung rollt
     // bei Verstoß alles zurück. ----
@@ -703,11 +649,6 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
       insert.run(roleId, area, permissions[area] ?? 'kein');
     }
   }
-}
-
-/** Stufen als Zahl, um „angehoben?“ vergleichen zu können. */
-function rank(level: PermissionLevel): number {
-  return level === 'bearbeiten' ? 2 : level === 'lesen' ? 1 : 0;
 }
 
 export type { AdminArea };

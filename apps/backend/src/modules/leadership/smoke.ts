@@ -40,6 +40,7 @@ const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
 const { firstAdminLogin } = await import('../../test/adminSession.js');
 const { addDaysIso } = await import('../../core/dates.js');
+const { storeIssuedPassword } = await import('../../core/credentials.js');
 const { ADMIN_AREAS, periodKeyForDate, shiftPeriod, todayIsoLocal } = await import('@ohrganize/shared');
 
 let failures = 0;
@@ -971,7 +972,11 @@ check(
     await roleOf('Führungsverwaltung', { fuehrung: 'bearbeiten' }),
   );
   const selfGrant = await selfAdmin.post('/api/leadership/leaders', { employee_id: SELF });
-  check('Selbst freischalten → 403 (Selbstschutz)', selfGrant.statusCode === 403, selfGrant.json());
+  check(
+    'Selbst freischalten → 403 (Selbstschutz, nicht der Rang)',
+    selfGrant.statusCode === 403 && /eigenen Bereich/.test(selfGrant.json()?.error?.message ?? ''),
+    selfGrant.json(),
+  );
   check('Eigenes Profil wurde nicht freigeschaltet', !db.prepare('SELECT 1 FROM leadership_leaders WHERE employee_id = ?').get(SELF));
   // Von jemand anderem freigeschaltet: Zuständigkeit ändert das Konto trotzdem nicht selbst.
   const grantSelfByAdmin = await admin.post('/api/leadership/leaders', { employee_id: SELF });
@@ -983,7 +988,23 @@ check(
   });
   check('Sich selbst eine Abteilung zuweisen → 403', selfAssign.statusCode === 403, selfAssign.json());
   const selfPatch = await selfAdmin.patch(`/api/leadership/leaders/${SELF}`, { auto_scope: true });
-  check('Eigene Freischaltung ändern → 403', selfPatch.statusCode === 403, selfPatch.json());
+  check('Eigene Automatik EINschalten (erweitert) → 403', selfPatch.statusCode === 403, selfPatch.json());
+  // Was den eigenen Bereich nur verkleinert, bleibt erlaubt.
+  const selfNote = await selfAdmin.patch(`/api/leadership/leaders/${SELF}`, { note: 'Eigene Notiz', auto_scope: false });
+  check('Eigene Notiz ändern und Automatik ausschalten → 200', selfNote.statusCode === 200, selfNote.json());
+  const selfOwnExclude = await selfAdmin.post(`/api/leadership/leaders/${SELF}/assignments`, {
+    kind: 'exclude',
+    target_type: 'employee',
+    target_id: SALES1,
+  });
+  check('Eigene Ausnahme anlegen (verkleinert) → 201', selfOwnExclude.statusCode === 201, selfOwnExclude.json());
+  const includeByAdmin = await admin.post(`/api/leadership/leaders/${SELF}/assignments`, {
+    kind: 'include',
+    target_type: 'employee',
+    target_id: HRSB,
+  });
+  const dropOwnInclude = await selfAdmin.del(`/api/leadership/assignments/${includeByAdmin.json().assignment?.id as number}`);
+  check('Eigene Ergänzung entfernen (verkleinert) → 204', dropOwnInclude.statusCode === 204, dropOwnInclude.body);
   const selfExclusion = await admin.post(`/api/leadership/leaders/${SELF}/assignments`, {
     kind: 'exclude',
     target_type: 'employee',
@@ -1020,11 +1041,446 @@ check(
   const leadersForComm = await commReader.get('/api/leadership/leaders');
   check('Dieselbe Rolle: GET /api/leadership/leaders bleibt 403', leadersForComm.statusCode === 403, leadersForComm.json());
 
+  // Selbstschutz beim LESEN: Wer die Zuständigkeit selbst formen kann
+  // (hier personal: bearbeiten, etwa sich als Vorgesetzte eintragen), liest
+  // Protokolle über „Mein Team“ nur mit kommunikation: lesen.
+  const ORG = addEmployee({ first_name: 'Olga', last_name: 'Organisation', job_title: 'HR', department_id: DEPT_PERSONAL });
+  const orgAdmin = await loginAs(
+    ORG,
+    'olga.org@example.org',
+    'Olga Organisation',
+    await roleOf('Personal pflegen', { personal: 'bearbeiten' }),
+  );
+  const orgGrant = await admin.post('/api/leadership/leaders', { employee_id: ORG, auto_scope: false });
+  check('Vorbedingung: HR schaltet ORG frei → 201', orgGrant.statusCode === 201, orgGrant.json());
+  const orgInclude = await admin.post(`/api/leadership/leaders/${ORG}/assignments`, {
+    kind: 'include',
+    target_type: 'employee',
+    target_id: MEET_IN,
+  });
+  check('Vorbedingung: HR weist ORG die Person DEV2 zu → 201', orgInclude.statusCode === 201, orgInclude.json());
+  const orgTeam = await orgAdmin.get('/api/leadership/me/team');
+  check('ORG sieht „Mein Team“ weiterhin (Bewertung unberührt)', orgTeam.statusCode === 200, orgTeam.json());
+  const orgMeet = await orgAdmin.get(`/api/leadership/me/employees/${MEET_IN}/meetings`);
+  const orgDue = await orgAdmin.get('/api/leadership/me/meetings/follow-ups');
+  check(
+    'personal:bearbeiten ohne kommunikation: Protokolle und Wiedervorlagen → 403 mit Begründung',
+    orgMeet.statusCode === 403 && /Kommunikation/.test(orgMeet.json()?.error?.message ?? '') && orgDue.statusCode === 403,
+    [orgMeet.json(), orgDue.statusCode],
+  );
+  const recWithOrg = (await admin.get(`/api/communication/meetings/recipients?employee_id=${MEET_IN}`)).json()
+    .leaders as Array<{ employee_id: number; can_read: number; has_account: number }>;
+  check(
+    'Empfänger: ORG mit Konto, aber can_read 0; TLB (Rolle Führungskraft) can_read 1; CTO ohne Konto can_read 0',
+    recWithOrg.find((l) => l.employee_id === ORG)?.has_account === 1 &&
+      recWithOrg.find((l) => l.employee_id === ORG)?.can_read === 0 &&
+      recWithOrg.find((l) => l.employee_id === TLB)?.can_read === 1 &&
+      recWithOrg.find((l) => l.employee_id === CTO)?.can_read === 0,
+    recWithOrg,
+  );
+  const orgStatus = (await orgAdmin.get('/api/leadership/me/status')).json();
+  const tlbStatusNow = (await tlb.get('/api/leadership/me/status')).json();
+  check(
+    '/me/status: protocols_readable false für ORG, true für TLB',
+    orgStatus.is_leader === true && orgStatus.protocols_readable === false && tlbStatusNow.protocols_readable === true,
+    [orgStatus, tlbStatusNow],
+  );
+  await admin.del(`/api/leadership/leaders/${ORG}`);
+
+  // Jeder Bereich, der die Zuständigkeit formt (service.SCOPE_SHAPING_AREAS),
+  // sperrt ohne kommunikation das Lesen; mit kommunikation: lesen ist es offen.
+  const extraProfiles: number[] = [];
+  const cases: Array<[string, Record<string, string>, number]> = [
+    ['verwaltung', { verwaltung: 'bearbeiten' }, 403],
+    ['fuehrung', { fuehrung: 'bearbeiten' }, 403],
+    ['recruiting', { recruiting: 'bearbeiten' }, 403],
+    ['benutzer', { benutzer: 'bearbeiten' }, 403],
+    ['personal+kommunikation', { personal: 'bearbeiten', kommunikation: 'lesen' }, 200],
+  ];
+  for (const [label, permissions, expected] of cases) {
+    const id = addEmployee({ first_name: 'Test', last_name: `Bereich${extraProfiles.length}`, job_title: 'HR', department_id: DEPT_PERSONAL });
+    extraProfiles.push(id);
+    const account = await loginAs(id, `bereich${extraProfiles.length}@example.org`, `Bereich ${label}`, await roleOf(`Lesetest ${label}`, permissions));
+    const granted = await admin.post('/api/leadership/leaders', { employee_id: id, auto_scope: false });
+    const included = await admin.post(`/api/leadership/leaders/${id}/assignments`, { kind: 'include', target_type: 'employee', target_id: MEET_IN });
+    const read = await account.get(`/api/leadership/me/employees/${MEET_IN}/meetings`);
+    const rec = ((await admin.get(`/api/communication/meetings/recipients?employee_id=${MEET_IN}`)).json().leaders as Array<{ employee_id: number; can_read: number }>).find((l) => l.employee_id === id);
+    check(
+      `Leseregel ${label}: Protokolle → ${expected}, can_read ${expected === 200 ? 1 : 0}`,
+      granted.statusCode === 201 && included.statusCode === 201 && read.statusCode === expected && rec?.can_read === (expected === 200 ? 1 : 0),
+      [granted.statusCode, included.statusCode, read.statusCode, rec],
+    );
+    await admin.del(`/api/leadership/leaders/${id}`);
+  }
+
+  // Rang (core/accountRights.ts): Ein Konto mit freigeschaltetem Profil hat
+  // die Rechte der Führungsfunktion (fuehrung: bearbeiten, kommunikation:
+  // lesen). Wer es anlegt, verknüpft, zurücksetzt, ändert oder löst, braucht
+  // sie selbst. Rolle „Führung und Benutzer“ hat kein kommunikation.
+  const PUP = addEmployee({ first_name: 'Paul', last_name: 'Puppenspieler', job_title: 'HR', department_id: DEPT_PERSONAL });
+  extraProfiles.push(PUP);
+  const puppeteer = await loginAs(PUP, 'paul.puppe@example.org', 'Paul Puppenspieler', await roleOf('Führung und Benutzer', { fuehrung: 'bearbeiten', benutzer: 'bearbeiten' }));
+  const puppetAccount = await puppeteer.post('/api/admin/users', {
+    email: 'puppe@example.org',
+    name: 'Puppe',
+    role: 'admin',
+    employee_id: CTO,
+    admin_role_id: fuehrungskraftRole.id,
+  });
+  check(
+    'Konto an freigeschaltete Führungskraft ohne kommunikation:lesen → 403, kein Erstpasswort',
+    puppetAccount.statusCode === 403 && /Kommunikation/.test(puppetAccount.json()?.error?.message ?? '') && !('initial_password' in (puppetAccount.json() ?? {})),
+    puppetAccount.json(),
+  );
+
+  // Passwort zurücksetzen gibt das neue Passwort zurück: bei einer
+  // Führungskraft nur mit fuehrung UND kommunikation, jedes für sich geprüft.
+  const tlbUserId = (db.prepare('SELECT id FROM users WHERE employee_id = ?').get(TLB) as { id: number }).id;
+  const puppetReset = await puppeteer.post(`/api/admin/users/${tlbUserId}/reset-password`);
+  check(
+    'Passwort einer Führungskraft ohne kommunikation zurücksetzen → 403, kein Passwort',
+    puppetReset.statusCode === 403 && /Kommunikation/.test(puppetReset.json()?.error?.message ?? '') && !('initial_password' in (puppetReset.json() ?? {})),
+    puppetReset.json(),
+  );
+  const NOF = addEmployee({ first_name: 'Nora', last_name: 'Ohnefuehrung', job_title: 'HR', department_id: DEPT_PERSONAL });
+  extraProfiles.push(NOF);
+  const noFuehrung = await loginAs(NOF, 'nora.ohne@example.org', 'Nora Ohnefuehrung', await roleOf('Benutzer und Kommunikation', { benutzer: 'bearbeiten', kommunikation: 'lesen' }));
+  const noFuehrungReset = await noFuehrung.post(`/api/admin/users/${tlbUserId}/reset-password`);
+  check(
+    'Passwort einer Führungskraft ohne fuehrung (mit kommunikation) zurücksetzen → 403, kein Passwort',
+    noFuehrungReset.statusCode === 403 &&
+      /Führung/.test(noFuehrungReset.json()?.error?.message ?? '') &&
+      !/Kommunikation/.test(noFuehrungReset.json()?.error?.message ?? '') &&
+      !('initial_password' in (noFuehrungReset.json() ?? {})),
+    noFuehrungReset.json(),
+  );
+
+  // Erlaubte Wege: Wer fuehrung, benutzer und kommunikation hat.
+  const K = addEmployee({ first_name: 'Kai', last_name: 'Kommunikativ', job_title: 'HR', department_id: DEPT_PERSONAL });
+  extraProfiles.push(K);
+  const hrWithComm = await loginAs(
+    K,
+    'kai.komm@example.org',
+    'Kai Kommunikativ',
+    await roleOf('Führung, Benutzer, Kommunikation', { fuehrung: 'bearbeiten', benutzer: 'bearbeiten', kommunikation: 'lesen' }),
+  );
+  const issuerOf = (userId: number) =>
+    (db.prepare('SELECT credentials_issuer_rights AS r FROM users WHERE id = ?').get(userId) as { r: string | null }).r;
+
+  // Erst Konto anlegen, dann freischalten: Das Konto bekommt mit der
+  // Freischaltung Rechte, die weder die freischaltende Person noch die, die
+  // das Passwort ausgegeben hat, haben darf, wenn sie ihr fehlen.
+  const Q = addEmployee({ first_name: 'Quirin', last_name: 'Quelle', job_title: 'HR', department_id: DEPT_PERSONAL });
+  extraProfiles.push(Q);
+  const qAccount = await puppeteer.post('/api/admin/users', {
+    email: 'quirin.quelle@example.org',
+    name: 'Quirin Quelle',
+    role: 'admin',
+    employee_id: Q,
+    admin_role_id: fuehrungskraftRole.id,
+  });
+  const qUserId = qAccount.json().user?.id as number;
+  check(
+    'Konto für NICHT freigeschaltetes Profil anlegen → 201, Aussteller ohne kommunikation festgehalten',
+    qAccount.statusCode === 201 && JSON.parse(issuerOf(qUserId) ?? '{}').kommunikation === 'kein',
+    [qAccount.json(), issuerOf(qUserId)],
+  );
+  const qGrantByPuppeteer = await puppeteer.post('/api/leadership/leaders', { employee_id: Q });
+  check(
+    'Profil mit Konto freischalten ohne kommunikation → 403',
+    qGrantByPuppeteer.statusCode === 403 && /Kommunikation/.test(qGrantByPuppeteer.json()?.error?.message ?? ''),
+    qGrantByPuppeteer.json(),
+  );
+  const qGrantByAdmin = await admin.post('/api/leadership/leaders', { employee_id: Q });
+  check(
+    'Vollzugriff schaltet frei, aber das Passwort stammt von jemandem ohne kommunikation → 409, kein Passwort',
+    qGrantByAdmin.statusCode === 409 &&
+      /Passwort von „Quirin Quelle“/.test(qGrantByAdmin.json()?.error?.message ?? '') &&
+      !JSON.stringify(qGrantByAdmin.json()).includes('initial_password'),
+    qGrantByAdmin.json(),
+  );
+  check('Q wurde nicht freigeschaltet', !db.prepare('SELECT 1 FROM leadership_leaders WHERE employee_id = ?').get(Q));
+  const qReissue = await hrWithComm.post(`/api/admin/users/${qUserId}/reset-password`);
+  const qGrantAfterReissue = await admin.post('/api/leadership/leaders', { employee_id: Q });
+  check(
+    'Passwort von jemandem mit den Rechten neu ausgegeben → Freischalten 201 ohne Passwort in der Antwort',
+    qReissue.statusCode === 200 && qGrantAfterReissue.statusCode === 201 && !('handover' in qGrantAfterReissue.json()),
+    [qReissue.statusCode, qGrantAfterReissue.json()],
+  );
+
+  // Lösen: Das Konto liest Protokolle und ist damit ranghöher als die Rolle
+  // ohne kommunikation. Neu verknüpfen prüft, wer das Passwort ausgegeben hat,
+  // auch wenn die Freischaltung zuerst da war (Freischalten, dann Verknüpfen).
+  const qUnlinkByPuppeteer = await puppeteer.patch(`/api/admin/users/${qUserId}`, { employee_id: null });
+  check(
+    'Konto einer Führungskraft lösen ohne kommunikation → 403 (ranghöheres Konto)',
+    qUnlinkByPuppeteer.statusCode === 403 && /Kommunikation/.test(qUnlinkByPuppeteer.json()?.error?.message ?? ''),
+    qUnlinkByPuppeteer.json(),
+  );
+  const qUnlink = await hrWithComm.patch(`/api/admin/users/${qUserId}`, { employee_id: null });
+  check('Mit kommunikation lösen → 200', qUnlink.statusCode === 200, qUnlink.json());
+  const qResetUnlinked = await puppeteer.post(`/api/admin/users/${qUserId}/reset-password`);
+  check('Gelöstes Konto (keine Führungsrechte mehr) setzt auch die Rolle ohne kommunikation zurück → 200', qResetUnlinked.statusCode === 200, qResetUnlinked.json());
+  const qRelinkByPuppeteer = await puppeteer.patch(`/api/admin/users/${qUserId}`, { employee_id: Q });
+  check(
+    'Wieder verknüpfen ohne kommunikation → 403',
+    qRelinkByPuppeteer.statusCode === 403 && /Kommunikation/.test(qRelinkByPuppeteer.json()?.error?.message ?? ''),
+    qRelinkByPuppeteer.json(),
+  );
+  const qRelinkUntrusted = await hrWithComm.patch(`/api/admin/users/${qUserId}`, { employee_id: Q });
+  check(
+    'Verknüpfen mit freigeschaltetem Profil, Passwort von jemandem ohne kommunikation → 409, Profil unverändert',
+    qRelinkUntrusted.statusCode === 409 &&
+      (db.prepare('SELECT employee_id FROM users WHERE id = ?').get(qUserId) as { employee_id: number | null }).employee_id === null,
+    qRelinkUntrusted.json(),
+  );
+  await hrWithComm.post(`/api/admin/users/${qUserId}/reset-password`);
+  const qRelinkOk = await hrWithComm.patch(`/api/admin/users/${qUserId}`, { employee_id: Q });
+  check('Nach neuem Passwort von hrWithComm: verknüpfen → 200', qRelinkOk.statusCode === 200, qRelinkOk.json());
+  const qResetOk = await hrWithComm.post(`/api/admin/users/${qUserId}/reset-password`);
+  check(
+    'Mit fuehrung und kommunikation: Passwort der Führungskraft zurücksetzen → 200 mit Passwort',
+    qResetOk.statusCode === 200 && typeof qResetOk.json().initial_password === 'string',
+    qResetOk.json(),
+  );
+  await admin.del(`/api/leadership/leaders/${Q}`);
+
+  // Strohmann meldet sich VOR der Freischaltung an und setzt ein eigenes
+  // Passwort: Maßgeblich bleibt, wer es ausgegeben hat. Die Freischaltung
+  // scheitert, das Konto liest nichts.
+  const T = addEmployee({ first_name: 'Tanja', last_name: 'Vorab', job_title: 'Teamleitung', department_id: DEPT_PERSONAL });
+  extraProfiles.push(T);
+  const tAccount = await puppeteer.post('/api/admin/users', {
+    email: 'tanja.vorab@example.org',
+    name: 'Tanja Vorab',
+    role: 'admin',
+    employee_id: T,
+    admin_role_id: fuehrungskraftRole.id,
+  });
+  const tFirst = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { email: 'tanja.vorab@example.org', password: tAccount.json().initial_password },
+  });
+  const tChanged = await app.inject({
+    method: 'PUT',
+    url: '/api/auth/password',
+    headers: { authorization: `Bearer ${tFirst.json().token as string}` },
+    payload: { currentPassword: tAccount.json().initial_password, newPassword: 'Uebernahme-Konto-9352!' },
+  });
+  const tGrant = await hrWithComm.post('/api/leadership/leaders', { employee_id: T });
+  check(
+    'Vorab übernommenes Konto: eigenes Passwort ändert nichts am Aussteller, Freischalten → 409',
+    tChanged.statusCode === 200 && tGrant.statusCode === 409,
+    [tChanged.statusCode, tGrant.json()],
+  );
+
+  // Vertrauenswürdig ausgegeben: Freischalten ändert am Passwort nichts.
+  const U = addEmployee({ first_name: 'Uwe', last_name: 'Uebergabe', job_title: 'Teamleitung', department_id: DEPT_PERSONAL });
+  extraProfiles.push(U);
+  const uAccount = await hrWithComm.post('/api/admin/users', {
+    email: 'uwe.uebergabe@example.org',
+    name: 'Uwe Uebergabe',
+    role: 'admin',
+    employee_id: U,
+    admin_role_id: fuehrungskraftRole.id,
+  });
+  const uGrant = await hrWithComm.post('/api/leadership/leaders', { employee_id: U });
+  const uLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { email: 'uwe.uebergabe@example.org', password: uAccount.json().initial_password },
+  });
+  check(
+    'Passwort von jemandem mit den Rechten: Freischalten 201, Erstpasswort bleibt gültig',
+    uGrant.statusCode === 201 && uLogin.statusCode === 200,
+    [uGrant.json(), uLogin.statusCode],
+  );
+  await admin.del(`/api/leadership/leaders/${U}`);
+
+  // Freischalten gibt nie ein Passwort heraus, auch nicht für ein ranghöheres
+  // Konto (Vollzugriff), und dessen Passwort bleibt, wie es war.
+  const W = addEmployee({ first_name: 'Wanda', last_name: 'Vollzugriff', job_title: 'Leitung', department_id: DEPT_PERSONAL });
+  extraProfiles.push(W);
+  const wAccount = await admin.post('/api/admin/users', { email: 'wanda.voll@example.org', name: 'Wanda Vollzugriff', role: 'admin', employee_id: W });
+  const wGrant = await hrWithComm.post('/api/leadership/leaders', { employee_id: W });
+  const wLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { email: 'wanda.voll@example.org', password: wAccount.json().initial_password },
+  });
+  check(
+    'Profil mit Vollzugriffskonto freischalten → 201 ohne Passwort, Konto unverändert',
+    wAccount.statusCode === 201 &&
+      wGrant.statusCode === 201 &&
+      !JSON.stringify(wGrant.json()).includes('initial_password') &&
+      wLogin.statusCode === 200,
+    [wGrant.json(), wLogin.statusCode],
+  );
+  await admin.del(`/api/leadership/leaders/${W}`);
+
+  // Aussteller gelöscht (die Doku empfiehlt, den Start-Admin zu löschen): Die
+  // festgehaltenen Rechte bleiben, die Freischaltung gelingt.
+  const FA = addEmployee({ first_name: 'Frieda', last_name: 'Startadmin', job_title: 'IT', department_id: DEPT_PERSONAL });
+  extraProfiles.push(FA);
+  const fullAdmin = await loginAs(FA, 'frieda.start@example.org', 'Frieda Startadmin', await roleOf('Alles', Object.fromEntries(ADMIN_AREAS.map((a) => [a, 'bearbeiten']))));
+  const V = addEmployee({ first_name: 'Vera', last_name: 'Verbleib', job_title: 'Teamleitung', department_id: DEPT_PERSONAL });
+  extraProfiles.push(V);
+  const vAccount = await fullAdmin.post('/api/admin/users', {
+    email: 'vera.verbleib@example.org',
+    name: 'Vera Verbleib',
+    role: 'admin',
+    employee_id: V,
+    admin_role_id: fuehrungskraftRole.id,
+  });
+  const faUserId = (db.prepare('SELECT id FROM users WHERE email = ?').get('frieda.start@example.org') as { id: number }).id;
+  const faDeleted = await admin.del(`/api/admin/users/${faUserId}`);
+  const vGrant = await hrWithComm.post('/api/leadership/leaders', { employee_id: V });
+  check(
+    'Ausstellendes Konto gelöscht: Freischalten → 201',
+    vAccount.statusCode === 201 && faDeleted.statusCode === 204 && vGrant.statusCode === 201,
+    [vAccount.statusCode, faDeleted.statusCode, vGrant.json()],
+  );
+  await admin.del(`/api/leadership/leaders/${V}`);
+
+  // Betreiberwerkzeug (admin-reset) schreibt über dieselbe Funktion und gilt
+  // als Vollzugriff: danach gelingt die Freischaltung.
+  const Y = addEmployee({ first_name: 'Yara', last_name: 'Betreiber', job_title: 'Teamleitung', department_id: DEPT_PERSONAL });
+  extraProfiles.push(Y);
+  const yAccount = await puppeteer.post('/api/admin/users', {
+    email: 'yara.betreiber@example.org',
+    name: 'Yara Betreiber',
+    role: 'admin',
+    employee_id: Y,
+    admin_role_id: fuehrungskraftRole.id,
+  });
+  storeIssuedPassword(db, yAccount.json().user.id as number, null);
+  const yGrant = await hrWithComm.post('/api/leadership/leaders', { employee_id: Y });
+  check('Vom Betreiber neu ausgegeben: Freischalten → 201', yGrant.statusCode === 201, yGrant.json());
+  await admin.del(`/api/leadership/leaders/${Y}`);
+
+  // Allgemein, nicht nur Führung: Eine Rolle mit mehr Rechten zuweisen oder
+  // eine Rolle erweitern verlangt, dass die Passwörter der betroffenen Konten
+  // von jemandem mit diesen Rechten stammen.
+  const commRoleId = await roleOf('Nur Kommunikation', { kommunikation: 'lesen' });
+  const Z = addEmployee({ first_name: 'Zoe', last_name: 'Zuweisung', job_title: 'HR', department_id: DEPT_PERSONAL });
+  extraProfiles.push(Z);
+  const zAccount = await puppeteer.post('/api/admin/users', {
+    email: 'zoe.zuweisung@example.org',
+    name: 'Zoe Zuweisung',
+    role: 'admin',
+    employee_id: Z,
+    admin_role_id: fuehrungskraftRole.id,
+  });
+  const zUserId = zAccount.json().user?.id as number;
+  const zRaise = await admin.patch(`/api/admin/users/${zUserId}`, { admin_role_id: commRoleId });
+  check(
+    'Rolle mit kommunikation zuweisen, Passwort von jemandem ohne → 409, Rolle unverändert',
+    zRaise.statusCode === 409 &&
+      (db.prepare('SELECT admin_role_id FROM users WHERE id = ?').get(zUserId) as { admin_role_id: number }).admin_role_id === fuehrungskraftRole.id,
+    zRaise.json(),
+  );
+  const zRoleId = await roleOf('Zoes Rolle', {});
+  await admin.patch(`/api/admin/users/${zUserId}`, { admin_role_id: zRoleId });
+  const zRoleEdit = await admin.patch(`/api/admin/admin-roles/${zRoleId}`, { name: 'Zoes Rolle', permissions: { kommunikation: 'lesen' } });
+  check('Rolle erweitern, Mitglied mit Passwort von jemandem ohne das Recht → 409', zRoleEdit.statusCode === 409, zRoleEdit.json());
+
+  // Herabstufung, die das Lesen öffnet (Befund: vorher selbst geformter
+  // Bereich), zählt als Rechteerhöhung: Wer ohne kommunikation herabstuft → 403.
+  const DOWN = addEmployee({ first_name: 'Dora', last_name: 'Herabgestuft', job_title: 'Leitung', department_id: DEPT_PERSONAL });
+  extraProfiles.push(DOWN);
+  const shapingRoleId = await roleOf('Personal gestalten', { personal: 'bearbeiten' });
+  await loginAs(DOWN, 'dora.herab@example.org', 'Dora Herabgestuft', shapingRoleId);
+  const downUserId = (db.prepare('SELECT id FROM users WHERE email = ?').get('dora.herab@example.org') as { id: number }).id;
+  await admin.post('/api/leadership/leaders', { employee_id: DOWN });
+  const DEM = addEmployee({ first_name: 'Dieter', last_name: 'Demoter', job_title: 'HR', department_id: DEPT_PERSONAL });
+  extraProfiles.push(DEM);
+  const demoter = await loginAs(DEM, 'dieter.demoter@example.org', 'Dieter Demoter', await roleOf('Personal, Führung, Benutzer', { personal: 'bearbeiten', fuehrung: 'bearbeiten', benutzer: 'bearbeiten' }));
+  const demote = await demoter.patch(`/api/admin/users/${downUserId}`, { admin_role_id: fuehrungskraftRole.id });
+  check(
+    'Führungskraft herabstufen, sodass sie Protokolle liest, ohne kommunikation → 403',
+    demote.statusCode === 403 && /Kommunikation/.test(demote.json()?.error?.message ?? ''),
+    demote.json(),
+  );
+  const demoteRole = await demoter.patch(`/api/admin/admin-roles/${shapingRoleId}`, { name: 'Personal gestalten', permissions: {} });
+  check('Dasselbe über die Rolle (Rechte senken) ohne kommunikation → 403', demoteRole.statusCode === 403, demoteRole.json());
+  const demoteByAdmin = await admin.patch(`/api/admin/users/${downUserId}`, { admin_role_id: fuehrungskraftRole.id });
+  check('Mit kommunikation herabstufen → 200', demoteByAdmin.statusCode === 200, demoteByAdmin.json());
+  await admin.del(`/api/leadership/leaders/${DOWN}`);
+
+  // Portal-Konten öffnen „Mein Team“ nie: Anlegen für eine freigeschaltete
+  // Führungskraft braucht weder fuehrung noch kommunikation.
+  const S = addEmployee({ first_name: 'Sina', last_name: 'Selbstdienst', job_title: 'Teamleitung', department_id: DEPT_PERSONAL });
+  extraProfiles.push(S);
+  await admin.post('/api/leadership/leaders', { employee_id: S });
+  const BEN = addEmployee({ first_name: 'Bea', last_name: 'Benutzer', job_title: 'HR', department_id: DEPT_PERSONAL });
+  extraProfiles.push(BEN);
+  const usersOnly = await loginAs(BEN, 'bea.benutzer@example.org', 'Bea Benutzer', await roleOf('Nur Benutzer (Portal)', { benutzer: 'bearbeiten' }));
+  const sPortal = await usersOnly.post('/api/admin/users', {
+    email: 'sina.portal@example.org',
+    name: 'Sina Selbstdienst',
+    role: 'mitarbeiter',
+    employee_id: S,
+  });
+  check('Portal-Konto für freigeschaltete Führungskraft nur mit benutzer → 201', sPortal.statusCode === 201, sPortal.json());
+  await admin.del(`/api/leadership/leaders/${S}`);
+
+  // responsibleLeaders rechnet scopeFor nur für eine Vorauswahl. Sie muss jede
+  // Quelle abdecken: gegen alle Führungskräfte über alle Personen vergleichen.
+  const { responsibleLeaders, listLeaders, scopeFor } = await import('./service.js');
+  const everyone = (db.prepare('SELECT id FROM employees').all() as { id: number }[]).map((r) => r.id);
+  const activeLeaders = listLeaders().filter((l) => l.status === 'aktiv');
+  const drift = everyone.filter((id) => {
+    const fast = responsibleLeaders(id).map((l) => l.employee_id).sort((a, b) => a - b).join(',');
+    const full = activeLeaders.filter((l) => scopeFor(l.employee_id).has(id)).map((l) => l.employee_id).sort((a, b) => a - b).join(',');
+    return fast !== full;
+  });
+  check('Empfänger-Vorauswahl deckt scopeFor für jede Person ab', drift.length === 0, drift);
+
+  // Jede Route, die ein Passwort ausgibt, erzeugt es über storeIssuedPassword
+  // (Aussteller festhalten) und prüft den Rang über effectiveRights. Kein
+  // anderer Code schreibt password_hash, außer dem eigenen Passwortwechsel und
+  // dem Start-Admin (core/auth.ts) sowie den Demo-Daten.
+  const stripComments = (src: string) =>
+    src
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split(/\r?\n/)
+      .map((line) => line.replace(/\/\/.*$/, ''))
+      .join('\n');
+  const userRoutesCode = stripComments(fs.readFileSync(path.join(import.meta.dirname, '../admin/userRoutes.ts'), 'utf8'));
+  const routeBlocks = userRoutesCode.split(/\bapp\.(?=(?:get|post|put|patch|delete)\s*[<(])/).slice(1);
+  const passwordRoutes = routeBlocks.filter((b) => b.includes('initial_password'));
+  check(
+    'Passwort ausgebende Routen der Benutzerverwaltung: storeIssuedPassword und effectiveRights',
+    passwordRoutes.length >= 2 && passwordRoutes.every((b) => /\bstoreIssuedPassword\(/.test(b) && /\beffectiveRights\(/.test(b)),
+    passwordRoutes.map((b) => b.slice(0, 60)),
+  );
+  const srcRoot = path.join(import.meta.dirname, '../..');
+  const allowedWriters = new Set(['core/credentials.ts', 'core/auth.ts', 'modules/admin/userRoutes.ts']);
+  const writers: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!['test', 'seed', 'variants'].includes(entry.name)) walk(full);
+      } else if (entry.name.endsWith('.ts') && !entry.name.includes('smoke')) {
+        const rel = path.relative(srcRoot, full).split(path.sep).join('/');
+        if (/password_hash\s*=|\bpassword_hash\b[^;]*\bVALUES\b/.test(stripComments(fs.readFileSync(full, 'utf8'))) && !allowedWriters.has(rel)) {
+          writers.push(rel);
+        }
+      }
+    }
+  };
+  walk(srcRoot);
+  check('Kein weiterer Code schreibt password_hash an storeIssuedPassword vorbei', writers.length === 0, writers);
+
   // Aufräumen: spätere Abschnitte rechnen mit einer unberührten Organisation.
   // Die Konten bleiben (Audit und Freischaltung verweisen auf sie), nur ihre
   // Profile verschwinden wieder aus der Organisation.
-  db.prepare('UPDATE users SET employee_id = NULL WHERE employee_id IN (?, ?)').run([SELF, COMM]);
-  db.prepare('DELETE FROM employees WHERE id IN (?, ?)').run([SELF, COMM]);
+  const tempProfiles = [SELF, COMM, ORG, ...extraProfiles];
+  const marks = tempProfiles.map(() => '?').join(', ');
+  db.prepare(`UPDATE users SET employee_id = NULL WHERE employee_id IN (${marks})`).run(tempProfiles);
+  db.prepare(`DELETE FROM employees WHERE id IN (${marks})`).run(tempProfiles);
   db.prepare('DELETE FROM meeting_protocols').run();
 }
 
@@ -1466,7 +1922,7 @@ const puppet = await hrUser.post('/api/admin/users', {
 });
 check(
   'Konto mit freigeschaltetem Profil ohne fuehrung:bearbeiten → 403',
-  puppet.statusCode === 403 && /freigeschaltet/.test(puppet.json()?.error?.message ?? ''),
+  puppet.statusCode === 403 && /Führung & Bewertung/.test(puppet.json()?.error?.message ?? ''),
   puppet.json(),
 );
 const platAccount = await admin.post('/api/admin/users', {

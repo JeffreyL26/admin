@@ -8,7 +8,7 @@ paths:
     get:
       summary: Ist das angemeldete Konto eine freigeschaltete Führungskraft? (für jedes Admin-Konto beantwortbar)
       responses:
-        "200": { description: "{ is_leader, employee_id, period, team_size, rated_count }" }
+        "200": { description: "{ is_leader, employee_id, period, team_size, rated_count, protocols_readable }" }
   /api/leadership/me/team:
     get:
       summary: Eigener Zuständigkeitsbereich mit Stammdaten und Bewertungsstand im Zeitraum
@@ -60,13 +60,13 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: "{ meetings } je Protokoll Datum, Anlass, Teilnehmende, Inhalt, Vereinbarungen, Wiedervorlage, released_to_employee (für die Person freigegeben), visible_to_employee (freigegeben und Portalkonto); ohne Autor" }
-        "403": { description: Person gehört nicht zum eigenen Zuständigkeitsbereich }
+        "403": { description: "Person gehört nicht zum eigenen Zuständigkeitsbereich, oder das Konto kann die Zuständigkeit selbst verändern (personal, verwaltung, fuehrung, recruiting oder benutzer: bearbeiten) und hat kein kommunikation: lesen" }
   /api/leadership/me/meetings/follow-ups:
     get:
       summary: Fällige Wiedervorlagen aus den freigegebenen Protokollen des eigenen Bereichs
       responses:
         "200": { description: "{ meetings } nur id, employee_id, Name, meeting_date, occasion, follow_up_date (kein Protokolltext)" }
-        "403": { description: Konto ist keine freigeschaltete Führungskraft }
+        "403": { description: "Konto ist keine freigeschaltete Führungskraft, oder Selbstschutz beim Lesen wie oben" }
 
   /api/leadership/settings:
     get:
@@ -116,7 +116,8 @@ paths:
       summary: Personalprofil als Führungskraft freischalten
       responses:
         "201": { description: "{ leader, warnings }" }
-        "409": { description: Bereits freigeschaltet oder unzulässige gegenseitige Verantwortung }
+        "403": { description: "Eigenes Profil (Selbstschutz), oder das Profil hat schon ein Desktop-Konto und das handelnde Konto hat die Rechte der Führungsfunktion nicht (kommunikation: lesen)" }
+        "409": { description: "Bereits freigeschaltet, unzulässige gegenseitige Verantwortung, oder das Passwort des Desktop-Kontos hat jemand ohne diese Rechte ausgegeben (zuerst neu ausgeben)" }
   /api/leadership/leaders/{employeeId}:
     patch:
       summary: Freischaltung ändern (auto_scope, note)
@@ -124,7 +125,7 @@ paths:
         - { name: employeeId, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: "{ leader }" }
-        "403": { description: Eigene Freischaltung (Selbstschutz) }
+        "403": { description: Automatik der eigenen Freischaltung einschalten (Selbstschutz) }
     delete:
       summary: Freischaltung entziehen (Bewertungen und Protokoll bleiben; auch die eigene)
       parameters:
@@ -168,7 +169,7 @@ paths:
         - { name: employeeId, in: path, required: true, schema: { type: integer } }
       responses:
         "201": { description: "{ assignment, warnings }" }
-        "403": { description: Zuweisung für das eigene Profil (Selbstschutz) }
+        "403": { description: Ergänzung für das eigene Profil (Selbstschutz) }
         "409": { description: Unzulässige gegenseitige Verantwortung }
   /api/leadership/assignments/{id}:
     delete:
@@ -177,7 +178,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "204": { description: Entfernt }
-        "403": { description: Zuweisung des eigenen Profils (Selbstschutz) }
+        "403": { description: Ausnahme des eigenen Profils entfernen (Selbstschutz) }
   /api/leadership/lookup:
     get:
       summary: Auswahllisten der Einrichtung (aktive Mitarbeitende, Abteilungen, Teams, aktive Fachrollen) — im Bereich fuehrung

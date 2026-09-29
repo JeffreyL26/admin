@@ -25,6 +25,7 @@ import { EmployeeSelect, employeeName } from '../../components/EmployeeSelect';
 import { useFollowUps, useInvalidate, useMeetingRecipients, useMeetings, type Meeting } from './api';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
+import { useDebounced } from '../../components/useDebounced';
 
 interface DraftMeeting {
   employee_id: number | null;
@@ -65,6 +66,12 @@ function visibilityBadge(v: MeetingVisibility): { tone: BadgeTone; label: string
   return { tone: 'navy', label: 'Nur HR' };
 }
 
+/** Name der Stufe in DIESER Variante: ohne Führungsfunktion keine Führung im Namen. */
+function visibilityLabel(v: MeetingVisibility): string {
+  if (LEADERSHIP || !MEETING_VISIBILITY_READERS[v].leaders) return MEETING_VISIBILITY_LABELS[v];
+  return MEETING_VISIBILITY_READERS[v].employee ? 'HR und Mitarbeitende' : 'Nur HR (keine Führungsansicht)';
+}
+
 /** Hinweis unter der Stufe: ohne Führungsfunktion in der Variante ehrlich statt versprochen. */
 function visibilityHint(v: MeetingVisibility): string {
   if (!LEADERSHIP && MEETING_VISIBILITY_READERS[v].leaders) {
@@ -89,22 +96,33 @@ function Notice({ tone, children }: { tone: 'info' | 'warning'; children: React.
 
 /**
  * Zeigt beim Erfassen, wen ein Protokoll einer Führungsstufe erreicht: die
- * Führungskräfte, die die Person heute im Bereich haben und „Mein Team“ öffnen
- * können (Desktop-Konto). Erreicht es niemanden, warnt der Hinweis, das soll
+ * Führungskräfte, die die Person heute im Bereich haben und die Protokolle unter
+ * „Mein Team“ lesen dürfen (`can_read`: Desktop-Konto und Selbstschutz beim
+ * Lesen, leadership/meetingRoutes.ts). Erreicht es niemanden, warnt der Hinweis, das soll
  * die HR vor dem Speichern wissen statt hinterher. Scheitert die Abfrage, sagt
  * er das, statt still zu verschwinden. Die Quellen der Zuständigkeit liefert
  * der Server nur Konten mit Recht „Führung: lesen“.
  */
 function RecipientsNote({ employeeId }: { employeeId: number | null }) {
-  const { data, error, isLoading } = useMeetingRecipients(employeeId);
+  // Entprellt: Pfeiltasten und Tippen im Personenfeld wechseln die Auswahl
+  // bei jedem Tastendruck, die Ermittlung läuft erst für die gewählte Person.
+  const settled = useDebounced(employeeId === null ? '' : String(employeeId), 300);
+  const queryId = settled === '' ? null : Number(settled);
+  const { data, error, isLoading } = useMeetingRecipients(queryId);
   if (employeeId === null) return null;
   if (error) {
     return <Notice tone="warning">Wen das Protokoll erreicht, konnte nicht ermittelt werden: {error.message}</Notice>;
   }
-  if (isLoading || !data) return <Notice tone="info">Zuständige Führungskräfte werden ermittelt …</Notice>;
-  const reachable = data.filter((l) => l.has_account === 1);
+  if (queryId !== employeeId || isLoading || !data) {
+    return <Notice tone="info">Zuständige Führungskräfte werden ermittelt …</Notice>;
+  }
+  const reachable = data.filter((l) => l.can_read === 1);
   const label = (l: (typeof data)[number]) => {
-    const parts = [...(l.sources ?? []).map((s) => SCOPE_SOURCE_LABELS[s]), ...(l.has_account ? [] : ['ohne Desktop-Konto'])];
+    const parts = [
+      ...(l.sources ?? []).map((s) => SCOPE_SOURCE_LABELS[s]),
+      ...(l.has_account ? [] : ['ohne Desktop-Konto']),
+      ...(l.has_account && !l.can_read ? ['ohne Leserecht Kommunikation'] : []),
+    ];
     return parts.length > 0 ? `${l.name} (${parts.join(', ')})` : l.name;
   };
   if (reachable.length === 0) {
@@ -112,7 +130,7 @@ function RecipientsNote({ employeeId }: { employeeId: number | null }) {
       <Notice tone="warning">
         {data.length === 0
           ? 'Für diese Person ist derzeit keine Führungskraft zuständig.'
-          : `Zuständig: ${data.map(label).join(' · ')}. Keine davon hat ein Desktop-Konto für „Mein Team“.`}{' '}
+          : `Zuständig: ${data.map(label).join(' · ')}. Keine davon kann die Protokolle unter „Mein Team“ lesen.`}{' '}
         In der Führung sieht das Protokoll niemand.
       </Notice>
     );
@@ -261,7 +279,7 @@ function MeetingEditor({
               return v === 'nur_hr' || r.leaders || r.employee || v === form.visibility;
             }).map((v) => (
               <option key={v} value={v}>
-                {MEETING_VISIBILITY_LABELS[v]}
+                {visibilityLabel(v)}
               </option>
             ))}
           </Select>

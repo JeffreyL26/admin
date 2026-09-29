@@ -319,12 +319,31 @@ Wer die Funktion nicht einsetzt, überspringt diesen Punkt.
    hinzufügen. Ein Profil ohne Konto lässt sich bereits freischalten; die
    Einrichtung weist dann auf das fehlende Konto hin. **Selbstschutz:** Das
    eigene Profil schaltet niemand selbst frei, und die eigene Zuständigkeit
-   (Zuweisungen, Ausnahmen, Automatik) ändert immer eine andere Person mit
-   `fuehrung: bearbeiten` (sonst 403). Am einfachsten erledigt das der
-   Start-Admin `admin@ohrganize.de`, der mit keinem Personalprofil verknüpft
-   ist und deshalb alle freischalten kann, auch die Personalleitung selbst.
-   Soll die Person mit dem einzigen weiteren Admin-Konto Führungskraft werden,
-   schaltet sie der Start-Admin frei, nicht sie sich selbst.
+   ERWEITERT (Ergänzung anlegen, Ausnahme entfernen, Automatik einschalten)
+   immer eine andere Person mit `fuehrung: bearbeiten` (sonst 403). Die
+   Personalleitung schaltet also eine zweite Person mit Vollzugriff frei;
+   solange es ihn noch gibt (Abschnitt 5), kann das auch der Start-Admin
+   `admin@ohrganize.de`, der mit keinem Personalprofil verknüpft ist.
+   Den eigenen Bereich verkleinern (Automatik aus, Ausnahme anlegen,
+   Ergänzung entfernen) geht selbst. **Gesprächsprotokolle:** Eine
+   Führungskraft, deren Admin-Rolle die Zuständigkeit selbst verändern kann
+   (`personal`, `verwaltung`, `fuehrung`, `recruiting` oder `benutzer` auf
+   „bearbeiten“), sieht freigegebene Protokolle unter „Mein Team“ nur mit
+   `kommunikation: lesen`. **Konten von Führungskräften:** Ein Desktop-Konto
+   mit freigeschaltetem Profil bewertet und liest Protokolle; in der
+   Benutzerverwaltung zählt es deshalb, als hätte es `fuehrung: bearbeiten`
+   und `kommunikation: lesen`. Anlegen, verknüpfen, lösen, zurücksetzen, Rolle
+   ändern und löschen darf es nur, wer beides hat. Portal-Konten sind
+   ausgenommen. Außerdem merkt sich jedes Konto, mit welchen Rechten sein
+   Passwort ausgegeben wurde. Ein Profil freischalten, das schon ein Konto hat,
+   oder ein Konto mit einer Führungskraft verknüpfen gelingt nur, wenn dieses
+   Passwort von jemandem mit `fuehrung` und `kommunikation` stammt (auch wenn
+   die Person es inzwischen selbst geändert hat); sonst meldet oHRganize das
+   und bittet, das Passwort unter Verwaltung → Benutzer & Rechte zuerst neu
+   auszugeben. Konten, die der Start-Admin angelegt hat, bleiben auch nach
+   dessen Löschung passend. Dieselbe Regel gilt allgemein, wenn ein Konto
+   eine Rolle mit mehr Rechten bekommt. Für die Rolle „Führungskraft“ ändert
+   sich nichts; der Protokoll-Editor zeigt, wen ein Protokoll erreicht.
 3. **Zuständigkeit prüfen.** Die Vorschau je Führungskraft zeigt, wer ihr
    automatisch zugeordnet ist (direkt unterstellt, Abteilungsleitung inklusive
    Unterabteilungen, Teamleitung). Voraussetzung sind gepflegte Vorgesetzte

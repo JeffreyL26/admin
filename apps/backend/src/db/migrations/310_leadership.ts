@@ -214,4 +214,19 @@ export const leadershipMigrations: Migration[] = [
         WHERE r.name = 'Führungskraft';
     `,
   },
+  {
+    name: '311_leadership_scope_indexes',
+    // Die Quellen von scopeFor (service.ts) und ihre Umkehrung
+    // responsibleLeaders suchen über Vorgesetzte, Abteilungs- und Teamleitung
+    // sowie Teamzugehörigkeit. Ohne Index liest jede dieser Abfragen die ganze
+    // Tabelle, und die Empfängerliste im Protokolleditor wächst mit
+    // Führungskräften mal Beschäftigten.
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_employees_manager ON employees(manager_id);
+      CREATE INDEX IF NOT EXISTS idx_employees_team ON employees(team_id);
+      CREATE INDEX IF NOT EXISTS idx_departments_head ON departments(head_employee_id);
+      CREATE INDEX IF NOT EXISTS idx_departments_parent ON departments(parent_id);
+      CREATE INDEX IF NOT EXISTS idx_teams_lead ON teams(lead_employee_id);
+    `,
+  },
 ];
