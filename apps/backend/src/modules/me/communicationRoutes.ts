@@ -21,6 +21,7 @@ import { todayIso } from '../../core/dates.js';
 import { signDownloadUrl } from '../../core/files.js';
 import { audienceOfEmployeeSql } from '../communication/audience.js';
 import { queryDirectory } from '../communication/directoryService.js';
+import { meetingVisibilitySql } from '../communication/meetingVisibility.js';
 import {
   answersSchema,
   getQuestions,
@@ -119,7 +120,7 @@ function myMeetings(employeeId: number) {
     .prepare(
       `SELECT id, meeting_date, occasion, participants, content, agreements, follow_up_date
        FROM meeting_protocols
-       WHERE employee_id = ? AND visibility = 'hr_vorgesetzte_mitarbeiter'
+       WHERE employee_id = ? AND ${meetingVisibilitySql('visibility', 'employee')}
        ORDER BY meeting_date DESC, id DESC`,
     )
     .all(employeeId);
@@ -128,8 +129,9 @@ function myMeetings(employeeId: number) {
 export const meCommunicationRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------- Gespraeche ---
   /**
-   * Nur die Stufe 'hr_vorgesetzte_mitarbeiter' erreicht die Person; 'nur_hr'
-   * und 'hr_vorgesetzte' bleiben der Administration vorbehalten. Kein
+   * Nur Stufen mit `MEETING_VISIBILITY_READERS[..].employee` erreichen die
+   * Person (heute 'hr_vorgesetzte_mitarbeiter'); 'hr_vorgesetzte' geht an die
+   * zustaendigen Fuehrungskraefte (leadership/meetingRoutes.ts). Kein
    * Einzelabruf und keine Schreibroute: Das Protokoll fuehrt die HR.
    */
   app.get('/api/me/meetings', async (req) => {

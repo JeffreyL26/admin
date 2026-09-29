@@ -52,6 +52,21 @@ paths:
         "200": { description: "{ ratings } — Stand des Zeitraums" }
         "400": { description: Ungültiger Zeitraum, Wert außerhalb der Skala, fehlender Kommentar, Zukunft }
         "403": { description: Person gehört nicht zum eigenen Zuständigkeitsbereich }
+  # Gespräche: Modul leadership UND communication (Routen in modules/leadership/meetingRoutes.ts).
+  /api/leadership/me/employees/{id}/meetings:
+    get:
+      summary: Für die Führung freigegebene Gesprächsprotokolle einer Person aus dem eigenen Bereich (Stufen hr_vorgesetzte und hr_vorgesetzte_mitarbeiter, nur lesen)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ meetings } je Protokoll Datum, Anlass, Teilnehmende, Inhalt, Vereinbarungen, Wiedervorlage, released_to_employee (für die Person freigegeben), visible_to_employee (freigegeben und Portalkonto); ohne Autor" }
+        "403": { description: Person gehört nicht zum eigenen Zuständigkeitsbereich }
+  /api/leadership/me/meetings/follow-ups:
+    get:
+      summary: Fällige Wiedervorlagen aus den freigegebenen Protokollen des eigenen Bereichs
+      responses:
+        "200": { description: "{ meetings } nur id, employee_id, Name, meeting_date, occasion, follow_up_date (kein Protokolltext)" }
+        "403": { description: Konto ist keine freigeschaltete Führungskraft }
 
   /api/leadership/settings:
     get:
@@ -109,8 +124,9 @@ paths:
         - { name: employeeId, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: "{ leader }" }
+        "403": { description: Eigene Freischaltung (Selbstschutz) }
     delete:
-      summary: Freischaltung entziehen (Bewertungen und Protokoll bleiben)
+      summary: Freischaltung entziehen (Bewertungen und Protokoll bleiben; auch die eigene)
       parameters:
         - { name: employeeId, in: path, required: true, schema: { type: integer } }
       responses:
@@ -152,6 +168,7 @@ paths:
         - { name: employeeId, in: path, required: true, schema: { type: integer } }
       responses:
         "201": { description: "{ assignment, warnings }" }
+        "403": { description: Zuweisung für das eigene Profil (Selbstschutz) }
         "409": { description: Unzulässige gegenseitige Verantwortung }
   /api/leadership/assignments/{id}:
     delete:
@@ -160,6 +177,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "204": { description: Entfernt }
+        "403": { description: Zuweisung des eigenen Profils (Selbstschutz) }
   /api/leadership/lookup:
     get:
       summary: Auswahllisten der Einrichtung (aktive Mitarbeitende, Abteilungen, Teams, aktive Fachrollen) — im Bereich fuehrung

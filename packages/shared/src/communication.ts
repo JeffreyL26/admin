@@ -159,7 +159,35 @@ export const MEETING_OCCASION_LABELS: Record<MeetingOccasion, string> = {
   sonstiges: 'Sonstiges',
 };
 
-export type MeetingVisibility = 'nur_hr' | 'hr_vorgesetzte' | 'hr_vorgesetzte_mitarbeiter';
+/** Einzige Quelle der Stufen: Backend (zod-Enum) und Clients lesen hier. */
+export const MEETING_VISIBILITIES = ['nur_hr', 'hr_vorgesetzte', 'hr_vorgesetzte_mitarbeiter'] as const;
+export type MeetingVisibility = (typeof MEETING_VISIBILITIES)[number];
+
+/**
+ * Wer ein Protokoll ausser der HR liest. EINZIGE Quelle dieser Zuordnung:
+ * Die Filter der Portal- und der Fuehrungsrouten (`meetingVisibilitiesFor`),
+ * `visible_to_employee`, der Empfaengerhinweis und die Badges der HR leiten
+ * sich daraus ab. Eine neue Stufe verlangt hier einen Eintrag, sonst schlaegt
+ * der Typecheck an.
+ */
+export const MEETING_VISIBILITY_READERS: Record<MeetingVisibility, { leaders: boolean; employee: boolean }> = {
+  nur_hr: { leaders: false, employee: false },
+  hr_vorgesetzte: { leaders: true, employee: false },
+  hr_vorgesetzte_mitarbeiter: { leaders: true, employee: true },
+};
+
+/** Stufen, die die Fuehrung bzw. die Person selbst erreichen. */
+export function meetingVisibilitiesFor(reader: 'leaders' | 'employee'): MeetingVisibility[] {
+  return MEETING_VISIBILITIES.filter((v) => MEETING_VISIBILITY_READERS[v][reader]);
+}
+
+/**
+ * Faellig ist eine Wiedervorlage ab ihrem Datum (heute oder frueher). Gleiche
+ * Regel wie die SQL-Abfragen der Wiedervorlagen (`follow_up_date <= heute`).
+ */
+export function isFollowUpDue(followUpDate: string | null, today: string): boolean {
+  return followUpDate !== null && followUpDate <= today;
+}
 
 /**
  * Wer ein Protokoll sieht:
@@ -198,15 +226,20 @@ export interface MeMeeting {
 }
 
 /**
- * Gespraechsprotokoll aus Sicht der Fuehrungskraft („Mein Team“). Nur die
- * Stufen 'hr_vorgesetzte' und 'hr_vorgesetzte_mitarbeiter' erreichen sie;
- * `visible_to_employee` sagt, ob die Person es auch selbst im Portal sieht.
- * Ohne Autor und Zeitstempel: das Protokoll fuehrt die HR.
+ * Gespraechsprotokoll aus Sicht der Fuehrungskraft („Mein Team“). Nur Stufen
+ * mit `MEETING_VISIBILITY_READERS[..].leaders` erreichen sie. Ohne Autor und
+ * Zeitstempel: das Protokoll fuehrt die HR.
  */
 export interface LeaderMeeting extends MeMeeting {
   employee_id: number;
   first_name: string;
   last_name: string;
+  /** 1 = die Stufe gibt das Protokoll auch fuer die Person selbst frei. */
+  released_to_employee: 0 | 1;
+  /**
+   * 1 = freigegeben UND die Person hat ein Konto mit verknuepftem Profil,
+   * kann es im Portal also tatsaechlich lesen.
+   */
   visible_to_employee: 0 | 1;
 }
 
@@ -214,8 +247,12 @@ export interface LeaderMeeting extends MeMeeting {
 export interface MeetingRecipient {
   employee_id: number;
   name: string;
-  /** Warum die Fuehrungskraft zustaendig ist (direkt, Abteilung, Team, zugewiesen). */
-  sources: ScopeSource[];
+  /**
+   * Warum die Fuehrungskraft zustaendig ist (direkt, Abteilung, Team,
+   * zugewiesen). Nur fuer Konten mit Recht „Fuehrung: lesen“: Zuweisungen
+   * gehoeren zur Fuehrungsverwaltung, nicht zur Kommunikation.
+   */
+  sources?: ScopeSource[];
   /** 1 = die Fuehrungskraft hat ein Desktop-Konto und sieht „Mein Team“ auch. */
   has_account: 0 | 1;
 }

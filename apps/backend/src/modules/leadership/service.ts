@@ -335,6 +335,32 @@ export function loadLeader(employeeId: number): Leader {
   return { ...row, team_size: scopeFor(employeeId).size };
 }
 
+/**
+ * Umkehrung von `scopeFor`: aktive Führungskräfte, die die Person HEUTE im
+ * Bereich haben (Empfänger freigegebener Gesprächsprotokolle). `has_account`
+ * heißt: ein Desktop-Konto ist verknüpft, „Mein Team“ also erreichbar;
+ * dieselbe Definition wie `Leader.user_id`. Eine nicht aktive Person hat nie
+ * jemanden (scopeFor enthält nur aktive Profile).
+ */
+export function responsibleLeaders(
+  employeeId: number,
+): { employee_id: number; name: string; sources: ScopeSource[]; has_account: 0 | 1 }[] {
+  const person = getDb().prepare('SELECT status FROM employees WHERE id = ?').get(employeeId) as
+    | { status: string }
+    | undefined;
+  if (!person) throw notFound('Person nicht gefunden');
+  if (person.status !== 'aktiv') return [];
+  const leaders = getDb()
+    .prepare(`${LEADER_SELECT} WHERE e.status = 'aktiv' ORDER BY e.last_name COLLATE NOCASE, e.first_name COLLATE NOCASE`)
+    .all() as LeaderRow[];
+  return leaders.flatMap((l) => {
+    const sources = scopeFor(l.employee_id).get(employeeId);
+    return sources
+      ? [{ employee_id: l.employee_id, name: `${l.first_name} ${l.last_name}`, sources, has_account: l.user_id === null ? 0 : 1 } as const]
+      : [];
+  });
+}
+
 export function listLeaders(): Leader[] {
   const rows = getDb()
     .prepare(`${LEADER_SELECT} ORDER BY e.last_name COLLATE NOCASE, e.first_name COLLATE NOCASE`)
@@ -342,11 +368,30 @@ export function listLeaders(): Leader[] {
   return rows.map((r) => ({ ...r, team_size: scopeFor(r.employee_id).size }));
 }
 
+/**
+ * Selbstschutz der Verwaltung: Niemand schaltet das EIGENE Profil als
+ * Führungskraft frei oder erweitert dessen Zuständigkeit. Die Führungsfunktion
+ * öffnet Daten anderer Bereiche (etwa freigegebene Gesprächsprotokolle, die
+ * sonst `kommunikation` verlangen); `fuehrung: bearbeiten` darf nicht der Weg
+ * sein, sich diese Rechte selbst zu geben. Entziehen bleibt erlaubt, das
+ * nimmt nur Zugriff weg. Gleiche Regel wie in der Benutzerverwaltung:
+ * niemand ändert die eigene Zuweisung.
+ */
+function assertNotOwnLeadership(req: FastifyRequest, leaderId: number | null): void {
+  const own = req.user.employee_id ?? null;
+  if (own !== null && leaderId === own) {
+    throw forbidden(
+      'Die eigene Freischaltung als Führungskraft und die eigene Zuständigkeit ändert eine andere Person mit Recht „Führung“.',
+    );
+  }
+}
+
 export function grantLeader(
   req: FastifyRequest,
   employeeId: number,
   opts: { auto_scope?: boolean; note?: string | null },
 ): LeaderCreateResponse {
+  assertNotOwnLeadership(req, employeeId);
   const employee = getDb()
     .prepare('SELECT id, status, first_name, last_name FROM employees WHERE id = ?')
     .get(employeeId) as { id: number; status: string; first_name: string; last_name: string } | undefined;
@@ -390,6 +435,7 @@ export function updateLeader(
   employeeId: number,
   patch: { auto_scope?: boolean; note?: string | null },
 ): { leader: Leader; warnings: string[] } {
+  assertNotOwnLeadership(req, employeeId);
   loadLeader(employeeId);
   const sets: string[] = [];
   const params: Record<string, unknown> = { employee_id: employeeId };
@@ -802,6 +848,7 @@ export function createAssignment(
   leaderId: number,
   input: LeadershipAssignmentInput,
 ): AssignmentCreateResponse {
+  assertNotOwnLeadership(req, leaderId);
   loadLeader(leaderId);
   const [table, column, missing] = TARGET_TABLES[input.target_type];
   if (!getDb().prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(input.target_id)) {
@@ -848,6 +895,8 @@ export function createAssignment(
 
 export function deleteAssignment(req: FastifyRequest, id: number): void {
   const existing = getAssignment(id);
+  // Auch das Entfernen: Eine gelöschte Ausnahme holt Personen in den Bereich.
+  assertNotOwnLeadership(req, existing.leader_employee_id);
   const settings = getSettings();
   const before = pairKeys(mutualPairs());
   inTransaction(() => {

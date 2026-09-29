@@ -1732,6 +1732,131 @@ button.lead-card:focus-visible .lead-card__cta svg {
   font-size: var(--text-sm);
 }
 
+/* ---------- Gesprächsprotokolle und Wiedervorlagen ----------
+   Zeilen mit Trennlinie, Hover und Fokus teilen sich die Regeln. Fokus als
+   Umriss in Markenfarbe: der blasse --focus-ring allein ist auf hellem Grund
+   kaum zu sehen (siehe .lead-breakdown__score). */
+.lead-meeting + .lead-meeting,
+.lead-followup + .lead-followup {
+  border-top: 1px solid var(--border);
+}
+.lead-meeting__summary:hover,
+.lead-followup:hover {
+  background: var(--gray-50);
+}
+.lead-meeting__summary:focus-visible,
+.lead-followup:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: -2px;
+}
+.lead-meeting--focused {
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+.lead-meeting__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 14px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+.lead-meeting__summary::-webkit-details-marker {
+  display: none;
+}
+/* Eigener Pfeil statt des Browser-Markers: dreht sich beim Aufklappen. */
+.lead-meeting__chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+.lead-meeting[open] .lead-meeting__chevron {
+  transform: rotate(90deg);
+}
+.lead-meeting__title {
+  font-weight: 650;
+  color: var(--text-primary);
+}
+.lead-meeting__date {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.lead-meeting__badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.lead-meeting__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 2px 20px 18px;
+}
+.lead-meeting__participants {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.lead-meeting__label {
+  font-size: var(--text-xs);
+  font-weight: 620;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+.lead-meeting__text {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  /* Lange URLs und Pfade umbrechen: die Karte schneidet sonst ab (overflow: hidden). */
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+.lead-meeting__text--muted {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.lead-followups-section {
+  margin: 16px 0 20px;
+}
+/* Eigene Fläche: direkt auf dem Seitenhintergrund wäre der Hover
+   (--gray-50) in den hellen Themes nicht vom Grund zu unterscheiden. */
+.lead-followups {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+.lead-followup {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 2fr) auto;
+  gap: 4px 16px;
+  align-items: center;
+  padding: 11px 16px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lead-followup__name {
+  font-weight: 620;
+  color: var(--text-primary);
+}
+.lead-followup__what {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.lead-followup__due {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--warning);
+  white-space: nowrap;
+}
+
 /* ---------- Sterne ---------- */
 .lead-stars {
   display: inline-flex;

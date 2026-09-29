@@ -12,6 +12,7 @@ import { Card, EmptyState, PageHeader, Spinner } from '../../components/ui';
 import { Tooltip } from '../../components/Tooltip';
 import { useMyTeam } from './api';
 import { PeriodSwitcher, TeamMemberCard } from './common';
+import { FollowUpsCard, PROTOCOL_PARAM, usePrefetchLeaderFollowUps } from './TeamMeetings';
 import { LeaderLockedState, isForbidden } from './TeamShared';
 
 /**
@@ -31,6 +32,7 @@ export function MyTeamPage() {
   const [periodKey, setPeriodKey] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const { data, isLoading, error } = useMyTeam(periodKey);
+  usePrefetchLeaderFollowUps();
 
   const filtered = useMemo(() => (data ? filterMembers(data.team, search) : []), [data, search]);
 
@@ -101,6 +103,12 @@ export function MyTeamPage() {
         kind={data.settings.period}
         rated={ratedTotal}
         total={total}
+      />
+
+      {/* Ohne ?period=: Die Wiedervorlage gehört zu keinem Bewertungszeitraum,
+          die Seite der Person öffnet im aktuellen und klappt das Protokoll auf. */}
+      <FollowUpsCard
+        onOpen={(id, meetingId) => navigate(`/fuehrung/mein-team/${id}?${PROTOCOL_PARAM}=${meetingId}`)}
       />
 
       {total === 0 ? (

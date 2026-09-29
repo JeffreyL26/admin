@@ -1,22 +1,28 @@
 import React, { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { AlarmClock, FileText, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlarmClock, AlertTriangle, FileText, Info, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   MEETING_OCCASION_LABELS,
+  MEETING_VISIBILITIES,
   MEETING_VISIBILITY_HINTS,
   MEETING_VISIBILITY_LABELS,
+  MEETING_VISIBILITY_READERS,
+  SCOPE_SOURCE_LABELS,
   formatDate,
+  isFollowUpDue,
+  moduleEnabled,
   todayIsoLocal,
   type MeetingOccasion,
   type MeetingVisibility,
 } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { api } from '../../api/client';
-import { Badge, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
+import { Badge, EmptyState, Field, PageHeader, Spinner, type BadgeTone } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { EmployeeSelect, employeeName } from '../../components/EmployeeSelect';
-import { useFollowUps, useInvalidate, useMeetings, type Meeting } from './api';
+import { useFollowUps, useInvalidate, useMeetingRecipients, useMeetings, type Meeting } from './api';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
 
@@ -42,6 +48,78 @@ const emptyDraft = (): DraftMeeting => ({
   visibility: 'nur_hr',
 });
 
+/** Enthält die Variante die Führungsfunktion („Mein Team“)? Sonst erreicht keine Stufe die Führung. */
+const LEADERSHIP = moduleEnabled(VARIANT, 'leadership');
+
+/** Wen die Stufe in DIESER Variante tatsächlich erreicht (Quelle: MEETING_VISIBILITY_READERS). */
+function readersOf(v: MeetingVisibility) {
+  const readers = MEETING_VISIBILITY_READERS[v];
+  return { leaders: readers.leaders && LEADERSHIP, employee: readers.employee };
+}
+
+/** Badge der Tabelle: kurz, was die Stufe bewirkt. */
+function visibilityBadge(v: MeetingVisibility): { tone: BadgeTone; label: string } {
+  const r = readersOf(v);
+  if (r.employee) return { tone: 'blue', label: 'Im Portal sichtbar' };
+  if (r.leaders) return { tone: 'neutral', label: 'Für Führung sichtbar' };
+  return { tone: 'navy', label: 'Nur HR' };
+}
+
+/** Hinweis unter der Stufe: ohne Führungsfunktion in der Variante ehrlich statt versprochen. */
+function visibilityHint(v: MeetingVisibility): string {
+  if (!LEADERSHIP && MEETING_VISIBILITY_READERS[v].leaders) {
+    return MEETING_VISIBILITY_READERS[v].employee
+      ? 'Sichtbar im Portal der Person unter „Gesprächsprotokolle“. Diese Ausgabe hat keine Führungsansicht.'
+      : 'Diese Ausgabe hat keine Führungsansicht: Das Protokoll sieht nur die Personalabteilung.';
+  }
+  return MEETING_VISIBILITY_HINTS[v];
+}
+
+function Notice({ tone, children }: { tone: 'info' | 'warning'; children: React.ReactNode }) {
+  const Icon = tone === 'warning' ? AlertTriangle : Info;
+  // role="status" statt "alert": ein Hinweis zur Auswahl, kein Fehler; er soll
+  // Screenreader nicht bei jedem Personenwechsel unterbrechen.
+  return (
+    <div className={`hm-notice${tone === 'warning' ? ' hm-notice--warning' : ''}`} role="status" style={{ gridColumn: '1 / -1' }}>
+      <Icon size={16} aria-hidden="true" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+/**
+ * Zeigt beim Erfassen, wen ein Protokoll einer Führungsstufe erreicht: die
+ * Führungskräfte, die die Person heute im Bereich haben und „Mein Team“ öffnen
+ * können (Desktop-Konto). Erreicht es niemanden, warnt der Hinweis, das soll
+ * die HR vor dem Speichern wissen statt hinterher. Scheitert die Abfrage, sagt
+ * er das, statt still zu verschwinden. Die Quellen der Zuständigkeit liefert
+ * der Server nur Konten mit Recht „Führung: lesen“.
+ */
+function RecipientsNote({ employeeId }: { employeeId: number | null }) {
+  const { data, error, isLoading } = useMeetingRecipients(employeeId);
+  if (employeeId === null) return null;
+  if (error) {
+    return <Notice tone="warning">Wen das Protokoll erreicht, konnte nicht ermittelt werden: {error.message}</Notice>;
+  }
+  if (isLoading || !data) return <Notice tone="info">Zuständige Führungskräfte werden ermittelt …</Notice>;
+  const reachable = data.filter((l) => l.has_account === 1);
+  const label = (l: (typeof data)[number]) => {
+    const parts = [...(l.sources ?? []).map((s) => SCOPE_SOURCE_LABELS[s]), ...(l.has_account ? [] : ['ohne Desktop-Konto'])];
+    return parts.length > 0 ? `${l.name} (${parts.join(', ')})` : l.name;
+  };
+  if (reachable.length === 0) {
+    return (
+      <Notice tone="warning">
+        {data.length === 0
+          ? 'Für diese Person ist derzeit keine Führungskraft zuständig.'
+          : `Zuständig: ${data.map(label).join(' · ')}. Keine davon hat ein Desktop-Konto für „Mein Team“.`}{' '}
+        In der Führung sieht das Protokoll niemand.
+      </Notice>
+    );
+  }
+  return <Notice tone="info">Erreicht derzeit als Führung: {data.map(label).join(' · ')}</Notice>;
+}
+
 function MeetingEditor({
   open,
   initial,
@@ -62,6 +140,8 @@ function MeetingEditor({
     setLastOpen(open);
     if (open) setForm(initial);
   }
+
+  const reachesLeadership = readersOf(form.visibility).leaders;
 
   const save = useMutation({
     mutationFn: () => {
@@ -109,7 +189,7 @@ function MeetingEditor({
       }
     >
       <div className="hm-form-grid">
-        <Field label="Mitarbeiter:in" required>
+        <Field label="Person" required>
           <EmployeeSelect
             value={form.employee_id}
             onChange={(id) => setForm((f) => ({ ...f, employee_id: id }))}
@@ -167,19 +247,26 @@ function MeetingEditor({
             onChange={(e) => setForm((f) => ({ ...f, follow_up_date: e.target.value }))}
           />
         </Field>
-        <Field label="Sichtbarkeit" hint={MEETING_VISIBILITY_HINTS[form.visibility]}>
+        <Field label="Sichtbarkeit" hint={visibilityHint(form.visibility)}>
           <Select
             className="hm-select"
             value={form.visibility}
             onChange={(e) => setForm((f) => ({ ...f, visibility: e.target.value as MeetingVisibility }))}
           >
-            {(Object.keys(MEETING_VISIBILITY_LABELS) as MeetingVisibility[]).map((v) => (
+            {/* Eine Stufe, die in dieser Variante niemanden ausser der HR
+                erreicht, wird nicht neu angeboten (bleibt aber wählbar, wenn
+                ein Protokoll sie schon trägt). */}
+            {MEETING_VISIBILITIES.filter((v) => {
+              const r = readersOf(v);
+              return v === 'nur_hr' || r.leaders || r.employee || v === form.visibility;
+            }).map((v) => (
               <option key={v} value={v}>
                 {MEETING_VISIBILITY_LABELS[v]}
               </option>
             ))}
           </Select>
         </Field>
+        {reachesLeadership && <RecipientsNote employeeId={form.employee_id} />}
       </div>
     </Modal>
   );
@@ -242,7 +329,7 @@ export function MeetingsPage() {
     setEditorOpen(true);
   };
 
-  const followUpDue = (m: Meeting) => m.follow_up_date !== null && m.follow_up_date <= todayIsoLocal();
+  const followUpDue = (m: Meeting) => isFollowUpDue(m.follow_up_date, todayIsoLocal());
 
   return (
     <>
@@ -353,7 +440,7 @@ export function MeetingsPage() {
               <table className="hm-table">
                 <thead>
                   <tr>
-                    <th>Mitarbeiter:in</th>
+                    <th>Person</th>
                     <th>Datum</th>
                     <th>Anlass</th>
                     <th>Sichtbarkeit</th>
@@ -368,12 +455,8 @@ export function MeetingsPage() {
                       <td>{formatDate(m.meeting_date)}</td>
                       <td>{MEETING_OCCASION_LABELS[m.occasion]}</td>
                       <td>
-                        <Tooltip content={<span className="hm-tooltip__title">{MEETING_VISIBILITY_HINTS[m.visibility]}</span>}>
-                          <Badge tone={m.visibility === 'nur_hr' ? 'navy' : m.visibility === 'hr_vorgesetzte' ? 'neutral' : 'blue'}>
-                            {m.visibility === 'hr_vorgesetzte_mitarbeiter'
-                              ? 'Im Portal sichtbar'
-                              : MEETING_VISIBILITY_LABELS[m.visibility]}
-                          </Badge>
+                        <Tooltip content={<span className="hm-tooltip__title">{visibilityHint(m.visibility)}</span>}>
+                          <Badge tone={visibilityBadge(m.visibility).tone}>{visibilityBadge(m.visibility).label}</Badge>
                         </Tooltip>
                       </td>
                       <td>

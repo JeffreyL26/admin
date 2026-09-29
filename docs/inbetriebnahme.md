@@ -317,7 +317,14 @@ Wer die Funktion nicht einsetzt, überspringt diesen Punkt.
    sich die Führungsfunktion einer anderen Person aneignen.
 2. **Freischalten.** Unter Führung → Einrichtung → Führungskräfte das Profil
    hinzufügen. Ein Profil ohne Konto lässt sich bereits freischalten; die
-   Einrichtung weist dann auf das fehlende Konto hin.
+   Einrichtung weist dann auf das fehlende Konto hin. **Selbstschutz:** Das
+   eigene Profil schaltet niemand selbst frei, und die eigene Zuständigkeit
+   (Zuweisungen, Ausnahmen, Automatik) ändert immer eine andere Person mit
+   `fuehrung: bearbeiten` (sonst 403). Am einfachsten erledigt das der
+   Start-Admin `admin@ohrganize.de`, der mit keinem Personalprofil verknüpft
+   ist und deshalb alle freischalten kann, auch die Personalleitung selbst.
+   Soll die Person mit dem einzigen weiteren Admin-Konto Führungskraft werden,
+   schaltet sie der Start-Admin frei, nicht sie sich selbst.
 3. **Zuständigkeit prüfen.** Die Vorschau je Führungskraft zeigt, wer ihr
    automatisch zugeordnet ist (direkt unterstellt, Abteilungsleitung inklusive
    Unterabteilungen, Teamleitung). Voraussetzung sind gepflegte Vorgesetzte

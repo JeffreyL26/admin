@@ -160,7 +160,43 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `GET …/leaders/:employeeId/employees/:memberId/ratings` für genau eine
   Zelle (Detail-Pop-up). Der zweite Pfadparameter heißt `memberId`, weil
   find-my-way an derselben Baumposition denselben Parameternamen verlangt wie
-  `/leaders/:employeeId/team`.
+  `/leaders/:employeeId/team`. **Jede Route unter `/api/leadership/me/*`**
+  (außer `/me/status`) wird über `registerLeaderRoutes` (leadership/routes.ts)
+  registriert: eingekapseltes Plugin, preHandler `requireLeader`, Handler holen
+  die ID mit `leaderIdOf`, das außerhalb des Gates 403 wirft. Nie eine
+  `/me`-Route direkt auf `app`, sonst fehlt wegen SELF_GATED jede Prüfung.
+  **Selbstschutz der Verwaltung:** Niemand schaltet das eigene Profil frei,
+  ändert die eigene Freischaltung oder die eigenen Zuweisungen (auch nicht das
+  Entfernen einer Ausnahme), 403 aus `service.assertNotOwnLeadership`;
+  Entziehen bleibt erlaubt. Grund: Die Führungsfunktion öffnet Daten anderer
+  Bereiche (Gesprächsprotokolle), `fuehrung: bearbeiten` darf nicht der Weg
+  sein, sie sich selbst zu geben. **Gesprächsprotokolle in „Mein Team“:**
+  Welche Stufe wen erreicht, steht allein in `MEETING_VISIBILITY_READERS`
+  (packages/shared/src/communication.ts); Portal- und Führungsrouten filtern
+  über `meetingVisibilitySql` (communication/meetingVisibility.ts), Badges und
+  Hinweise der HR leiten sich daraus ab. Heute erreichen `hr_vorgesetzte` und
+  `hr_vorgesetzte_mitarbeiter` die zuständige Führungskraft über
+  `GET /api/leadership/me/employees/:id/meetings` (Parametername `:id`, siehe
+  oben) und `GET /api/leadership/me/meetings/follow-ups` (fällige
+  Wiedervorlagen, nur die Felder der Karte); `nur_hr` nie. Beides sind
+  bewusst eigene Abfragen neben der EINEN Antwort von `service.myTeam`.
+  Nur lesen, ohne Autor und Zeitstempel; `released_to_employee` heißt für die
+  Person freigegeben, `visible_to_employee` zusätzlich mit Konto, also
+  tatsächlich im Portal lesbar. Zuständig ist wie überall allein `scopeFor`
+  (heutiger Bereich, nur aktive Profile, nie die eigene Person; außerhalb
+  403): Es gibt keinen Verlauf, eine neue Führungskraft sieht also auch ältere
+  freigegebene Protokolle ihrer Leute, und wer nicht mehr zuständig ist, sieht
+  nichts mehr. Die HR steuert das je Protokoll über die Stufe; der Editor nennt
+  dafür die derzeit erreichten Führungskräfte
+  (`GET /api/communication/meetings/recipients?employee_id=`, Bereich
+  `kommunikation`, Umkehrung `service.responsibleLeaders`) und warnt, wenn
+  keine davon „Mein Team“ öffnen kann (Desktop-Konto). Die QUELLEN der
+  Zuständigkeit liefert diese Route nur Konten mit `fuehrung: lesen`, sonst
+  weitete `kommunikation` still auf die Zuweisungen aus. In einer Variante ohne
+  Führung bietet der Editor keine reine Führungsstufe neu an und sagt, dass
+  niemand außer der HR liest. Die Routen liegen in `leadership/meetingRoutes.ts`
+  und hängen an BEIDEN Modulen: Verdrahtung mit `requires: 'communication'` in
+  `variant-wiring.mjs`.
 - **Zielgruppen der Kommunikation (Ankuendigungen, Umfragen) loest NUR
   `modules/communication/audience.ts` auf.** `audience_type` ist `alle`,
   `abteilung` (schliesst Unterabteilungen ueber `departments.parent_id`
@@ -203,7 +239,8 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Kommentaren und die HR-Notiz zur Trainingsanmeldung, beide bleiben HR und
   Fuehrung vorbehalten),
   `me/communicationRoutes.ts` (`/api/me/meetings` nur Protokolle mit
-  `visibility = hr_vorgesetzte_mitarbeiter`, Seite `/gespraeche`;
+  `visibility = hr_vorgesetzte_mitarbeiter`, Seite `/gespraeche`; die Stufe
+  `hr_vorgesetzte` geht nicht ans Portal, sondern an die Führung, siehe oben;
   `/api/me/directory` mit derselben Feldsichtbarkeit wie das
   HR-Verzeichnis, Seite `/kollegen`; das Portal-Organigramm filtert
   dieselben Felder), Bescheinigungen landen beim Aushaendigen als

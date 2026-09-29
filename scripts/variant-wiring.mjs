@@ -51,6 +51,8 @@ const BACKEND = [
   { module: 'me', requires: 'compensation', name: 'meSalaryRoutes', from: '../modules/me/salaryRoutes.js' },
   { module: 'me', requires: 'communication', name: 'meCommunicationRoutes', from: '../modules/me/communicationRoutes.js' },
   { module: 'me', requires: 'performance', name: 'mePerformanceRoutes', from: '../modules/me/performanceRoutes.js' },
+  // Gespraechsprotokolle in „Mein Team“: Zustaendigkeit aus leadership, Tabelle aus communication.
+  { module: 'leadership', requires: 'communication', name: 'leaderMeetingRoutes', from: '../modules/leadership/meetingRoutes.js' },
 ];
 
 /** Routenlisten der Desktop-App je Modul, in Router-Reihenfolge. */

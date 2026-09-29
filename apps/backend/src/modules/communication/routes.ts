@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import { MEETING_VISIBILITIES } from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { AppError, badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
@@ -215,7 +216,7 @@ const meetingBodySchema = z.object({
   content: z.string().nullable().optional(),
   agreements: z.string().nullable().optional(),
   follow_up_date: isoDate.nullable().optional(),
-  visibility: z.enum(['nur_hr', 'hr_vorgesetzte', 'hr_vorgesetzte_mitarbeiter']),
+  visibility: z.enum(MEETING_VISIBILITIES),
 });
 
 const MEETING_SELECT = `

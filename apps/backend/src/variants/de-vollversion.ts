@@ -14,6 +14,7 @@ import { meModule } from '../modules/me/routes.js';
 import { meSalaryRoutes } from '../modules/me/salaryRoutes.js';
 import { meCommunicationRoutes } from '../modules/me/communicationRoutes.js';
 import { mePerformanceRoutes } from '../modules/me/performanceRoutes.js';
+import { leaderMeetingRoutes } from '../modules/leadership/meetingRoutes.js';
 
 export * from './de-vollversion.manifest.js';
 
@@ -31,4 +32,5 @@ export const backendModules: FastifyPluginAsync[] = [
   meSalaryRoutes,
   meCommunicationRoutes,
   mePerformanceRoutes,
+  leaderMeetingRoutes,
 ];

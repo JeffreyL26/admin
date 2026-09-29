@@ -159,7 +159,7 @@ paths:
   # Self-Service (Modul communication, Routen in modules/me/communicationRoutes.ts).
   /api/me/meetings:
     get:
-      summary: Eigene Gesprächsprotokolle mit Sichtbarkeit hr_vorgesetzte_mitarbeiter
+      summary: Eigene Gesprächsprotokolle mit Sichtbarkeit hr_vorgesetzte_mitarbeiter (hr_vorgesetzte erreicht nur die Führung, siehe /api/leadership/me/employees/{id}/meetings)
       tags: [Self-Service]
       responses:
         "200": { description: "{ meetings: [...] } ohne Sichtbarkeit und Autor" }
@@ -195,6 +195,15 @@ paths:
       tags: [Kommunikation]
       responses:
         "200": { description: Fällige Protokolle }
+  /api/communication/meetings/recipients:
+    get:
+      summary: Führungskräfte, die ein Protokoll der Person heute erreicht (Zuständigkeit laut Führungsverwaltung; Modul leadership)
+      tags: [Kommunikation]
+      parameters:
+        - { name: employee_id, in: query, required: true, schema: { type: integer } }
+      responses:
+        "200": { description: "{ leaders: [{ employee_id, name, has_account, sources? }] }; sources nur für Konten mit fuehrung: lesen" }
+        "404": { description: Person nicht gefunden }
   /api/communication/meetings/{id}:
     get:
       summary: Gesprächsprotokoll lesen

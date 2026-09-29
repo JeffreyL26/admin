@@ -53,11 +53,14 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AdminArea]> = [
  * offen, deren Personalprofil als Führungskraft freigeschaltet ist
  * (Tabelle leadership_leaders) — unabhängig von der Admin-Rolle, sonst könnte
  * eine Führungskraft ohne HR-Bereiche ihr Team nicht bewerten. Die Prüfung
- * macht das Modul selbst in einem Plugin-Hook (modules/leadership/routes.ts,
- * requireLeader), der für JEDE Route unter diesem Präfix läuft; zusätzlich
- * liefert es ausschließlich Daten aus dem eigenen Zuständigkeitsbereich.
- * Hier wird nur die Bereichsprüfung übersprungen. Eintragen NUR für Präfixe,
- * die im Modul einen solchen Hook haben.
+ * macht das Modul selbst: Jede Route unter diesem Präfix wird über
+ * `registerLeaderRoutes` (modules/leadership/routes.ts) registriert, dessen
+ * preHandler `requireLeader` ausführt, auch in Teildateien wie
+ * leadership/meetingRoutes.ts. Handler holen die ID mit `leaderIdOf`, das
+ * außerhalb dieses Gates 403 wirft (fail closed). Zusätzlich liefert das
+ * Modul ausschließlich Daten aus dem eigenen Zuständigkeitsbereich. Hier wird
+ * nur die Bereichsprüfung übersprungen. Eintragen NUR für Präfixe, die im
+ * Modul einen solchen Hook haben.
  */
 const SELF_GATED = ['/api/leadership/me'];
 

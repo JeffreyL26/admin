@@ -11,6 +11,7 @@ import type {
   MeSurvey,
   MeSurveyDetail,
   MeetingOccasion,
+  MeetingRecipientsResponse,
   MeetingVisibility,
   SurveyAnswer,
   SurveyQuestionKind,
@@ -239,6 +240,26 @@ export function useMeetings(filters: { employee_id?: number; occasion?: MeetingO
     queryKey: ['communication', 'meetings', 'list', filters],
     queryFn: () => api.get<{ meetings: Meeting[] }>(`/api/communication/meetings${qs ? `?${qs}` : ''}`),
     select: (d) => d.meetings,
+  });
+}
+
+/**
+ * Führungskräfte, die ein Protokoll der Person heute erreicht (Zuständigkeit
+ * laut Führungsverwaltung). Die Route gibt es nur in Varianten mit Führung;
+ * der Aufrufer (RecipientsNote) erscheint nur dort. Eigener Schlüssel außerhalb
+ * von ['communication', 'meetings']: Speichern eines Protokolls ändert nicht,
+ * wer zuständig ist. `staleTime` wie die Auswahllisten der Führung, weil die
+ * Person im Editor oft hin und her gewechselt wird.
+ */
+export function useMeetingRecipients(employeeId: number | null) {
+  return useQuery({
+    queryKey: ['communication', 'meeting-recipients', employeeId],
+    queryFn: () =>
+      api.get<MeetingRecipientsResponse>(`/api/communication/meetings/recipients?employee_id=${employeeId}`),
+    select: (d) => d.leaders,
+    enabled: employeeId !== null,
+    staleTime: 30_000,
+    meta: { silentError: true },
   });
 }
 

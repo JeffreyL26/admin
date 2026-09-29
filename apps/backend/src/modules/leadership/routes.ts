@@ -147,29 +147,54 @@ function requireLeader(req: FastifyRequest): number {
   return leaderId;
 }
 
-async function leaderRoutes(app: FastifyInstance): Promise<void> {
-  // Gilt für JEDE Route dieses Plugins: neue Routen sind damit automatisch
-  // gesperrt, bis das Konto als Führungskraft freigeschaltet ist.
-  app.addHook('preHandler', async (req) => {
-    requireLeader(req);
-  });
+/** Vom Gate ermittelte Führungskraft je Request (nur innerhalb von `registerLeaderRoutes`). */
+const gatedLeaderIds = new WeakMap<FastifyRequest, number>();
 
+/**
+ * Personal-ID der Führungskraft dieses Requests. Nur in Routen, die über
+ * `registerLeaderRoutes` registriert sind; überall sonst 403 (fail closed),
+ * denn dort lief das Gate nicht.
+ */
+export function leaderIdOf(req: FastifyRequest): number {
+  const id = gatedLeaderIds.get(req);
+  if (id === undefined) throw forbidden('Die Führungsfunktion ist für Ihr Konto nicht freigeschaltet.');
+  return id;
+}
+
+/**
+ * DER Weg, Routen unter `/api/leadership/me/*` zu registrieren (SELF_GATED in
+ * core/permissions.ts: der globale Hook prüft dort keinen Bereich). Die Routen
+ * landen in einem eingekapselten Plugin, dessen preHandler `requireLeader`
+ * für JEDE von ihnen ausführt; Handler lesen die ID mit `leaderIdOf`. Auch
+ * Teilrouten anderer Dateien (leadership/meetingRoutes.ts) gehen hierüber,
+ * damit das Gate nicht je Datei kopiert wird.
+ */
+export async function registerLeaderRoutes(
+  app: FastifyInstance,
+  routes: (app: FastifyInstance) => void | Promise<void>,
+): Promise<void> {
+  await app.register(async (gated) => {
+    gated.addHook('preHandler', async (req) => {
+      gatedLeaderIds.set(req, requireLeader(req));
+    });
+    await routes(gated);
+  });
+}
+
+function leaderRoutes(app: FastifyInstance): void {
   app.get('/api/leadership/me/team', async (req) => {
-    const leaderId = requireLeader(req);
     const { settings, period } = periodOf(req);
-    return service.myTeam(leaderId, period, settings);
+    return service.myTeam(leaderIdOf(req), period, settings);
   });
 
   app.get('/api/leadership/me/employees/:id', async (req) => {
-    const leaderId = requireLeader(req);
     const { period } = periodOf(req);
-    return service.teamMemberDetail(leaderId, idParam(req), period);
+    return service.teamMemberDetail(leaderIdOf(req), idParam(req), period);
   });
 
   app.put('/api/leadership/me/employees/:id/ratings', async (req) => {
-    const leaderId = requireLeader(req);
     const body = parse(ratingsSaveSchema, req.body);
-    return { ratings: service.saveRatings(req, leaderId, idParam(req), body) };
+    return { ratings: service.saveRatings(req, leaderIdOf(req), idParam(req), body) };
   });
 }
 
@@ -182,7 +207,7 @@ export const leadershipModule: FastifyPluginAsync = async (app) => {
   // Sidebar „Mein Team“ nur denen zeigt, die es auch benutzen können.
   app.get('/api/leadership/me/status', async (req) => service.leaderStatus(req.user));
 
-  await app.register(leaderRoutes);
+  await registerLeaderRoutes(app, leaderRoutes);
 
   // ------------------------------------------------------ Einstellungen --
   // mutual_pairs: bestehende gegenseitige Verantwortung, auch die aus

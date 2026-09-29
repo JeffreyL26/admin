@@ -16,6 +16,7 @@ import type {
   Leader,
   LeaderBreakdown,
   LeaderCreateResponse,
+  LeaderMeeting,
   LeaderStatus,
   LeaderTeamResponse,
   LeadershipAssignmentInput,
@@ -81,6 +82,43 @@ export function useTeamMemberDetail(employeeId: number, period: string | null) {
     enabled: Number.isFinite(employeeId),
     placeholderData: keepPreviousData,
   });
+}
+
+/**
+ * Für die Führung freigegebene Gesprächsprotokolle einer Person aus dem
+ * eigenen Bereich. Die Route gibt es nur in Varianten mit Kommunikation; die
+ * aufrufenden Bausteine erscheinen nur dort (TeamMeetings.tsx). Der Schlüssel
+ * trägt 'meetings' VOR der Person, damit er nie mit dem der Bewertungsmaske
+ * ([…, 'employee', id, Zeitraum]) zusammenfällt.
+ */
+export function useTeamMemberMeetings(employeeId: number) {
+  return useQuery({
+    queryKey: [...LEADERSHIP_KEY, 'me', 'meetings', 'employee', employeeId],
+    queryFn: () => api.get<{ meetings: LeaderMeeting[] }>(`/api/leadership/me/employees/${employeeId}/meetings`),
+    select: (d) => d.meetings,
+    meta: { silentError: true },
+  });
+}
+
+/** Fällige Wiedervorlage (nur die Felder der Karte). */
+export type LeaderFollowUp = Pick<
+  LeaderMeeting,
+  'id' | 'employee_id' | 'first_name' | 'last_name' | 'meeting_date' | 'occasion' | 'follow_up_date'
+>;
+
+/**
+ * Abfrage der fälligen Wiedervorlagen, geteilt von Hook und Vorabruf: „Mein
+ * Team“ stößt sie parallel zur Teamabfrage an, statt erst nach deren Antwort.
+ */
+export const leaderFollowUpsQuery = {
+  queryKey: [...LEADERSHIP_KEY, 'me', 'meetings', 'follow-ups'],
+  queryFn: () => api.get<{ meetings: LeaderFollowUp[] }>('/api/leadership/me/meetings/follow-ups'),
+  meta: { silentError: true },
+};
+
+/** Fällige Wiedervorlagen aus den freigegebenen Protokollen des eigenen Bereichs. */
+export function useLeaderFollowUps() {
+  return useQuery({ ...leaderFollowUpsQuery, select: (d) => d.meetings });
 }
 
 /** Bewertungsblöcke eines Zeitraums speichern (Upsert je Kategorie, protokolliert). */

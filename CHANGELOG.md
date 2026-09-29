@@ -12,6 +12,37 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Gespraechsprotokolle fuer Fuehrungskraefte (29.09.2026)
+- Die Sichtbarkeit „HR und Fuehrungskraefte“ wirkt jetzt: Die zustaendige
+  Fuehrungskraft liest unter „Mein Team“ (Bewertungsseite der Person) die
+  Protokolle der Stufen `hr_vorgesetzte` und `hr_vorgesetzte_mitarbeiter`,
+  nur lesend und nie „Nur HR“. Neue Routen
+  `GET /api/leadership/me/employees/:id/meetings` und
+  `GET /api/leadership/me/meetings/follow-ups`; „Mein Team“ zeigt zudem die
+  Karte „Faellige Wiedervorlagen“, sobald es welche gibt.
+- Zustaendig ist allein `scopeFor` (heutiger Bereich): Eine neue Fuehrungskraft
+  sieht auch aeltere freigegebene Protokolle ihrer Leute, wer nicht mehr
+  zustaendig ist, sieht nichts mehr.
+- HR-Editor der Protokolle nennt beim Erfassen die Fuehrungskraefte, die das
+  Protokoll heute erreicht (`GET /api/communication/meetings/recipients`), und
+  warnt, wenn keine davon „Mein Team“ oeffnen kann (auch bei Ladefehler).
+  Die Zustaendigkeitsquellen sieht dort nur, wer `fuehrung: lesen` hat. Labels
+  und Hinweise der Stufen ohne „noch ohne eigene Ansicht“, Badge „Fuer Fuehrung
+  sichtbar“, neutrale Bezeichnung „Person“ bzw. „Mitarbeitende“ statt der
+  Gender-Schreibweise. Varianten ohne Fuehrung versprechen keine
+  Fuehrungsansicht.
+- Selbstschutz in der Fuehrungsverwaltung: Niemand schaltet das eigene Profil
+  frei oder erweitert die eigene Zustaendigkeit (403); sonst oeffnete
+  `fuehrung: bearbeiten` die Protokolle ohne Recht `kommunikation`.
+- Sichtbarkeit zentral: `MEETING_VISIBILITY_READERS` (shared) bestimmt, welche
+  Stufe Fuehrung und Person erreicht; Portal, Fuehrung und HR-Oberflaeche
+  leiten sich daraus ab. `/me`-Routen der Fuehrung laufen ueber
+  `registerLeaderRoutes`.
+- Portal: Die Seite Gespraechsprotokolle sagt, dass die zustaendigen
+  Fuehrungskraefte die freigegebenen Protokolle ebenfalls sehen.
+- Die Routen haengen an den Modulen Fuehrung UND Kommunikation
+  (`leaderMeetingRoutes`, Verdrahtung mit `requires`).
+
 ### Durchgaengigkeitspruefung aller Module (22.09.2026)
 - Betriebsruhe rechnet ueberlappende Antraege neu, storniert aber nie:
   vollstaendig abgedeckte Antraege stehen mit 0 Tagen und Kennzeichnung

@@ -1130,6 +1130,30 @@ check('Anhang-Signatur fuer fremde Datei -> 404', signUnknown.statusCode === 404
 const hrQuote = await app.inject({ method: 'GET', url: `/api/communication/announcements/${alleId}`, headers: adminAuth });
 check('HR-Seite zaehlt die Bestaetigung (1 von 3)', hrQuote.json().announcement.ack_count === 1 && hrQuote.json().announcement.recipients === 3, hrQuote.json());
 
+// Gespraechsprotokolle: das Portal liefert nur Stufe 3; 'hr_vorgesetzte' geht an
+// die Fuehrung (leadership/meetingRoutes.ts), 'nur_hr' bleibt bei der HR.
+const meetingIds: Record<string, number> = {};
+for (const visibility of ['nur_hr', 'hr_vorgesetzte', 'hr_vorgesetzte_mitarbeiter']) {
+  const created = await adminPostComm('/api/communication/meetings', {
+    employee_id: 1, meeting_date: today, occasion: 'einzelgespraech', participants: null,
+    content: `Inhalt ${visibility}`, agreements: null, follow_up_date: null, visibility,
+  });
+  meetingIds[visibility] = created.json().meeting?.id;
+}
+const annaMeetings = await empGet('/api/me/meetings');
+const annaMeetingRows = (annaMeetings.json().meetings ?? []) as Record<string, unknown>[];
+check(
+  'Portal: Anna sieht nur das Protokoll der Stufe „HR, Führungskräfte und Mitarbeitende“, ohne Sichtbarkeit und Autor',
+  annaMeetings.statusCode === 200 &&
+    annaMeetingRows.length === 1 &&
+    annaMeetingRows[0].id === meetingIds.hr_vorgesetzte_mitarbeiter &&
+    !('visibility' in annaMeetingRows[0]) &&
+    !('created_by_user_id' in annaMeetingRows[0]),
+  annaMeetingRows,
+);
+const carlaMeetings = await carlaGet('/api/me/meetings');
+check('Portal: Carla sieht keine Protokolle anderer Personen', carlaMeetings.statusCode === 200 && (carlaMeetings.json().meetings as unknown[]).length === 0, carlaMeetings.json());
+
 // Umfragen
 const svTeam = await adminPostComm('/api/communication/surveys', {
   // Mindestens 2 (Schema-Untergrenze): Mit 1 waere die einzige Antwort einer

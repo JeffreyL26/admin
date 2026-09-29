@@ -36,6 +36,7 @@ import { usePhotoUrl } from '../employees/api';
 import { useLeaderStatus, useSaveRatings, useTeamMemberDetail } from './api';
 import { EMPLOYEE_TYPE_TONES, PeriodSwitcher, SourceBadges } from './common';
 import { ScoreBadge } from './RatingInput';
+import { PROTOCOL_PARAM, TeamMemberMeetings } from './TeamMeetings';
 import { TeamRatingBlock, type CategoryOption, type RatingBlock } from './TeamRatingBlock';
 import { LeaderLockedState, OutOfScopeState, PeriodText, TeamNotice, isForbidden, truncate } from './TeamShared';
 
@@ -56,6 +57,8 @@ export function TeamMemberRatingPage() {
   const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const periodParam = searchParams.get('period');
+  const protocolParam = Number(searchParams.get(PROTOCOL_PARAM));
+  const protocolFocus = Number.isInteger(protocolParam) && protocolParam > 0 ? protocolParam : null;
 
   const { data, error, isLoading, isPlaceholderData } = useTeamMemberDetail(employeeId, periodParam);
   const status = useLeaderStatus();
@@ -461,15 +464,18 @@ export function TeamMemberRatingPage() {
           )}
         </Card>
 
+        <TeamMemberMeetings employeeId={employeeId} firstName={e.first_name} focusId={protocolFocus} />
+
         <Card title="Rund um die Bewertung">
           <TeamNotice>
             Diese Bewertung ist die <strong>Vorgesetztenbewertung</strong>. Selbstbewertung und 360°-Feedback der Person
-            entstehen unter Leistung → Beurteilungen auf denselben Kategorien; das Gespräch dazu wird unter Gespräche geplant.
+            entstehen unter Leistung → Beurteilungen auf denselben Kategorien; das Feedbackgespräch dazu wird unter Leistung →
+            Gespräche geplant. Die Gesprächsprotokolle oben führt die HR.
             Beide Verweise setzen die Rechte des jeweiligen Bereichs voraus.
           </TeamNotice>
           <div className="row row--wrap" style={{ gap: 12, marginTop: 10, fontSize: 'var(--text-sm)' }}>
             <Link to={`/leistung/beurteilungen?tab=conduct&employee=${employeeId}`}>Beurteilungen der Person</Link>
-            <Link to={`/leistung/feedback?employee=${employeeId}`}>Gespräche der Person</Link>
+            <Link to={`/leistung/feedback?employee=${employeeId}`}>Feedbackgespräche der Person</Link>
           </div>
         </Card>
 

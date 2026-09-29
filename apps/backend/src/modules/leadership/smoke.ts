@@ -778,6 +778,256 @@ check(
   (db.prepare('SELECT COUNT(*) AS n FROM leadership_rating_history WHERE score = 1').get() as { n: number }).n === 0 && historyCount() === 3,
 );
 
+// ============================ 8b. Gesprächsprotokolle in „Mein Team“ ============================
+//
+// Die HR gibt Protokolle je Stufe frei; die zuständige Führungskraft liest sie
+// nur lesend unter „Mein Team“. Zuständig ist allein scopeFor (heutiger Bereich).
+
+{
+  const tlbScope = ((await tlb.get('/api/leadership/me/team')).json().team as TeamMember[]).map((m) => m.id);
+  const MEET_IN = DEV2;
+  const MEET_OUT = [SALES1, HRSB].find((id) => !tlbScope.includes(id)) as number;
+  check(
+    'Vorbedingung: DEV2 im Bereich von TLB, ein Außenstehender, EXIT1 und TLB selbst nicht',
+    tlbScope.includes(MEET_IN) && MEET_OUT !== undefined && !tlbScope.includes(EXIT1) && !tlbScope.includes(TLB),
+    tlbScope,
+  );
+
+  async function addMeeting(
+    employeeId: number,
+    visibility: string,
+    followUp: string | null,
+    content: string,
+    meetingDate: string = yesterday,
+  ): Promise<number> {
+    const res = await admin.post('/api/communication/meetings', {
+      employee_id: employeeId,
+      meeting_date: meetingDate,
+      occasion: 'einzelgespraech',
+      participants: 'Tim Leitner, HR',
+      content,
+      agreements: 'Vereinbarung zu ' + content,
+      follow_up_date: followUp,
+      visibility,
+    });
+    if (res.statusCode !== 201) throw new Error(`Protokoll anlegen (${content}) → ${res.statusCode}: ${res.body}`);
+    return res.json().meeting.id as number;
+  }
+
+  // Gesprächsdaten bewusst NICHT in ID-Reihenfolge: mShared ist später
+  // angelegt, aber älter. So prüft die Sortierung wirklich das Datum.
+  const daysAgo = (n: number) => addDaysIso(todayIsoLocal(), -n);
+  const mOnlyHr = await addMeeting(MEET_IN, 'nur_hr', yesterday, 'nur HR');
+  const mLeader = await addMeeting(MEET_IN, 'hr_vorgesetzte', yesterday, 'Fuehrung', daysAgo(10));
+  const mShared = await addMeeting(MEET_IN, 'hr_vorgesetzte_mitarbeiter', null, 'Person und Fuehrung', daysAgo(20));
+  const mFuture = await addMeeting(MEET_IN, 'hr_vorgesetzte', addDaysIso(todayIsoLocal(), 30), 'Fuehrung spaeter', daysAgo(5));
+  const mOutside = await addMeeting(MEET_OUT, 'hr_vorgesetzte', yesterday, 'Fremder Bereich');
+  const mExit = await addMeeting(EXIT1, 'hr_vorgesetzte', yesterday, 'Ausgeschieden');
+  const mOwn = await addMeeting(TLB, 'hr_vorgesetzte', yesterday, 'Eigenes');
+
+  // Liste einer Person: nur die Stufen, die die Führung erreichen.
+  const meetRes = await tlb.get(`/api/leadership/me/employees/${MEET_IN}/meetings`);
+  type Row = Record<string, unknown> & { id: number; released_to_employee: number; visible_to_employee: number };
+  const meetRows = (meetRes.json().meetings ?? []) as Row[];
+  check(
+    'Führungskraft liest die Protokolle der Stufen 2 und 3, nie „nur HR“',
+    meetRes.statusCode === 200 && sameSet(meetRows.map((m) => m.id), [mLeader, mShared, mFuture]) && !meetRows.some((m) => m.id === mOnlyHr),
+    meetRows.map((m) => m.id),
+  );
+  check(
+    'Stufe 3 für die Person freigegeben, aber ohne Konto nicht sichtbar; Stufe 2 weder noch; weder Autor noch Sichtbarkeitsfeld',
+    meetRows.find((m) => m.id === mShared)?.released_to_employee === 1 &&
+      meetRows.find((m) => m.id === mShared)?.visible_to_employee === 0 &&
+      meetRows.find((m) => m.id === mLeader)?.released_to_employee === 0 &&
+      meetRows.find((m) => m.id === mLeader)?.visible_to_employee === 0 &&
+      meetRows.find((m) => m.id === mLeader)?.content === 'Fuehrung' &&
+      meetRows.every((m) => !('created_by_user_id' in m) && !('visibility' in m) && !('created_at' in m)),
+    meetRows,
+  );
+  check(
+    'Liste nach Gesprächsdatum, neueste zuerst (nicht nach Anlage)',
+    meetRows.map((m) => m.id).join() === [mFuture, mLeader, mShared].join(),
+    meetRows.map((m) => [m.id, m.meeting_date]),
+  );
+  // Mit Portalkonto sieht die Person Stufe 3 tatsächlich: das Kennzeichen folgt.
+  db.prepare(
+    "INSERT INTO users (email, name, password_hash, role, employee_id) VALUES ('erik.portal@example.org', 'Erik Eberle', 'x', 'mitarbeiter', ?)",
+  ).run(MEET_IN);
+  const withPortal = ((await tlb.get(`/api/leadership/me/employees/${MEET_IN}/meetings`)).json().meetings ?? []) as Row[];
+  check(
+    'Mit Portalkonto: visible_to_employee = 1 nur für Stufe 3',
+    withPortal.find((m) => m.id === mShared)?.visible_to_employee === 1 &&
+      withPortal.find((m) => m.id === mLeader)?.visible_to_employee === 0,
+    withPortal,
+  );
+  db.prepare("DELETE FROM users WHERE email = 'erik.portal@example.org'").run();
+
+  // Bereichsgrenzen: 403 wie bei den übrigen /me-Routen.
+  const outRes = await tlb.get(`/api/leadership/me/employees/${MEET_OUT}/meetings`);
+  check('Person außerhalb des Bereichs → 403', outRes.statusCode === 403 && !JSON.stringify(outRes.json()).includes('Fremder Bereich'), outRes.json());
+  const exitRes = await tlb.get(`/api/leadership/me/employees/${EXIT1}/meetings`);
+  check('Ausgeschiedene Person → 403 (nur aktive Profile im Bereich)', exitRes.statusCode === 403, exitRes.json());
+  const ownRes = await tlb.get(`/api/leadership/me/employees/${TLB}/meetings`);
+  check('Eigenes Profil → 403 (eigene Protokolle nur über das Portal)', ownRes.statusCode === 403, ownRes.json());
+  const badId = await tlb.get('/api/leadership/me/employees/abc/meetings');
+  check('Ungültige ID → 400', badId.statusCode === 400, badId.json());
+
+  // Fällige Wiedervorlagen: nur fällig, nur Bereich, nur Stufe 2/3.
+  const dueRes = await tlb.get('/api/leadership/me/meetings/follow-ups');
+  const dueRows = (dueRes.json().meetings ?? []) as Array<Record<string, unknown> & { id: number }>;
+  const dueIds = dueRows.map((m) => m.id);
+  check(
+    'Wiedervorlagen liefern nur die Felder der Karte, keinen Protokolltext',
+    dueRows.every((m) => !('content' in m) && !('agreements' in m) && !('participants' in m)),
+    dueRows,
+  );
+  check(
+    'Wiedervorlagen: nur das fällige Stufe-2-Protokoll im Bereich (nicht nur HR, nicht künftig, nicht fremd, nicht ausgeschieden, nicht eigen)',
+    dueRes.statusCode === 200 &&
+      sameSet(dueIds, [mLeader]) &&
+      ![mOnlyHr, mFuture, mShared, mOutside, mExit, mOwn].some((id) => dueIds.includes(id)),
+    dueIds,
+  );
+  check(
+    'Wiedervorlage trägt den Namen der Person',
+    (dueRes.json().meetings as Array<{ first_name: string; last_name: string }>)[0]?.last_name === 'Eberle',
+    dueRes.json().meetings,
+  );
+
+  // Ein Konto ohne freigeschaltete Führungsfunktion kommt auf keine der beiden Routen.
+  const adminMeet = await admin.get(`/api/leadership/me/employees/${MEET_IN}/meetings`);
+  const adminDue = await admin.get('/api/leadership/me/meetings/follow-ups');
+  check('Konto ohne Führungsfunktion: beide Leserouten → 403', adminMeet.statusCode === 403 && adminDue.statusCode === 403, [adminMeet.statusCode, adminDue.statusCode]);
+  const anonMeet = await app.inject({ method: 'GET', url: `/api/leadership/me/employees/${MEET_IN}/meetings` });
+  check('Ohne Anmeldung → 401', anonMeet.statusCode === 401, anonMeet.json());
+
+  // Nur lesen: es gibt keine Schreibroute für die Führung.
+  const putMeet = await tlb.put(`/api/leadership/me/employees/${MEET_IN}/meetings`, { content: 'x' });
+  check('Keine Schreibroute für die Führung (PUT → 404, Route existiert nicht)', putMeet.statusCode === 404, putMeet.statusCode);
+
+  // Ausnahme schlägt jede Quelle: nach „exclude“ ist die Person weg, danach wieder da.
+  const exclude = await admin.post(`/api/leadership/leaders/${TLB}/assignments`, {
+    kind: 'exclude',
+    target_type: 'employee',
+    target_id: MEET_IN,
+  });
+  check('Ausnahme für DEV2 anlegen → 201', exclude.statusCode === 201, exclude.json());
+  const excludedMeet = await tlb.get(`/api/leadership/me/employees/${MEET_IN}/meetings`);
+  const excludedDue = await tlb.get('/api/leadership/me/meetings/follow-ups');
+  check(
+    'Nach Ausnahme: Protokolle 403 und Wiedervorlage verschwunden (nur heutiger Bereich)',
+    excludedMeet.statusCode === 403 && (excludedDue.json().meetings as unknown[]).length === 0,
+    [excludedMeet.statusCode, excludedDue.json()],
+  );
+  const restore = await admin.del(`/api/leadership/assignments/${exclude.json().assignment.id as number}`);
+  check('Ausnahme entfernen → 204', restore.statusCode === 204, restore.body);
+  const restoredMeet = await tlb.get(`/api/leadership/me/employees/${MEET_IN}/meetings`);
+  check(
+    'Nach Entfernen der Ausnahme sieht TLB wieder alle freigegebenen Protokolle, auch ältere',
+    restoredMeet.statusCode === 200 && (restoredMeet.json().meetings as unknown[]).length === 3,
+    restoredMeet.json(),
+  );
+
+  // HR-Seite: wen erreicht ein Protokoll dieser Person heute?
+  const rec = await admin.get(`/api/communication/meetings/recipients?employee_id=${MEET_IN}`);
+  const recLeaders = (rec.json().leaders ?? []) as Array<{ employee_id: number; name: string; sources: string[]; has_account: number }>;
+  check(
+    'Empfänger: TLB (mit Konto) und CTO (ohne Konto) mit Quellen',
+    rec.statusCode === 200 &&
+      sameSet(recLeaders.map((l) => l.employee_id), [TLB, CTO]) &&
+      recLeaders.find((l) => l.employee_id === TLB)?.has_account === 1 &&
+      recLeaders.find((l) => l.employee_id === TLB)?.name === 'Tim Leitner' &&
+      recLeaders.find((l) => l.employee_id === CTO)?.has_account === 0 &&
+      recLeaders.find((l) => l.employee_id === TLB)?.sources.includes('team') === true,
+    recLeaders,
+  );
+  const recNobody = await admin.get(`/api/communication/meetings/recipients?employee_id=${EXIT1}`);
+  check('Empfänger einer ausgeschiedenen Person: leer', recNobody.statusCode === 200 && (recNobody.json().leaders as unknown[]).length === 0, recNobody.json());
+  const recUnknown = await admin.get('/api/communication/meetings/recipients?employee_id=99999');
+  check('Empfänger unbekannter Person → 404', recUnknown.statusCode === 404, recUnknown.json());
+  const recMissing = await admin.get('/api/communication/meetings/recipients');
+  check('Empfänger ohne employee_id → 400', recMissing.statusCode === 400, recMissing.json());
+  const recTlb = await tlb.get(`/api/communication/meetings/recipients?employee_id=${MEET_IN}`);
+  check('Rolle Führungskraft (Bereich kommunikation: kein) → 403 auf Empfänger', recTlb.statusCode === 403, recTlb.json());
+  const listTlb = await tlb.get('/api/communication/meetings');
+  check('Rolle Führungskraft: HR-Liste der Protokolle bleibt 403', listTlb.statusCode === 403, listTlb.json());
+
+  // Rechtegrenzen mit eigenen Wegwerf-Profilen (spätere Abschnitte verknüpfen
+  // SALES1, HRSB und PLAT1 selbst mit Konten).
+  const SELF = addEmployee({ first_name: 'Fritz', last_name: 'Fuehrungsadmin', job_title: 'HR', department_id: DEPT_PERSONAL });
+  const COMM = addEmployee({ first_name: 'Klara', last_name: 'Kommunikation', job_title: 'HR', department_id: DEPT_PERSONAL });
+  const roleOf = async (name: string, permissions: Record<string, string>) => {
+    const res = await admin.post('/api/admin/admin-roles', { name, permissions });
+    if (res.statusCode !== 201) throw new Error(`Rolle ${name} → ${res.statusCode}: ${res.body}`);
+    return res.json().admin_role.id as number;
+  };
+
+  // Selbstschutz: `fuehrung: bearbeiten` ohne `kommunikation` darf sich nicht
+  // selbst freischalten, sonst läse das Konto über „Mein Team“ Protokolle.
+  const selfAdmin = await loginAs(
+    SELF,
+    'fritz.fuehrung@example.org',
+    'Fritz Fuehrungsadmin',
+    await roleOf('Führungsverwaltung', { fuehrung: 'bearbeiten' }),
+  );
+  const selfGrant = await selfAdmin.post('/api/leadership/leaders', { employee_id: SELF });
+  check('Selbst freischalten → 403 (Selbstschutz)', selfGrant.statusCode === 403, selfGrant.json());
+  check('Eigenes Profil wurde nicht freigeschaltet', !db.prepare('SELECT 1 FROM leadership_leaders WHERE employee_id = ?').get(SELF));
+  // Von jemand anderem freigeschaltet: Zuständigkeit ändert das Konto trotzdem nicht selbst.
+  const grantSelfByAdmin = await admin.post('/api/leadership/leaders', { employee_id: SELF });
+  check('HR schaltet SELF frei → 201', grantSelfByAdmin.statusCode === 201, grantSelfByAdmin.json());
+  const selfAssign = await selfAdmin.post(`/api/leadership/leaders/${SELF}/assignments`, {
+    kind: 'include',
+    target_type: 'department',
+    target_id: DEPT_TECHNIK,
+  });
+  check('Sich selbst eine Abteilung zuweisen → 403', selfAssign.statusCode === 403, selfAssign.json());
+  const selfPatch = await selfAdmin.patch(`/api/leadership/leaders/${SELF}`, { auto_scope: true });
+  check('Eigene Freischaltung ändern → 403', selfPatch.statusCode === 403, selfPatch.json());
+  const selfExclusion = await admin.post(`/api/leadership/leaders/${SELF}/assignments`, {
+    kind: 'exclude',
+    target_type: 'employee',
+    target_id: COMM,
+  });
+  const dropOwnExclusion = await selfAdmin.del(`/api/leadership/assignments/${selfExclusion.json().assignment?.id as number}`);
+  check('Eigene Ausnahme entfernen (erweitert den Bereich) → 403', dropOwnExclusion.statusCode === 403, dropOwnExclusion.json());
+  const otherAssign = await selfAdmin.post(`/api/leadership/leaders/${TLB}/assignments`, {
+    kind: 'include',
+    target_type: 'employee',
+    target_id: SALES1,
+  });
+  check('Fremde Führungskraft zuweisen bleibt erlaubt → 201', otherAssign.statusCode === 201, otherAssign.json());
+  await admin.del(`/api/leadership/assignments/${otherAssign.json().assignment?.id as number}`);
+  const selfRevoke = await selfAdmin.del(`/api/leadership/leaders/${SELF}`);
+  check('Eigene Freischaltung entziehen bleibt erlaubt → 204', selfRevoke.statusCode === 204, selfRevoke.body);
+
+  // Empfängerliste ohne `fuehrung: lesen`: Namen und Erreichbarkeit, keine Quellen.
+  const commReader = await loginAs(
+    COMM,
+    'klara.komm@example.org',
+    'Klara Kommunikation',
+    await roleOf('Protokolle lesen', { kommunikation: 'lesen' }),
+  );
+  const recNoFuehrung = await commReader.get(`/api/communication/meetings/recipients?employee_id=${MEET_IN}`);
+  const recNoFuehrungLeaders = (recNoFuehrung.json().leaders ?? []) as Array<Record<string, unknown>>;
+  check(
+    'Empfänger ohne fuehrung:lesen: Namen und has_account, aber keine Quellen',
+    recNoFuehrung.statusCode === 200 &&
+      recNoFuehrungLeaders.length === 2 &&
+      recNoFuehrungLeaders.every((l) => typeof l.name === 'string' && 'has_account' in l && !('sources' in l)),
+    recNoFuehrung.json(),
+  );
+  const leadersForComm = await commReader.get('/api/leadership/leaders');
+  check('Dieselbe Rolle: GET /api/leadership/leaders bleibt 403', leadersForComm.statusCode === 403, leadersForComm.json());
+
+  // Aufräumen: spätere Abschnitte rechnen mit einer unberührten Organisation.
+  // Die Konten bleiben (Audit und Freischaltung verweisen auf sie), nur ihre
+  // Profile verschwinden wieder aus der Organisation.
+  db.prepare('UPDATE users SET employee_id = NULL WHERE employee_id IN (?, ?)').run([SELF, COMM]);
+  db.prepare('DELETE FROM employees WHERE id IN (?, ?)').run([SELF, COMM]);
+  db.prepare('DELETE FROM meeting_protocols').run();
+}
+
 // ============================ 9. Kategorien ============================
 
 const newCat = await admin.post('/api/leadership/categories', { name: 'Pünktlichkeit', description: 'Termintreue' });
