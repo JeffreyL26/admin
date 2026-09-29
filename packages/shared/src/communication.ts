@@ -1,4 +1,5 @@
 // Typen des Moduls Kommunikation & Engagement.
+import type { ScopeSource } from './leadership.js';
 
 /**
  * Einheitliches Zielgruppen-Muster fuer Ankuendigungen und Umfragen:
@@ -161,24 +162,28 @@ export const MEETING_OCCASION_LABELS: Record<MeetingOccasion, string> = {
 export type MeetingVisibility = 'nur_hr' | 'hr_vorgesetzte' | 'hr_vorgesetzte_mitarbeiter';
 
 /**
- * Wer ein Protokoll sieht. Durchgesetzt wird heute nur die dritte Stufe:
- * GET /api/me/meetings liefert der Person ihre Protokolle mit
- * 'hr_vorgesetzte_mitarbeiter'. Eine eigene Ansicht fuer Fuehrungskraefte
- * (Stufe 'hr_vorgesetzte', „Mein Team“) gibt es noch nicht; das Label sagt
- * das, damit niemand eine Freigabe erwartet, die nirgends ankommt.
+ * Wer ein Protokoll sieht:
+ * - 'nur_hr': nur die Personalabteilung (Kommunikation → Gesprächsprotokolle).
+ * - 'hr_vorgesetzte': zusaetzlich die zustaendigen Fuehrungskraefte unter
+ *   „Mein Team“ (GET /api/leadership/me/employees/:id/meetings). Wer
+ *   zustaendig ist, bestimmt allein die Fuehrungsverwaltung (scopeFor): der
+ *   HEUTIGE Bereich, ohne Verlauf.
+ * - 'hr_vorgesetzte_mitarbeiter': wie zuvor, dazu die Person selbst im Portal
+ *   (GET /api/me/meetings).
  */
 export const MEETING_VISIBILITY_LABELS: Record<MeetingVisibility, string> = {
   nur_hr: 'Nur HR',
-  hr_vorgesetzte: 'HR und Führungskräfte (noch ohne eigene Ansicht)',
-  hr_vorgesetzte_mitarbeiter: 'HR, Führungskräfte und Mitarbeiter:in',
+  hr_vorgesetzte: 'HR und Führungskräfte',
+  hr_vorgesetzte_mitarbeiter: 'HR, Führungskräfte und Mitarbeitende',
 };
 
 /** Erklaerung je Stufe fuer das Formular der HR. */
 export const MEETING_VISIBILITY_HINTS: Record<MeetingVisibility, string> = {
   nur_hr: 'Nur die Personalabteilung sieht dieses Protokoll.',
   hr_vorgesetzte:
-    'Führungskräfte haben noch keine eigene Ansicht; bis dahin sieht nur die Personalabteilung das Protokoll.',
-  hr_vorgesetzte_mitarbeiter: 'Sichtbar im Portal der Person unter „Gesprächsprotokolle“.',
+    'Sichtbar für die zuständigen Führungskräfte unter „Mein Team“, nicht für die Person selbst.',
+  hr_vorgesetzte_mitarbeiter:
+    'Sichtbar für die zuständigen Führungskräfte und im Portal der Person unter „Gesprächsprotokolle“.',
 };
 
 /** Eigenes Gespraechsprotokoll im Portal (GET /api/me/meetings). */
@@ -190,6 +195,34 @@ export interface MeMeeting {
   content: string | null;
   agreements: string | null;
   follow_up_date: string | null;
+}
+
+/**
+ * Gespraechsprotokoll aus Sicht der Fuehrungskraft („Mein Team“). Nur die
+ * Stufen 'hr_vorgesetzte' und 'hr_vorgesetzte_mitarbeiter' erreichen sie;
+ * `visible_to_employee` sagt, ob die Person es auch selbst im Portal sieht.
+ * Ohne Autor und Zeitstempel: das Protokoll fuehrt die HR.
+ */
+export interface LeaderMeeting extends MeMeeting {
+  employee_id: number;
+  first_name: string;
+  last_name: string;
+  visible_to_employee: 0 | 1;
+}
+
+/** Eine Fuehrungskraft, die ein Protokoll der Person heute erreicht (HR-Editor). */
+export interface MeetingRecipient {
+  employee_id: number;
+  name: string;
+  /** Warum die Fuehrungskraft zustaendig ist (direkt, Abteilung, Team, zugewiesen). */
+  sources: ScopeSource[];
+  /** 1 = die Fuehrungskraft hat ein Desktop-Konto und sieht „Mein Team“ auch. */
+  has_account: 0 | 1;
+}
+
+/** GET /api/communication/meetings/recipients?employee_id= */
+export interface MeetingRecipientsResponse {
+  leaders: MeetingRecipient[];
 }
 
 /**

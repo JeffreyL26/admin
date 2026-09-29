@@ -255,7 +255,7 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
               {employee.first_name} {employee.last_name} wird endgültig gelöscht. Das lässt sich nicht rückgängig
               machen.
             </p>
-            <p style={{ marginTop: 8 }}>Mit gelöscht werden alle zugehörigen Daten:</p>
+            <p style={{ marginTop: 8 }}>Gelöscht werden alle zugehörigen Daten:</p>
             <ul style={{ margin: '6px 0 0 18px' }}>
               <li>Abwesenheiten, Anträge und Krankmeldungen</li>
               <li>Verträge und Vertragsdokumente</li>

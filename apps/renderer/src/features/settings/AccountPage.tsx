@@ -108,8 +108,7 @@ function SidebarCard() {
       }
     >
       <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
-        Die Reihenfolge der Abschnitte gilt sofort und wird auf diesem Gerät gespeichert. Das Dashboard bleibt immer
-        ganz oben, der Abschnitt System ganz unten.
+        Die Reihenfolge der Abschnitte gilt sofort und wird auf diesem Gerät gespeichert.
       </p>
       <div className="stack" style={{ gap: 6 }}>
         {order.map((key, i) => (

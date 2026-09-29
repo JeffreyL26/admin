@@ -292,7 +292,7 @@ function ApplicationsTab({
             <table className="hm-table">
               <thead>
                 <tr>
-                  <th>Bewerber:in</th>
+                  <th>Bewerber</th>
                   <th>Stelle</th>
                   <th>Stufe</th>
                   <th>Eingang</th>
@@ -384,7 +384,7 @@ export function BewerberPage() {
     <>
       <PageHeader
         title="Bewerbungen"
-        subtitle="Alle Bewerbungen und der Talentpool der erfassten Bewerber:innen"
+        subtitle="Alle Bewerbungen und der erfasste Talentpool."
         actions={
           <button className="hm-btn hm-btn--primary" onClick={() => { setEditorInitial(emptyDraft()); setEditId(null); setEditorOpen(true); }}>
             <Plus size={16} /> Neue:r Bewerber:in

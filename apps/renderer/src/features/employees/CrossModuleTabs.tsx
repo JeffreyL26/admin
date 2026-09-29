@@ -215,7 +215,7 @@ export function EmployeeCompensationTab({ employeeId, employeeName }: { employee
         <EmptyState
           icon={<Receipt size={40} />}
           title="Vergütung über Honorare"
-          hint="Für Freiberufler:innen gibt es keine Gehaltskomponenten. Honorarsätze und Rechnungen stehen im Bereich Freiberufler & Honorare."
+          hint="Für freiberufliche Mitarbeiter gibt es keine Gehaltskomponenten. Honorarsätze und Rechnungen stehen im Bereich Freiberufler & Honorare."
           action={
             <button className="hm-btn hm-btn--primary" onClick={() => navigate('/verguetung/honorare')}>
               <Receipt size={16} /> Zu den Honoraren

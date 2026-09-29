@@ -589,7 +589,7 @@ function EmployeeDetail({
           <EmptyState
             icon={<Receipt size={40} />}
             title="Vergütung über Honorare"
-            hint="Freiberufler:innen haben keine Gehaltskomponenten. Honorarsätze und Rechnungen stehen unter Freiberufler & Honorare."
+            hint="Freiberufliche Mitarbeiter haben keine Gehaltskomponenten. Honorarsätze und Rechnungen stehen unter Freiberufler & Honorare."
             action={
               <Link className="hm-btn hm-btn--primary" to="/verguetung/honorare">
                 <Receipt size={16} /> Zu den Honoraren

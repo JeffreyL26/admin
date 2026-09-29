@@ -811,7 +811,7 @@ export function ApplicationDrawer({
                 <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => setRejectOpen(true)} style={{ color: 'var(--danger)' }}>
                   <XCircle size={15} /> Ablehnen
                 </button>
-                <Tooltip content={<span className="hm-tooltip__title">Bewerber:in hat die Bewerbung zurückgezogen</span>}>
+                <Tooltip content={<span className="hm-tooltip__title">Bewerber hat die Bewerbung zurückgezogen</span>}>
                   <button className="hm-btn hm-btn--ghost hm-btn--sm" onClick={() => setWithdrawOpen(true)}>
                     <Undo2 size={15} /> Zurückgezogen
                   </button>
