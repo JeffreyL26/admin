@@ -1085,9 +1085,9 @@ export function SurveysPage() {
         }
         danger={false}
         message={
-          statusTarget?.status === “laufend”
-            ? `Soll „${statusTarget.survey.title}” gestartet werden? Danach lassen sich Fragen und Zielgruppe nicht mehr ändern, und die Umfrage erscheint bei den ausgewählten Personen.`
-            : `Soll „${statusTarget?.survey.title}” beendet werden? Danach sind keine Teilnahmen mehr möglich; ein Wiederaufnehmen gibt es nicht.`
+          statusTarget?.status === "laufend"
+            ? `Soll „${statusTarget.survey.title}“ gestartet werden? Danach lassen sich Fragen und Zielgruppe nicht mehr ändern, und die Umfrage erscheint bei den ausgewählten Personen.`
+            : `Soll „${statusTarget?.survey.title}“ beendet werden? Danach sind keine Teilnahmen mehr möglich; ein Wiederaufnehmen gibt es nicht.`
         }
         onConfirm={() =>
           statusTarget &&
