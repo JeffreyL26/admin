@@ -148,15 +148,18 @@ npm run conspectus -- lizenz faellig --tage 45          # was laeuft bald ab
 npm run conspectus -- lizenz verlaengern --instanz musterfirma --until 1j --einspielen
 ```
 
-Beim Kunden-Server gibt es kein `--einspielen`: Die Datei wird verschickt und
-dort eingespielt. Den Vermerk im Register setzt der naechste eingelesene
-Bericht von selbst, sobald die Instanz die Lizenznummer meldet
-(`status --host ...` bzw. `bericht importieren`). Kommt kein Bericht zurueck,
-von Hand nachtragen, sonst meldet `check` die Lizenz dauerhaft als nicht
-eingespielt:
+Beim Kunden-Server gibt es kein `--einspielen`; wie der Vermerk dort ins
+Register kommt, steht in Abschnitt 5. Bis die neue Datei eingespielt ist,
+nennen `faellig` und `check` weiter den Ablauf der laufenden (Spalte ART:
+"Nachfolge ... ausgestellt").
+
+Eine Datei, die nie eingespielt wird (Fehlausstellung, abgelehntes Angebot,
+nicht genutzte Evaluation), wird zurueckgezogen; danach gilt wieder die
+vorherige als ausgestellt. Eingespielte Dateien lassen sich nicht
+zurueckziehen, und die Datei selbst bleibt technisch gueltig:
 
 ```bash
-npm run conspectus -- lizenz eingespielt musterfirma --am 2026-10-01
+npm run conspectus -- lizenz zurueckziehen 1a2b3c4d
 ```
 
 `verlaengern` erbt Art, Abrechnung, Intervall, Plaetze, Funktionen und den
@@ -286,6 +289,51 @@ kommt per Datei zurueck:
 npm run conspectus -- bericht importieren bericht.json --instanz musterfirma
 ```
 
+Statt der Ausgabe von `status.cjs` taugt auch der Lizenzbericht der
+Desktop-App (Einstellungen, Lizenz, Bericht), den der Kunde ohnehin schickt;
+bei einem Einzelplatz ist er der einzige Bericht. Die Lizenznummer, die ein
+Bericht meldet, gilt als die laufende der Instanz und wird als eingespielt
+vermerkt, gleich ob es die zuletzt ausgestellte ist. Meldet die Instanz eine
+aeltere als die zuletzt eingespielte (etwa nach einem Restore), sagt `check`
+das.
+
+Ein Bericht, der erkennbar zu einer anderen Instanz gehoert, wird abgelehnt
+und aendert nichts: fremde Installations-ID, eine Lizenz einer anderen
+Instanz oder (beim Lizenzbericht) ein anderer Kunde. Kommt die Ablehnung aus
+einem Hostbericht (`status --host` oder dessen gespeicherte Ausgabe, erkennbar
+am Feld `kunde` je Eintrag), bleibt sie an der Instanz vermerkt und `check`
+meldet sie, bis ein Bericht kommt, der sich ausweist (Installations-ID,
+Lizenz oder Kunde) und passt, oder `instanz id` die Kennung neu setzt. Bei
+einer Einzelausgabe oder einem Lizenzbericht genuegt die Fehlermeldung, denn
+dort kann es auch die falsche Datei gewesen sein.
+
+Es gilt der zuletzt eingelesene Bericht oder Vermerk; Zeitstempel werden nicht
+verglichen. Schickt der Kunde mehrere Berichte, den neuesten zuletzt einlesen.
+Wurde ein aelterer nach einem neueren eingelesen, meldet `check` "Lizenz ...
+war eingespielt, die Instanz meldet aber ...: Restore beim Kunden oder ein
+aelterer Bericht nach einem neueren eingelesen?"; den neuesten noch einmal
+einlesen behebt es. Als Tag des Einspielens zaehlt beim Lizenzbericht der Tag,
+an dem er erzeugt wurde, sonst der Tag des Einlesens.
+
+Hat der Kunde wirklich neu installiert (frische Datenbank, neue
+Installations-ID), bestaetigt das `--neue-installation` beim Import; bei
+`status --host` mit dem Schluessel genau dieser Instanz
+(`--neue-installation <instanz>`), damit es nicht fuer alle Instanzen des
+Hosts gilt. Danach meldet `check` jede Lizenz, die noch an die alte
+Installation gebunden ist, und sagt, ob eine passende schon ausgestellt ist
+(dann nur einspielen lassen) oder eine neue noetig ist.
+
+Kommt nach dem Einspielen kein Bericht zurueck, von Hand nachtragen, sonst
+meldet `check` die Lizenz dauerhaft als nicht eingespielt:
+
+```bash
+npm run conspectus -- lizenz eingespielt musterfirma --am 2026-10-01
+```
+
+Vorgabe ist die zuletzt ausgestellte Lizenz, mit `--lizenz <nummer>` eine
+andere der Instanz. `--am` liegt zwischen Ausstellung und heute; ist die
+Lizenz schon als laufend vermerkt, bricht der Aufruf ab.
+
 ---
 
 ## 6. Stoerungen
@@ -323,6 +371,9 @@ alter Stand bringt also still die alte Datei zurueck:
 ohrganize-provision.sh lizenz <kunde> <neueste-datei>
 npm run conspectus -- status --host <host>
 ```
+
+Wer das vergisst, sieht es nach dem naechsten Bericht in `check`: "Lizenz ...
+war eingespielt, die Instanz meldet aber ...: Restore beim Kunden ...?".
 
 Beim Einzelkunden nennt das `MANIFEST.txt` jeder Sicherung die
 plattformgerechten Schritte.
@@ -362,6 +413,19 @@ npm run conspectus -- html --out /pfad/uebersicht.html
 `check` arbeitet auf dem Register, ohne Netzzugriff. Damit die Zahlen stimmen,
 gehoert vorher ein `conspectus status --host <host>` je Host dazu (das liest
 Version, Kanal, Lizenzzustand und Platzzahl ein).
+
+Je Instanz unterscheidet das Register zwei Lizenzen. **Ausgestellt** ist die
+zuletzt ausgestellte, nicht zurueckgezogene Datei; auf ihr bauen
+`verlaengern` und `lizenz eingespielt` auf, und `check` meldet, solange sie
+nicht eingespielt ist. **Laufend** ist die Datei auf der Instanz: die zuletzt
+gemeldete oder vermerkte, ohne Beleg die zuletzt eingespielte, sonst die des
+laufenden Zeitraums. Ablaufwarnung, `faellig` und die Spalte "Lizenz bis" der
+Uebersichten richten sich nach ihr, denn eine ausgestellte, aber nicht
+eingespielte Verlaengerung verlaengert beim Kunden nichts.
+
+Die Version einer Instanz wird mit dem juengsten stabilen Release verglichen,
+bei einer Beta mit dem juengsten Release ueberhaupt (auch das fertige loest
+sie ab). Ob Beta, folgt aus der Versionsnummer.
 
 Die HTML-Uebersicht enthaelt Kundennamen und Hostschluessel. Sie gehoert nicht
 in ein Repository und nicht in einen synchronisierten Ordner.

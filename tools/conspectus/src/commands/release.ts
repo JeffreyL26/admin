@@ -124,7 +124,9 @@ export function releaseCommand(sub: string, args: Args): void {
     case 'liste':
     case undefined:
     case '': {
-      const rows = db.prepare('SELECT * FROM releases ORDER BY variante, version').all() as ReleaseRow[];
+      const rows = (db.prepare('SELECT * FROM releases').all() as ReleaseRow[]).sort(
+        (a, b) => a.variante.localeCompare(b.variante) || compareVersions(a.version, b.version),
+      );
       if (rows.length === 0) {
         console.log('Noch kein Release im Register.');
         return;
@@ -154,12 +156,12 @@ export function releaseMuss(id: string): ReleaseRow {
   return row;
 }
 
-/** Jüngstes Release je Variante und Kanal (zum Vergleich mit den Instanzen). */
-export function neuestesRelease(variante: string, kanal: string): ReleaseRow | null {
+/** Jüngstes stabiles Release einer Variante, mit `mitBeta` das jüngste überhaupt. */
+export function neuestesRelease(variante: string, mitBeta: boolean): ReleaseRow | null {
   const { db } = openRegister();
   const rows = db
-    .prepare('SELECT * FROM releases WHERE variante = ? AND kanal = ?')
-    .all(variante, kanal) as ReleaseRow[];
+    .prepare(`SELECT * FROM releases WHERE variante = ?${mitBeta ? '' : " AND kanal = 'stable'"}`)
+    .all(variante) as ReleaseRow[];
   // Nicht in SQL sortieren: Als Text laege 1.9.0 hinter 1.10.0.
   rows.sort((a, b) => compareVersions(a.version, b.version));
   return rows.length > 0 ? rows[rows.length - 1] : null;

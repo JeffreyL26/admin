@@ -130,4 +130,16 @@ export const SPAETERE_SPALTEN: { tabelle: string; spalte: string; typ: string }[
   { tabelle: 'lizenzen', spalte: 'kid', typ: 'TEXT' },
   // Privater SSH-Schluessel je Host (-i), wenn nicht der Standardschluessel gilt.
   { tabelle: 'hosts', spalte: 'ssh_schluessel', typ: 'TEXT' },
+  // Lizenznummer, die auf der Instanz liegt: zuletzt gemeldet oder vermerkt.
+  { tabelle: 'instanzen', spalte: 'laufende_lizenz', typ: 'TEXT' },
+  // Zuletzt abgelehnter Bericht (fremde Installation, Lizenz, Kunde), bis ein
+  // passender Bericht kommt; sonst saehe `check` den alten Stand ohne Hinweis.
+  { tabelle: 'instanzen', spalte: 'bericht_abgelehnt_am', typ: 'TEXT' },
+  { tabelle: 'instanzen', spalte: 'bericht_abgelehnt_grund', typ: 'TEXT' },
+  // Zeitpunkt der Ausstellung; trennt Dateien desselben Tages (rowid ist ohne
+  // INTEGER PRIMARY KEY nicht bestaendig).
+  { tabelle: 'lizenzen', spalte: 'ausgestellt_um', typ: 'TEXT' },
+  // Nie eingespielte Datei, die nicht mehr gelten soll (Fehlausstellung,
+  // abgelehntes Angebot).
+  { tabelle: 'lizenzen', spalte: 'zurueckgezogen_am', typ: 'TEXT' },
 ];

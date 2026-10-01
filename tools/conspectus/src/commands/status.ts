@@ -9,20 +9,19 @@
  */
 import fs from 'node:fs';
 import type { Args } from '../args.js';
-import { ConspectusError, openRegister } from '../db.js';
+import { ConspectusError } from '../db.js';
 import { runRemote, type HostTarget } from '../ssh.js';
 import { readTextFile } from '../textfile.js';
 import { hostMuss } from './host.js';
-import { berichtUebernehmen, instanzMuss } from './instanz.js';
+import { berichtUebernehmen, instanzMuss, type ReportImport } from './instanz.js';
 
 export function statusCommand(args: Args): void {
-  const { db } = openRegister();
   const hostId = args.values.host;
   const instanzId = args.values.instanz ?? args.positional[0];
   if (!hostId && !instanzId) {
     throw new ConspectusError('Aufruf: conspectus status --host <host> | --instanz <instanz>');
   }
-
+  assertNewInstallationNamed(args);
   const host = hostId
     ? hostMuss(hostId)
     : hostMuss(instanzMuss(instanzId as string).host_id ?? '');
@@ -40,18 +39,41 @@ export function statusCommand(args: Args): void {
   } catch {
     throw new ConspectusError(`Die Antwort von ${host.id} ist kein JSON:\n${res.stdout.slice(0, 500)}`);
   }
-  const uebernommen = berichtUebernehmen(json);
+  importHostReport(json, args);
+}
+
+/**
+ * Sammelbericht eines Hosts ins Register uebernehmen und anzeigen. Eine neue
+ * Installation bestaetigt `--neue-installation <instanz>` fuer genau diese
+ * Instanz, nicht fuer alle des Hosts.
+ */
+export function importHostReport(json: unknown, args: Args): ReportImport {
+  assertNewInstallationNamed(args);
+  const result = berichtUebernehmen(json, undefined, { newInstallation: args.values['neue-installation'] });
   if (args.flags.has('json')) {
     console.log(JSON.stringify(json, null, 2));
   } else {
-    zeigeBericht(json, instanzId);
+    zeigeBericht(json, args.values.instanz ?? args.positional[0]);
   }
   console.log(
-    uebernommen.length > 0
-      ? `\nIns Register uebernommen: ${uebernommen.join(', ')}`
-      : '\nKeine der gemeldeten Instanzen steht im Register (conspectus instanz anlegen ...).',
+    result.taken.length > 0
+      ? `\nIns Register uebernommen: ${result.taken.join(', ')}`
+      : result.rejected.length > 0
+        ? '\nNichts ins Register uebernommen.'
+        : '\nKeine der gemeldeten Instanzen steht im Register (conspectus instanz anlegen ...).',
   );
-  void db;
+  printRejected(result.rejected);
+  return result;
+}
+
+function assertNewInstallationNamed(args: Args): void {
+  if (args.flags.has('neue-installation')) {
+    throw new ConspectusError('--neue-installation nennt die Instanz: --neue-installation <instanz>');
+  }
+}
+
+function printRejected(rejected: ReportImport['rejected']): void {
+  for (const r of rejected) console.warn(`Achtung: Bericht fuer "${r.id}" NICHT uebernommen. ${r.reason}`);
 }
 
 function zeigeBericht(json: unknown, nur?: string): void {
@@ -83,11 +105,27 @@ export function berichtCommand(sub: string, args: Args): void {
   if (sub !== 'importieren') {
     throw new ConspectusError(`Unbekannter Unterbefehl "bericht ${sub}". Bekannt: importieren.`);
   }
+  const instanzId = args.values.instanz;
+  // Hier eine reine Bestaetigung fuer --instanz. Ein anderer Wert ist meist
+  // der verschluckte Dateiname (`--neue-installation bericht.json`) oder
+  // bestaetigte still die falsche Instanz.
+  const neuWert = args.values['neue-installation'];
+  if (neuWert !== undefined && neuWert !== instanzId) {
+    throw new ConspectusError(
+      `--neue-installation bestaetigt die mit --instanz genannte Instanz (${instanzId ?? 'keine'}), nicht "${neuWert}".\n` +
+        'Optionen nach dem Dateinamen angeben: conspectus bericht importieren <datei.json> --instanz <instanz> --neue-installation',
+    );
+  }
+  const confirmed = args.flags.has('neue-installation') || neuWert !== undefined;
+  if (confirmed && !instanzId) throw new ConspectusError('--neue-installation braucht --instanz <instanz>.');
+  const newInstallation = confirmed ? instanzId : undefined;
+
   const datei = args.positional[0] ?? args.values.datei;
   if (!datei) {
     throw new ConspectusError(
-      'Aufruf: conspectus bericht importieren <datei.json> [--instanz <instanz>]\n' +
-        'Die Datei kommt aus `provision.sh status --json` bzw. `status.cjs --json`.',
+      'Aufruf: conspectus bericht importieren <datei.json> [--instanz <instanz>] [--neue-installation]\n' +
+        'Die Datei kommt aus `provision.sh status --json`, `status.cjs --json` oder ist der\n' +
+        'Lizenzbericht der Desktop-App (Einstellungen, Lizenz, Bericht).',
     );
   }
   if (!fs.existsSync(datei)) throw new ConspectusError(`${datei} existiert nicht.`);
@@ -99,12 +137,24 @@ export function berichtCommand(sub: string, args: Args): void {
   } catch (err) {
     throw new ConspectusError(`${datei} ist kein gueltiges JSON: ${(err as Error).message}`);
   }
-  const uebernommen = berichtUebernehmen(json, args.values.instanz);
-  if (uebernommen.length === 0) {
+  const named = (Array.isArray(json) ? json : [json])
+    .map((e) => (e as Record<string, unknown> | null)?.kunde)
+    .filter((k): k is string => typeof k === 'string' && k !== '');
+  if (instanzId && named.length > 0 && !named.includes(instanzId)) {
     throw new ConspectusError(
-      'Keine der gemeldeten Instanzen steht im Register. Bei einer Einzelausgabe von\n' +
-        'status.cjs die Instanz benennen: --instanz <instanz>',
+      `Der Sammelbericht enthaelt keinen Eintrag fuer "${instanzId}" (enthalten: ${named.join(', ')}).`,
     );
   }
-  console.log(`Uebernommen: ${uebernommen.join(', ')}`);
+  const { taken, rejected } = berichtUebernehmen(json, instanzId, { newInstallation });
+  if (taken.length === 0) {
+    if (rejected.length > 0) {
+      throw new ConspectusError(rejected.map((r) => `Bericht fuer "${r.id}" nicht uebernommen. ${r.reason}`).join('\n'));
+    }
+    throw new ConspectusError(
+      'Keine der gemeldeten Instanzen steht im Register. Bei einer Einzelausgabe von\n' +
+        'status.cjs oder einem Lizenzbericht die Instanz benennen: --instanz <instanz>',
+    );
+  }
+  console.log(`Uebernommen: ${taken.join(', ')}`);
+  printRejected(rejected);
 }

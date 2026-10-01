@@ -1,5 +1,6 @@
 /**
- * Lizenzen ausstellen, verlaengern, faellige finden, einspielen.
+ * Lizenzen ausstellen, verlaengern, als eingespielt vermerken, zurueckziehen,
+ * faellige finden, einspielen.
  *
  * Der Ausstell-Baustein ist derselbe wie im schlanken Werkzeug
  * (`core/licenseIssue.ts`); hier kommt dazu, was nur mit Register geht:
@@ -18,44 +19,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   LICENSE_FILE_NAME,
+  addDaysIso,
   formatDate,
   todayIsoLocal,
   type LicenseBilling,
   type LicenseInterval,
   type LicensePayload,
 } from '@ohrganize/shared';
-import { issueLicense, LicenseIssueError } from '@ohrganize/backend/core/licenseIssue';
+import { isIsoDay, issueLicense, LicenseIssueError } from '@ohrganize/backend/core/licenseIssue';
 import type { Args } from '../args.js';
 import { required } from '../args.js';
 import { ConspectusError, openRegister } from '../db.js';
 import { defaultKid, loadPrivateKey } from '../keys.js';
+import { currentLicense, findLicense, instanceLicenses, markInstalled, type LizenzRow } from '../licenses.js';
 import { kundeMuss } from './kunde.js';
 import { instanzMuss, type InstanzRow } from './instanz.js';
 import { hostMuss } from './host.js';
 import { copyToRemote, runRemote } from '../ssh.js';
-
-export interface LizenzRow {
-  license_id: string;
-  kunde_id: string;
-  instanz_id: string | null;
-  kid: string | null;
-  v: number;
-  kind: string;
-  edition: string | null;
-  land: string | null;
-  features: string | null;
-  billing: string | null;
-  interval: string | null;
-  installation_id: string | null;
-  ausgestellt_am: string;
-  gueltig_ab: string;
-  gueltig_bis: string;
-  unbefristet: number;
-  plaetze: number | null;
-  datei: string | null;
-  eingespielt_am: string | null;
-  notiz: string | null;
-}
 
 /** LICENSE_MAX_DATE aus shared; hier nur zum Erkennen "unbefristet". */
 const MAX_DATE = '2999-12-31';
@@ -104,9 +84,9 @@ function merkeLizenz(payload: LicensePayload, kundeId: string, instanzId: string
   const { db } = openRegister();
   db.prepare(
     `INSERT INTO lizenzen (license_id, kunde_id, instanz_id, kid, v, kind, edition, land, features,
-                           billing, interval, installation_id, ausgestellt_am, gueltig_ab,
+                           billing, interval, installation_id, ausgestellt_am, ausgestellt_um, gueltig_ab,
                            gueltig_bis, unbefristet, plaetze, datei, notiz)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     payload.license_id,
     kundeId,
@@ -121,6 +101,7 @@ function merkeLizenz(payload: LicensePayload, kundeId: string, instanzId: string
     payload.terms?.interval ?? null,
     payload.installation_id,
     payload.issued_at,
+    new Date().toISOString(),
     payload.valid_from,
     payload.valid_until,
     payload.valid_until >= MAX_DATE ? 1 : 0,
@@ -134,7 +115,7 @@ function merkeLizenz(payload: LicensePayload, kundeId: string, instanzId: string
 }
 
 /** Datei auf den Host kopieren und dort ueber provision.sh einspielen. */
-function einspielen(instanz: InstanzRow, datei: string): void {
+function einspielen(instanz: InstanzRow, datei: string, licenseId: string): void {
   if (!instanz.host_id) {
     throw new ConspectusError(
       `Die Instanz "${instanz.id}" hat keinen Host im Register; --einspielen geht nur im Hosting.\n` +
@@ -160,8 +141,7 @@ function einspielen(instanz: InstanzRow, datei: string): void {
   // Die Kopie im /tmp des Servers hat nichts mehr verloren: Sie ist fuer
   // jeden lesbar, der dort eine Shell hat.
   runRemote(host, ['rm', '-f', remote]);
-  const { db } = openRegister();
-  db.prepare("UPDATE lizenzen SET eingespielt_am = date('now') WHERE datei = ?").run(datei);
+  markInstalled(instanz.id, licenseId);
 }
 
 export function lizenzCommand(sub: string, args: Args): void {
@@ -178,8 +158,11 @@ export function lizenzCommand(sub: string, args: Args): void {
       const kunde = kundeMuss(args.values.kunde ?? instanz.kunde_id);
       const { country, edition } = variantParts(instanz.variante);
 
-      const installation =
-        args.values.installation ?? instanz.installation_id ?? (args.flags.has('ungebunden') ? null : undefined);
+      const ungebunden = args.flags.has('ungebunden');
+      if (ungebunden && args.values.installation) {
+        throw new ConspectusError('--ungebunden und --installation schliessen sich aus.');
+      }
+      const installation = ungebunden ? null : (args.values.installation ?? instanz.installation_id ?? undefined);
       if (installation === undefined) {
         throw new ConspectusError(
           `Fuer die Instanz "${instanz.id}" ist keine Installations-ID im Register.\n` +
@@ -239,7 +222,7 @@ export function lizenzCommand(sub: string, args: Args): void {
       if (p.features?.length) console.log(`  Funktionen     ${p.features.join(', ')}`);
       console.log(`  Datei          ${datei}`);
 
-      if (args.flags.has('einspielen')) einspielen(instanz, datei);
+      if (args.flags.has('einspielen')) einspielen(instanz, datei, p.license_id);
       else console.log('\nEinspielen: --einspielen (Hosting) oder Datei an den Kunden senden.');
       return;
     }
@@ -251,9 +234,7 @@ export function lizenzCommand(sub: string, args: Args): void {
       const instanzId = args.values.instanz ?? args.positional[0];
       if (!instanzId) throw new ConspectusError('Aufruf: conspectus lizenz verlaengern --instanz <instanz> --until 1j');
       const instanz = instanzMuss(instanzId);
-      const letzte = db
-        .prepare('SELECT * FROM lizenzen WHERE instanz_id = ? ORDER BY ausgestellt_am DESC, rowid DESC LIMIT 1')
-        .get(instanz.id) as LizenzRow | undefined;
+      const letzte = currentLicense(instanz.id);
       if (!letzte) {
         throw new ConspectusError(
           `Fuer "${instanz.id}" ist keine Lizenz im Register. Die erste stellt \`lizenz ausstellen\` aus.`,
@@ -272,7 +253,7 @@ export function lizenzCommand(sub: string, args: Args): void {
       // Luecke entsteht und sich die Zeitraeume nicht ueberlappen.
       const from =
         args.values.from ??
-        (letzte.unbefristet === 1 ? todayIsoLocal() : naechsterTag(letzte.gueltig_bis));
+        (letzte.unbefristet === 1 ? todayIsoLocal() : addDaysIso(letzte.gueltig_bis, 1));
       // War die letzte Datei eine v1, bleibt es dabei: Eine Verlaengerung ist
       // kein Anlass, die Fassung zu wechseln (der Server muesste v2 lesen).
       const flags = new Set(args.flags);
@@ -294,59 +275,105 @@ export function lizenzCommand(sub: string, args: Args): void {
     }
 
     case 'eingespielt': {
-      // Von Hand nachtragen, wenn der Kunde die Datei selbst eingespielt hat
-      // und kein Bericht zurueckkommt, der es belegt.
+      const aufruf = 'Aufruf: conspectus lizenz eingespielt <instanz> [--lizenz <nummer>] [--am 2026-10-01]';
       const instanzId = args.values.instanz ?? args.positional[0];
-      if (!instanzId) {
-        throw new ConspectusError('Aufruf: conspectus lizenz eingespielt <instanz> [--am 2026-10-01]');
+      // Eine Option ohne Wert oder ein Datum ohne `--am` wuerde sonst still zur Vorgabe.
+      if (!instanzId || args.flags.has('am') || args.flags.has('lizenz') || args.positional.length > 1) {
+        throw new ConspectusError(aufruf);
       }
       const instanz = instanzMuss(instanzId);
-      const am = args.values.am ?? todayIsoLocal();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(am)) throw new ConspectusError('--am erwartet ein Datum JJJJ-MM-TT.');
-      const offen = db
-        .prepare(
-          'SELECT * FROM lizenzen WHERE instanz_id = ? AND eingespielt_am IS NULL ORDER BY ausgestellt_am DESC, rowid DESC LIMIT 1',
-        )
-        .get(instanz.id) as LizenzRow | undefined;
-      if (!offen) {
-        throw new ConspectusError(`Fuer "${instanz.id}" ist keine Lizenz ohne Vermerk im Register.`);
+      // Ausgestellt und laufend wie in `check`; in Registern von vor
+      // `laufende_lizenz` gilt die zuletzt eingespielte als laufend.
+      const lizenzen = instanceLicenses(instanz.id).get(instanz.id);
+      // Vorgabe ist die ausgestellte Lizenz, dieselbe, die `check` nennt.
+      const ziel = args.values.lizenz ? findLicense(args.values.lizenz, instanz.id) : lizenzen?.issued;
+      if (!ziel) throw new ConspectusError(`Fuer "${instanz.id}" ist keine Lizenz im Register.`);
+      const kurz = ziel.license_id.slice(0, 8);
+      if (ziel.zurueckgezogen_am) {
+        throw new ConspectusError(`Lizenz ${kurz} ist seit ${formatDate(ziel.zurueckgezogen_am)} zurueckgezogen.`);
       }
-      db.prepare('UPDATE lizenzen SET eingespielt_am = ? WHERE license_id = ?').run(am, offen.license_id);
-      console.log(`Lizenz ${offen.license_id.slice(0, 8)} (${instanz.id}) als eingespielt am ${am} vermerkt.`);
+      if (ziel.eingespielt_am) {
+        const seit = formatDate(ziel.eingespielt_am);
+        if (lizenzen?.running.license_id === ziel.license_id) {
+          throw new ConspectusError(`Lizenz ${kurz} (${instanz.id}) ist bereits seit ${seit} als eingespielt vermerkt.`);
+        }
+        // Schon einmal eingespielt, laut Register laeuft aber eine andere (Restore).
+        if (args.values.am !== undefined) {
+          throw new ConspectusError(`Lizenz ${kurz} ist seit ${seit} als eingespielt vermerkt; --am entfaellt.`);
+        }
+        markInstalled(instanz.id, ziel.license_id);
+        console.log(`Lizenz ${kurz} (${instanz.id}) als wieder laufend vermerkt (eingespielt seit ${seit}).`);
+        return;
+      }
+      const heute = todayIsoLocal();
+      const am = args.values.am ?? heute;
+      if (!isIsoDay(am)) throw new ConspectusError(`--am erwartet einen Kalendertag JJJJ-MM-TT (erhalten: ${am}).`);
+      if (am < ziel.ausgestellt_am || am > heute) {
+        throw new ConspectusError(
+          `--am ${formatDate(am)} liegt ausserhalb von Ausstellung (${formatDate(ziel.ausgestellt_am)}) bis heute (${formatDate(heute)}).`,
+        );
+      }
+      markInstalled(instanz.id, ziel.license_id, am);
+      console.log(`Lizenz ${kurz} (${instanz.id}) als eingespielt am ${formatDate(am)} vermerkt.`);
+      return;
+    }
+
+    case 'zurueckziehen': {
+      const nummer = args.values.lizenz ?? args.positional[0];
+      if (!nummer || args.flags.has('lizenz') || args.positional.length > 1) {
+        throw new ConspectusError('Aufruf: conspectus lizenz zurueckziehen <lizenznummer>');
+      }
+      const l = findLicense(nummer);
+      const kurz = l.license_id.slice(0, 8);
+      if (l.zurueckgezogen_am) {
+        throw new ConspectusError(`Lizenz ${kurz} ist bereits seit ${formatDate(l.zurueckgezogen_am)} zurueckgezogen.`);
+      }
+      // Eine eingespielte Datei liegt beim Kunden; das Register darf sie nicht wegdefinieren.
+      if (l.eingespielt_am) {
+        throw new ConspectusError(
+          `Lizenz ${kurz} ist seit ${formatDate(l.eingespielt_am)} als eingespielt vermerkt und bleibt im Bestand.`,
+        );
+      }
+      const heute = todayIsoLocal();
+      db.transaction(() => {
+        db.prepare('UPDATE lizenzen SET zurueckgezogen_am = ? WHERE license_id = ?').run(heute, l.license_id);
+        db.prepare("INSERT INTO vorgaenge (kunde_id, art, datum, text) VALUES (?, 'lizenz', ?, ?)").run(
+          l.kunde_id,
+          heute,
+          `Lizenz ${kurz} zurueckgezogen`,
+        );
+      })();
+      console.log(`Lizenz ${kurz} (${l.instanz_id ?? '-'}) zurueckgezogen.`);
+      console.log('Die Datei selbst bleibt gueltig: nicht weitergeben, beim Kunden nicht einspielen lassen.');
       return;
     }
 
     case 'faellig': {
       const tage = Number(args.values.tage ?? 45);
+      if (!Number.isInteger(tage) || tage < 0) throw new ConspectusError('--tage erwartet eine ganze Zahl.');
       const heute = todayIsoLocal();
-      const rows = db
-        .prepare(
-          `SELECT l.*, k.name AS kunde_name FROM lizenzen l
-           JOIN kunden k ON k.id = l.kunde_id
-           WHERE l.unbefristet = 0
-             AND l.gueltig_bis >= ?
-             AND date(l.gueltig_bis) <= date(?, '+' || ? || ' days')
-           ORDER BY l.gueltig_bis`,
-        )
-        .all(heute, heute, tage) as (LizenzRow & { kunde_name: string })[];
-      // Nur die jeweils juengste Lizenz je Instanz zaehlt: Eine laengst
-      // abgeloeste Datei ist nicht faellig.
-      const juengste = new Map<string, LizenzRow & { kunde_name: string }>();
-      for (const r of rows) {
-        const key = r.instanz_id ?? r.kunde_id;
-        const bisher = juengste.get(key);
-        if (!bisher || r.gueltig_bis > bisher.gueltig_bis) juengste.set(key, r);
-      }
-      const liste = [...juengste.values()].sort((a, b) => a.gueltig_bis.localeCompare(b.gueltig_bis));
+      const bis = addDaysIso(heute, tage);
+      const kunden = new Map(
+        (db.prepare('SELECT id, name FROM kunden').all() as { id: string; name: string }[]).map((k) => [k.id, k.name]),
+      );
+      // Faellig ist die LAUFENDE Lizenz: Nach einer Verlaengerung erst dann
+      // nicht mehr, wenn die neue Datei eingespielt ist.
+      const liste = [...instanceLicenses().values()]
+        .filter(({ running: l }) => l.unbefristet === 0 && l.gueltig_bis >= heute && l.gueltig_bis <= bis)
+        .sort((a, b) => a.running.gueltig_bis.localeCompare(b.running.gueltig_bis));
       if (liste.length === 0) {
         console.log(`Keine Lizenz laeuft in den naechsten ${tage} Tagen ab.`);
         return;
       }
       console.log(`Faellig in den naechsten ${tage} Tagen:\n`);
       console.log(['BIS'.padEnd(12), 'INSTANZ'.padEnd(18), 'KUNDE'.padEnd(28), 'ART'].join(' '));
-      for (const r of liste) {
+      for (const { running: r, issued } of liste) {
+        const art =
+          issued && issued.license_id !== r.license_id
+            ? `${r.kind}, Nachfolge ${issued.license_id.slice(0, 8)} ausgestellt`
+            : r.kind;
         console.log(
-          [r.gueltig_bis.padEnd(12), (r.instanz_id ?? '-').padEnd(18), r.kunde_name.padEnd(28), r.kind].join(' '),
+          [r.gueltig_bis.padEnd(12), (r.instanz_id ?? '-').padEnd(18), (kunden.get(r.kunde_id) ?? r.kunde_id).padEnd(28), art].join(' '),
         );
       }
       return;
@@ -373,7 +400,7 @@ export function lizenzCommand(sub: string, args: Args): void {
             String(r.v).padEnd(3),
             r.kind.padEnd(12),
             (r.unbefristet ? 'unbefristet' : r.gueltig_bis).padEnd(12),
-            r.eingespielt_am ?? '-',
+            r.zurueckgezogen_am ? `zurueckgezogen ${r.zurueckgezogen_am}` : (r.eingespielt_am ?? '-'),
           ].join(' '),
         );
       }
@@ -382,13 +409,7 @@ export function lizenzCommand(sub: string, args: Args): void {
 
     default:
       throw new ConspectusError(
-        `Unbekannter Unterbefehl "lizenz ${sub}". Bekannt: ausstellen, verlaengern, eingespielt, faellig, liste.`,
+        `Unbekannter Unterbefehl "lizenz ${sub}". Bekannt: ausstellen, verlaengern, eingespielt, zurueckziehen, faellig, liste.`,
       );
   }
-}
-
-function naechsterTag(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
 }

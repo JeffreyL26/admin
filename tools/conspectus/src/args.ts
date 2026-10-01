@@ -1,8 +1,8 @@
 /**
  * Argumentleser, absichtlich derselbe schlichte Stil wie in
- * apps/backend/src/scripts/license-tool.ts: `--name wert` und `--flag`,
- * Mehrfachangaben sammeln sich (`--feature a --feature b`). Kein neues
- * npm-Paket fuer zwanzig Zeilen.
+ * apps/backend/src/scripts/license-tool.ts: `--name wert`, `--name=wert` und
+ * `--flag`, Mehrfachangaben sammeln sich (`--feature a --feature b`). Kein
+ * neues npm-Paket fuer zwanzig Zeilen.
  */
 export interface Args {
   positional: string[];
@@ -20,6 +20,14 @@ export function parseArgs(argv: string[]): Args {
     const arg = argv[i];
     if (!arg.startsWith('--')) {
       positional.push(arg);
+      continue;
+    }
+    const gleich = arg.indexOf('=');
+    if (gleich > 2) {
+      const name = arg.slice(2, gleich);
+      const value = arg.slice(gleich + 1);
+      values[name] = value;
+      (many[name] ??= []).push(value);
       continue;
     }
     const name = arg.slice(2);

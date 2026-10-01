@@ -4,9 +4,9 @@ import path from 'node:path';
 import { todayIsoLocal } from '@ohrganize/shared';
 import type { Args } from '../args.js';
 import { openRegister } from '../db.js';
+import { instanceLicenses } from '../licenses.js';
 import { buildHtml } from '../report.js';
 import type { InstanzRow } from './instanz.js';
-import type { LizenzRow } from './lizenz.js';
 
 export function uebersichtCommand(): void {
   const { db } = openRegister();
@@ -18,16 +18,11 @@ export function uebersichtCommand(): void {
        JOIN kunden k ON k.id = i.kunde_id ORDER BY k.name, i.id`,
     )
     .all() as (InstanzRow & { kunde_name: string })[];
-  const lizenzen = db.prepare('SELECT * FROM lizenzen').all() as LizenzRow[];
-  const juengste = new Map<string, LizenzRow>();
-  for (const l of lizenzen) {
-    if (!l.instanz_id) continue;
-    const bisher = juengste.get(l.instanz_id);
-    if (!bisher || l.gueltig_bis > bisher.gueltig_bis) juengste.set(l.instanz_id, l);
-  }
+  const lizenzen = (db.prepare('SELECT COUNT(*) AS n FROM lizenzen').get() as { n: number }).n;
+  const licenses = instanceLicenses();
 
   console.log(`oHRganize Anbieteruebersicht, Stand ${heute}`);
-  console.log(`  ${kunden} Kunde(n), ${instanzen.length} Instanz(en), ${lizenzen.length} ausgestellte Lizenz(en)\n`);
+  console.log(`  ${kunden} Kunde(n), ${instanzen.length} Instanz(en), ${lizenzen} ausgestellte Lizenz(en)\n`);
   if (instanzen.length === 0) {
     console.log('Noch keine Instanz im Register.');
     return;
@@ -36,7 +31,7 @@ export function uebersichtCommand(): void {
     ['KUNDE'.padEnd(24), 'INSTANZ'.padEnd(18), 'AUSGABE'.padEnd(16), 'VERSION'.padEnd(14), 'LIZENZ BIS'].join(' '),
   );
   for (const i of instanzen) {
-    const l = juengste.get(i.id);
+    const l = licenses.get(i.id)?.running;
     const bis = l ? (l.unbefristet ? 'unbefristet' : l.gueltig_bis) : 'keine';
     console.log(
       [

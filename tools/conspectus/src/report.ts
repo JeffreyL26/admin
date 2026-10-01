@@ -7,9 +7,9 @@
  */
 import { todayIsoLocal } from '@ohrganize/shared';
 import { openRegister } from './db.js';
+import { instanceLicenses } from './licenses.js';
 import { sammleBefunde } from './commands/check.js';
 import type { InstanzRow } from './commands/instanz.js';
-import type { LizenzRow } from './commands/lizenz.js';
 
 function escape(s: unknown): string {
   return String(s ?? '')
@@ -31,18 +31,12 @@ export function buildHtml(): string {
        ORDER BY k.name, i.id`,
     )
     .all() as (InstanzRow & { kunde_name: string; host_adresse: string | null })[];
-  const lizenzen = db.prepare('SELECT * FROM lizenzen').all() as LizenzRow[];
-  const juengste = new Map<string, LizenzRow>();
-  for (const l of lizenzen) {
-    if (!l.instanz_id) continue;
-    const bisher = juengste.get(l.instanz_id);
-    if (!bisher || l.gueltig_bis > bisher.gueltig_bis) juengste.set(l.instanz_id, l);
-  }
-  const befunde = sammleBefunde();
+  const licenses = instanceLicenses();
+  const befunde = sammleBefunde(30, licenses);
 
   const zeilen = instanzen
     .map((i) => {
-      const l = juengste.get(i.id);
+      const l = licenses.get(i.id)?.running;
       const bis = l ? (l.unbefristet ? 'unbefristet' : l.gueltig_bis) : 'keine Lizenz';
       const kritisch = !l || (l.unbefristet === 0 && l.gueltig_bis < heute);
       return `<tr${kritisch ? ' class="warn"' : ''}>

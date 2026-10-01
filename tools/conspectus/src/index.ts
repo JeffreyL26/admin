@@ -65,7 +65,9 @@ const HILFE = `conspectus - Register und Werkzeug des Anbieters
                     [--kid <kid>] [--key <datei>] [--v1] [--v2-erzwingen]
                     [--ungebunden] [--einspielen]
   lizenz verlaengern --instanz <instanz> --until 1j
-  lizenz eingespielt <instanz> [--am 2026-10-01]   von Hand vermerken (Kunden-Server)
+  lizenz eingespielt <instanz> [--lizenz <nummer>] [--am 2026-10-01]
+                                      von Hand vermerken (Kunden-Server ohne Bericht)
+  lizenz zurueckziehen <nummer>       nie eingespielte Datei ungueltig erklaeren
   lizenz faellig [--tage 45]
   lizenz liste
 
@@ -76,8 +78,10 @@ const HILFE = `conspectus - Register und Werkzeug des Anbieters
                   [--probelauf] [--ohne-signatur]
   rollout liste
 
-  status --host <host> | --instanz <instanz> [--json]
-  bericht importieren <datei.json> [--instanz <instanz>]
+  status --host <host> | --instanz <instanz> [--json] [--neue-installation <instanz>]
+  bericht importieren <datei.json> [--instanz <instanz>] [--neue-installation]
+                                      status.cjs --json, provision.sh status --json
+                                      oder Lizenzbericht der Desktop-App
 
   check [--tage 30]
   uebersicht

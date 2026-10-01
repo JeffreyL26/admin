@@ -12,6 +12,45 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### conspectus: Versionen, laufende Lizenz, Eingespielt-Vermerk (01.10.2026)
+- `check` bestimmt das juengste Release nach Semver (1.10.0 nach 1.9.0) und
+  meldet nur Instanzen, die AELTER sind. Ob eine Instanz Beta faehrt, folgt
+  aus ihrer Version; eine Beta wird auch mit dem fertigen Release verglichen.
+  Leere Health-Felder ueberschreiben Version und Kanal nicht mehr.
+  `release liste` sortiert ebenfalls nach Semver.
+- Je Instanz unterscheidet das Register die AUSGESTELLTE Lizenz (zuletzt
+  ausgestellt, nicht zurueckgezogen; Grundlage fuer `verlaengern`) und die
+  LAUFENDE (zuletzt gemeldet oder vermerkt, Spalte
+  `instanzen.laufende_lizenz`). Ablaufwarnung, `lizenz faellig` und die
+  Uebersichten richten sich nach der laufenden: Eine ausgestellte, aber nicht
+  eingespielte Verlaengerung blendet den Ablauf der laufenden nicht mehr aus,
+  eine nie eingespielte Evaluation meldet keinen falschen Ablauf. `check`
+  meldet, wenn eine Instanz nach einem Restore wieder eine aeltere Lizenz
+  faehrt oder eine unbekannte oder zurueckgezogene meldet, und nun auch
+  ungebundene Lizenzen, die nicht eingespielt sind. Dateien desselben Tages
+  ordnet ein Ausstellzeitpunkt (`lizenzen.ausgestellt_um`).
+- Neu `lizenz eingespielt <instanz> [--lizenz <nummer>] [--am JJJJ-MM-TT]`
+  zum Nachtragen von Hand (`--am` ein echter Kalendertag zwischen Ausstellung
+  und heute) und `lizenz zurueckziehen <nummer>` fuer nie eingespielte
+  Dateien. Vermerke tragen den lokalen Kalendertag.
+- `bericht importieren` liest auch den Lizenzbericht der Desktop-App und
+  lehnt Berichte ab, die zu einer anderen Instanz gehoeren (fremde
+  Installations-ID, Lizenz einer anderen Instanz, anderer Kunde). Eine
+  Ablehnung aus einem Hostbericht bleibt an der Instanz vermerkt und
+  erscheint in `check`, bis ein passender Bericht mit Kennung kommt oder
+  `instanz id` die Kennung neu setzt. Eine neue Installation bestaetigt
+  `--neue-installation`, bei `status --host` nur fuer die genannte Instanz;
+  `check` meldet danach Lizenzen, die noch an die alte Installation gebunden
+  sind, und raet zum Einspielen, wenn die passende schon ausgestellt ist.
+  `--instanz` waehlt aus einem Sammelbericht nur den passenden Eintrag und
+  nennt sonst, welche er enthaelt.
+- Es gilt der zuletzt eingelesene Bericht, ohne Zeitstempel-Abgleich; wird
+  ein aelterer nach einem neueren eingelesen, zeigt `check` die Abweichung,
+  der neueste noch einmal eingelesen behebt sie. Beim Lizenzbericht zaehlt
+  sein Erzeugungstag als Tag des Einspielens.
+- `lizenz ausstellen --ungebunden` gilt auch, wenn die Installations-ID
+  bekannt ist. Optionen verstehen auch die Form `--name=wert`.
+
 ### Hosting: Release-Auswahl beim Anlegen (01.10.2026)
 - `ohrganize-provision.sh anlegen` waehlt das neueste STABILE Release
   numerisch und liest die Version aus `release.json` statt aus dem
