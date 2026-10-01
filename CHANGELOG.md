@@ -43,7 +43,8 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   `instanz id` die Kennung neu setzt. Eine neue Installation bestaetigt
   `--neue-installation`, bei `status --host` nur fuer die genannte Instanz;
   `check` meldet danach Lizenzen, die noch an die alte Installation gebunden
-  sind, und raet zum Einspielen, wenn die passende schon ausgestellt ist.
+  sind, und raet zum Einspielen, wenn die passende schon ausgestellt ist,
+  sonst zu einer neuen mit dem Ende der zuletzt ausgestellten.
   `--instanz` waehlt aus einem Sammelbericht nur den passenden Eintrag und
   nennt sonst, welche er enthaelt.
 - Es gilt der zuletzt eingelesene Bericht, ohne Zeitstempel-Abgleich; wird

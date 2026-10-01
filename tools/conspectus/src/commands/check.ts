@@ -82,11 +82,15 @@ export function sammleBefunde(tage = 30, licenses: Map<string, InstanceLicenses>
         !lizenz?.installation_id || !i.installation_id || lizenz.installation_id === i.installation_id;
       for (const lizenz of new Set([issued, running])) {
         if (lizenz && !passt(lizenz)) {
-          // Ist schon eine passende ausgestellt, fehlt nur das Einspielen.
+          // Ist schon eine passende ausgestellt, fehlt nur das Einspielen. Sonst
+          // die bezahlte Laufzeit der zuletzt ausgestellten nennen: `lizenz
+          // ausstellen` uebernimmt sie nicht, und `1j` ab heute kann frueher enden.
+          const bisher = issued ?? lizenz;
+          const bis = bisher.unbefristet === 1 ? 'unbefristet' : bisher.gueltig_bis;
           const rat =
             issued && issued !== lizenz && passt(issued)
               ? `die ausgestellte ${issued.license_id.slice(0, 8)} einspielen lassen`
-              : 'neue ausstellen';
+              : `neue ausstellen mit dem bisherigen Ende (conspectus lizenz ausstellen --instanz ${i.id} --until ${bis}, Bedingungen wie bisher)`;
           befunde.push({
             schwere: 'hoch',
             was: i.id,

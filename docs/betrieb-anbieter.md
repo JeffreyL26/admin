@@ -321,7 +321,9 @@ Installations-ID), bestaetigt das `--neue-installation` beim Import; bei
 (`--neue-installation <instanz>`), damit es nicht fuer alle Instanzen des
 Hosts gilt. Danach meldet `check` jede Lizenz, die noch an die alte
 Installation gebunden ist, und sagt, ob eine passende schon ausgestellt ist
-(dann nur einspielen lassen) oder eine neue noetig ist.
+(dann nur einspielen lassen) oder eine neue noetig ist. Fuer die neue nennt er
+das Ende der zuletzt ausgestellten: `lizenz ausstellen` uebernimmt die bezahlte
+Laufzeit nicht, ein `--until 1j` ab heute endete womoeglich frueher.
 
 Kommt nach dem Einspielen kein Bericht zurueck, von Hand nachtragen, sonst
 meldet `check` die Lizenz dauerhaft als nicht eingespielt:

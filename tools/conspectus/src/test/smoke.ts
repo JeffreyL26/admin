@@ -552,8 +552,9 @@ async function main(): Promise<void> {
     sammleBefunde(30).filter((b) => b.was === 'sitz-ag'),
   );
   check(
-    'Ohne passende Lizenz raet der Befund zu einer neuen',
-    finding('sitz-ag', 'gebunden')?.includes('neue ausstellen') === true,
+    'Ohne passende Lizenz raet der Befund zu einer neuen mit dem bisherigen Ende',
+    finding('sitz-ag', 'gebunden')?.includes(`neue ausstellen mit dem bisherigen Ende (conspectus lizenz ausstellen --instanz sitz-ag --until ${sitzC.gueltig_bis}`) === true,
+    finding('sitz-ag', 'gebunden'),
   );
   // Ist die passende schon ausgestellt, fehlt nur das Einspielen.
   const sitzNeu = issueSitz('--until', '1j');
