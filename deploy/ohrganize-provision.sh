@@ -47,26 +47,8 @@ pruefe_umgebung() {
 # ---------------------------------------------------------------------------
 # Releases
 # ---------------------------------------------------------------------------
-# Ein Release ist ein entpacktes Archiv unter $RELEASE_VERZ, benannt
-# <variante>-<version> (so legt es ohrganize-update.sh ab). Die Variante steht
-# zusaetzlich in VARIANTE.txt im Release - danach wird geprueft, nicht nach
-# dem Ordnernamen: Ein umbenannter Ordner darf nicht die falsche Ausgabe
-# verstecken.
-releases_auflisten() {
-  [[ -d "$RELEASE_VERZ" ]] || return 0
-  find "$RELEASE_VERZ" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort
-}
-
-# Neuestes Release einer Variante (lexikografisch, die Version steht hinten).
-neuestes_release() {
-  local variante="$1" kandidat gefunden=''
-  while read -r kandidat; do
-    [[ -n "$kandidat" ]] || continue
-    [[ "$(release_variante "$RELEASE_VERZ/$kandidat")" == "$variante" ]] || continue
-    gefunden="$kandidat"
-  done < <(releases_auflisten)
-  printf '%s' "$gefunden"
-}
+# releases_auflisten und neuestes_release stehen in ohrganize-lib.sh, damit
+# sie sich ohne dieses Skript pruefen lassen (scripts/test-deploy.mjs).
 
 # Portal-Verzeichnis eines Releases (statisches Build des Mitarbeitendenportals).
 release_web() { printf '%s/%s/apps/web/dist' "$RELEASE_VERZ" "$1"; }
@@ -128,7 +110,8 @@ anlegen() {
       fehler "Bitte --variante <id> oder --release <ordner> angeben. Vorhandene Releases: $verfuegbar"
     fi
     release="$(neuestes_release "$variante")"
-    [[ -n "$release" ]] || fehler "Kein Release der Variante \"$variante\" unter $RELEASE_VERZ."
+    [[ -n "$release" ]] ||
+      fehler "Kein stabiles Release der Variante \"$variante\" unter $RELEASE_VERZ (eine Beta nur mit --release <ordner>)."
   fi
   [[ -d "$RELEASE_VERZ/$release" ]] || fehler "Release $RELEASE_VERZ/$release existiert nicht."
   local release_var

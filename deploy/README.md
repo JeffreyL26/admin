@@ -801,8 +801,9 @@ vorbereitet** — `deploy/Caddyfile` bleibt die Einzelkunden-Variante.
 /opt/ohrganize/deploy/ohrganize-provision.sh anlegen musterfirma --variante de-vollversion
 ```
 
-Das Skript setzt den Programm- und den Portal-Symlink auf das neueste Release
-dieser Ausgabe (oder auf das mit `--release` genannte), vergibt einen freien
+Das Skript setzt den Programm- und den Portal-Symlink auf das neueste stabile
+Release dieser Ausgabe (oder auf das mit `--release` genannte, nur so auch auf
+eine Beta), vergibt einen freien
 Port, erzeugt die env-Datei aus `ohrganize-kunde.env.example` (mit
 `OHRGANIZE_VARIANT` und `OHRGANIZE_QUIET_INITIAL_PASSWORD=1`), startet
 `ohrganize-backend@musterfirma`, wartet auf dessen `/api/health`, vergleicht

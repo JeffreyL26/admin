@@ -12,6 +12,14 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Hosting: Release-Auswahl beim Anlegen (01.10.2026)
+- `ohrganize-provision.sh anlegen` waehlt das neueste STABILE Release
+  numerisch und liest die Version aus `release.json` statt aus dem
+  Ordnernamen; eine Beta nur mit `--release`. Die Auswahl steht jetzt in
+  `ohrganize-lib.sh` und wird von `scripts/test-deploy.mjs` geprueft (Teil
+  von `npm test`, einzeln `npm run test:deploy`; unter Windows mit der
+  Git-Bash, ein anderer Ort ueber `OHRGANIZE_BASH`).
+
 ### Gespraechsprotokolle fuer Fuehrungskraefte (29.09.2026)
 - Die Sichtbarkeit „HR und Fuehrungskraefte“ wirkt jetzt: Die zustaendige
   Fuehrungskraft liest unter „Mein Team“ (Bewertungsseite der Person) die

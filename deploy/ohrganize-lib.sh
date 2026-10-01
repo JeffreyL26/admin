@@ -107,6 +107,40 @@ release_variante() {
   [[ -r "$verz/VARIANTE.txt" ]] && tr -d '[:space:]' <"$verz/VARIANTE.txt"
 }
 
+# Version eines entpackten Releases aus seinem release.json, leer ohne Datei.
+release_version() {
+  local datei="$1/release.json"
+  [[ -r "$datei" ]] || return 0
+  json_feld "$(cat "$datei")" version
+}
+
+# ---------------------------------------------------------------------------
+# Releases
+# ---------------------------------------------------------------------------
+# Ein Release ist ein entpacktes Archiv unter $RELEASE_VERZ, benannt
+# <variante>-<version> (so legt es ohrganize-update.sh ab). Ausgabe und
+# Version stehen zusaetzlich in VARIANTE.txt und release.json im Release -
+# danach wird geprueft, nicht nach dem Ordnernamen: Ein umbenannter Ordner
+# darf nicht die falsche Ausgabe oder Version verstecken.
+releases_auflisten() {
+  [[ -d "$RELEASE_VERZ" ]] || return 0
+  find "$RELEASE_VERZ" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort
+}
+
+# Neuestes STABILES Release einer Variante, je Stelle numerisch verglichen
+# (als Text laege 1.9.0 hinter 1.10.0). Eine Beta waehlt nur, wer
+# `anlegen --release <ordner>` nennt.
+neuestes_release() {
+  local variante="$1" kandidat version
+  while read -r kandidat; do
+    [[ -n "$kandidat" ]] || continue
+    [[ "$(release_variante "$RELEASE_VERZ/$kandidat")" == "$variante" ]] || continue
+    version="$(release_version "$RELEASE_VERZ/$kandidat")" || continue
+    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    printf '%s\t%s\n' "$version" "$kandidat"
+  done < <(releases_auflisten) | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1 | cut -f2
+}
+
 # ---------------------------------------------------------------------------
 # Node-Werkzeuge als Dienstbenutzer
 # ---------------------------------------------------------------------------
