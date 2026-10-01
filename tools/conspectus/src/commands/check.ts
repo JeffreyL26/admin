@@ -6,7 +6,7 @@
  * Antworten sind sofort da. Damit sie stimmen, gehoert vorher ein
  * `conspectus status --host ...` bzw. `bericht importieren` dazu.
  */
-import { todayIsoLocal, daysBetweenIso } from '@ohrganize/shared';
+import { compareVersions, todayIsoLocal, daysBetweenIso } from '@ohrganize/shared';
 import type { Args } from '../args.js';
 import { openRegister } from '../db.js';
 import { neuestesRelease } from './release.js';
@@ -63,7 +63,9 @@ export function sammleBefunde(tage = 30): Befund[] {
       befunde.push({
         schwere: 'mittel',
         was: i.id,
-        text: `Lizenz ${l.license_id.slice(0, 8)} ist ausgestellt, aber nicht als eingespielt vermerkt.`,
+        text:
+          `Lizenz ${l.license_id.slice(0, 8)} ist ausgestellt, aber nicht als eingespielt vermerkt ` +
+          `(Bericht einlesen oder: conspectus lizenz eingespielt ${i.id}).`,
       });
     }
 
@@ -86,7 +88,7 @@ export function sammleBefunde(tage = 30): Befund[] {
     // Version gegen das juengste Release des eigenen Kanals.
     const kanal = i.kanal ?? 'stable';
     const neu = neuestesRelease(i.variante, kanal);
-    if (neu && i.version && i.version !== neu.version) {
+    if (neu && i.version && compareVersions(i.version, neu.version) < 0) {
       befunde.push({
         schwere: 'hinweis',
         was: i.id,

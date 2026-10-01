@@ -65,6 +65,7 @@ const HILFE = `conspectus - Register und Werkzeug des Anbieters
                     [--kid <kid>] [--key <datei>] [--v1] [--v2-erzwingen]
                     [--ungebunden] [--einspielen]
   lizenz verlaengern --instanz <instanz> --until 1j
+  lizenz eingespielt <instanz> [--am 2026-10-01]   von Hand vermerken (Kunden-Server)
   lizenz faellig [--tage 45]
   lizenz liste
 

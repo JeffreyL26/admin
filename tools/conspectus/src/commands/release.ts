@@ -11,6 +11,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compareVersions } from '@ohrganize/shared';
 import type { Args } from '../args.js';
 import { ConspectusError, openRegister } from '../db.js';
 
@@ -157,7 +158,9 @@ export function releaseMuss(id: string): ReleaseRow {
 export function neuestesRelease(variante: string, kanal: string): ReleaseRow | null {
   const { db } = openRegister();
   const rows = db
-    .prepare('SELECT * FROM releases WHERE variante = ? AND kanal = ? ORDER BY version')
+    .prepare('SELECT * FROM releases WHERE variante = ? AND kanal = ?')
     .all(variante, kanal) as ReleaseRow[];
+  // Nicht in SQL sortieren: Als Text laege 1.9.0 hinter 1.10.0.
+  rows.sort((a, b) => compareVersions(a.version, b.version));
   return rows.length > 0 ? rows[rows.length - 1] : null;
 }

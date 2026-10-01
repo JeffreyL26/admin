@@ -158,6 +158,13 @@ export function berichtUebernehmen(json: unknown, instanzId?: string): string[] 
           : null,
       id,
     );
+    // Die Instanz nennt die Nummer der Datei, die bei ihr liegt: Das ist der
+    // Beleg, dass eine verschickte Lizenz (Kunden-Server) eingespielt wurde.
+    if (typeof license.license_id === 'string') {
+      db.prepare(
+        "UPDATE lizenzen SET eingespielt_am = date('now') WHERE license_id = ? AND instanz_id = ? AND eingespielt_am IS NULL",
+      ).run(license.license_id, id);
+    }
     uebernommen.push(id);
   }
   return uebernommen;

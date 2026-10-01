@@ -148,6 +148,17 @@ npm run conspectus -- lizenz faellig --tage 45          # was laeuft bald ab
 npm run conspectus -- lizenz verlaengern --instanz musterfirma --until 1j --einspielen
 ```
 
+Beim Kunden-Server gibt es kein `--einspielen`: Die Datei wird verschickt und
+dort eingespielt. Den Vermerk im Register setzt der naechste eingelesene
+Bericht von selbst, sobald die Instanz die Lizenznummer meldet
+(`status --host ...` bzw. `bericht importieren`). Kommt kein Bericht zurueck,
+von Hand nachtragen, sonst meldet `check` die Lizenz dauerhaft als nicht
+eingespielt:
+
+```bash
+npm run conspectus -- lizenz eingespielt musterfirma --am 2026-10-01
+```
+
 `verlaengern` erbt Art, Abrechnung, Intervall, Plaetze, Funktionen und den
 Schluessel der letzten Datei und beginnt am Tag NACH dem bisherigen Ende, damit
 keine Luecke entsteht. Alles bleibt ueberschreibbar. War die letzte Datei eine

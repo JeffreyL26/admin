@@ -293,6 +293,29 @@ export function lizenzCommand(sub: string, args: Args): void {
       return;
     }
 
+    case 'eingespielt': {
+      // Von Hand nachtragen, wenn der Kunde die Datei selbst eingespielt hat
+      // und kein Bericht zurueckkommt, der es belegt.
+      const instanzId = args.values.instanz ?? args.positional[0];
+      if (!instanzId) {
+        throw new ConspectusError('Aufruf: conspectus lizenz eingespielt <instanz> [--am 2026-10-01]');
+      }
+      const instanz = instanzMuss(instanzId);
+      const am = args.values.am ?? todayIsoLocal();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(am)) throw new ConspectusError('--am erwartet ein Datum JJJJ-MM-TT.');
+      const offen = db
+        .prepare(
+          'SELECT * FROM lizenzen WHERE instanz_id = ? AND eingespielt_am IS NULL ORDER BY ausgestellt_am DESC, rowid DESC LIMIT 1',
+        )
+        .get(instanz.id) as LizenzRow | undefined;
+      if (!offen) {
+        throw new ConspectusError(`Fuer "${instanz.id}" ist keine Lizenz ohne Vermerk im Register.`);
+      }
+      db.prepare('UPDATE lizenzen SET eingespielt_am = ? WHERE license_id = ?').run(am, offen.license_id);
+      console.log(`Lizenz ${offen.license_id.slice(0, 8)} (${instanz.id}) als eingespielt am ${am} vermerkt.`);
+      return;
+    }
+
     case 'faellig': {
       const tage = Number(args.values.tage ?? 45);
       const heute = todayIsoLocal();
@@ -359,7 +382,7 @@ export function lizenzCommand(sub: string, args: Args): void {
 
     default:
       throw new ConspectusError(
-        `Unbekannter Unterbefehl "lizenz ${sub}". Bekannt: ausstellen, verlaengern, faellig, liste.`,
+        `Unbekannter Unterbefehl "lizenz ${sub}". Bekannt: ausstellen, verlaengern, eingespielt, faellig, liste.`,
       );
   }
 }

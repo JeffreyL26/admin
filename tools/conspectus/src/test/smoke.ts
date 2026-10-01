@@ -254,6 +254,36 @@ async function main(): Promise<void> {
   check('Release erfasst', release !== undefined);
   check('Ohne Signatur als ungeprueft vermerkt', release?.signatur_geprueft === 0, release?.signatur_geprueft);
 
+  // --- Versionsvergleich: 1.10.0 ist juenger als 1.9.0 -----------------------
+  const { neuestesRelease } = await import('../commands/release.js');
+  const insertRelease = db.prepare(
+    "INSERT INTO releases (id, version, kanal, variante) VALUES (?, ?, 'stable', 'de-vollversion')",
+  );
+  insertRelease.run('de-vollversion-1.9.0', '1.9.0');
+  insertRelease.run('de-vollversion-1.10.0', '1.10.0');
+  check('Juengstes Release numerisch bestimmt', neuestesRelease('de-vollversion', 'stable')?.version === '1.10.0');
+  db.prepare("UPDATE instanzen SET version = '1.10.0' WHERE id = 'musterfirma'").run();
+  const veraltet = (id: string): boolean =>
+    sammleBefunde(30).some((b) => b.was === id && b.text.startsWith('Laeuft auf'));
+  check('Instanz auf dem juengsten Release ohne Versionshinweis', !veraltet('musterfirma'));
+  db.prepare("UPDATE instanzen SET version = '1.9.0' WHERE id = 'musterfirma'").run();
+  check('Instanz auf 1.9.0 gilt als veraltet', veraltet('musterfirma'));
+
+  // --- Eingespielt-Vermerk: aus dem Bericht und von Hand ---------------------
+  const nichtVermerkt = (id: string): boolean =>
+    sammleBefunde(30).some((b) => b.was === id && b.text.includes('nicht als eingespielt'));
+  const juengste = db
+    .prepare("SELECT license_id FROM lizenzen WHERE instanz_id = 'musterfirma' ORDER BY gueltig_bis DESC LIMIT 1")
+    .get() as { license_id: string };
+  check('Vor dem Bericht: Befund nicht eingespielt', nichtVermerkt('musterfirma'));
+  berichtUebernehmen([
+    { kunde: 'musterfirma', instanz: { license: { state: 'valid', license_id: juengste.license_id } } },
+  ]);
+  check('Bericht mit Lizenznummer setzt den Vermerk', !nichtVermerkt('musterfirma'));
+  check('Vor dem Nachtragen: Befund nicht eingespielt', nichtVermerkt('alt-ag'));
+  lizenzCommand('eingespielt', parseArgs(['alt-ag', '--am', '2026-10-01']));
+  check('Nachtragen von Hand setzt den Vermerk', !nichtVermerkt('alt-ag'));
+
   // --- CSV-Import -----------------------------------------------------------
   const { parseCsv, betragNachCent, csvImportCommand } = await import('../commands/csvImport.js');
   const zeilen = parseCsv('id;name\r\nbeispiel;"Beispiel; AG"\r\n');
