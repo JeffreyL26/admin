@@ -14,7 +14,8 @@
  *   4. Je Variante: Build (Renderer, Backend, Desktop), Bundle-Pruefung
  *      (check-variant), Server-Archiv, optional Installer.
  *   5. Je Variante ein release.json mit Pruefsummen aller Artefakte,
- *      signiert mit ssh-keygen -Y sign.
+ *      signiert mit ssh-keygen -Y sign und gegen
+ *      deploy/ohrganize-release.allowed_signers gegengeprueft.
  *   6. npm rebuild better-sqlite3 (dist:win baut die ABI auf Electron um).
  *
  * Ablage: release/<version>/<kanal>/<variante>/. Der Kanal ist eine Funktion
@@ -25,7 +26,15 @@
  * (Namensraum ohrganize-release). Bewusst NICHT das Lizenzschluesselpaar:
  * getrennte Vertrauensdomaenen, getrennte Rotation. ssh-keygen liegt auf
  * jedem Linux-Server und seit Windows 10 auch dort bei (OpenSSH-Client).
- * Die Gegenstelle prueft mit deploy/ohrganize-release.allowed_signers.
+ * Die Gegenstelle prueft mit deploy/ohrganize-release.allowed_signers; dieselbe
+ * Pruefung laeuft hier direkt nach dem Signieren, damit ein Schluessel, der
+ * dort fehlt, beim Bauen auffaellt und nicht erst beim Kunden.
+ *
+ * Ein erneuter Lauf derselben Version schreibt in denselben Ordner. Eine
+ * Signatur aus dem frueheren Lauf gehoert zum frueheren Manifest und wird vor
+ * dem neuen entfernt: ssh-keygen fragt sonst nach dem Ueberschreiben, bricht
+ * ohne Antwort ab, endet trotzdem mit 0, und die alte Signatur bliebe neben
+ * einem Manifest liegen, zu dem sie nicht passt.
  *
  * Ohne --sign-key (und ohne OHRGANIZE_RELEASE_KEY) entsteht das Manifest
  * unsigniert; der Lauf sagt es deutlich und endet mit Status 0, damit ein
@@ -133,6 +142,25 @@ function npmCli() {
 
 function node(script, args, env = {}) {
   return run(process.execPath, [path.join(root, script), ...args], { env });
+}
+
+const SIGNERS = path.join(root, 'deploy/ohrganize-release.allowed_signers');
+
+/** Gegenprobe wie in update-server.ps1, ohrganize-update.sh und conspectus. */
+function verifyManifest(manifestFile, sigFile) {
+  const res = spawnSync(
+    'ssh-keygen',
+    ['-Y', 'verify', '-f', SIGNERS, '-I', 'release@ohrganize', '-n', 'ohrganize-release', '-s', sigFile],
+    { cwd: root, input: fs.readFileSync(manifestFile), encoding: 'utf8' },
+  );
+  if (res.error) fail(`ssh-keygen liess sich nicht starten: ${res.error.message}`);
+  if (res.status !== 0) {
+    fail(
+      `Die Signatur von ${path.relative(root, manifestFile)} besteht die Pruefung gegen ` +
+        `${path.relative(root, SIGNERS)} nicht (${`${res.stderr}${res.stdout}`.trim()}). ` +
+        'Falscher Schluessel, oder sein oeffentlicher Teil fehlt dort.',
+    );
+  }
 }
 
 function git(args, { capture = true, allowFail = false } = {}) {
@@ -259,13 +287,19 @@ for (const variantId of variantIds) {
     commit,
   };
   const manifestFile = path.join(outDir, 'release.json');
+  const sigFile = `${manifestFile}.sig`;
+  // Signatur eines frueheren Laufs derselben Version: gehoert zum alten
+  // Manifest (Kopfkommentar). Auch ohne Schluessel weg, sonst laege neben dem
+  // unsignierten Manifest eine Signatur, die beim Kunden nicht passt.
+  fs.rmSync(sigFile, { force: true });
   fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
 
   if (signKey) {
     if (!fs.existsSync(signKey)) fail(`Signaturschluessel nicht gefunden: ${signKey}`);
     run('ssh-keygen', ['-Y', 'sign', '-f', signKey, '-n', 'ohrganize-release', manifestFile]);
-    if (!fs.existsSync(`${manifestFile}.sig`)) fail('ssh-keygen hat keine Signatur geschrieben.');
-    console.log(`Signatur: ${path.relative(root, `${manifestFile}.sig`)}`);
+    if (!fs.existsSync(sigFile)) fail('ssh-keygen hat keine Signatur geschrieben.');
+    verifyManifest(manifestFile, sigFile);
+    console.log(`Signatur: ${path.relative(root, sigFile)} (gegen ${path.relative(root, SIGNERS)} geprueft)`);
   } else {
     console.log('Kein Signaturschluessel (--sign-key bzw. OHRGANIZE_RELEASE_KEY): release.json bleibt UNSIGNIERT.');
   }
