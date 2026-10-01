@@ -12,6 +12,15 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Release-Signatur (01.10.2026)
+- `scripts/release.mjs` entfernt vor dem Schreiben des Manifests eine
+  `release.json.sig` aus einem frueheren Lauf derselben Version. Bisher fragte
+  ssh-keygen nach dem Ueberschreiben, brach ohne Antwort ab und endete mit 0:
+  Die alte Signatur blieb neben dem neuen Manifest, und erst
+  `update-server.ps1` bzw. conspectus lehnten sie ab. Nach dem Signieren
+  prueft das Skript die Signatur gegen `deploy/ohrganize-release.allowed_signers`
+  wie die Gegenstellen.
+
 ### conspectus: Versionen, laufende Lizenz, Eingespielt-Vermerk (01.10.2026)
 - `check` bestimmt das juengste Release nach Semver (1.10.0 nach 1.9.0) und
   meldet nur Instanzen, die AELTER sind. Ob eine Instanz Beta faehrt, folgt
