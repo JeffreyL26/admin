@@ -421,7 +421,11 @@ nicht eingespielt ist. **Laufend** ist die Datei auf der Instanz: die zuletzt
 gemeldete oder vermerkte, ohne Beleg die zuletzt eingespielte, sonst die des
 laufenden Zeitraums. Ablaufwarnung, `faellig` und die Spalte "Lizenz bis" der
 Uebersichten richten sich nach ihr, denn eine ausgestellte, aber nicht
-eingespielte Verlaengerung verlaengert beim Kunden nichts.
+eingespielte Verlaengerung verlaengert beim Kunden nichts. War die
+ausgestellte schon eingespielt und meldet die Instanz trotzdem eine andere
+(Restore oder ein aelterer Bericht zuletzt eingelesen), ist offen, welche
+laeuft; dann zaehlt das fruehere der beiden Enden, und `faellig` vermerkt
+"Instanz meldet ...".
 
 Die Version einer Instanz wird mit dem juengsten stabilen Release verglichen,
 bei einer Beta mit dem juengsten Release ueberhaupt (auch das fertige loest

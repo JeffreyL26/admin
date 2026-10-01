@@ -24,7 +24,9 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   `instanzen.laufende_lizenz`). Ablaufwarnung, `lizenz faellig` und die
   Uebersichten richten sich nach der laufenden: Eine ausgestellte, aber nicht
   eingespielte Verlaengerung blendet den Ablauf der laufenden nicht mehr aus,
-  eine nie eingespielte Evaluation meldet keinen falschen Ablauf. `check`
+  eine nie eingespielte Evaluation meldet keinen falschen Ablauf. Meldet die
+  Instanz eine andere als die schon eingespielte ausgestellte, zaehlt das
+  fruehere der beiden Enden, damit keine Ablaufwarnung verdeckt wird. `check`
   meldet, wenn eine Instanz nach einem Restore wieder eine aeltere Lizenz
   faehrt oder eine unbekannte oder zurueckgezogene meldet, und nun auch
   ungebundene Lizenzen, die nicht eingespielt sind. Dateien desselben Tages

@@ -98,6 +98,20 @@ export function instanceLicenses(instanceId?: string): Map<string, InstanceLicen
   return result;
 }
 
+/**
+ * Die Lizenz, deren Ende fuer Ablaufwarnung, faellig und Uebersicht zaehlt:
+ * die laufende. War die ausgestellte schon eingespielt, meldet die Instanz
+ * aber eine andere (Restore oder ein aelterer Bericht zuletzt eingelesen), ist
+ * offen, welche wirklich laeuft; dann zaehlt das fruehere Ende, damit es nicht
+ * verdeckt wird.
+ */
+export function expiringLicense(licenses: InstanceLicenses): LizenzRow {
+  const { issued, running } = licenses;
+  if (!issued || issued === running || issued.eingespielt_am === null || issued.unbefristet === 1) return running;
+  if (running.unbefristet === 1) return issued;
+  return issued.gueltig_bis < running.gueltig_bis ? issued : running;
+}
+
 export function currentLicense(instanceId: string): LizenzRow | undefined {
   return instanceLicenses(instanceId).get(instanceId)?.issued ?? undefined;
 }

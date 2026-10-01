@@ -7,7 +7,7 @@
  */
 import { todayIsoLocal } from '@ohrganize/shared';
 import { openRegister } from './db.js';
-import { instanceLicenses } from './licenses.js';
+import { expiringLicense, instanceLicenses } from './licenses.js';
 import { sammleBefunde } from './commands/check.js';
 import type { InstanzRow } from './commands/instanz.js';
 
@@ -36,7 +36,8 @@ export function buildHtml(): string {
 
   const zeilen = instanzen
     .map((i) => {
-      const l = licenses.get(i.id)?.running;
+      const lic = licenses.get(i.id);
+      const l = lic ? expiringLicense(lic) : undefined;
       const bis = l ? (l.unbefristet ? 'unbefristet' : l.gueltig_bis) : 'keine Lizenz';
       const kritisch = !l || (l.unbefristet === 0 && l.gueltig_bis < heute);
       return `<tr${kritisch ? ' class="warn"' : ''}>

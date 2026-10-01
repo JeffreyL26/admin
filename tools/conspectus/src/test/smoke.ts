@@ -499,7 +499,11 @@ async function main(): Promise<void> {
   // Restore: Die Instanz meldet wieder B, obwohl C eingespielt war.
   berichtUebernehmen({ installation_id: sitzInstallation, license: { license_id: sitzB.license_id } }, 'sitz-ag');
   check('Restore auf eine aeltere Lizenz wird gemeldet', finding('sitz-ag', 'Restore')?.includes(kurzC) === true);
-  check('Ablauf folgt nach dem Restore der gemeldeten Lizenz', finding('sitz-ag', 'laeuft am') === undefined);
+  // Offen, ob B oder C laeuft: Das fruehere Ende (C, 20 Tage) bleibt sichtbar.
+  check(
+    'Nach dem Restore bleibt das fruehere Ende sichtbar',
+    finding('sitz-ag', `laeuft am ${sitzC.gueltig_bis} ab`) !== undefined,
+  );
   markByHand()();
   check('Erneutes Einspielen von Hand macht C wieder laufend', finding('sitz-ag', 'Restore') === undefined && running('sitz-ag') === sitzC.license_id);
   // Register von vor `laufende_lizenz`: Laufend ist die zuletzt eingespielte
@@ -663,10 +667,24 @@ async function main(): Promise<void> {
       installedOn(spaet1.license_id) === addDaysIso(heute, -5),
     nachAltem,
   );
+  // Offen, welche wirklich laeuft: Das fruehere Ende (L2, 20 Tage) bleibt sichtbar.
   check(
-    'Ablaufwarnung folgt dabei der gemeldeten Lizenz',
-    !nachAltem.some((t) => t.includes(`laeuft am ${spaet2.gueltig_bis}`)),
+    'Ablaufwarnung der frueher endenden, eingespielten Lizenz bleibt sichtbar',
+    nachAltem.some((t) => t.includes(`laeuft am ${spaet2.gueltig_bis}`)),
     nachAltem,
+  );
+  const faelligNachAltem = captureLog(() => lizenzCommand('faellig', parseArgs(['--tage', '45'])));
+  check(
+    'faellig nennt sie ebenfalls, mit Hinweis auf die gemeldete',
+    new RegExp(`${spaet2.gueltig_bis} +spaet-ag .*Instanz meldet ${spaet1.license_id.slice(0, 8)}`).test(faelligNachAltem),
+    faelligNachAltem,
+  );
+  const { uebersichtCommand } = await import('../commands/uebersicht.js');
+  const uebersichtNachAltem = captureLog(() => uebersichtCommand());
+  check(
+    'Uebersicht zeigt das fruehere Ende',
+    new RegExp(`spaet-ag .*${spaet2.gueltig_bis}`).test(uebersichtNachAltem),
+    uebersichtNachAltem,
   );
   spaetBericht(-2, spaet2.license_id);
   const nachNeuem = sammleBefunde(30).filter((b) => b.was === 'spaet-ag').map((b) => b.text);

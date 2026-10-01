@@ -9,7 +9,7 @@
 import { channelOf, compareVersions, formatDate, todayIsoLocal, daysBetweenIso } from '@ohrganize/shared';
 import type { Args } from '../args.js';
 import { openRegister } from '../db.js';
-import { instanceLicenses, type InstanceLicenses, type LizenzRow } from '../licenses.js';
+import { expiringLicense, instanceLicenses, type InstanceLicenses, type LizenzRow } from '../licenses.js';
 import { neuestesRelease } from './release.js';
 import type { InstanzRow } from './instanz.js';
 
@@ -45,17 +45,18 @@ export function sammleBefunde(tage = 30, licenses: Map<string, InstanceLicenses>
       // Ablauf an der LAUFENDEN Lizenz: Eine ausgestellte, aber nicht
       // eingespielte Verlaengerung verlaengert beim Kunden nichts.
       const { issued, running } = l;
-      if (running.unbefristet === 0) {
-        if (running.gueltig_bis < heute) {
-          befunde.push({ schwere: 'hoch', was: i.id, text: `Lizenz seit ${running.gueltig_bis} abgelaufen.` });
+      const ende = expiringLicense(l);
+      if (ende.unbefristet === 0) {
+        if (ende.gueltig_bis < heute) {
+          befunde.push({ schwere: 'hoch', was: i.id, text: `Lizenz seit ${ende.gueltig_bis} abgelaufen.` });
         } else {
           // daysBetweenIso(a, b) ist b minus a: Resttage sind bis minus heute.
-          const rest = daysBetweenIso(heute, running.gueltig_bis);
+          const rest = daysBetweenIso(heute, ende.gueltig_bis);
           if (rest <= tage) {
             befunde.push({
               schwere: 'mittel',
               was: i.id,
-              text: `Lizenz laeuft am ${running.gueltig_bis} ab (noch ${rest} Tage).`,
+              text: `Lizenz laeuft am ${ende.gueltig_bis} ab (noch ${rest} Tage).`,
             });
           }
         }

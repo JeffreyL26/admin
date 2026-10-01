@@ -31,7 +31,7 @@ import type { Args } from '../args.js';
 import { required } from '../args.js';
 import { ConspectusError, openRegister } from '../db.js';
 import { defaultKid, loadPrivateKey } from '../keys.js';
-import { currentLicense, findLicense, instanceLicenses, markInstalled, type LizenzRow } from '../licenses.js';
+import { currentLicense, expiringLicense, findLicense, instanceLicenses, markInstalled, type LizenzRow } from '../licenses.js';
 import { kundeMuss } from './kunde.js';
 import { instanzMuss, type InstanzRow } from './instanz.js';
 import { hostMuss } from './host.js';
@@ -356,22 +356,24 @@ export function lizenzCommand(sub: string, args: Args): void {
       const kunden = new Map(
         (db.prepare('SELECT id, name FROM kunden').all() as { id: string; name: string }[]).map((k) => [k.id, k.name]),
       );
-      // Faellig ist die LAUFENDE Lizenz: Nach einer Verlaengerung erst dann
-      // nicht mehr, wenn die neue Datei eingespielt ist.
+      // Faellig ist die LAUFENDE Lizenz (expiringLicense): Nach einer
+      // Verlaengerung erst dann nicht mehr, wenn die neue Datei eingespielt ist.
       const liste = [...instanceLicenses().values()]
-        .filter(({ running: l }) => l.unbefristet === 0 && l.gueltig_bis >= heute && l.gueltig_bis <= bis)
-        .sort((a, b) => a.running.gueltig_bis.localeCompare(b.running.gueltig_bis));
+        .map((l) => ({ ...l, ende: expiringLicense(l) }))
+        .filter(({ ende }) => ende.unbefristet === 0 && ende.gueltig_bis >= heute && ende.gueltig_bis <= bis)
+        .sort((a, b) => a.ende.gueltig_bis.localeCompare(b.ende.gueltig_bis));
       if (liste.length === 0) {
         console.log(`Keine Lizenz laeuft in den naechsten ${tage} Tagen ab.`);
         return;
       }
       console.log(`Faellig in den naechsten ${tage} Tagen:\n`);
       console.log(['BIS'.padEnd(12), 'INSTANZ'.padEnd(18), 'KUNDE'.padEnd(28), 'ART'].join(' '));
-      for (const { running: r, issued } of liste) {
-        const art =
-          issued && issued.license_id !== r.license_id
+      for (const { ende: r, issued, running } of liste) {
+        const art = !issued || issued.license_id === running.license_id
+          ? r.kind
+          : r === running
             ? `${r.kind}, Nachfolge ${issued.license_id.slice(0, 8)} ausgestellt`
-            : r.kind;
+            : `${r.kind}, Instanz meldet ${running.license_id.slice(0, 8)}`;
         console.log(
           [r.gueltig_bis.padEnd(12), (r.instanz_id ?? '-').padEnd(18), (kunden.get(r.kunde_id) ?? r.kunde_id).padEnd(28), art].join(' '),
         );

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { todayIsoLocal } from '@ohrganize/shared';
 import type { Args } from '../args.js';
 import { openRegister } from '../db.js';
-import { instanceLicenses } from '../licenses.js';
+import { expiringLicense, instanceLicenses } from '../licenses.js';
 import { buildHtml } from '../report.js';
 import type { InstanzRow } from './instanz.js';
 
@@ -31,7 +31,8 @@ export function uebersichtCommand(): void {
     ['KUNDE'.padEnd(24), 'INSTANZ'.padEnd(18), 'AUSGABE'.padEnd(16), 'VERSION'.padEnd(14), 'LIZENZ BIS'].join(' '),
   );
   for (const i of instanzen) {
-    const l = licenses.get(i.id)?.running;
+    const lic = licenses.get(i.id);
+    const l = lic ? expiringLicense(lic) : undefined;
     const bis = l ? (l.unbefristet ? 'unbefristet' : l.gueltig_bis) : 'keine';
     console.log(
       [
