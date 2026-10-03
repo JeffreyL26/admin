@@ -62,13 +62,14 @@ unberührt, weil der Eintrag auf dem Kundennamen Vorrang hat.
 **Woher die Konto-URL kommt:** Caddy legt das ACME-Konto beim ersten
 Zertifikatsbezug an und speichert es in seinem Datenverzeichnis:
 
-| Plattform | Pfad |
+| Plattform | Ordner |
 |---|---|
-| Linux (Paket aus dem offiziellen Caddy-Repository, Dienst `caddy`; `deploy/README.md`, Abschnitt 3) | `/var/lib/caddy/.local/share/caddy/acme/acme-v02.api.letsencrypt.org-directory/users/<email>/<email>.json` |
-| Windows (Dienst unter LocalSystem) | `C:\Windows\System32\config\systemprofile\AppData\Roaming\Caddy\acme\acme-v02.api.letsencrypt.org-directory\users\<email>\<email>.json` |
+| Linux (Paket aus dem offiziellen Caddy-Repository, Dienst `caddy`; `deploy/README.md`, Abschnitt 3) | `/var/lib/caddy/.local/share/caddy/acme/acme-v02.api.letsencrypt.org-directory/users/<email>/` |
+| Windows (Dienst unter LocalSystem) | `C:\Windows\System32\config\systemprofile\AppData\Roaming\Caddy\acme\acme-v02.api.letsencrypt.org-directory\users\<email>\` |
 
-`<email>` ist die Adresse aus der `email`-Direktive des Caddyfile. Das Feld
-`location` in dieser JSON-Datei ist die Konto-URL. Reihenfolge deshalb:
+`<email>` ist die Adresse aus der `email`-Direktive des Caddyfile. Im Ordner
+liegt eine `.json`-Datei; ihr Feld `location` ist die Konto-URL.
+Reihenfolge deshalb:
 erst Caddy das erste Zertifikat holen lassen (mit einem vorläufigen
 `CAA 0 issue "letsencrypt.org"`), dann die URL auslesen und den Eintrag um
 `accounturi` und `validationmethods` verschärfen.
