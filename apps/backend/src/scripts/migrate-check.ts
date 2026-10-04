@@ -7,10 +7,12 @@
  * dieser Kundendatenbank durch die Migrationen des neuen Programms? Bisher
  * war die Antwort "wir sehen es beim Start", und wenn nicht, stand der Dienst.
  *
- * Der Lauf fasst die Kundendatenbank NICHT an: `db.backup()` schreibt ueber
- * die Online-Backup-Schnittstelle von SQLite einen konsistenten Stand in ein
- * temporaeres Verzeichnis (dieselbe Technik wie die Sicherung), und migriert
- * wird ausschliesslich die Kopie. Danach wird sie geloescht.
+ * Der Lauf fasst die Kundendatenbank NICHT an: `VACUUM INTO` schreibt einen
+ * konsistenten Stand in ein temporaeres Verzeichnis (dieselbe Technik wie die
+ * Sicherung, copyDatabaseTo in db/encryption.ts), und migriert wird
+ * ausschliesslich die Kopie. Danach wird sie geloescht. Ein verschluesselter
+ * Bestand ergibt eine Kopie mit demselben Schluessel (data.key neben der
+ * Datenbank); im temporaeren Verzeichnis liegt also kein Klartext.
  *
  * Exit 0: alles gut (auch, wenn nichts ausstand). Exit 1: eine Migration
  * scheitert ODER die Datenbank kommt von einer neueren Version.
@@ -19,9 +21,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import { migrateDatabase } from '../db/migrateDatabase.js';
+import { copyDatabaseTo, openDatabase } from '../db/encryption.js';
 import { fail, formatBytes, parseArgs, refuseRoot, tempDir, variantBanner } from './toolkit.js';
+import { errorText } from '../core/errorText.js';
 
 const { values } = parseArgs(process.argv.slice(2));
 refuseRoot('runuser -u ohrganize -- node /opt/ohrganize/apps/backend/dist/migrate-check.cjs --db <pfad>');
@@ -37,23 +40,29 @@ console.log(`  Quelle: ${dbPath} (${formatBytes(bytes)})`);
 // sieht der Betreiber ein stehendes Terminal und bricht ab.
 console.log('  Kopiere die Datenbank (bei grossen Bestaenden dauert das einen Moment) ...');
 
-// Ein async main(): Das Bundle ist CJS (esbuild), und dort gibt es kein
-// Top-Level-await. `db.backup()` ist die einzige asynchrone Stelle.
+// Ein async main() aus der Zeit von `db.backup()`; der Lauf selbst ist
+// inzwischen synchron.
 async function main(): Promise<number> {
+  // Schluessel der Kopie ist der der Quelle: data.key liegt neben der Datenbank.
+  const dataDir = path.dirname(dbPath);
   const work = tempDir('ohrganize-migrate-check-');
   const copyPath = path.join(work, 'probe.db');
   try {
-    const source = new Database(dbPath, { readonly: true, fileMustExist: true });
+    // openDatabase wirft (fehlender oder falscher Schluessel); der catch unten
+    // meldet es und raeumt das Arbeitsverzeichnis auf.
+    const source = openDatabase(dbPath, { dataDir, readonly: true, fileMustExist: true }).db;
     try {
-      await source.backup(copyPath);
+      copyDatabaseTo(source, copyPath);
     } finally {
       source.close();
     }
     console.log(`  Kopie:  ${copyPath} (${formatBytes(fs.statSync(copyPath).size)})`);
 
-    const copy = new Database(copyPath, { fileMustExist: true });
+    const copy = openDatabase(copyPath, { dataDir, fileMustExist: true }).db;
     try {
-      const applied = migrateDatabase(copy);
+      // Ohne VACUUM: Die Kopie wird gleich geloescht, und ein VACUUM kostete eine
+      // zweite volle Kopie (siehe MigrateOptions.vacuum).
+      const applied = migrateDatabase(copy, { vacuum: false });
       if (applied.length === 0) {
         console.log('  Ergebnis: keine ausstehenden Migrationen. Das Schema ist bereits aktuell.');
       } else {
@@ -67,10 +76,10 @@ async function main(): Promise<number> {
   } catch (err) {
     console.error('');
     console.error('  FEHLGESCHLAGEN. Die Kundendatenbank ist unveraendert; das Update wuerde hier abbrechen.');
-    console.error(`  ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`  ${errorText(err)}`);
     return 1;
   } finally {
-    // Die Kopie erbt journal_mode=WAL, deshalb liegen -wal und -shm daneben.
+    // Samt eventueller Hilfsdateien (-journal) der Kopie.
     fs.rmSync(work, { recursive: true, force: true });
   }
 }

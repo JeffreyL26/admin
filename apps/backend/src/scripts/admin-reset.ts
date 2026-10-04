@@ -24,9 +24,8 @@
  */
 import fs from 'node:fs';
 import os from 'node:os';
-import Database from 'better-sqlite3';
 import { storeIssuedPassword } from '../core/credentials.js';
-import { dataDirFrom, fail, parseArgs, refuseRoot, variantBanner } from './toolkit.js';
+import { dataDirFrom, fail, openInstanceDb, parseArgs, refuseRoot, variantBanner } from './toolkit.js';
 
 const { values } = parseArgs(process.argv.slice(2));
 refuseRoot(
@@ -37,7 +36,7 @@ const email = (values.email ?? '').trim().toLowerCase();
 if (!email) fail('--email fehlt. Beispiel: --email admin@ohrganize.de');
 if (!fs.existsSync(paths.db)) fail(`${paths.db} existiert nicht (Instanz noch nie gestartet?).`);
 
-const db = new Database(paths.db, { fileMustExist: true });
+const db = openInstanceDb(paths.db, { dataDir: paths.dir });
 
 // storeIssuedPassword schreibt auch den Aussteller (Migration 005). Laeuft das
 // Werkzeug nach einem Update vor dem ersten Start, fehlt die Spalte noch.

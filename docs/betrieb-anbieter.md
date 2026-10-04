@@ -256,6 +256,18 @@ dort: Pruefsumme, Signatur, Ausgabe gegen env-Datei UND `/api/health`,
 Instanz Sicherung, stop, Symlink, start, Health, bei Fehler Ruecknahme.
 Instanzen einer anderen Ausgabe bleiben unangetastet.
 
+**Unit-Vorlagen zieht der Rollout nicht nach.** Aendert ein Release eine
+Vorlage unter `deploy/`, muss sie auf jedem Host von Hand nach
+`/etc/systemd/system/` kopiert werden (Befehle: `deploy/README.md`,
+Abschnitt 9.6). Zuletzt betroffen ist `ohrganize-backend@.service` mit der
+Zeile, die einer Instanz die Sicherungen der anderen verbirgt.
+
+**Erster Rollout einer Fassung mit Verschluesselung im Ruhezustand:** Jede
+Instanz stellt beim ersten Start ihren Bestand um und legt `data.key` in ihr
+Datenverzeichnis. Am Rollout selbst aendert sich nichts. Ein Zurueck auf die
+aeltere Fassung geht danach nur ueber den vollstaendigen Restore der
+Sicherung, die das Update-Skript vor der Umstellung erstellt hat.
+
 Ein ungeprueftes Release wird nicht ausgerollt (`--ohne-signatur` uebergeht
 das bewusst). Schlaegt ein Host fehl, macht conspectus mit dem naechsten
 weiter und vermerkt den Fehlschlag samt Protokoll im Register.
@@ -349,6 +361,7 @@ Lizenz schon als laufend vermerkt, bricht der Aufruf ab.
 | Dienst startet nach einem Update nicht | Archiv der falschen Ausgabe, oder Migration gescheitert | `ohrganize-update.sh` haette beides abgefangen. Von Hand: Journal lesen, Symlink zurueck, notfalls Sicherung. |
 | Arbeitsplatz meldet "zu alt"/"zu neu" | `MIN_CLIENT_VERSION` bzw. `MIN_SERVER_VERSION` | Erst Server, dann Arbeitsplaetze. Waehrend einer Beta muss `MIN_CLIENT_VERSION` auf die Beta zeigen (siehe `packages/shared/src/version.ts`). |
 | Niemand kommt mehr hinein | Passwort verloren, Konto gesperrt | `ohrganize-provision.sh passwort <kunde> --zuruecksetzen` |
+| Dienst startet nicht: "ist verschluesselt, aber der Schluessel fehlt" oder "laesst sich mit dem Schluessel ... nicht oeffnen" | `data.key` fehlt im Datenverzeichnis oder gehoert zu einem anderen Stand (Restore von Hand ohne die Datei) | `data.key` aus DERSELBEN Sicherung zurueckspielen wie die Datenbank. Fuer einen vorhandenen Bestand entsteht nie ein neuer Schluessel; ohne die Datei sind die Daten nicht lesbar. |
 
 Ein Tausch der Lizenzdatei im Datenverzeichnis ohne Upload erzeugt eine
 Audit-Zeile `license.file_changed` mit `user_id NULL` und eine Journalzeile.
@@ -380,13 +393,22 @@ war eingespielt, die Instanz meldet aber ...: Restore beim Kunden ...?".
 Beim Einzelkunden nennt das `MANIFEST.txt` jeder Sicherung die
 plattformgerechten Schritte.
 
+Datenbank und `storage/` einer Sicherung sind verschluesselt; `data.key` im
+selben Ordner ist der Schluessel dazu. `restore` spielt sie mit ein. Wer von
+Hand kopiert, kopiert sie mit, sonst startet die Instanz nicht. Sicherungen
+aus der Zeit vor der Verschluesselung haben keine `data.key`; sie lassen sich
+weiter einspielen, der erste Start stellt den Bestand dann um.
+
 ---
 
 ## 8. Kuendigung und Datenherausgabe
 
 1. **Daten herausgeben, bevor irgendetwas geloescht wird.** Die Sicherung ist
-   dafuer der richtige Stand: Sie enthaelt Datenbank, `storage/`, `secret.key`
-   und die Lizenzdatei in einem in sich geschlossenen Abzug.
+   dafuer der richtige Stand: Sie enthaelt Datenbank, `storage/`, `data.key`,
+   `secret.key` und die Lizenzdatei in einem in sich geschlossenen Abzug.
+   Datenbank und `storage/` sind verschluesselt; `data.key` ist der Schluessel
+   dazu und gehoert zur Herausgabe, sonst kann der Kunde seine Daten nicht
+   lesen. Der Abzug ist damit so schutzbeduerftig wie die Personalakte selbst.
 2. Instanz abschalten, Daten liegen lassen:
    `ohrganize-provision.sh entfernen <kunde>`. Das loescht **absichtlich**
    keine Daten: In der Datenbank stehen Personalakten, deren
@@ -470,3 +492,10 @@ Dabei behoben: Dateipfade in Argumenten galten relativ zum Workspace statt
 zum Aufruferverzeichnis; `check` rechnete Resttage mit falschem Vorzeichen
 ("noch -59 Tage"); ohne `license_format` im Bericht war v2 nie belegt
 (`status.cjs` und `provision.sh status --json` liefern es jetzt).
+
+**Seit dem 04.10.2026 (Verschluesselung im Ruhezustand) nicht wiederholt.**
+Der Durchstich oben lief mit einer Fassung ohne Verschluesselung. Mit einem
+Archiv der neuen Fassung sind die Einzelschritte auf dem Testserver geprueft
+(`deploy/README.md`, Abschnitt 9.7), nicht aber Rollout, Ruecknahme und
+Restore ueber `ohrganize-update.sh` und `ohrganize-provision.sh`. Das gehoert
+vor die erste Kundeninstallation.

@@ -417,7 +417,7 @@ Aufgefallen ist es nur, weil `systemd-analyze verify` es meldet; dieser Aufruf
 gehört nach jeder Änderung an einer Unit dazu.
 
 **`PrivateNetwork=true` nur für die Sicherung.** Das Backend muss lauschen, die
-Sicherung nicht: Sie liest über die Online-Backup-API von SQLite und kopiert
+Sicherung nicht: Sie schreibt die Datenbank mit `VACUUM INTO` und kopiert
 Dateien. Ein leerer Netz-Namensraum nimmt einem eingeschleusten Befehl damit
 jede Möglichkeit, die kopierte Personalakte fortzuschicken — das ist der größte
 Einzelposten in der Bewertung (0.5) und beim Backend unerreichbar.
@@ -1117,3 +1117,462 @@ Fremdschluessel (die Zieltabelle wechselt je Art). Beim Speichern weist
 geloescht, erreicht die Ankuendigung niemanden mehr und die HR sieht
 die Zielgruppe ohne Namen mit 0 Empfaengern. Ein Loeschschutz auf Abteilungen, Teams
 und Standorten waere die naechste Stufe, gehoert aber ins Personalmodul.
+
+## Verschluesselung im Ruhezustand: SQLCipher ueber einen npm-Alias, Schluesseldatei statt Umgebungsvariable
+
+**Entscheidung:** Datenbank, Dateiablage und damit jede Sicherung liegen
+verschluesselt auf der Platte. Die Datenbank im SQLCipher-4-Format ueber
+`better-sqlite3-multiple-ciphers`, das als npm-Alias unter dem Namen
+`better-sqlite3` installiert ist; die Blobs in `storage/` mit AES-256-GCM
+(`core/fileCrypto.ts`). Der Schluessel steht in `<dataDir>/data.key`, wahlweise
+als Verweis `extern:<absoluter Pfad>` auf eine Datei ausserhalb des
+Datenverzeichnisses. `db/encryption.ts` ist die einzige Stelle, die eine
+Datenbankdatei oeffnet.
+
+**Ausgangslage (Pruefung vom 03./04.10.2026):** Die Uebertragung war bereits
+dicht (https-Pflicht ausserhalb des eigenen Rechners, Schluessel-Pinning,
+kurzlebige signierte Links, Query-Strings aus allen Logs entfernt). Im
+Ruhezustand lag dagegen alles im Klartext: `ohrganize.db` mit Gehaeltern,
+Bankverbindungen, Steuer- und Sozialversicherungsmerkmalen, Krankmeldungen
+und Protokollen, jede Datei in `storage/` und jede Sicherung. Wer eine dieser
+Dateien in die Hand bekam, konnte sie mit jedem SQLite-Werkzeug lesen.
+
+**Warum die ganze Datenbank und nicht einzelne Spalten:** Spaltenweise
+Verschluesselung haette jede Abfrage getroffen, die nach einem solchen Feld
+sucht, sortiert oder summiert (Mitarbeiterliste, Gehaltsauswertungen,
+Exporte), und sie schuetzte nur die Felder, an die jemand gedacht hat. Die
+Seitenverschluesselung liegt unter SQL: Keine Abfrage, keine Route und keine
+Oberflaeche aendert sich, und es bleibt kein vergessenes Feld im Klartext.
+
+**Warum ein Alias und kein neuer Modulname:** Der Fork hat dieselbe
+Versionsnummer und Schnittstelle wie das Original und veroeffentlicht
+Fertigpakete fuer dieselben Node- und Electron-Fassungen. Als Alias bleiben
+Importe, `--external`, `npm rebuild better-sqlite3`, `reset-native.mjs` und
+die Ladeproben der drei Deploy-Skripte unveraendert, also genau die Stellen,
+die sich hier nicht automatisch testen lassen. Der Preis steht in CLAUDE.md
+unter den Fallstricken: npm vergleicht bei einem Alias nur die
+Versionsnummer, ein vorhandenes Original gleicher Version gilt deshalb als
+passend. Dagegen steht die Pruefung in `applyKey` (bricht mit Erklaerung ab,
+wenn das Modul nicht verschluesseln kann).
+
+**Warum SQLCipher 4 mit Rohschluessel:** Es ist das verbreitetste Format;
+ein Bestand laesst sich im Notfall mit jedem SQLCipher-Werkzeug oeffnen,
+wenn es oHRganize einmal nicht mehr gaebe (die Personalakte hat
+Aufbewahrungsfristen). Der Rohschluessel (64 Hex-Zeichen statt Passphrase)
+spart die Schluesselableitung bei jedem Oeffnen; ein Zufallsschluessel
+braucht sie nicht. Mit Fremdwerkzeugen geoeffnet wurde ein Bestand hier noch
+nicht, die Aussage stuetzt sich auf die Dokumentation der Bibliothek.
+
+**Warum eine Schluesseldatei und keine Umgebungsvariable:** Den Schluessel
+braucht jeder Prozess, der das Datenverzeichnis kennt: Dienst, Sicherung und
+die Betreiberwerkzeuge. Die bekommen nicht dieselbe Umgebung (die Werkzeuge
+laufen ueber `runuser` ohne env-Datei, die Windows-Sicherungsaufgabe setzt
+nur `OHRGANIZE_DATA_DIR`), und unter Windows kopiert NSSM die Umgebung in
+einen Registry-Zweig, den jedes lokale Konto lesen darf. Eine Datei im
+Datenverzeichnis finden alle; soll der Schluessel woanders liegen, steht dort
+der Verweis. Ein Umzug des Schluessels nach aussen wechselt ihn nicht: Jede
+fruehere Sicherung enthaelt ihn samt `secret.key` weiterhin und oeffnet damit
+auch die spaeteren. Ein Schluesselwechsel (Datenbank und alle Dateien neu
+verschluesseln, absturzsicher bei gemischtem Bestand) ist bewusst nicht
+gebaut; `deploy/README.md` sagt das beim Umzug ausdruecklich.
+
+**Was der Schluessel neben den Daten leistet und was nicht:** Er schuetzt
+einzelne Dateien (eine kopierte Datenbank, ein Blob, Reste auf einer
+ausgemusterten Platte, eine an den Support geschickte Datei), nicht den
+vollstaendig kopierten Ordner und nicht eine Sicherung, die ihn enthaelt.
+Das ist die Vorgabe, weil jede Trennung einen neuen Verlustfall schafft:
+Schluessel weg heisst Daten weg, und eine Sicherung, die sich nach einem
+Plattendefekt nicht mehr oeffnen laesst, ist schlimmer als eine lesbare. Wer
+die ausgelagerten Sicherungen schuetzen will, nimmt den Verweis und sichert
+die Schluesseldatei getrennt; dann laesst die Sicherung auch `secret.key`
+weg, mit der sich sonst Sitzungen fuer den laufenden Server faelschen
+liessen. Verworfen fuer die Desktop-App: der Schluesselspeicher des
+Betriebssystems (DPAPI). Er bindet den Bestand an das Windows-Konto; ein
+kopiertes Profil auf einem neuen Rechner oder ein zurueckgesetztes
+Kontopasswort machte die Personalakte unlesbar.
+
+**Warum an Ort und Stelle umgeschluesselt wird und nicht auf einer Kopie:**
+Die ersten beiden Fassungen verschluesselten eine Kopie und setzten sie per
+Umbenennen an die Stelle des Originals, zuletzt mit Aenderungszaehler und
+EXCLUSIVE-Sperre gegen fremde Commits. Das zweite Review hat gezeigt, dass das
+unter POSIX grundsaetzlich nicht haelt: Ein Prozess, der die alte Datei vorher
+geoeffnet hatte (admin-reset beim bcrypt, eine Sicherung), fand nach dem
+Umbenennen das WAL der NEUEN Datei ueber den Pfad, schrieb unverschluesselte
+Seiten hinein und beschaedigte sie (unter Linux nachgestellt, `integrity_check`
+meldete fehlende Seiten). Dazu hob das Lesen des Aenderungszaehlers ueber einen
+zweiten Deskriptor die SQLite-Sperre des Prozesses auf (fcntl-Semantik,
+nachgemessen). Jetzt schluesselt `PRAGMA rekey` die Datei selbst in einer
+Transaktion mit Rollback-Journal um: dieselbe Datei, SQLite sperrt selbst,
+eine vorher geoeffnete Verbindung scheitert danach mit SQLITE_NOTADB statt zu
+schreiben (unter Windows und Linux nachgestellt, die Datenbank des Dienstes
+blieb intakt). Die Umstellung liest den Dateikopf nicht mehr bei offener
+Verbindung.
+
+**Warum das absturzsicher ist, und wann das Journal ohne Schluessel
+zurueckgespielt wird:** Gemessen mit `kill -9` an ueber 60 Stellen einer
+Umschluesselung von 189 MB unter Linux und Windows. Bricht es im Neuaufbau ab,
+ist die Datei unveraendert; bricht es im Zurueckschreiben oder im Commit ab,
+liegt ein Journal mit den urspruenglichen Seiten daneben, im Commit ist die
+erste Seite aber schon verschluesselt (12 Faelle). Mit Schluessel geoeffnet
+spielt SQLite3MC dieses Journal nicht zurueck und meldet nur SQLITE_NOTADB;
+ohne Schluessel spielt SQLite es roh zurueck, und der Klartextbestand war in
+jedem Fall vollstaendig wieder da (400 000 Zeilen, `integrity_check` ok).
+Die zweite Fassung tat das fuer JEDES Journal und hielt rohes Zurueckspielen
+fuer schluesselunabhaengig. Das dritte Review hat das widerlegt: Das Journal
+eines bereits verschluesselten Bestands traegt verschluesselte Seiten, SQLite
+bildet die Pruefsummen aber ueber den Klartext. Ohne Schluessel stimmt keine,
+SQLite haelt das Journal fuer leer, loescht es und laesst die halbe
+Transaktion in der Datei (nachgestellt: `integrity_check` ok, Inhalt falsch;
+mit Schluessel kam der Stand vollstaendig zurueck). Deshalb ordnet
+`rollBackHotJournal` das Journal zuerst ein: Stimmen die Pruefsummen ueber die
+rohen Bytes und beginnt eine enthaltene Seite 1 mit "SQLite format 3", ist es
+Klartext und wird ohne Schluessel zurueckgespielt, sonst mit. Gegengeprueft
+unter Windows mit 60 Abbruechen einer Umstellung von 112 MB, davon 24 mit
+liegengebliebenem Journal, alle ohne Verlust. Das geschieht vor jeder
+Zustandsbestimmung in `openDatabase`, auch fuer lesende Werkzeuge.
+Vor UND nach dem Umschluesseln prueft `quick_check`. Vorher, weil ein alter
+Schaden, mit dem die bisherige Fassung lief (nachgestellt: falsch gezaehlte
+Freiliste), sonst nach dem Umschluesseln als gescheiterte Umstellung gegolten
+und den Dienst angehalten haette; so bleibt der Bestand unverschluesselt und
+der Dienst laeuft wie bisher. Scheitert die Pruefung danach (nie beobachtet),
+startet der Dienst nicht, denn einen Klartextstand zum Weiterlaufen gibt es
+dann nicht mehr. Scheitert die Umstellung selbst, laeuft der Dienst
+unveraendert weiter (Verfuegbarkeit geht vor, der naechste Start versucht es
+erneut). Welcher der beiden Faelle vorliegt, entscheidet der Zustand der
+Datei danach, nicht die Art des Fehlers: Ob ein Fehler des Umschluesselns
+vor oder nach dessen Commit lag, sieht man ihm nicht an. Auf andere
+Verbindungen wartet die Umstellung hoechstens 10 s, fuer Journalmodus und
+Sperre zusammen (zwei getrennte Fristen und ein busy_timeout darueber
+summierten sich auf rund 25 s).
+
+**Warum Hilfsdateien nur fuer einen Klartextbestand auf der Platte liegen:**
+SQLite3MC verschluesselt Datenbankdatei und `-wal`, nicht aber die
+Hilfsdateien. Ein VACUUM einer verschluesselten Datenbank schrieb deren Inhalt
+im Klartext in die Hilfsdatei (gemessen: 41 MB aus einer 82-MB-Datenbank,
+Inhalt lesbar). Eine Verbindung auf eine verschluesselte Datenbank haelt
+deshalb alles Temporaere im Arbeitsspeicher (`temp_store = MEMORY`; ein
+VACUUM kostete dort das 1,5-Fache der Nutzdaten, gemessen 62 MB Spitze
+fuer 41 MB). Fuer einen Klartextbestand bleibt `<dataDir>/.sqlite-tmp`: Das
+Umschluesseln kostete im Arbeitsspeicher die 1,3-fache Datenbankgroesse
+(gemessen) und haette eine grosse Datenbank unter `MemoryMax=768M` in den
+OOM-Killer geschickt, das System-Temp hielt eine Klartextkopie, und auf der
+Platte steht dort nichts, was nicht ohnehin im Klartext dasteht. Das VACUUM
+nach Migrationen braeuchte bei mehr als 300 MB Nutzdaten mehr, als die
+Hosting-Unit ohne Drosselung hergibt ((512 MB MemoryHigh - 60 MB Grundbedarf)
+/ 1,5); es wird dann uebersprungen (Warnung bei jedem Start). Die erste
+Fassung setzte die Grenze bei 384 MB, gerechnet mit dem Einfachen der
+Nutzdaten statt dem gemessenen 1,5-Fachen.
+
+**Warum Migrationen unter secure_delete laufen und 502 eine Tabelle neu
+aufbaut:** Faellt das VACUUM aus (zu gross, gescheitert), muessen die Daten,
+die eine Migration entfernt, trotzdem aus der Datei sein. `secure_delete`
+nullt, was DROP TABLE und DELETE freigeben (Gegenprobe: ohne es standen die
+alten Antwort-Zeitstempel nach 502/503 noch in der Datei). Es erfasst aber
+nicht die Kopien, die beim Umschreiben von Zeilen in Seitenluecken bleiben:
+Nach `DROP COLUMN participated_at` standen die Teilnahme-Zeitstempel trotz
+`secure_delete` noch darin (nachgestellt). Auch Leeren mit DELETE FROM und
+Wiederbefuellen genuegte nicht: Bei eingeschalteten Fremdschluesseln (im
+Dienst, und in diesem SQLite-Build die Vorgabe) loescht SQLite Zeile fuer
+Zeile statt die Tabelle zu leeren, die Wurzelseite wird nie frei, und ein
+Rest in ihrer Luecke blieb stehen (nachgestellt; dasselbe galt fuer den
+Neuaufbau beim Umfrageende, der deshalb jetzt `rebuildTableInKeyOrder`
+nutzt). 502 baut die Teilnahmen deshalb mit demselben Helfer neu auf, ueber
+den TypeScript-Schritt `run` der Migration (gleiche Transaktion); eine
+Zwischenfassung schrieb diesen Neuaufbau samt Tabellendefinition und
+AUTOINCREMENT-Zaehler in SQL nach, eine zweite Umsetzung, die vom Helfer und
+von 500 abweichen konnte. Damit kommt 502/503 ohne VACUUM aus
+(encryptionSmoke.ts, Abschnitt 7). Verwaiste Zeilen (Umfrage oder Person
+fehlt, nur ausserhalb der Anwendung ohne Fremdschluessel moeglich) loescht
+502 vorher: Das Wiedereinfuegen prueft die Fremdschluessel, und
+`defer_foreign_keys` half nicht (das Loeschen einer verwaisten Zeile zaehlt
+nicht gegen, gemessen); die Kaskade haette sie ohnehin geloescht. Der Helfer
+verweigert Tabellen, auf die Fremdschluessel zeigen, und Tabellen ohne
+INTEGER PRIMARY KEY als rowid (deren rowids gingen verloren). Fuer die
+uebrigen loescht DROP TABLE auch bei eingeschalteten Fremdschluesseln nicht
+vorher Zeile fuer Zeile (sqlite3FkDropTable, nachgelesen). Die Regel fuer
+kuenftige Migrationen steht in CLAUDE.md.
+
+**Warum secure_delete fuer jede Verbindung gilt:** Zuerst setzten es die
+Stellen, die Umfragedaten loeschen, einzeln. Das Loeschen eines
+Personalprofils (Kaskade in die Teilnahmen) und einer Umfrage umging es
+schon, und jeder neue Loeschweg haette die Regel still gebrochen.
+`configureConnection` setzt es deshalb fuer jede Verbindung ueber
+`openDatabase`; das nullt nebenbei auch sonst Geloeschtes (Personalakten,
+Loeschung nach DSGVO Art. 17), fuer ein paar zusaetzlich geschriebene
+Seiten je Loeschung. Die Teilnahme setzt es deshalb nicht mehr bei jedem
+Aufruf, sondern prueft es nur (`assertSecureDelete`): Eine an
+`openDatabase` vorbei geoeffnete Verbindung faellt laut auf.
+
+**Warum die Dateiablage erst nach dem Start und nur bei verschluesselter
+Datenbank umgestellt wird:** Scheitert der Start einer neuen Fassung, nimmt
+`ohrganize-update.sh` sie zurueck; die alte Fassung kann umgestellte Blobs
+nicht lesen. Die erste Fassung verliess sich darauf, dass bis zum Start keine
+entstehen, aber die Ruecknahme kann auch nach `listen` greifen (Health- oder
+Ausgabenpruefung). Deshalb zwei Regeln: Verschluesselt geschrieben und
+umgestellt wird nur, wenn die Datenbank selbst verschluesselt ist (dann
+startet die alte Fassung ohnehin nicht, ohne dass die Ruecknahme die
+Sicherung zurueckspielt), und diese Ruecknahme spielt Datenbank UND
+`storage/` aus derselben Sicherung zurueck. Die Zwischendateien liegen in `storage/.umstellung`: Die
+erste Fassung kennzeichnete sie in `storage/` per Endung, und dieselbe Endung
+durfte ein Upload tragen, der beim naechsten Start geloescht worden waere; die
+zweite legte sie neben `storage/`, und auf einem eigenen Mount fuer `storage/`
+scheiterte dann jedes Umbenennen (EXDEV). Ein Unterverzeichnis hat beides
+nicht, die Sicherung laesst es aus. Welche Dateien schon geprueft sind,
+steht als Fingerabdruck je Datei (Datei-ID, Groesse, mtime in Nanosekunden)
+in der Tabelle `_storage_checked`; stimmt er, kostet die Datei nur ein stat
+statt Oeffnen und Lesen. Drei fruehere Fassungen dieses Vermerks hielten nicht:
+ein Vermerk "fertig" schaltete die Umstellung ganz ab (eine einzeln
+zurueckgelegte Klartextdatei blieb fuer immer unverschluesselt); eine
+ctime-Zeitmarke aus `Date.now()` scheiterte an Netzlaufwerken mit
+nachgehender Uhr; eine ctime-Zeitmarke vom Dateisystem scheiterte an Windows,
+das beim Kopieren (Copy-Item, CopyFile, robocopy) die ctime der Quelle
+erhaelt (gemessen: Kopie um 11:55:29 mit ctime 11:55:26), und an jedem
+Umbenennen eines Verzeichnisses. Ein ersetztes, kopiertes oder
+ueberschriebenes Exemplar aendert dagegen Datei-ID, Groesse oder mtime.
+Gescheiterte Dateien bekommen keinen Eintrag und kommen beim naechsten Start
+wieder dran, ohne die uebrigen aufzuhalten. Die Tabelle steht in der
+Datenbank, damit sie mit ihr zurueckgespielt wird; ein Start schreibt dort nur
+abweichende Eintraege (die erste Fassung schrieb die ganze Tabelle bei jedem
+Start neu). Die Umstellung einer Datei
+laeuft asynchron je Abschnitt; synchron blockierte eine Datei von 50 MiB den
+Dienst 420 ms, in der Desktop-App samt Fenster. Weil der Dienst dabei
+weiterlaeuft, kann die Datei inzwischen geloescht sein; das Umbenennen legte
+sie dann wieder an, verschluesselt, ohne Datensatz und in jeder Sicherung
+(nachgestellt unter Windows mit einer Datei von 30 MiB). Unmittelbar davor
+vergleicht die Umstellung die Datei deshalb synchron mit dem Stand beim
+Oeffnen. Leere Dateien, die juenger als zwei Minuten sind, laesst sie aus:
+So sieht ein Upload aus, der gerade beginnt. Dateien der ersten Fassung des
+Formats schreibt der Lauf auf Fassung 2 um, nach Kontrolle ihres Pruefwerts.
+
+**Warum die Umstellung die Datei exklusiv sperrt und warum eine gescheiterte
+Pruefung einen Vermerk hinterlaesst:** Zwischen dem Wechsel nach DELETE und
+dem Umschluesseln konnte die Sicherung ueber `getDb()` die Datei zurueck in den
+WAL-Modus stellen; das Umschluesseln landete dann im `-wal`, der Dateikopf
+blieb im Klartext, und jedes Oeffnen scheiterte (nachgestellt).
+`locking_mode = EXCLUSIVE` haelt die Datei bis zum Ende der Umstellung fest
+(nachgestellt: die zweite Verbindung bekommt SQLITE_BUSY). Scheitert die
+Pruefung nach dem Umschluesseln, ist die Datei verschluesselt; der Neustart
+durch systemd oder NSSM saehe nur "schon verschluesselt" und liefe auf ihr
+weiter. Der Vermerk `umstellung-pruefung-gescheitert.txt` entsteht deshalb
+VOR dem Umschluesseln (durchgeschrieben samt Verzeichniseintrag) und faellt
+erst nach bestandener Pruefung weg. Die erste Fassung schrieb ihn erst nach
+dem Scheitern: Scheiterte auch das (volle Platte, oft dieselbe Ursache),
+verdeckte dieser Fehler den ersten, und der Dienst lief auf der ungeprueften
+Datei weiter, jeder Neustart ebenso; ein Absturz zwischen Commit und Pruefung
+hinterliess gar keinen. Findet ein Start den Vermerk bei verschluesselter
+Datei, prueft er erneut und startet nur, wenn die Pruefung besteht (fehlt der
+Schluessel, nennt die Meldung genau das statt "Pruefung nicht bestanden");
+bei Klartext (Umstellung nie committed, oder die Sicherung von vorher ist
+zurueckgespielt) wird umgestellt, und die Umstellung entfernt den Vermerk mit
+ihrem Erfolg. So erledigt er sich auch nach einem Restore von Hand (Windows),
+und ein voruebergehender Fehler der Pruefung sperrt nicht dauerhaft, was
+gerade in der Desktop-App ohne Sicherung von vor dem Update zaehlt. Angelegt
+und entfernt wird er nur unter der exklusiven Sperre der Umstellung: Eine
+Zwischenfassung entfernte einen Vermerk neben einem Klartextbestand gleich
+beim Start, und ein zweiter, gleichzeitig startender Prozess haette so den
+Vermerk einer laufenden Umstellung geloescht (nachgestellt: Ohne die Sperre
+bleibt er jetzt unangetastet). `status.cjs` meldet ihn
+(`encryption.conversion_marker`), `provision.sh check` neben einer
+verschluesselten Datenbank als Befund. Den Zustand bestimmt der Start erst
+nach dem Zurueckspielen eines Journals (`settledDatabaseState`), sonst fiel
+die Umstellung nach einem Abbruch im Commit fuer einen Start still aus.
+
+**Warum die Sicherung die laufende Datenbank prueft:** `VACUUM INTO` baut die
+Kopie aus den Zeilen neu auf; ihre Pruefung sieht deshalb keine Schaeden der
+Quelle mehr (nachgestellt: falsche Freiliste und verlorene Seiten, Kopie
+"ok"). Mit der frueheren Seitenkopie fiel das auf. Ein `quick_check` auf der
+Quelle davor stellt das wieder her. Die Dateiablage kopiert die Sicherung mit
+erhaltenen Zeitstempeln: `storageEncryptionState` haelt eine leere oder
+abgeschnittene Datei, die juenger als zwei Minuten ist, fuer einen Upload in
+Arbeit, und unter Linux traegt eine Kopie ohne `preserveTimestamps` die
+Uhrzeit des Kopierens; das MANIFEST nannte dann nie eine beschaedigte Datei.
+
+**Warum die Blobs in Abschnitten verschluesselt sind:** Die erste Fassung
+des Dateiformats hatte einen einzigen GCM-Pruefwert am Ende. GCM prueft erst
+dort; damit keine beschaedigte Datei als vollstaendige Antwort hinausgeht,
+musste jeder Download die Datei zweimal lesen und entschluesseln, und das
+erste Byte kam erst nach dem ganzen ersten Durchgang. Fassung 2 teilt in
+Abschnitte zu 64 KiB mit eigenem Pruefwert, Schluessel je Datei per HKDF aus
+einem Salz, Nonce aus Praefix, Abschnittsnummer und Schlusskennzeichen, der
+Kopf in jedem Abschnitt mit authentifiziert (Aufbau wie Tinks
+AES-GCM-HKDF-Streaming). Jeder Abschnitt ist geprueft, bevor er hinausgeht;
+der erste vor den Kopfzeilen, sodass ein falscher Schluessel oder ein
+beschaedigter Anfang eine Fehlerantwort ergibt. Scheitert ein spaeterer
+Abschnitt, bricht die Uebertragung ab, und der Browser meldet den Download als
+gescheitert. Fassung 1 bleibt lesbar (Kennung mit Versionsbyte), geschrieben
+wird nur Fassung 2.
+
+**Warum `VACUUM INTO` statt `db.backup()`:** Die Online-Backup-Schnittstelle
+oeffnet ihr Ziel ohne Schluessel und lehnt eine verschluesselte Quelle ab
+(„backup is not supported with incompatible source and target databases“).
+`VACUUM INTO` liest in einer Lesetransaktion denselben konsistenten Stand,
+schreibt die Kopie mit dem Schluessel der Quelle und hinterlaesst keine
+`-wal`-Datei. Nebenwirkung: Die Kopie des Migrations-Probelaufs im
+temporaeren Verzeichnis ist jetzt ebenfalls verschluesselt.
+
+**Geprueft:** `src/test/encryptionSmoke.ts` (Umstellung eines
+Klartextbestands, Upload und Download, Sicherung, Werkzeuge, fehlender und
+falscher Schluessel, Verweis, liegengebliebenes Journal beider Arten,
+Abschnittsgrenzen aller drei Schreibwege samt Fassung 1, Lage der
+Umfrageantworten, Checkpoint neben einem Leser); die gebauten Bundles und das Server-Archiv
+unter Windows (Node 24, Fertigpaket) und Debian 13 (Node 20, aus dem
+Quelltext uebersetzt); die gepackte Desktop-App in der Electron-Laufzeit
+gegen eine Kopie eines echten Klartextbestands (361 Dateien, alle
+Bestandszahlen unveraendert).
+
+**Bewusst offen gelassen:**
+- Ein Zurueck auf eine Fassung vor der Verschluesselung geht nur ueber den
+  vollstaendigen Restore einer Sicherung von davor.
+- Reste des frueheren Klartexts in freigegebenen Plattenbereichen lassen
+  sich nachtraeglich nicht beseitigen; dagegen hilft nur ein verschluesseltes
+  Dateisystem. Innerhalb der Datenbankdatei raeumen bei 502/503
+  `secure_delete` und der Neuaufbau der Tabellen auf (ohne VACUUM keine alten
+  Zeitstempel mehr, encryptionSmoke Abschnitt 7); das VACUUM, das Migrationen
+  mit `vacuumAfter` ausloesen, erfasst nur noch aeltere Reste aus der Zeit vor
+  `secure_delete`. Ueber 300 MB Nutzdaten (verschluesselt) entfaellt es
+  endgueltig mit einer Warnung; scheitert nur der Checkpoint danach, holt der
+  naechste Start nur ihn nach (`_vacuum_checkpoint_pending`).
+  Das VACUUM ist im Commit der Migration vermerkt (`_vacuum_pending`):
+  Scheitert es (Platz, Speicher), warnt der Start nur, und jeder spaetere
+  holt es nach; die erste Fassung brach den Start ab und versuchte es nie
+  wieder.
+- Umfragen: Teilnahme und Antwort entstehen in einem Commit, und die Frames
+  im `-wal` hielten die Reihenfolge fest (gemessen). Nach jeder Teilnahme
+  leert ein Checkpoint das `-wal`, ohne zu warten (`clearWalSoon`; die
+  zweite Fassung wartete synchron bis zu 5 s je Phase auf jeden Leser, etwa
+  die Sicherung, und hielt so die ganze Instanz an). Die zufaellige
+  Antwort-ID allein genuegte nicht: SQLite legt neue Zellen einer Seite in
+  Einfuegereihenfolge ab, nach ihrer Lage sortiert ergaben die Antworten genau
+  die Reihenfolge der Teilnahmen (gemessen, 1 bis 12). Jede Teilnahme schreibt
+  deshalb die Nachbarn der neuen Antwort in zufaelliger Reihenfolge neu, mit
+  `secure_delete` fuer die geloeschten Zellen (`storeAnonymousResponse`):
+  alle Zeilen, die mit ihr auf einer Tabellenseite liegen koennen, gesammelt
+  nach ID zu beiden Seiten, bis eine Untergrenze der belegten Bytes eine Seite
+  uebersteigt. Die erste Fassung schrieb die ganze Umfrage neu, was mit der
+  Umfrage quadratisch wuchs; die zweite schrieb wegen des Index auf
+  `survey_id` je Teilnahme rund 1000 volle Zeilen neu (gemessen bis 390 ms
+  bei 2 KB je Antwort). Migration 503 entfernt den Index deshalb (die
+  Auswertung liest die Tabelle ganz, bei dieser Groesse Millisekunden), legt
+  alle IDs in denselben 48-Bit-Bereich wie neue Antworten (502 vergab bis
+  2^53, an der Groesse liessen sich Antworten von vor und nach dem Update
+  trennen) und kopiert die Zeilen in Schluesselreihenfolge (502 kopierte sie
+  in der alten Reihenfolge der Teilnahmen). Gemessen an 1500 Antworten: Bei
+  einfachem Einfuegen lag die zuletzt eingefuegte Zelle auf 12 von 24 Seiten
+  bei der juengsten Teilnahme, nach dem Neuschreiben auf keiner. Beim
+  Verschieben von Zellen zwischen Seiten bleiben vereinzelt Kopien aelterer
+  Antworten in Seitenluecken stehen (gemessen 8 von 1200 bei gemischten
+  Laengen; secure_delete erfasst diese Luecken nicht, `sqlite_dbpage` zum
+  gezielten Ueberschreiben fehlt im Build); das Beenden einer Umfrage baut
+  deshalb die Tabelle neu auf (`rebuildResponseTable`): in einer Transaktion
+  alle Zeilen in eine temporaere Tabelle, die Tabelle mit DROP TABLE
+  entfernen und neu anlegen, in Schluesselreihenfolge zurueckschreiben, mit
+  `secure_delete`, das jede freiwerdende Seite nullt (nachgestellt mit
+  Kopien, die roh in die Luecken von Blatt- und Wurzelseiten geschrieben
+  waren: danach keine mehr, jede Antwort genau einmal; eine Zwischenfassung
+  leerte mit DELETE FROM und liess bei eingeschalteten Fremdschluesseln den
+  Rest in der Wurzelseite stehen). Seiten, die schon vorher frei waren,
+  erreicht das nicht; sie tragen keine Umfragedaten, weil jede Verbindung
+  `secure_delete` gesetzt hat (siehe oben, "Warum secure_delete fuer jede
+  Verbindung gilt"). Eine Zwischenfassung ueberschrieb bei jedem Umfrageende
+  zusaetzlich alle freien Seiten; das kostete jedes Mal die ganze Freiliste
+  und eine Seite Wachstum, fuer Reste, die es nach der Regel oben nicht mehr
+  gibt. Die erste Fassung baute die ganze Datei per
+  VACUUM neu auf; dessen Kopie schrieb SQLite unverschluesselt in eine
+  Hilfsdatei (siehe oben), und es blockierte fuer die ganze Datei. Der
+  Neuaufbau ist im Commit des Umfrageendes vermerkt und wird nach einem
+  Fehlschlag beim naechsten Start nachgeholt. Er kopiert die ganze Tabelle,
+  ueber alle Umfragen, und waechst damit mit dem Bestand; gemessen 204 ms
+  fuer 60 000 Antworten (verschluesselt, WAL, volles Durchschreiben), also
+  etwa fuenf Jahre monatlicher Umfragen bei 1000 Beschaeftigten. Erwogen und
+  verworfen: die Antworten einer Umfrage ueber die ID auf eigene Seiten zu
+  legen und nur deren Bereich neu aufzubauen; an den Grenzseiten zur
+  Nachbarumfrage blieben dann Reste stehen, und die Garantie hinge an deren
+  Lage. Danach leert `clearWalSoon` ohne Messung (`measure: false`): Die
+  Frames des Neuaufbaus nennen nur frisch geschriebene Seiten, als offene
+  Fuellung (siehe unten) waeren sie so gross wie die Tabelle. Kopien, die Teilnahmen danach
+  in Seiten schon beendeter Umfragen hinterlassen, verraten nur die
+  Reihenfolge der Antworten laufender Umfragen; das naechste Umfrageende
+  raeumt sie. Ein TRUNCATE-Checkpoint setzt in der `-shm` nur den Kopf
+  zurueck, die Seitennummern der letzten Teilnahme blieben stehen (gemessen).
+  SQLite beginnt einen Abschnitt dieser Liste neu (und nullt ihn), sobald
+  sein erster Frame geschrieben wird. `clearWalSoon` schreibt deshalb danach
+  Seite 1 (`user_version` auf seinen eigenen Wert), uebrig bleibt die Nummer
+  1; ein zweiter Checkpoint dafuer, wie in einer Zwischenfassung, kostete je
+  Teilnahme ein weiteres Durchschreiben und leerte nur den Frame von Seite 1.
+  Landeten die Frames einer Teilnahme hinter dem ersten Abschnitt (4062
+  Frames), etwa weil eine Sicherung das Leeren lange aufhielt, stehen in den
+  weiteren Abschnitten noch ihre Seitennummern; dann schreibt `fillWalIndex`
+  genug neue Seiten, dass jeder Abschnitt bis dorthin neu beginnt, und leert
+  erneut (nachgestellt mit rund 5000 Frames: danach nennt kein Abschnitt
+  mehr eine Seite des Bestands; ohne Fuellung 1100). Wie weit sie reichten,
+  misst `clearWalSoon` direkt nach dem Commit: Fasst die -wal-Datei
+  hoechstens 4062 Frames (ein stat), kann keiner dahinter liegen; nur sonst
+  ein PASSIVE-Checkpoint (Feld `log`, die Frames der laufenden Generation),
+  denn ein Checkpoint je Teilnahme kostete ein Durchschreiben. Die Messung
+  wirft nie: Die Teilnahme ist da schon gespeichert, und ein Fehler machte
+  daraus eine Fehlerantwort, deren Wiederholung "bereits teilgenommen"
+  bekaeme. Eine Zwischenfassung
+  nahm die Laenge der -wal-Datei: Nach einer grossen Transaktion fuellte
+  eine Teilnahme dann so viel, wie die Datei je fasste, und die Datenbank
+  wuchs um diesen Betrag; ausserdem mass ein zweiter Versuch die schon
+  geleerte Datei und holte eine gescheiterte Fuellung nie nach. Die offene
+  Fuellung (`walIndexFillOwed`) bleibt deshalb stehen, bis sie gelungen
+  ist, und faellt danach weg, auch wenn der folgende Checkpoint an einem
+  Leser scheitert. Endet der Dienst mit offener Fuellung, waehrend eine
+  andere Verbindung (eine Sicherung) die `-shm` offen haelt, setzt SQLite sie
+  beim Neustart nicht zurueck. Deshalb steht die offene Fuellung auch im
+  Vermerk `<dataDir>/.shm-fuellung-offen`, und `restartStaleWalIndex` holt
+  sie beim Dienststart nach, wenn die `-shm` beim Oeffnen nicht
+  zurueckgesetzt wurde (gemessen in `getDb` direkt beim Oeffnen). Eine
+  Zwischenfassung entschied allein an der Groesse der `-shm`, und das erst
+  nach den Migrationen: SQLite verkleinert die `-shm` nie, auch nicht nach
+  einem TRUNCATE-Checkpoint (gemessen: 64 KiB blieben bei einer einzigen
+  Verbindung), also hielt sie das eigene Wachstum durch das VACUUM einer
+  Migration fuer eine liegengebliebene `-shm` (bei 300 MB rund 73 000 leere
+  Seiten vor dem Start, die Datei 300 MB groesser), und neben einer
+  laufenden Sicherung fuellte jeder Neustart erneut. Nachgestellt: offene
+  Fuellung plus stehende `-shm` wird nachgeholt (danach keine Seite des
+  Bestands mehr in Abschnitt 1), grosse `-shm` ohne Vermerk loest nichts
+  aus, Vermerk neben zurueckgesetzter `-shm` faellt ohne Fuellung weg. Die
+  Sicherung, die ebenfalls `getDb` nutzt, holt nichts nach. Die Teilnahme prueft die Antworten vor der
+  Doppelteilnahme: Sonst verriet die HR-Testerfassung mit ungueltigen
+  Antworten ueber 409 gegen 400, wer schon teilgenommen hat, ohne etwas zu
+  schreiben. Was bleibt: Wer zwei Staende der Datei vergleicht, etwa zwei
+  Sicherungen, sieht die dazwischen hinzugekommenen Antworten und
+  Teilnahmen; das gilt fuer jede Speicherung. Ebenso sieht eine HR-Rolle, die
+  die Ergebnisse einer laufenden Umfrage nach jeder Teilnahme abruft, was
+  hinzukam; die Ergebnisse nur in Stufen freizugeben, aenderte die Bedienung
+  und ist deshalb nicht umgesetzt (eine Entscheidung fuer spaeter). Was ein
+  Dateisystem an freigegebenen Bloecken behaelt, liegt ausserhalb der
+  Reichweite der Anwendung.
+- Das Audit-Log haelt bei Stammdatenaenderungen die neuen Werte im Wortlaut
+  fest, auch Bankverbindung und Steuermerkmale, und ueberdauert das Loeschen
+  des Profils (kein Fremdschluessel). Im Ruhezustand ist es jetzt so
+  geschuetzt wie die Tabelle selbst; ob dort nur noch Feldnamen stehen
+  sollen, ist eine Frage der Nachvollziehbarkeit und keine der
+  Verschluesselung.
+- Das Sitzungstoken liegt im localStorage beider Clients (eine Stunde
+  gueltig). Ein fluechtiger Speicher verlangte nach jedem Neustart eine neue
+  Anmeldung.
+- Im Hosting liegen die env-Dateien aller Instanzen fuer jeden
+  Instanzprozess lesbar; die Sicherungen fremder Kunden sind seit dieser
+  Fassung unsichtbar (`InaccessiblePaths` in `ohrganize-backend@.service`).
+- Das Register des Anbieters (`conspectus.db`) ist nicht verschluesselt; es
+  haelt Kundennamen und Lizenzdaten, keine Personalakten.
+- Desktop-App: kein `setWindowOpenHandler` und kein `will-navigate` (der
+  LinkedIn-Link im Recruiting oeffnet ein Fenster in der App; ob es die
+  Preload-Schnittstelle erbt, ist nicht geprueft), keine Content-Security-Policy fuer
+  `ohrganize://app`, der IPC-Kanal fuer die Entwicklerwerkzeuge besteht auch
+  in der ausgelieferten App. Ein Umlenken des Links in den Systembrowser waere
+  eine sichtbare Aenderung, eine CSP laesst sich nicht ungetestet einfuehren.
+- Windows-Server: NSSM kopiert die Werte der env-Datei in einen
+  Registry-Zweig, den lokale Benutzerkonten in der Vorgabe lesen duerfen
+  (gemessen auf Windows 11; deshalb liegt der Schluessel in einer Datei und
+  nicht in der Umgebung); der Schluessel der
+  eigenen Zertifizierungsstelle unter `C:/ProgramData/oHRganize/tls` ist von
+  `harden-data-dir.ps1` nicht erfasst; Caddy laeuft als LocalSystem;
+  `update-server.ps1` prueft das Ergebnis der Sicherung nicht, bevor es den
+  Dienst anhaelt.
+- Ablauf ueber die Betreiberskripte mit einem Archiv dieser Fassung nicht
+  durchgespielt (Stand und Liste: `deploy/README.md`, Abschnitt 9.7, und
+  `deploy/windows/README.md`, „Was der Probelauf gezeigt hat“).

@@ -12,7 +12,7 @@
   "dependencies": {
     "@ohrganize/backend": "*",
     "@ohrganize/shared": "*",
-    "better-sqlite3": "^12.4.1"
+    "better-sqlite3": "npm:better-sqlite3-multiple-ciphers@12.11.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

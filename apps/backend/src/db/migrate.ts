@@ -1,3 +1,4 @@
+import { config } from '../config.js';
 import { getDb } from './db.js';
 import { migrateDatabase } from './migrateDatabase.js';
 
@@ -12,5 +13,6 @@ export { migrateDatabase };
  *   0xx Core · 1xx Personal · 2xx Abwesenheit · 3xx Leistung · 4xx Vergütung · 5xx Kommunikation
  */
 export function migrate(): void {
-  migrateDatabase(getDb());
+  // Warnungen landen im Journal, sobald der Logger steht (server.ts).
+  migrateDatabase(getDb(), { onWarning: (message) => config.startupWarnings.push(message) });
 }

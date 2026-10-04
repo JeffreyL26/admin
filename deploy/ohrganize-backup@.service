@@ -4,7 +4,7 @@
 # Manuell auslösen: systemctl start ohrganize-backup@musterfirma.service
 #
 # Das Skript darf im laufenden Betrieb starten: Es benutzt die
-# Online-Backup-API von SQLite und braucht keine Auszeit des Dienstes.
+# konsistente Kopie von SQLite (VACUUM INTO) und braucht keine Auszeit des Dienstes.
 
 [Unit]
 Description=oHRganize Datensicherung — Kunde %i
@@ -71,7 +71,7 @@ DeviceAllow=
 PrivateUsers=true
 
 # Anders als das Backend braucht die Sicherung ÜBERHAUPT kein Netz: Sie liest
-# die Datenbank über die Online-Backup-API von SQLite und kopiert Dateien.
+# die Datenbank als konsistente Kopie (VACUUM INTO) und kopiert Dateien.
 # Ein eigener, leerer Netz-Namensraum nimmt einem eingeschleusten Befehl damit
 # jede Möglichkeit, die kopierte Personalakte irgendwohin zu schicken.
 PrivateNetwork=true

@@ -25,9 +25,11 @@
        starten, Health pruefen.
 
   Geht der Start schief, wird der vorherige Stand aus dem Wegsicherungsordner
-  zurueckgestellt. Hat die neue Fassung die Datenbank bereits migriert,
-  startet die alte nicht mehr (Downgrade-Sperre) - dann muss die Sicherung von
-  Schritt 5 zurueckgespielt werden; das Skript sagt, welche.
+  zurueckgestellt. Hat die neue Fassung die Datenbank bereits migriert
+  (Downgrade-Sperre) oder auf Verschluesselung umgestellt, startet die alte
+  nicht mehr - dann muss die Sicherung von Schritt 5 zurueckgespielt werden;
+  das Skript sagt es. Anders als ohrganize-update.sh unter Linux spielt es sie
+  nicht selbst zurueck: Den Zielordner kennt nur die geplante Aufgabe.
 
 .PARAMETER Archive
   Pfad zum Release-Archiv (ohrganize-server-<variante>-<version>.zip).
@@ -116,6 +118,55 @@ function Get-Health([int]$port) {
 function Wait-ForHealth([int]$port, [int]$seconds) {
   for ($i = 0; $i -lt $seconds; $i++) {
     if (Get-Health $port) { return $true }
+    Start-Sleep -Seconds 1
+  }
+  return $false
+}
+
+<#
+  Node-Prozess des Dienstes (Kind von nssm.exe), $null wenn keiner laeuft.
+#>
+function Get-BackendPid {
+  $svc = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue
+  if (-not $svc -or -not $svc.ProcessId) { return $null }
+  $child = Get-CimInstance Win32_Process -Filter "ParentProcessId=$($svc.ProcessId)" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -eq 'node.exe' } | Select-Object -First 1
+  if ($child) { return $child.ProcessId }
+  return $null
+}
+
+<#
+  Wartet auf /api/health, solange DERSELBE Backend-Prozess laeuft, hoechstens
+  $seconds Sekunden. Der erste Start einer Fassung kann lange dauern
+  (Umstellung auf Verschluesselung, VACUUM nach einer Migration); stirbt der
+  Prozess, startet NSSM ihn neu, und ein ANDERER PID beendet das Warten
+  sofort, ebenso ein angehaltener Dienst. Kein PID (leere Antwort) zaehlt
+  NICHT als Absturz: Get-CimInstance liefert auch bei einer kurzen Stoerung
+  der WMI nichts, und gerade unter der Last der Umstellung haette das einen
+  gesunden Start zurueckgenommen und das Backend mitten darin beendet.
+  'Paused' zaehlt dagegen: So meldet NSSM einen Dienst, dessen Programm
+  gleich nach dem Start endete und dessen Neustart es gerade zurueckhaelt
+  (Drosselung mit wachsender Pause); ohne das wartete die Schleife bis zum
+  naechsten Neustart, Runde um Runde.
+#>
+function Wait-ForStart([int]$port, [int]$seconds) {
+  # Echte Zeit statt Durchlaeufe: Eine abgewiesene Verbindung auf localhost
+  # dauert unter Windows gut 2 s, die CIM-Abfragen je fast 1 s; 900 Durchlaeufe
+  # waren so eher eine Stunde als 15 Minuten.
+  $clock = [Diagnostics.Stopwatch]::StartNew()
+  $seen = $null
+  while ($clock.Elapsed.TotalSeconds -lt $seconds) {
+    if (Get-Health $port) { return $true }
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    if ($svc -and ($svc.Status -eq 'Stopped' -or $svc.Status -eq 'Paused')) { return $false }
+    if (-not $seen) {
+      $seen = Get-BackendPid
+    } elseif (-not (Get-Process -Id $seen -ErrorAction SilentlyContinue)) {
+      # Der bekannte Prozess ist weg: Ein anderer PID heisst Neustart durch NSSM.
+      # Ohne Antwort (WMI gestoert, Neustart noch nicht da) weiter warten.
+      $current = Get-BackendPid
+      if ($current -and $current -ne $seen) { return $false }
+    }
     Start-Sleep -Seconds 1
   }
   return $false
@@ -242,8 +293,17 @@ try {
     Write-Note 'Noch keine Datenbank vorhanden - nichts zu pruefen.'
   } else {
     # Der Probelauf braucht node_modules des Archivs noch nicht: better-sqlite3
-    # liegt bereits im Zielverzeichnis der laufenden Installation.
-    $probe = Invoke-Native -File 'node' -Arguments @($checker, '--db', $dbFile) -WorkDir $InstallDir
+    # liegt bereits im Zielverzeichnis der laufenden Installation. Node sucht
+    # require() aber vom Ort des Skripts aus (hier das entpackte Archiv im
+    # Temp-Verzeichnis), nicht vom Arbeitsverzeichnis; NODE_PATH zeigt ihm
+    # deshalb das node_modules der Installation.
+    $prevNodePath = $env:NODE_PATH
+    $env:NODE_PATH = Join-Path $InstallDir 'node_modules'
+    try {
+      $probe = Invoke-Native -File 'node' -Arguments @($checker, '--db', $dbFile) -WorkDir $InstallDir
+    } finally {
+      $env:NODE_PATH = $prevNodePath
+    }
     Write-Host $probe.Output
     if ($probe.Code -ne 0) {
       throw 'Der Migrations-Probelauf ist fehlgeschlagen. Es wurde nichts veraendert.'
@@ -306,13 +366,13 @@ try {
   Write-Step "Dienst $ServiceName starten"
   Invoke-Native -File $NssmPath -Arguments @('start', $ServiceName) | Out-Null
 
-  if (Wait-ForHealth $port 45) {
+  if (Wait-ForStart $port 900) {
     $health = Get-Health $port
     Write-Host ''
     Write-Host "Update abgeschlossen: Version $($health.version), Ausgabe $($health.variant.id), Kanal $($health.channel)" -ForegroundColor Green
     Write-Note "Alter Stand: $appsBackup (nach der Kontrolle loeschen)"
   } else {
-    Write-Warn 'Das Backend antwortet nach 45 s nicht. Nehme den alten Stand zurueck.'
+    Write-Warn 'Das Backend ist nicht hochgekommen (abgestuerzt oder nach 15 Minuten ohne Antwort). Nehme den alten Stand zurueck.'
     Invoke-Native -File $NssmPath -Arguments @('stop', $ServiceName) | Out-Null
     if (Test-Path $appsBackup) {
       Remove-Item -LiteralPath $appsDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -323,8 +383,10 @@ try {
       } else {
         Write-Host ''
         Write-Host 'Auch die alte Fassung startet nicht. Vermutlich hat die neue Fassung die' -ForegroundColor Red
-        Write-Host 'Datenbank bereits migriert; ein Downgrade ist dann gesperrt. Bitte die' -ForegroundColor Red
-        Write-Host 'Sicherung von eben zurueckspielen (deploy/windows/README.md, Abschnitt 5)' -ForegroundColor Red
+        Write-Host 'Datenbank bereits migriert oder auf Verschluesselung umgestellt; beides kann' -ForegroundColor Red
+        Write-Host 'die alte Fassung nicht lesen. Bitte die Sicherung von eben zurueckspielen' -ForegroundColor Red
+        Write-Host '(deploy/windows/README.md, Abschnitt 5; ein Vermerk' -ForegroundColor Red
+        Write-Host 'umstellung-pruefung-gescheitert.txt erledigt sich damit von selbst)' -ForegroundColor Red
         Write-Host 'und danach das Log pruefen:' -ForegroundColor Red
         Write-Host '  Get-Content C:\ProgramData\oHRganize\logs\backend.log -Tail 50' -ForegroundColor Red
       }

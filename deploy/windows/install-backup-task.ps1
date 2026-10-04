@@ -5,7 +5,7 @@
 
 .DESCRIPTION
   Das Sicherungsskript (dist/backup.cjs) ist reines Node und laeuft auf Windows
-  unveraendert. Es benutzt die Online-Backup-Schnittstelle von SQLite und
+  unveraendert. Es schreibt eine konsistente Kopie (VACUUM INTO) und
   braucht KEINE Auszeit des Dienstes.
 
   Warum die Aufgabe als SYSTEM laeuft und nicht als Dienstkonto:

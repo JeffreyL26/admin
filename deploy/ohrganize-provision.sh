@@ -257,12 +257,17 @@ liste() {
 
 # Lizenzzustand einer Instanz, kurz (fuer Tabellen). Leer, wenn status.cjs
 # fehlt oder die Instanz noch nie gestartet wurde.
-lizenz_zustand() {
-  local kunde="$1" werk daten json
+status_json() {
+  local kunde="$1" werk daten
   werk="$(werkzeug "$kunde" status.cjs)" || return 0
   daten="$(kunden_datenverz "$kunde")"
   [[ -n "$daten" && -f "$daten/ohrganize.db" ]] || return 0
-  json="$(als_dienst node "$werk" --data-dir "$daten" --json 2>/dev/null || true)"
+  als_dienst node "$werk" --data-dir "$daten" --json 2>/dev/null || true
+}
+
+lizenz_zustand() {
+  local json
+  json="$(status_json "$1")"
   [[ -n "$json" ]] || return 0
   json_feld "$json" license state
 }
@@ -533,11 +538,13 @@ fortsetzen() {
   systemctl start "ohrganize-backup@$kunde.timer" || true
   local port
   port="$(kunden_port "$kunde")"
-  if warte_auf_health "$port" 30; then
+  # Wie nach einem Update: Der erste Start kann eine ausstehende Umstellung,
+  # Pruefung oder ein VACUUM nachholen und antwortet erst danach.
+  if warte_auf_start "ohrganize-backend@$kunde" "$port"; then
     printf 'Kunde "%s" laeuft wieder (127.0.0.1:%s).\n' "$kunde" "$port"
   else
     journalctl -u "ohrganize-backend@$kunde" -n 20 --no-pager >&2 || true
-    fehler "Das Backend von \"$kunde\" antwortet nach 30 s nicht."
+    fehler "Das Backend von \"$kunde\" ist nicht gestartet."
   fi
 }
 
@@ -589,13 +596,18 @@ restore() {
   mv "$daten" "$weg"
   install -d -m 0700 -o "$DIENST_BENUTZER" -g "$DIENST_BENUTZER" "$daten"
 
-  schritt 'Datenbank, storage/, secret.key und Lizenz einspielen'
+  schritt 'Datenbank, storage/, data.key, secret.key und Lizenz einspielen'
   cp -a "$ordner/ohrganize.db" "$daten/"
   [[ -d "$ordner/storage" ]] && cp -a "$ordner/storage" "$daten/"
+  # data.key ist der Schluessel zu Datenbank und storage/ (Verschluesselung im
+  # Ruhezustand). Ohne sie startet die Instanz nicht. Aeltere Sicherungen aus
+  # der Zeit davor haben keine; dann liegt der Bestand im Klartext vor und der
+  # erste Start stellt ihn um.
+  [[ -f "$ordner/data.key" ]] && cp -a "$ordner/data.key" "$daten/"
   [[ -f "$ordner/secret.key" ]] && cp -a "$ordner/secret.key" "$daten/"
   [[ -f "$ordner/lizenz.ohrganize" ]] && cp -a "$ordner/lizenz.ohrganize" "$daten/"
   # -wal und -shm gehoeren NICHT dazu: Die Sicherung enthaelt einen in sich
-  # geschlossenen Stand (Online-Backup-API). Eine mitkopierte -wal aus einem
+  # geschlossenen Stand (VACUUM INTO). Eine mitkopierte -wal aus einem
   # anderen Lauf ueberschriebe ihn beim ersten Oeffnen.
   rm -f "$daten/ohrganize.db-wal" "$daten/ohrganize.db-shm"
 
@@ -607,7 +619,7 @@ restore() {
   systemctl start "ohrganize-backend@$kunde"
   local port
   port="$(kunden_port "$kunde")"
-  if ! warte_auf_health "$port" 30; then
+  if ! warte_auf_start "ohrganize-backend@$kunde" "$port"; then
     journalctl -u "ohrganize-backend@$kunde" -n 30 --no-pager >&2 || true
     fehler "Nach dem Restore antwortet \"$kunde\" nicht. Der alte Stand liegt unter $weg."
   fi
@@ -685,10 +697,48 @@ check() {
       [[ $alter -le 2 ]] || meld "$kunde: juengste Sicherung ist $alter Tage alt (${letzte#* })."
     fi
 
-    # Lizenz
+    # Lizenz und Verschluesselung (ein Aufruf von status.cjs fuer beides)
     daten="$(kunden_datenverz "$kunde")"
-    local zustand
-    zustand="$(lizenz_zustand "$kunde")"
+    local zustand statusjson verschl ablage defekt unlesbar grund werk vermerk
+    statusjson="$(status_json "$kunde")"
+    zustand=''
+    verschl=''
+    ablage=''
+    defekt=''
+    if [[ -n "$statusjson" ]]; then
+      zustand="$(json_feld "$statusjson" license state)"
+      verschl="$(json_feld "$statusjson" encryption database)"
+      ablage="$(json_feld "$statusjson" encryption storage)"
+      defekt="$(json_zahl "$statusjson" encryption storage_damaged_files)"
+    elif [[ -f "$daten/ohrganize.db" ]] && werk="$(werkzeug "$kunde" status.cjs)"; then
+      # Keine Auskunft heisst meist: Schluessel fehlt oder passt nicht. Dann
+      # startet die Instanz beim naechsten Mal nicht; das gehoert gemeldet.
+      grund="$(als_dienst node "$werk" --data-dir "$daten" --json 2>&1 >/dev/null | tail -1 || true)"
+      meld "$kunde: status.cjs liefert keine Auskunft: ${grund:-ohne Meldung}"
+    fi
+    vermerk=''
+    [[ -n "$statusjson" ]] && vermerk="$(json_zahl "$statusjson" encryption conversion_marker)"
+    case "$verschl" in
+      plaintext) meld "$kunde: Datenbank liegt unverschluesselt vor. Die Umstellung beim Start ist gescheitert oder lief noch nicht (journalctl -t ohrganize-$kunde)." ;;
+      encrypted)
+        if [[ "$vermerk" == 1 ]]; then
+          meld "$kunde: Datenbank verschluesselt, aber ihre Pruefung nach der Umstellung ist nicht bestanden ($daten/umstellung-pruefung-gescheitert.txt). Der Dienst startet nur, wenn sie beim Start besteht; sonst die Sicherung von vor dem Update zurueckspielen (deploy/README.md, Abschnitt 6)."
+        else
+          ok "$kunde: Datenbank verschluesselt"
+        fi
+        ;;
+    esac
+    case "$ablage" in
+      mixed|plaintext) [[ "$verschl" == encrypted ]] && meld "$kunde: In storage/ liegen noch unverschluesselte Dateien (status.cjs zeigt die Zahl). Jeder Start prueft die Dateien, die sich seit ihrer letzten Pruefung geaendert haben oder bei ihr scheiterten (auch zurueckgelegte), und stellt sie im Hintergrund um; scheitert das, steht der Grund im Journal (journalctl -t ohrganize-$kunde)." ;;
+    esac
+    if [[ -n "$defekt" && "$defekt" != 0 ]]; then
+      meld "$kunde: $defekt Datei(en) in storage/ sind abgeschnitten und nicht lesbar (status.cjs); aus der Sicherung zurueckholen."
+    fi
+    unlesbar=''
+    [[ -n "$statusjson" ]] && unlesbar="$(json_zahl "$statusjson" encryption storage_unreadable_files)"
+    if [[ -n "$unlesbar" && "$unlesbar" != 0 ]]; then
+      meld "$kunde: $unlesbar Datei(en) in storage/ kann das Dienstkonto nicht oeffnen (Eigentuemer/Rechte pruefen, find $daten/storage ! -user $DIENST_BENUTZER)."
+    fi
     case "$zustand" in
       expired) meld "$kunde: Lizenz abgelaufen, die Instanz laeuft im Nur-Lese-Betrieb." ;;
       grace)   meld "$kunde: Lizenz abgelaufen, Kulanzfrist laeuft." ;;

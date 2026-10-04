@@ -24,7 +24,6 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import Database from 'better-sqlite3';
 import {
   LICENSE_FORMAT_VERSION,
   LICENSE_KIND_LABELS,
@@ -42,16 +41,20 @@ import { TRUSTED_LICENSE_KEYS_RAW } from '../core/licenseKeys.js';
 import { publicKeyFrom } from '../core/licenseCodec.js';
 import { deriveLicenseState, type LoadedLicenseInput } from '../core/licenseState.js';
 import { allMigrations } from '../db/migrations/index.js';
+import { CONVERSION_FAILED_FILE, databaseState, readDataKey } from '../db/encryption.js';
+import { storageEncryptionState } from '../core/fileCrypto.js';
 import {
   dataDirFrom,
   directorySize,
   fail,
   formatBytes,
+  openInstanceDb,
   parseArgs,
   refuseRoot,
   todayLocal,
   variantBanner,
 } from './toolkit.js';
+import { errorText } from '../core/errorText.js';
 
 const { values, flags } = parseArgs(process.argv.slice(2));
 const asJson = flags.has('json');
@@ -59,7 +62,40 @@ refuseRoot('runuser -u ohrganize -- node /opt/ohrganize/apps/backend/dist/status
 const paths = dataDirFrom(values['data-dir'], 'apps/backend/dist/status.cjs');
 if (!fs.existsSync(paths.db)) fail(`${paths.db} existiert nicht (Instanz noch nie gestartet?).`);
 
-const db = new Database(paths.db, { readonly: true, fileMustExist: true });
+// Verschluesselung im Ruhezustand: Eine Instanz, deren Umstellung beim Start
+// gescheitert ist, laeuft weiter, nur unverschluesselt; Dateien, die die
+// Umstellung nicht erfasst hat, bleiben im Klartext. Beides soll hier und in
+// provision.sh check auffallen, nicht nur in einer Journalzeile.
+// VOR dem Oeffnen der Verbindung: Den Dateikopf bei offener Verbindung zu
+// lesen gaebe unter POSIX deren Sperren frei (db/encryption.ts).
+let keyState: 'internal' | 'external' | 'missing' | 'invalid';
+try {
+  const key = readDataKey(paths.dir);
+  keyState = key === null ? 'missing' : key.external ? 'external' : 'internal';
+} catch {
+  keyState = 'invalid';
+}
+const storageState = storageEncryptionState(paths.storage);
+const encryption = {
+  // Erst nach dem Schliessen bestimmt (unten): Das Oeffnen spielt ein
+  // liegengebliebenes Journal einer abgebrochenen Umstellung zurueck und kann
+  // den Zustand dabei aendern.
+  database: 'plaintext' as 'encrypted' | 'plaintext',
+  key: keyState,
+  storage: storageState.state,
+  storage_plaintext_files: storageState.plaintext,
+  // Kennung vorhanden, aber abgeschnitten: Der Download dieser Dateien scheitert.
+  storage_damaged_files: storageState.damaged,
+  // Nicht zu öffnen (Rechte, Sperre); gezählt statt abzubrechen.
+  storage_unreadable_files: storageState.unreadable,
+  // 1, wenn der Vermerk der Umstellung liegt (umstellung-pruefung-gescheitert.txt):
+  // neben einer verschluesselten Datenbank startet der Dienst nur nach
+  // bestandener Pruefung, neben einer unverschluesselten stellt der naechste
+  // Start erneut um. Als Zahl, damit provision.sh es mit json_zahl liest.
+  conversion_marker: fs.existsSync(path.join(paths.dir, CONVERSION_FAILED_FILE)) ? 1 : 0,
+};
+
+const db = openInstanceDb(paths.db, { readonly: true, dataDir: paths.dir });
 
 function count(table: string, where = ''): number | null {
   try {
@@ -97,7 +133,7 @@ if (fs.existsSync(licenseFile)) {
   try {
     loaded = { exists: true, payload: verifyLicenseText(fs.readFileSync(licenseFile, 'utf8'), trusted), invalidReason: null };
   } catch (err) {
-    loaded = { exists: true, payload: null, invalidReason: err instanceof Error ? err.message : String(err) };
+    loaded = { exists: true, payload: null, invalidReason: errorText(err) };
   }
 }
 
@@ -194,10 +230,12 @@ const result = {
     files: count('files'),
   },
   storage: { db_bytes: dbBytes, files: storage.files, file_bytes: storage.bytes },
+  encryption,
   migrations: { applied: appliedMigrations.length, pending, from_newer_version: fromNewer },
 };
 
 db.close();
+encryption.database = databaseState(paths.db) === 'encrypted' ? 'encrypted' : 'plaintext';
 
 if (asJson) {
   console.log(JSON.stringify(result, null, 2));
@@ -230,6 +268,23 @@ if (asJson) {
   line('Personalprofile', `${result.counts.employees_active} aktiv von ${result.counts.employees_total}`);
   line('Konten', `${result.counts.users} (${result.counts.users_admin} Administration, ${result.counts.users_portal} Portal)`);
   line('Datenbank', formatBytes(result.storage.db_bytes));
+  const keyLabel = { internal: 'data.key im Datenverzeichnis', external: 'data.key verweist nach aussen', missing: 'keine data.key', invalid: 'data.key UNBRAUCHBAR' }[encryption.key];
+  line('Verschluesselung', `${encryption.database === 'encrypted' ? 'verschluesselt' : 'NICHT verschluesselt'} (${keyLabel})`);
+  if (encryption.conversion_marker) {
+    line(
+      'Umstellung',
+      encryption.database === 'encrypted'
+        ? `Pruefung NICHT bestanden oder nie beendet (${CONVERSION_FAILED_FILE}); der Dienst startet nur, wenn sie beim Start besteht`
+        : `abgebrochen (${CONVERSION_FAILED_FILE}); der naechste Start stellt erneut um`,
+    );
+  }
+  const storageLabel = { empty: 'keine Dateien', encrypted: 'alle verschluesselt', mixed: `${encryption.storage_plaintext_files} NICHT verschluesselt`, plaintext: 'NICHT verschluesselt' }[encryption.storage];
+  const storageNotes = [
+    storageLabel,
+    ...(encryption.storage_damaged_files > 0 ? [`${encryption.storage_damaged_files} BESCHAEDIGT (abgeschnitten)`] : []),
+    ...(encryption.storage_unreadable_files > 0 ? [`${encryption.storage_unreadable_files} NICHT LESBAR (Rechte?)`] : []),
+  ];
+  line('Dateiablage', storageNotes.join(', '));
   line('Dateien', `${result.storage.files} (${formatBytes(result.storage.file_bytes)})`);
   line('Migrationen', `${result.migrations.applied} angewendet, ${pending.length} ausstehend`);
   if (fromNewer.length > 0) {

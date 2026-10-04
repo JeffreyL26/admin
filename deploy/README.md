@@ -62,7 +62,11 @@ konsistent:
   die einzige native Abhängigkeit: Auf Debian 13 mit Node 20 findet sie
   **kein** passendes Fertigpaket ("No prebuilt binaries found
   (target=20.19.2 …)") und übersetzt sich beim `npm ci` aus dem Quelltext;
-  ohne `make` bricht die Installation ab.
+  ohne `make` bricht die Installation ab. Installiert wird sie in der
+  verschlüsselnden Fassung `better-sqlite3-multiple-ciphers` unter demselben
+  Namen (Abschnitt 5, „Verschlüsselung im Ruhezustand"); Meldungen von npm
+  nennen deshalb diesen Paketnamen. Fertigpakete gibt es wie beim Original
+  für Node 22 und 24, nicht für Node 20.
 - Eine Domain, die auf den Server zeigt, und die Ports 80 und 443 aus dem
   Internet erreichbar (Port 80 wird für die Zertifikatsausstellung gebraucht).
 - Bei Variante B (Abschnitt 3): **Caddy ≥ 2.8.0** — nicht das
@@ -266,6 +270,11 @@ firewall-cmd --reload
 dann wird `OHRGANIZE_HOST` gesetzt, und dann ist Port 3001 ausschließlich für die
 Proxy-IP zu öffnen — sonst kann jeder im Netz das Backend direkt ansprechen und
 über einen selbst gesetzten `X-Forwarded-For` die Login-Drosselung aushebeln.
+Die Strecke zwischen Proxy und Backend ist dann unverschlüsseltes HTTP: Über
+sie laufen Anmeldedaten, Sitzungstoken und Personaldaten im Klartext. Sie
+gehört deshalb in ein Netz, in dem niemand sonst mitlesen kann (eigenes VLAN,
+WireGuard oder ein SSH-Tunnel zwischen beiden Maschinen), nie in das
+allgemeine Firmennetz.
 
 ```bash
 ufw allow from 10.0.0.5 to any port 3001 proto tcp   # 10.0.0.5 = Proxy
@@ -295,6 +304,7 @@ Jeder Lauf legt `/var/backups/ohrganize/ohrganize-JJJJMMTT-HHMMSS/` an mit:
 |---|---|
 | `ohrganize.db` | Alle Stamm-, Abwesenheits-, Vergütungs- und Bewerbungsdaten |
 | `storage/` | Die Dateien selbst (Verträge, AU-Bescheinigungen, Fotos) |
+| `data.key` | Schlüssel zu `ohrganize.db` und `storage/` (beide liegen verschlüsselt vor, siehe „Verschlüsselung im Ruhezustand" unten). **Ohne sie ist die Sicherung nicht lesbar** |
 | `secret.key` | Ohne diese Datei erzeugt oHRganize nach dem Restore still ein neues Secret: Alle Sitzungen und alle bereits verschickten Download-Links sind dann tot |
 | `lizenz.ohrganize` (falls vorhanden) | Die signierte Lizenzdatei. Ohne sie läuft der Server nach dem Restore im Nur-Lese-Betrieb — nicht in einer neuen Testphase, denn die Datenbank weiß, dass sie schon lizenziert war (`../docs/lizenzierung.md`) |
 | `MANIFEST.txt` | Zeitpunkt, Prüfergebnis, Datensatzzahlen, Restore-Schritte |
@@ -303,9 +313,10 @@ Wichtig zu verstehen:
 
 - **Eine Dateikopie von `ohrganize.db` ohne `-wal` ist kein gültiges Backup.**
   Die Datenbank läuft im WAL-Modus; die jüngsten Änderungen stehen dann nur in
-  `ohrganize.db-wal`. Das Skript benutzt deshalb die Online-Backup-Schnittstelle
-  von SQLite und schreibt einen in sich geschlossenen Stand — die Sicherung
-  enthält **absichtlich** keine `-wal`-Datei.
+  `ohrganize.db-wal`. Das Skript schreibt deshalb im laufenden Betrieb einen
+  in sich geschlossenen Stand (`VACUUM INTO`), verschlüsselt mit demselben
+  Schlüssel wie die Datenbank. Die Sicherung enthält **absichtlich** keine
+  `-wal`-Datei.
 - Die Reihenfolge Datenbank → Dateien ist zwingend und darf nicht getauscht
   werden (die Begründung steht im Kopf von `apps/backend/src/scripts/backup.ts`).
 - Der Dienst muss dafür **nicht** angehalten werden.
@@ -315,6 +326,96 @@ Wichtig zu verstehen:
   gehört per `rsync`/`borg`/Bandsicherung täglich auf ein anderes System —
   und weil dort dieselben Personaldaten liegen, mit demselben Schutzniveau
   (verschlüsselt, Zugriff nur für die Administration).
+
+### Verschlüsselung im Ruhezustand
+
+`ohrganize.db` (samt `-wal`), jede Datei in `storage/` und damit jede
+Sicherung liegen verschlüsselt auf der Platte: die Datenbank im
+SQLCipher-4-Format (AES-256), die Dateien mit AES-256-GCM. Der Schlüssel steht
+in **`data.key`** im Datenverzeichnis und entsteht beim ersten Start. Ein
+Bestand aus einer älteren Fassung wird beim ersten Start der neuen umgestellt:
+die Datenbank sofort, `storage/` danach im Hintergrund. Das Journal meldet
+beides, `status.cjs` und `ohrganize-provision.sh check` zeigen den Zustand
+(„Verschluesselung", „Dateiablage"; `check` meldet eine unverschlüsselte
+Datenbank und Klartextdateien in `storage/`). An Bedienung, Sicherungslauf und
+Werkzeugen ändert sich nichts. Hilfsdateien von SQLite (Sortierungen,
+temporäre Tabellen, VACUUM) verschlüsselt SQLite nicht; bei verschlüsselter
+Datenbank entstehen sie deshalb nur im Arbeitsspeicher. Solange eine Instanz
+unverschlüsselt läuft (Umstellung noch nicht gelaufen oder gescheitert),
+liegen ihre Hilfsdateien in `.sqlite-tmp` im Datenverzeichnis, darunter die
+des Umschlüsselns selbst; sie enthalten dann nichts, was nicht ohnehin im
+Klartext dasteht (nie im Temp-Verzeichnis des Systems).
+
+Umgestellt wird **an Ort und Stelle**: SQLite schlüsselt die Datei in einer
+einzigen Transaktion mit Rollback-Journal um. Ein Abbruch an beliebiger Stelle
+(Stromausfall, `kill -9`) hinterlässt den unveränderten Bestand oder ein
+Journal, das der nächste Start zurückspielt; ein Werkzeug, das die Datenbank
+währenddessen offen hatte, scheitert danach mit „file is not a database“,
+statt etwas hineinzuschreiben.
+
+Was das leistet und was nicht:
+
+- Eine einzeln kopierte Datei (die Datenbank, ein Vertrag aus `storage/`,
+  Reste auf einer ausgemusterten Platte) ist ohne `data.key` nicht lesbar.
+- Wer das **ganze** Datenverzeichnis oder eine Sicherung **samt** `data.key`
+  in die Hand bekommt, kann alles lesen. Die Rechte (0700/0600), ein
+  verschlüsseltes Dateisystem und der Schutz der ausgelagerten Sicherungen
+  bleiben deshalb nötig.
+- **`data.key` verloren heißt Daten verloren.** Die Sicherung nimmt sie mit;
+  wer von Hand kopiert, muss sie mitkopieren.
+- Ein Zurück auf eine Fassung vor der Verschlüsselung geht nur über den
+  vollständigen Restore einer Sicherung von davor (Datenbank **und**
+  `storage/`): Die ältere Fassung kann weder die verschlüsselte Datenbank
+  noch die umgestellten Dateien lesen.
+
+**Schlüssel getrennt aufbewahren (optional, für ausgelagerte Sicherungen).**
+`data.key` darf statt des Schlüssels einen Verweis enthalten:
+`extern:<absoluter Pfad>`. Der Schlüssel liegt dann außerhalb des
+Datenverzeichnisses, und jede Sicherung AB DIESEM ZEITPUNKT enthält nur noch
+den Verweis und kein `secret.key` mehr.
+
+Der Block prüft zuerst, ob `data.key` noch den Schlüssel selbst enthält. Ein
+zweiter Durchlauf würde sonst den Verweistext über die Schlüsseldatei
+kopieren, und ohne getrennte Kopie wären Datenbank und `storage/` verloren.
+
+```bash
+systemctl stop ohrganize-backend
+SCHLUESSEL=/etc/ohrganize/schluessel/ohrganize.key
+if grep -qx '[0-9a-f]\{64\}' /var/lib/ohrganize/data.key && [ ! -e "$SCHLUESSEL" ]; then
+  install -d -o root -g ohrganize -m 0750 /etc/ohrganize/schluessel
+  install -o ohrganize -g ohrganize -m 0400 /var/lib/ohrganize/data.key "$SCHLUESSEL"
+  cmp -s /var/lib/ohrganize/data.key "$SCHLUESSEL" \
+    && printf 'extern:%s\n' "$SCHLUESSEL" > /var/lib/ohrganize/data.key
+else
+  echo "Nichts geändert: data.key enthält schon einen Verweis, oder $SCHLUESSEL existiert bereits."
+fi
+systemctl start ohrganize-backend
+```
+
+Was das leistet und was nicht:
+
+- Die Schlüsseldatei muss **getrennt** gesichert sein (Passwortmanager,
+  Tresor), sonst ist auch die eigene Sicherung wertlos. Vor einem Restore auf
+  einem neuen Server gehört sie zuerst wieder an ihren Pfad; das MANIFEST
+  jeder solchen Sicherung nennt ihn.
+- **Der Schlüssel bleibt derselbe.** Jede Sicherung von VOR dem Umzug enthält
+  ihn samt `secret.key` im Klartext. Wer eine davon hat, öffnet damit auch
+  jede spätere Sicherung, die nur den Verweis enthält. Den Schutz bekommen
+  die ausgelagerten Sicherungen deshalb erst, wenn alle älteren Kopien mit
+  Schlüssel vernichtet sind. Einen Schlüsselwechsel (Datenbank und alle
+  Dateien neu verschlüsseln) sieht oHRganize nicht vor.
+- `secret.key` lässt sich dagegen jederzeit erneuern: Datei löschen und den
+  Dienst neu starten. Danach sind alle Sitzungen und signierten Links
+  ungültig, alle melden sich neu an, und ein `secret.key` aus einer älteren
+  Sicherung taugt nicht mehr zum Fälschen von Sitzungen.
+- Ein Restore einer Sicherung von VOR der Verschlüsselung (oder von vor dem
+  Umzug des Schlüssels) bringt keinen Verweis mit: Der erste Start legt dann
+  wieder einen Schlüssel im Datenverzeichnis an. Nach einem solchen Restore
+  den Block oben erneut ausführen.
+- Dieser Weg ist in den Tests abgedeckt
+  (`apps/backend/src/test/encryptionSmoke.ts`) und das Rechtemodell auf
+  Debian 13 geprüft, als ganzer Ablauf auf einem Server aber noch nicht
+  durchgespielt.
 
 ### Restore-Probe
 
@@ -328,8 +429,9 @@ Produktivsystem.
 BACKUP=/var/backups/ohrganize/ohrganize-20260315-023000
 PROBE=/tmp/ohrganize-probe
 install -d -m 0700 $PROBE
-cp -a $BACKUP/ohrganize.db $BACKUP/secret.key $BACKUP/storage $PROBE/
-[ -f $BACKUP/lizenz.ohrganize ] && cp -a $BACKUP/lizenz.ohrganize $PROBE/   # falls gesichert
+cp -a $BACKUP/ohrganize.db $BACKUP/storage $PROBE/
+# Je nach Stand fehlen einzelne Dateien in der Sicherung (MANIFEST.txt nennt den Inhalt):
+for f in data.key secret.key lizenz.ohrganize; do [ -f "$BACKUP/$f" ] && cp -a "$BACKUP/$f" $PROBE/; done
 
 cd /opt/ohrganize/apps/backend
 OHRGANIZE_DATA_DIR=$PROBE OHRGANIZE_PORT=3999 node dist/cli.cjs
@@ -345,7 +447,7 @@ curl -sS -X POST http://127.0.0.1:3999/api/auth/login \
      -d '{"email":"<eigene-adresse>","password":"<eigenes-passwort>"}'
 ```
 
-Eine Anmeldung mit 200 belegt, dass Datenbank **und** `secret.key` stimmen.
+Eine Anmeldung mit 200 belegt, dass Datenbank, `data.key` **und** `secret.key` stimmen.
 Danach im Portal/Desktop eine Datei öffnen — das belegt `storage/`. Die
 Anmeldeantwort enthält `license.state`; steht dort `valid`, ist auch die
 Lizenzdatei mitgekommen (`/api/health` ohne Anmeldung nennt nur
@@ -358,8 +460,8 @@ Schluss `rm -rf $PROBE`.
 systemctl stop ohrganize-backend
 mv /var/lib/ohrganize /var/lib/ohrganize.defekt-$(date +%F)
 install -d -o ohrganize -g ohrganize -m 0700 /var/lib/ohrganize
-cp -a $BACKUP/ohrganize.db $BACKUP/secret.key $BACKUP/storage /var/lib/ohrganize/
-[ -f $BACKUP/lizenz.ohrganize ] && cp -a $BACKUP/lizenz.ohrganize /var/lib/ohrganize/
+cp -a $BACKUP/ohrganize.db $BACKUP/storage /var/lib/ohrganize/
+for f in data.key secret.key lizenz.ohrganize; do [ -f "$BACKUP/$f" ] && cp -a "$BACKUP/$f" /var/lib/ohrganize/; done
 chown -R ohrganize:ohrganize /var/lib/ohrganize
 chmod -R go-rwx /var/lib/ohrganize
 systemctl start ohrganize-backend
@@ -430,6 +532,43 @@ Datenbank, bricht sie jetzt mit einer klaren Meldung ab
 Der Rückweg ist deshalb immer: neuere Version wieder einspielen **oder** das
 Backup von vor dem Update zurückspielen (Abschnitt 5) — beides zusammen geht
 nicht, die zwischenzeitlichen Änderungen sind dann verloren.
+
+**Erstes Update auf eine Fassung mit Verschlüsselung im Ruhezustand.** Am
+Ablauf oben ändert sich nichts. Der erste Start stellt den Bestand um
+(Abschnitt 5): die Datenbank vor dem ersten Zugriff, `storage/` danach im
+Hintergrund. Das Journal nennt beides mit je einer Zeile („… auf
+Verschlüsselung im Ruhezustand umgestellt"). Zu wissen ist dreierlei:
+
+- Platz: Während der Umstellung liegen ein Journal und eine Hilfsdatei im
+  Datenverzeichnis, beide etwa so groß wie `ohrganize.db`; danach sind sie weg.
+  Das VACUUM nach der Migration läuft danach im Arbeitsspeicher (gemessen
+  das 1,5-Fache der Nutzdaten); über 300 MB Nutzdaten überspringt der Start
+  es mit einer Warnung. Was die Migrationen selbst entfernen, ist auch dann
+  aus der Datei (sie laufen unter `secure_delete`).
+- Dauer: Der erste Start schlüsselt um, prüft und räumt nach der Migration
+  per VACUUM auf; das wächst mit der Datenbank (gemessen: rund 3 s für
+  190 MB auf NVMe, auf langsamen Platten ein Vielfaches). Das Update-Skript
+  wartet deshalb bis zu 15 Minuten auf `/api/health`, solange der Dienst
+  läuft, und bricht sofort ab, sobald er abstürzt (systemd zählt einen
+  Neustart; eine leere Antwort von `systemctl` zählt nicht). Wer von Hand
+  aktualisiert, wartet entsprechend.
+- Ab diesem Start liegt `data.key` im Datenverzeichnis und gehört zu jeder
+  Sicherung. Die Sicherung von VOR dem Update ist noch unverschlüsselt und
+  der einzige Rückweg auf die ältere Fassung, und zwar vollständig
+  (Datenbank **und** `storage/`).
+- Gelingt die Umstellung der Datenbank nicht (ein anderer Prozess hält sie
+  länger als 10 Sekunden offen, der Platz reicht nicht, oder sie besteht
+  schon VOR dem Umschlüsseln die Prüfung nicht), läuft der Dienst
+  unverändert weiter, meldet das im Journal und versucht es beim nächsten
+  Start erneut. `storage/` bleibt dann ebenfalls unverschlüsselt, damit
+  Datenbank und Dateien zueinander passen. `ohrganize-provision.sh check`
+  meldet eine solche Instanz. Scheitert dagegen die Prüfung NACH dem
+  Umschlüsseln (bisher nie beobachtet), startet der Dienst nicht: Dann die
+  Sicherung von vor dem Update vollständig zurückspielen. Der Vermerk
+  `umstellung-pruefung-gescheitert.txt` im Datenverzeichnis erledigt sich
+  damit von selbst (der nächste Start der neuen Fassung stellt um und
+  entfernt ihn); solange er neben einer verschlüsselten Datenbank liegt,
+  prüft jeder Start erneut, und `ohrganize-provision.sh check` meldet ihn.
 
 Nach dem Update sehen die Arbeitsplätze die neue Version automatisch; die
 Desktop-App wird getrennt verteilt (siehe `../docs/web-portal.md`).
@@ -543,6 +682,17 @@ nicht), bis eine Lizenz eingespielt ist.
 | `OHRGANIZE_HOST ist auf "…" gesetzt … aber OHRGANIZE_CORS_ORIGIN ist leer` | Absicherung: Das Backend wäre aus dem Netz erreichbar, ohne dass die erlaubten Herkünfte feststehen | Origin-Liste setzen — oder `OHRGANIZE_HOST` weglassen, wenn Proxy und Backend auf derselben Maschine laufen |
 | `OHRGANIZE_TOKEN_TTL="…" ist ungültig` | Schreibweise wie `1 Stunde` statt `1h` | Sekundenzahl oder `30m`/`1h`/`8h`/`7d` |
 | `Die Datenbank wurde bereits von einer neueren oHRganize-Version migriert` | Downgrade | Abschnitt 6 |
+| `Die Datenbank … ist verschlüsselt, aber der Schlüssel fehlt` | `data.key` fehlt im Datenverzeichnis (Restore ohne die Datei, von Hand gelöscht). Der Dienst erzeugt für einen vorhandenen Bestand bewusst keinen neuen Schlüssel | `data.key` aus DERSELBEN Sicherung zurückspielen wie die Datenbank (Abschnitt 5) |
+| `… lässt sich mit dem Schlüssel aus … nicht öffnen` | Datenbank und `data.key` stammen aus verschiedenen Ständen, oder die Datei ist beschädigt | Beide aus derselben Sicherung zurückspielen |
+| `… verweist auf die Schlüsseldatei …, und die fehlt` | `data.key` enthält einen Verweis (`extern:`), die Schlüsseldatei liegt nicht an ihrem Pfad | Schlüsseldatei aus ihrer getrennten Sicherung wieder ablegen (Abschnitt 5) |
+| `Das installierte SQLite-Modul kann nicht verschlüsseln` | In `node_modules` liegt das Original `better-sqlite3` statt der verschlüsselnden Fassung | `npm ci --omit=dev` im Programmverzeichnis |
+| `Die Datenbank wurde verschlüsselt, besteht danach aber die Prüfung nicht` | Die Umstellung war fertig, die Prüfung danach scheiterte (bisher nie beobachtet) | Sicherung von vor dem Update vollständig zurückspielen (Datenbank, `storage/`, ohne `data.key`) |
+| `VACUUM nach einer Migration ist gescheitert` | Nur eine Warnung, der Dienst läuft: Platz oder Speicher reichten nicht. Entfernte Daten stehen bis zum nächsten erfolgreichen Versuch noch in freien Seiten der Datei | Ursache beheben, Dienst neu starten; jeder Start versucht es erneut |
+| `VACUUM nach einer Migration übersprungen` | Nur eine Warnung, der Dienst läuft: Die verschlüsselte Datenbank hält mehr als 300 MB Nutzdaten, mehr als der Neuaufbau im Arbeitsspeicher ohne Drosselung der Unit vorsieht. Was die Migrationen entfernt haben, ist trotzdem genullt; ältere Reste stehen weiter in freien Bereichen der (verschlüsselten) Datei | Keine Maßnahme nötig; mit dem Anbieter klären, falls die Reste stören |
+| `Die Datenbank besteht schon vor der Umstellung die Prüfung nicht` | Nur eine Warnung, der Dienst läuft unverschlüsselt weiter: Der Bestand hatte schon vorher einen Schaden | Sicherung zurückspielen oder die Datenbank reparieren lassen, dann neu starten |
+| `Die Datenbank wurde auf Verschlüsselung umgestellt und besteht die Prüfung nicht` | Ein Start findet den Vermerk `umstellung-pruefung-gescheitert.txt` neben einer verschlüsselten Datenbank, und die erneute Prüfung scheitert | Sicherung von vor dem Update vollständig zurückspielen; der Vermerk erledigt sich damit |
+| `Die Datenbank konnte nicht auf Verschlüsselung im Ruhezustand umgestellt werden` | Nur eine Warnung, der Dienst läuft: Ein anderer Prozess hatte die Datenbank offen, oder der Platz reichte nicht | Ursache beheben, Dienst neu starten |
+| `file is not a database` | Eine Fassung VOR der Verschlüsselung läuft gegen einen bereits umgestellten Bestand | Neuere Fassung wieder einspielen oder die Sicherung von vor dem Update vollständig zurückspielen (Abschnitt 6) |
 | `EADDRINUSE` | Port 3001 belegt (zweite Instanz?) | `ss -tlnp` und nach 3001 sehen |
 | `SQLITE_CANTOPEN` / `EACCES` | `OHRGANIZE_DATA_DIR` gehört nicht dem Dienstbenutzer | `chown -R ohrganize:ohrganize /var/lib/ohrganize` |
 | `Cannot find module 'better-sqlite3'` | `npm ci --omit=dev` im Programmverzeichnis fehlt (oder lief in einem anderen Verzeichnis) | Abschnitt 2.3 wiederholen |
@@ -706,7 +856,7 @@ for k in musterfirma zweite-firma; do
   ln -sfn /opt/ohrganize/releases/de-vollversion-1.0.0/apps/web/dist \
     /srv/ohrganize-web/kunden/$k.ohrganize.com
 done
-systemctl restart 'ohrganize-backend@*'
+systemctl try-restart 'ohrganize-backend@*'   # nur laufende; pausierte bleiben aus
 ohrganize-provision.sh check
 ```
 
@@ -909,14 +1059,43 @@ Was das Skript tut, und warum jeder Schritt drin ist:
 5. **Je Instanz:** Sicherung, stop, Symlink umsetzen, start, `/api/health`
    samt Ausgabenabgleich. Schlaegt der Start fehl, zeigt der Symlink sofort
    wieder auf das alte Release. Startet auch die alte Fassung nicht (weil die
-   neue die Datenbank schon migriert hat, Downgrade-Sperre), wird die
-   Datenbank aus der eben erstellten Sicherung zurueckgespielt. Die Instanz
+   neue die Datenbank schon migriert hat, Downgrade-Sperre), werden die
+   Datenbank und `storage/` aus der eben erstellten Sicherung
+   zurueckgespielt. Die Instanz
    bekommt in ihrem Datenverzeichnis die Markerdatei
    `.update-fehlgeschlagen`, und das Skript macht mit der naechsten weiter:
    ein Problem bei einem Kunden haelt die anderen nicht auf.
 
 Das Portal-Verzeichnis wird nicht mehr kopiert; der Symlink
 `/srv/ohrganize-web/kunden/<domain>` wird im selben Schritt mitgezogen.
+
+**Unit-Vorlagen zieht das Update NICHT nach.** Aendert ein Release eine
+Vorlage unter `deploy/`, bleibt auf dem Host die alte in
+`/etc/systemd/system/` liegen, bis sie von Hand kopiert wird. Zuletzt
+betroffen: `ohrganize-backend@.service` hat mit der Verschluesselung im
+Ruhezustand die Zeile `InaccessiblePaths=-/var/backups/ohrganize` bekommen,
+damit eine Instanz die Sicherungen der anderen nicht lesen kann. Ohne den
+Schritt laeuft alles wie bisher, nur ohne diese Trennung.
+
+```bash
+cp /opt/ohrganize/releases/<variante>-<version>/deploy/ohrganize-backend@.service /etc/systemd/system/
+systemctl daemon-reload
+systemd-analyze verify /etc/systemd/system/ohrganize-backend@.service   # ohne Ausgabe = gut
+systemctl try-restart 'ohrganize-backend@*'   # nur laufende; pausierte bleiben aus
+```
+
+**Erster Rollout einer Fassung mit Verschluesselung im Ruhezustand:** Fuer
+jede Instanz gilt, was in Abschnitt 6 dazu steht (Umstellung beim ersten
+Start, `data.key` ab dann in jeder Sicherung, Rueckweg nur ueber den
+vollstaendigen Restore). Die Ruecknahme des Update-Skripts passt dazu: Sie
+spielt Datenbank und `storage/` der eben erstellten, noch unverschluesselten
+Sicherung zurueck. Die Dateiablage stellt die neue Fassung ohnehin erst um,
+wenn ihre Datenbank verschluesselt ist; scheitert die Umstellung der
+Datenbank, bleibt auch `storage/` unangetastet, und die alte Fassung startet
+ohne Zurueckspielen. Scheitert das Kopieren von `storage/` aus der Sicherung
+(Platz), bleibt der bisherige Stand liegen und das Skript warnt. Auf den
+ersten Start wartet es bis zu 15 Minuten, solange der Dienst laeuft (siehe
+Abschnitt 6).
 
 **Restore je Instanz** (der Weg, den das MANIFEST jeder Sicherung nennt):
 
@@ -928,7 +1107,7 @@ Von Hand fragt es zur Bestaetigung den Kundenschluessel ab; fuer Skripte
 ohne Terminal (conspectus ueber ssh) gibt es `--ja`.
 Es stoppt die Instanz, verschiebt den jetzigen Stand nach
 `<datenverzeichnis>.alt-<zeit>` (statt ihn zu ueberschreiben), spielt
-Datenbank, `storage/`, `secret.key` und die Lizenzdatei ein, zieht die Rechte
+Datenbank, `storage/`, `data.key`, `secret.key` und die Lizenzdatei ein, zieht die Rechte
 nach, startet und zeigt den Lizenzzustand. Danach gilt: Wurde seit dieser
 Sicherung eine NEUERE Lizenz eingespielt, muss sie erneut abgelegt werden
 (`ohrganize-provision.sh lizenz <kunde> <datei>`), denn der Dateiwaechter des
@@ -1089,6 +1268,83 @@ und die Markerdatei im Besitz des Dienstbenutzers.
   Offen ist damit nur, ob `better-sqlite3` auf dem Zielsystem ein
   Fertigpaket findet — dieselbe Frage wie beim Quelltextweg (Abschnitt 1).
 
+**Stand 04.10.2026 (Verschlüsselung im Ruhezustand).** Geprüft, jeweils in
+einem temporären Ordner und nicht über die Skripte dieses Verzeichnisses:
+
+- Das Release-Archiv auf dem Debian-13-Testserver (Node 20.19.2, npm 9.2.0)
+  als Dienstbenutzer: Entpacken, `npm ci --omit=dev` (die verschlüsselnde
+  Fassung übersetzt sich aus dem Quelltext wie zuvor das Original),
+  Kontrollzeile, Start von `cli.cjs` mit verschlüsselter Datenbank und
+  `data.key`, `status.cjs`, `migrate-check.cjs` und `backup.cjs` neben dem
+  laufenden Dienst, Sicherung mit verschlüsselter Kopie, `data.key`,
+  `secret.key` und MANIFEST. Dasselbe unter Windows (Node 24.16, Fertigpaket).
+- Die neue Zeile `InaccessiblePaths=-/var/backups/ohrganize`:
+  `systemd-analyze verify` ohne Befund; in einer flüchtigen Unit als
+  `ohrganize` listet `ls /var/backups/ohrganize` ohne die Zeile alle
+  Testkunden und endet mit ihr in „Permission denied"; ein nicht vorhandener
+  Pfad hindert den Start nicht.
+- Das Rechtemodell für einen Schlüssel außerhalb des Datenverzeichnisses
+  (Verzeichnis `root:ohrganize 0750`, Datei `ohrganize 0400`): unter der
+  Härtung der Unit lesbar, nicht löschbar.
+
+**Stand 04.10.2026, nach dem zweiten Review.** Die Umstellung ersetzt die
+Datei nicht mehr per Umbenennen, sondern schlüsselt an Ort und Stelle um
+(Abschnitt 5). Geprüft unter Debian 13 (Node 20, die verschlüsselnde Fassung
+aus dem Quelltext übersetzt) und Windows mit einer 189-MB-Datenbank:
+
+- **Abbruch:** `kill -9` an über 60 Stellen der Umschlüsselung, davon 12 genau
+  im Commit (erste Seite schon verschlüsselt, Journal noch da). Jedes Mal kam
+  der vollständige Bestand zurück (400 000 Zeilen, `integrity_check` ok),
+  sobald das liegengebliebene Journal ohne Schlüssel zurückgespielt war; mit
+  Schlüssel geöffnet spielt SQLite es nicht zurück.
+- **Alte Verbindung:** Ein Prozess, der die Datei vor der Umstellung geöffnet
+  hatte, wird nach ihr mit SQLITE_NOTADB abgewiesen; die Datenbank des
+  Dienstes (WAL-Modus) bleibt intakt. Mit dem früheren Umbenennen hatte
+  derselbe Ablauf die Datei beschädigt.
+- **Sperre:** Unter Linux nachgemessen, dass das Lesen des Dateikopfs über
+  einen zweiten Deskriptor die SQLite-Sperre des Prozesses aufhebt; die
+  Umstellung liest den Kopf deshalb nicht mehr bei offener Verbindung.
+- **Deploy-Logik:** `warte_auf_start` und die Rücknahme von `storage/` mit
+  nachgebildeten `systemctl`/`curl`/`cp`: Absturz bricht das Warten sofort
+  ab, eine scheiternde Kopie lässt `storage/` stehen.
+
+**Stand 04.10.2026, nach dem dritten Review.** Ein liegengebliebenes Journal
+eines schon verschlüsselten Bestands wird jetzt MIT Schlüssel
+zurückgespielt; ohne Schlüssel verwarf SQLite es und ließ eine halbe
+Transaktion in der Datei (nachgestellt). Das Journal einer abgebrochenen
+Umstellung geht weiterhin ohne Schlüssel zurück: unter Windows erneut
+geprüft mit 60 Abbrüchen einer 112-MB-Umstellung, davon 24 mit
+liegengebliebenem Journal, alle ohne Verlust. Dateien in `storage/` liegen
+in Abschnitten verschlüsselt (Fassung 2; Dateien der ersten Fassung stellt
+der nächste Start um). Jeder Start prüft die Dateien, deren Fingerabdruck
+(Datei-ID, Größe, mtime) sich seit der letzten Prüfung geändert hat, auch
+einzeln aus einer Sicherung zurückgelegte; `check` meldet außerdem
+abgeschnittene und nicht lesbare Dateien. Die Rücknahme in
+`ohrganize-update.sh` kopiert die Datenbank erst neben die alte und tauscht
+dann, räumt Reste (`storage.alt-update`, `storage.zurueck`) vorher auf und
+entfernt den Vermerk einer gescheiterten Prüfung nach der Umstellung
+(`umstellung-pruefung-gescheitert.txt`; neben einer verschlüsselten
+Datenbank prüft jeder Start erneut und startet nur, wenn die Prüfung
+besteht; neben einem Klartextbestand stellt der Start um und entfernt ihn
+mit dem Erfolg; angelegt und entfernt nur unter der Sperre der Umstellung).
+Nachgebildet
+mit `systemctl`/`cp`-Attrappen in neun Fällen.
+`update-server.ps1` und `warte_auf_start` begrenzen das Warten über
+gemessene Zeit; `update-server.ps1` hält eine leere WMI-Antwort nicht mehr
+für einen Absturz und bricht ab, wenn NSSM den Dienst nach Abstürzen anhält
+(nur auf Syntax geprüft). Die Sicherung prüft vor dem Kopieren die laufende
+Datenbank (`quick_check`) und bricht ab, wenn sie beschädigt ist.
+
+**Nicht erneut durchgespielt** und vor der ersten Kundeninstallation
+nachzuholen: der Ablauf über die echten Skripte mit einem Archiv dieser
+Fassung, also `ohrganize-provision.sh anlegen` (neue Instanz entsteht
+verschlüsselt), `ohrganize-update.sh update` auf einer Instanz mit
+Klartextbestand (Umstellung beim ersten Start, Rücknahme bei
+fehlschlagendem Start), `ohrganize-provision.sh restore` mit einer
+Sicherung, die `data.key` enthält, die kopierte Unit-Vorlage im echten
+Instanzbetrieb und der Wechsel auf einen Schlüssel außerhalb als ganzer
+Ablauf.
+
 ### 9.8 Was dieser Aufbau nicht leistet
 
 Ehrlich benannt, damit es niemand später herausfinden muss:
@@ -1101,6 +1357,12 @@ Ehrlich benannt, damit es niemand später herausfinden muss:
   gelten die Mounts nicht. Wer eine Kompromittierung eines Kunden strikt vom
   nächsten trennen muss, betreibt je Kunde einen Container oder eine VM; die
   Vorlagen bleiben dieselben.
+- **Die env-Dateien aller Instanzen sind für jeden Instanzprozess lesbar**
+  (`/etc/ohrganize/kunden`, Gruppe `ohrganize`). Dort stehen Port,
+  Datenverzeichnis und Ausgabe, keine Schlüssel; ein Initialpasswort gehört
+  deshalb nicht hinein. Die Sicherungen fremder Kunden sieht eine Instanz
+  seit der Zeile `InaccessiblePaths` nicht mehr, ihre Datenverzeichnisse
+  schon vorher nicht.
 - **Ein Server ist ein gemeinsamer Ausfallpunkt.** Ein voller Datenträger,
   ein misslungenes Update am Reverse-Proxy oder ein Neustart trifft alle
   Kunden gleichzeitig.

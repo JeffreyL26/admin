@@ -284,6 +284,11 @@ check('Auth-Pflicht auf Modulrouten', noAuth.statusCode === 401);
     },
   });
   check('Umfrage: Antwort 2 erfasst', r2.statusCode === 201 && r2.json().participation.participant_count === 2);
+  // Das -wal hielte sonst die Reihenfolge von Teilnahme und Antwort fest.
+  // Übrig bleibt höchstens der Frame von Seite 1 (db/walIndex.ts#clearWalAndIndex).
+  const walFile = path.join(process.env.OHRGANIZE_DATA_DIR!, 'ohrganize.db-wal');
+  const oneFrame = 32 + 24 + (getDb().pragma('page_size', { simple: true }) as number);
+  check('Umfrage: -wal nach der Teilnahme geleert', !fs.existsSync(walFile) || fs.statSync(walFile).size <= oneFrame, fs.existsSync(walFile) ? fs.statSync(walFile).size : null);
 
   const results = await app.inject({ method: 'GET', url: `/api/communication/surveys/${surveyId}/results`, headers: auth });
   const resultQs = results.json().results?.questions as {
@@ -297,6 +302,10 @@ check('Auth-Pflicht auf Modulrouten', noAuth.statusCode === 401);
 
   const anonRows = db.prepare('SELECT * FROM survey_responses WHERE survey_id = ?').all(surveyId) as Record<string, unknown>[];
   check('Umfrage: Antworten OHNE employee_id gespeichert (Anonymität)', anonRows.length === 2 && anonRows.every((r) => !('employee_id' in r)));
+  const columnsOf = (table: string) => (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name).sort().join(',');
+  check('Umfrage: Antworten ohne Zeitstempel', columnsOf('survey_responses') === 'answers,id,survey_id', columnsOf('survey_responses'));
+  check('Umfrage: Teilnahmen ohne Zeitstempel', columnsOf('survey_participations') === 'employee_id,id,survey_id', columnsOf('survey_participations'));
+  check('Umfrage: Antwort-IDs zufällig statt fortlaufend', anonRows.every((r) => (r.id as number) > 1_000_000), anonRows.map((r) => r.id));
 }
 
 // ---------------------------------------------------------------------------

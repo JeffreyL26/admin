@@ -19,11 +19,13 @@
  *   noch unbewertet, befristete Zuweisung und Ausschluss in der Zuständigkeit
  */
 import path from 'node:path';
+import { randomInt } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { getDb, closeDb, inTransaction } from '../db/db.js';
 import { migrate } from '../db/migrate.js';
 import { ensureDefaultAdmin } from '../core/auth.js';
 import { storeFile } from '../core/files.js';
+import { RESPONSE_ID_LIMIT } from '../modules/communication/surveyService.js';
 import { holidaysForYear } from '../core/holidays.js';
 import type { CountryCode, RegionCode } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
@@ -753,6 +755,7 @@ inTransaction(() => {
   ];
   answers.forEach((a) => {
     insert('survey_responses', {
+      id: randomInt(1, RESPONSE_ID_LIMIT),
       survey_id: sv1,
       answers: JSON.stringify([
         { question_id: q1, value: a[0] }, { question_id: q2, value: a[1] },
@@ -765,7 +768,7 @@ inTransaction(() => {
   );
   const sv2 = insert('surveys', { title: 'Feedback Onboarding-Prozess', description: 'Für alle, die in den letzten 12 Monaten gestartet sind.', audience_type: 'alle', date_from: '2026-07-10', date_to: '2026-08-10', status: 'laufend', created_by_user_id: adminId });
   const q5 = insert('survey_questions', { survey_id: sv2, kind: 'skala', text: 'Wie gut hat dich das Onboarding auf deine Rolle vorbereitet?', scale_max: 5, sort_order: 1 });
-  [[4], [5], [3]].forEach((v) => insert('survey_responses', { survey_id: sv2, answers: JSON.stringify([{ question_id: q5, value: v[0] }]) }));
+  [[4], [5], [3]].forEach((v) => insert('survey_responses', { id: randomInt(1, RESPONSE_ID_LIMIT), survey_id: sv2, answers: JSON.stringify([{ question_id: q5, value: v[0] }]) }));
   [SDR, WS2, PRAKT].forEach((emp) => insert('survey_participations', { survey_id: sv2, employee_id: emp }));
 
   // Laufende Umfrage fuer alle, noch ohne Teilnahmen: im Portal und auf dem

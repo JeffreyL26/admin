@@ -14,8 +14,9 @@ import { config, hardenDataPermissions } from './config.js';
 import { migrate } from './db/migrate.js';
 import { AppError, errorHandler, forbidden, unauthorized } from './core/errors.js';
 import { authRoutes, ensureDefaultAdmin, type AuthUser } from './core/auth.js';
-import { getDb } from './db/db.js';
-import { fileRoutes } from './core/files.js';
+import { encryptDatabaseAtRest, getDb, restartStaleWalIndex } from './db/db.js';
+import { ConversionVerificationError } from './db/encryption.js';
+import { encryptStoredFiles, fileRoutes } from './core/files.js';
 import { settingsRoutes } from './core/settingsRoutes.js';
 import { lookupRoutes } from './core/lookupRoutes.js';
 import { dashboardRoutes } from './core/dashboardRoutes.js';
@@ -32,6 +33,7 @@ import {
 import { licenseRoutes } from './core/licenseRoutes.js';
 import { assertFeatureAllowed } from './core/featureGate.js';
 import { registerModules } from './modules/index.js';
+import { errorText } from './core/errorText.js';
 
 /**
  * Routen, die ein Konto mit erzwungenem Passwortwechsel noch erreichen darf.
@@ -40,7 +42,32 @@ import { registerModules } from './modules/index.js';
 const PASSWORD_CHANGE_ROUTES = new Set(['/api/auth/me', '/api/auth/password']);
 
 export async function buildServer(): Promise<FastifyInstance> {
+  // Verschlüsselung im Ruhezustand (db/encryption.ts): Ein Klartextbestand
+  // wird hier einmalig umgestellt, vor dem ersten Datenbankzugriff. Scheitert
+  // das (ein anderer Prozess hat die Datei offen, die Platte ist voll), läuft
+  // der Dienst mit dem unveränderten Bestand weiter und versucht es beim
+  // nächsten Start erneut: Die Umstellung läuft in einer Transaktion mit
+  // Rollback-Journal; scheitert sie, bleibt der Klartextbestand unverändert.
+  let encryptionNote: string | null = null;
+  try {
+    if (encryptDatabaseAtRest()) {
+      encryptionNote =
+        'Die Datenbank wurde auf Verschlüsselung im Ruhezustand umgestellt. Der Schlüssel liegt in data.key im ' +
+        'Datenverzeichnis und gehört ab jetzt zu jeder Sicherung: Ohne ihn sind Datenbank und Dateiablage nicht lesbar.';
+    }
+  } catch (err) {
+    // Verschlüsselt, aber die Prüfung danach gescheitert: Es gibt keinen
+    // Klartextstand mehr, auf dem der Dienst weiterlaufen könnte.
+    if (err instanceof ConversionVerificationError) throw err;
+    encryptionNote =
+      'Die Datenbank konnte nicht auf Verschlüsselung im Ruhezustand umgestellt werden und läuft unverändert weiter ' +
+      `(${errorText(err)}). Der nächste Start versucht es erneut.`;
+  }
   migrate();
+  // Eine Füllung der -shm, die der vorige Prozess offen liess, nachholen,
+  // falls die -shm noch steht (db.ts#restartStaleWalIndex; ob sie steht, hat
+  // getDb schon beim Öffnen gemessen, vor den Migrationen).
+  restartStaleWalIndex();
   // Zweiter Durchlauf nach migrate(): Jetzt existieren ohrganize.db samt -wal/-shm
   // auch bei einer frischen Installation und können auf 0600 gesetzt werden.
   hardenDataPermissions();
@@ -90,6 +117,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   for (const warning of config.startupWarnings) app.log.warn(warning);
+  if (encryptionNote) app.log.warn(encryptionNote);
   // Variante und Marker ins Journal; der Marker haelt die Zeichenkette fuer
   // scripts/check-variant.mjs im Bundle.
   app.log.info(`Variante ${VARIANT.id} (${VARIANT.label}) [${VARIANT_MARKER}]`);
@@ -134,6 +162,12 @@ export async function buildServer(): Promise<FastifyInstance> {
   // einen Serverwechsel im laufenden Betrieb, ohne /api/health abzufragen.
   app.addHook('onRequest', async (req, reply) => {
     reply.header(SERVER_VERSION_HEADER, APP_VERSION);
+    // Keine API-Antwort gehört in einen Zwischenspeicher: Ohne diesen Kopf
+    // darf der Browserkern (Portal, Desktop-App im Serverbetrieb) Antworten
+    // mit Stammdaten, Gehältern oder Exporten in seinen Cache auf der Platte
+    // legen, wo sie die Abmeldung überdauern. Routen mit eigener Angabe
+    // (Downloads, signierte Links) überschreiben den Wert.
+    reply.header('Cache-Control', 'no-store');
     if ((req.routeOptions.url ?? req.url) === '/api/health') return;
     assertClientSupported(req);
   });
@@ -261,6 +295,16 @@ export async function buildServer(): Promise<FastifyInstance> {
 export async function startServer(port?: number): Promise<{ app: FastifyInstance; port: number }> {
   const app = await buildServer();
   await app.listen({ port: port ?? config.port, host: config.host });
+  // Dateiablage aus der Zeit vor der Verschlüsselung umstellen, im
+  // Hintergrund und erst jetzt (Begründung an encryptStoredFiles).
+  void encryptStoredFiles()
+    .then(({ encrypted, failed }) => {
+      if (encrypted > 0) app.log.warn(`Dateiablage: ${encrypted} Datei(en) auf Verschlüsselung im Ruhezustand umgestellt.`);
+      if (failed > 0) app.log.warn(`Dateiablage: ${failed} Datei(en) konnten nicht umgestellt werden; der nächste Start versucht es erneut.`);
+    })
+    .catch((err: unknown) => {
+      app.log.warn(`Dateiablage: Umstellung auf Verschlüsselung abgebrochen (${errorText(err)}).`);
+    });
   const address = app.server.address();
   const actualPort = typeof address === 'object' && address ? address.port : (port ?? config.port);
   return { app, port: actualPort };

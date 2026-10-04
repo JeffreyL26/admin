@@ -12,7 +12,7 @@
     "backup": "tsx src/scripts/backup.ts",
     "lizenz": "tsx src/scripts/license-tool.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/test/smoke.ts && tsx src/test/licenseStateTest.ts && tsx src/test/licenseSmoke.ts && tsx src/test/featureSmoke.ts && tsx src/test/variantSmoke.ts && tsx src/test/holidaysTest.ts && tsx src/test/colorTest.ts && tsx src/modules/admin/smoke.ts && tsx src/modules/leadership/smoke.ts",
+    "test": "tsx src/test/smoke.ts && tsx src/test/licenseStateTest.ts && tsx src/test/licenseSmoke.ts && tsx src/test/featureSmoke.ts && tsx src/test/variantSmoke.ts && tsx src/test/holidaysTest.ts && tsx src/test/colorTest.ts && tsx src/test/encryptionSmoke.ts && tsx src/modules/admin/smoke.ts && tsx src/modules/leadership/smoke.ts && tsx src/modules/communication/smoke.ts",
     "openapi": "node scripts/merge-openapi.mjs",
     "build": "node scripts/build.mjs",
     "test:holidays": "tsx src/test/holidaysTest.ts"
@@ -23,7 +23,7 @@
     "@fastify/multipart": "^9.0.2",
     "@ohrganize/shared": "*",
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^12.4.1",
+    "better-sqlite3": "npm:better-sqlite3-multiple-ciphers@12.11.1",
     "fastify": "^5.2.1",
     "zod": "^3.24.1"
   },

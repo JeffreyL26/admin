@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { LICENSE_FILE_NAME } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
+import { DATA_KEY_FILE } from './db/encryption.js';
 
 // Variantenpruefung beim Start: OHRGANIZE_VARIANT (env-Datei des Betreibers)
 // muss zur einkompilierten Variante passen. Ein falsch gesetzter Symlink im
@@ -35,6 +36,8 @@ fs.mkdirSync(storageDir, { recursive: true, mode: 0o700 });
 
 const dbPath = path.join(dataDir, 'ohrganize.db');
 const secretPath = path.join(dataDir, 'secret.key');
+/** Schlüssel der Verschlüsselung im Ruhezustand (db/encryption.ts): Datenbank und Dateiablage. */
+const dataKeyPath = path.join(dataDir, DATA_KEY_FILE);
 /** Ablage des generierten Initialpassworts (siehe core/auth.ts, ensureDefaultAdmin). */
 const initialPasswordPath = path.join(dataDir, 'initial-admin-password.txt');
 /** Signierte Lizenzdatei des Anbieters (Prüfung und Zustand: core/license.ts). */
@@ -85,12 +88,29 @@ function chmodQuiet(target: string, mode: number): void {
 export function hardenDataPermissions(): void {
   chmodQuiet(dataDir, 0o700);
   chmodQuiet(storageDir, 0o700);
+  // Zwischendateien von createDataKey (db/encryption.ts), die ein Absturz
+  // zwischen Einhängen und Löschen zurückliess: Sie tragen den Schlüssel im
+  // Klartext und überlebten sonst auch einen späteren Umzug nach aussen. Nur
+  // ältere als zehn Minuten: Diese Funktion läuft in JEDEM Prozess, der
+  // config.ts lädt (auch in der Sicherung), und eine frische Datei kann die
+  // gerade entstehende eines anderen Prozesses sein.
+  try {
+    const cutoff = Date.now() - 10 * 60_000;
+    for (const name of fs.readdirSync(dataDir)) {
+      if (!name.startsWith(`${DATA_KEY_FILE}.`) || !name.endsWith('.neu')) continue;
+      const leftover = path.join(dataDir, name);
+      if (fs.statSync(leftover).mtimeMs < cutoff) fs.rmSync(leftover, { force: true });
+    }
+  } catch {
+    // Nicht kritisch; der nächste Start versucht es erneut.
+  }
   // -wal/-shm enthalten dieselben Nutzdaten wie die Datenbank selbst.
   for (const file of [
     dbPath,
     `${dbPath}-wal`,
     `${dbPath}-shm`,
     secretPath,
+    dataKeyPath,
     initialPasswordPath,
     licensePath,
   ]) {
@@ -241,6 +261,7 @@ export const config = {
   storageDir,
   dbPath,
   secretPath,
+  dataKeyPath,
   initialPasswordPath,
   licensePath,
   licenseEnforced,

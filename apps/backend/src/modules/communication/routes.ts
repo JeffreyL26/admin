@@ -22,10 +22,15 @@ import {
   answersSchema,
   getQuestions,
   getSurvey,
+  markResponseTableRebuild,
   questionToJson,
+  rebuildForExpiredSurveys,
+  rebuildResponseTableNow,
   recordParticipation,
+  retryResponseTableRebuild,
   type SurveyRow,
 } from './surveyService.js';
+import { errorText } from '../../core/errorText.js';
 
 // ---------------------------------------------------------------------------
 // Gemeinsame Helfer
@@ -230,6 +235,22 @@ const MEETING_SELECT = `
 // ---------------------------------------------------------------------------
 
 export const communicationModule: FastifyPluginAsync = async (app) => {
+  // Ein beim Umfrageende gescheiterter Neuaufbau der Antworten wird hier
+  // nachgeholt (die Migrationen sind beim Registrieren der Module durch).
+  retryResponseTableRebuild((message) => app.log.warn(message));
+  // Ausgelaufene, nicht beendete Umfragen (surveyService.rebuildForExpiredSurveys).
+  const expiredCheck = () => {
+    try {
+      rebuildForExpiredSurveys();
+    } catch (err) {
+      app.log.warn(`Neuaufbau der Umfrageantworten nach Ablauf einer Umfrage gescheitert (${errorText(err)}).`);
+    }
+  };
+  expiredCheck();
+  const expiredTimer = setInterval(expiredCheck, 60 * 60 * 1000);
+  expiredTimer.unref();
+  app.addHook('onClose', async () => clearInterval(expiredTimer));
+
   // Verteiler (eigene Datei, gleiche Bereichspruefung ueber den Praefix).
   await app.register(distributionListRoutes);
 
@@ -553,8 +574,26 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
         `Statuswechsel von „${survey.status}“ nach „${body.status}“ ist nicht zulässig`,
       );
     }
-    getDb().prepare('UPDATE surveys SET status = ? WHERE id = ?').run(body.status, id);
+    // Beim Neuschreiben der Antworten (surveyService.storeAnonymousResponse)
+    // bleiben vereinzelt Kopien aelterer Antworten in Seitenluecken stehen;
+    // nach dem Ende kommt keine Antwort mehr hinzu, also raeumt ein Neuaufbau
+    // der Tabelle sie jetzt aus der Datei, sofern seit dem letzten Antworten
+    // hinzukamen. Vermerkt im selben Commit wie das Ende: Scheitert er, ist
+    // die Umfrage trotzdem beendet, und der naechste Start holt ihn nach.
+    const rebuild = inTransaction(() => {
+      getDb().prepare('UPDATE surveys SET status = ? WHERE id = ?').run(body.status, id);
+      return body.status === 'beendet' && markResponseTableRebuild(getDb());
+    });
     audit(req, 'status', 'survey', id, { from: survey.status, to: body.status });
+    if (rebuild) {
+      try {
+        rebuildResponseTableNow();
+      } catch (err) {
+        req.log.warn(
+          `Neuaufbau der Umfrageantworten nach Umfrageende gescheitert; der nächste Start holt ihn nach (${errorText(err)}).`,
+        );
+      }
+    }
     return { survey: surveyToJson(getSurvey(id)) };
   });
 
@@ -584,21 +623,28 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     const { id } = parse(idParam, req.params);
     const survey = getSurvey(id);
     const minParticipants = survey.min_participants ?? getSetting('surveyMinParticipants');
-    const responses = getDb()
-      .prepare('SELECT answers FROM survey_responses WHERE survey_id = ?')
-      .all(id) as { answers: string }[];
-    if (responses.length < minParticipants) {
+    // Gezaehlt werden die Antworten wie bisher, nicht die Teilnahmen: Eine
+    // Teilnahme faellt mit dem Personalprofil weg (ON DELETE CASCADE), die
+    // anonyme Antwort bleibt. Nur gezaehlt, ohne sie zu laden; gelesen werden
+    // die Antworten erst, wenn es Ergebnisse gibt.
+    const responseCount = (
+      getDb().prepare('SELECT COUNT(*) AS n FROM survey_responses WHERE survey_id = ?').get(id) as { n: number }
+    ).n;
+    if (responseCount < minParticipants) {
       throw new AppError(
         403,
         'MIN_PARTICIPANTS_NOT_REACHED',
         `Ergebnisse werden erst ab ${minParticipants} Teilnahmen angezeigt`,
         {
           required: minParticipants,
-          current: responses.length,
-          missing: minParticipants - responses.length,
+          current: responseCount,
+          missing: minParticipants - responseCount,
         },
       );
     }
+    const responses = getDb()
+      .prepare('SELECT answers FROM survey_responses WHERE survey_id = ?')
+      .all(id) as { answers: string }[];
     const parsed = responses.map(
       (r) => JSON.parse(r.answers) as { question_id: number; value: unknown }[],
     );

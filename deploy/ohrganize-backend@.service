@@ -173,6 +173,14 @@ ReadWritePaths=/var/lib/ohrganize/%i
 TemporaryFileSystem=/var/lib/ohrganize:ro
 BindPaths=/var/lib/ohrganize/%i
 
+# Sicherungen fremder Kunden: Das Backend braucht den Sicherungsbaum nie (die
+# Sicherung laeuft in einer eigenen Unit), also ist er hier ganz unsichtbar.
+# Ohne diese Zeile konnte jede Instanz die Sicherungen aller anderen lesen,
+# und eine Sicherung enthaelt den vollstaendigen Bestand samt data.key. Das
+# Minuszeichen laesst die Unit auch starten, wenn es das Verzeichnis (noch)
+# nicht gibt.
+InaccessiblePaths=-/var/backups/ohrganize
+
 # --- Ressourcengrenzen ------------------------------------------------------
 # Startwerte, damit eine einzelne Instanz den Host nicht mitnimmt: Ein
 # Exportlauf ueber eine grosse Belegschaft oder eine Endlosschleife nach einem

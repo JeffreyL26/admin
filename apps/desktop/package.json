@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@ohrganize/shared": "*",
-    "better-sqlite3": "^12.4.1"
+    "better-sqlite3": "npm:better-sqlite3-multiple-ciphers@12.11.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

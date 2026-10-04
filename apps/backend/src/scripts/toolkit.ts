@@ -14,8 +14,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type Database from 'better-sqlite3';
 import { VARIANT, VARIANT_MARKER } from '@variant-manifest';
 import { APP_VERSION } from '../core/version.js';
+import { openDatabase } from '../db/encryption.js';
+import { STORAGE_CONVERSION_DIR } from '../core/fileCrypto.js';
+import { errorText } from '../core/errorText.js';
 
 /**
  * Kopfzeile jedes Werkzeugs: Version, Ausgabe und der Variantenmarker.
@@ -105,13 +109,45 @@ export function dataDirFrom(raw: string | undefined, toolName: string): DataDir 
   };
 }
 
+/**
+ * Öffnet die Datenbank einer Instanz für ein Werkzeug.
+ *
+ * Verschlüsselte Bestände brauchen data.key aus dem Verzeichnis der
+ * Datenbank (db/encryption.ts); ein Klartextbestand (Instanz, die seit dem
+ * Update noch nicht gestartet wurde) wird ohne Schlüssel geöffnet. Ein
+ * Werkzeug erzeugt nie einen Schlüssel und stellt nie um. Fehlt der
+ * Schlüssel oder passt er nicht, endet das Werkzeug mit dem Klartextsatz
+ * statt mit "file is not a database".
+ */
+export function openInstanceDb(
+  dbPath: string,
+  options: { readonly?: boolean; dataDir?: string } = {},
+): Database.Database {
+  try {
+    return openDatabase(dbPath, {
+      dataDir: options.dataDir ?? path.dirname(dbPath),
+      readonly: options.readonly,
+      fileMustExist: true,
+    }).db;
+  } catch (err) {
+    fail(errorText(err));
+  }
+}
+
 /** Heutiger Kalendertag in LOKALER Zeit, wie todayIsoLocal im Backend. */
 export function todayLocal(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Groesse eines Verzeichnisses in Bytes; fehlende Verzeichnisse zaehlen als 0. */
+/**
+ * Groesse eines Verzeichnisses in Bytes; fehlende Verzeichnisse zaehlen als 0.
+ * Ohne das Arbeitsverzeichnis der Dateiumstellung (STORAGE_CONVERSION_DIR):
+ * Dort entstehen und verschwinden Zwischendateien, solange der Dienst
+ * umstellt, und sie gehoeren nicht zum Bestand. Eine Datei, die zwischen
+ * Auflisten und stat verschwindet, zaehlt nicht mit, statt den Lauf
+ * abzubrechen (status.cjs muss auch dann eine Auskunft geben).
+ */
 export function directorySize(dir: string): { files: number; bytes: number } {
   if (!fs.existsSync(dir)) return { files: 0, bytes: 0 };
   let files = 0;
@@ -119,12 +155,20 @@ export function directorySize(dir: string): { files: number; bytes: number } {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (entry.name === STORAGE_CONVERSION_DIR) continue;
       const sub = directorySize(full);
       files += sub.files;
       bytes += sub.bytes;
     } else if (entry.isFile()) {
+      let size: number;
+      try {
+        size = fs.statSync(full).size;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue;
+        throw err;
+      }
       files++;
-      bytes += fs.statSync(full).size;
+      bytes += size;
     }
   }
   return { files, bytes };

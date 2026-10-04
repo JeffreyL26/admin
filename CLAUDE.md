@@ -263,6 +263,94 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   keine feste Kachel, kein „keine Ankuendigungen“. Umfrageteilnahme laeuft
   fuer Portal und HR-Testerfassung durch `surveyService.recordParticipation`
   (eine Pruefung, ein Schreibpfad, Antworten ohne Personenbezug, kein Audit).
+  Anonym heisst auch gegenueber der Datenbank: Antworten tragen keinen
+  Zeitstempel und eine ZUFAELLIGE ID in [1, 2^48)
+  (`surveyService.RESPONSE_ID_LIMIT`; derselbe Bereich in Migration
+  `503_survey_response_ids` und im Seed: an einer abweichenden Groesse liessen
+  sich Antworten verschiedener Herkunft trennen), Teilnahmen keinen
+  Zeitstempel. Beide Zeilen entstehen in derselben Transaktion; mit
+  fortlaufender ID waere die n-te Teilnahme die n-te Antwort. Weil SQLite neue
+  Zellen einer Seite in Einfuegereihenfolge ablegt, verriete auch deren LAGE
+  die Reihenfolge (gemessen): `storeAnonymousResponse` loescht deshalb die
+  NACHBARN der neuen Antwort (jede Zeile, die mit ihr auf einer Tabellenseite
+  liegen kann; gesammelt nach ID zu beiden Seiten, bis eine Untergrenze der
+  belegten Bytes eine Seite uebersteigt) und fuegt sie samt der neuen in
+  zufaelliger Reihenfolge wieder ein, mit `secure_delete` fuer die
+  geloeschten Zellen. `survey_responses` hat deshalb KEINEN Index (seit 503):
+  Jeder Index braeuchte dieselbe Behandlung seiner Seiten. Wer daran dreht,
+  prueft mit `src/test/pageOrder.ts` (Abschnitt 12 in encryptionSmoke.ts).
+  Beim Verschieben von Zellen zwischen Seiten bleiben vereinzelt Kopien in
+  Seitenluecken stehen (secure_delete erfasst sie nicht); das Beenden einer
+  Umfrage baut deshalb die Tabelle neu auf (`rebuildResponseTable` ueber
+  `db/rebuildTable.ts#rebuildTableInKeyOrder`: in einer Transaktion alle
+  Zeilen in eine temporaere Tabelle, die Tabelle mit DROP TABLE entfernen,
+  mit ihrer gespeicherten Definition neu anlegen und in Schluesselreihenfolge
+  befuellen; `secure_delete` nullt dabei jede ihrer Seiten; gemessen: keine
+  Kopie mehr). NICHT mit DELETE FROM: Bei eingeschalteten Fremdschluesseln
+  (im Dienst immer, in diesem SQLite-Build sogar die Vorgabe) loescht SQLite
+  Zeile fuer Zeile, die Wurzelseite wird nie frei, und ein Rest in ihrer
+  Luecke blieb stehen (gemessen). Seiten, die schon vorher frei waren, tragen keine Umfragedaten:
+  **Jede Verbindung ueber `openDatabase` hat `secure_delete = ON`**
+  (`configureConnection`), also loescht jeder Weg mit Nullen, auch Kaskaden
+  (geloeschte Umfrage, geloeschtes Personalprofil) und kuenftige Loeschwege;
+  `storeAnonymousResponse` prueft es (`assertSecureDelete`) und weist eine
+  Verbindung ohne es ab; Funktionen fuer beliebige Verbindungen
+  (`migrateDatabase`, `rebuildTableInKeyOrder`) setzen es selbst
+  (`withSecureDelete`). Bewusst
+  KEIN VACUUM: Es blockierte die ganze Datei und hielte eine Kopie der
+  ganzen Datenbank im Arbeitsspeicher. Vermerkt ist der Neuaufbau im Commit
+  des Umfrageendes (Zeile `pending` in `_survey_rebuild_state`, Migration 504: je Vermerk eine Zeile ohne Zeitstempel, damit keine Teilnahme das Schema aendert); scheitert er,
+  holt ihn der Start des Moduls nach. Er laeuft nur, wenn seit dem letzten
+  Antworten hinzukamen (Zeile `written`, im Commit jeder Antwort
+  gesetzt, vom Neuaufbau entfernt), und auch fuer Umfragen, die die HR nicht
+  beendet, die aber ueber `date_to` hinaus sind (`rebuildForExpiredSurveys`,
+  geprueft beim Start des Moduls und stuendlich, je Umfrage einmal nach
+  ihrem Ablauf (Zeile `expired:<id>`); der Status bleibt unveraendert).
+  Der Neuaufbau kopiert bewusst die ganze Tabelle (die
+  Umfragen teilen sich Seiten); gemessen 204 ms fuer 60 000 Antworten zu
+  rund 60 Byte, rund 1,5 s bei rund 500 Byte,
+  verschluesselt mit vollem Durchschreiben. Die Mindestteilnehmerpruefung
+  der Ergebnisse zaehlt die Antworten per COUNT (nicht die Teilnahmen, die
+  mit dem Personalprofil wegfallen) und laedt sie erst danach; ihre Reihenfolge ist die der zufaelligen
+  IDs, auch fuer Freitexte (bewusst: die Abgabereihenfolge waere die Luecke,
+  die die zufaelligen IDs schliessen). Danach leert `clearWalSoon`
+  (db.ts; Bausteine in `db/walIndex.ts`, nur ueber `clearWalSoon` benutzen,
+  das die offene Fuellung fuehrt)
+  das `-wal`, dessen Frames sonst Vorher und Nachher festhielten: ohne Warten
+  auf Leser (ein TRUNCATE mit busy_timeout hielt die ganze Instanz an,
+  solange die Sicherung las), zehn Minuten sekuendlich, danach eine Stunde minuetlich
+  nachgeholt, und danach die
+  Seitenliste der `-shm`, die der Checkpoint stehen liess (gemessen: die
+  Seiten der Teilnahme). Ein Abschnitt dieser Liste beginnt neu, sobald sein
+  erster Frame geschrieben wird. Wie weit die Frames des Commits reichen,
+  misst `clearWalSoon` sofort danach (fasst die -wal-Datei hoechstens 4062
+  Frames, nur ein stat; sonst ein PASSIVE-Checkpoint, Feld `log`, bei
+  `log = -1` (Checkpoint-Sperre bei einer anderen Verbindung) die Laenge der
+  Datei; es wirft nie, die Teilnahme ist da schon gespeichert);
+  lagen sie im ersten Abschnitt (bis Frame 4062), genuegt nach dem Leeren
+  ein Schreibvorgang auf Seite 1 (`user_version` auf seinen eigenen Wert,
+  unter `synchronous = OFF`, weil er nichts traegt und sonst zwei fsyncs je
+  Teilnahme kostete; danach stehen in `-shm` und `-wal` nur Seite 1); lagen sie weiter hinten
+  (ein Leser hielt das Leeren auf), schreibt `fillWalIndex` so viele neue
+  Seiten, dass jeder Abschnitt bis dorthin neu beginnt, und leert erneut.
+  Diese Fuellung bleibt offen (`walIndexFillOwed`), bis sie gelungen ist.
+  Was offen ist (Leeren oder Fuellung), steht zusaetzlich im Vermerk
+  `<dataDir>/.shm-fuellung-offen` (die offene Fuellung als Zahl, 0 = nur
+  Leeren; geschrieben, sobald ein Leeren scheitert oder eine Fuellung offen
+  wird, entfernt, sobald das Leeren gelungen ist): Endet der Dienst, waehrend
+  die Sicherung liest, ist seine Verbindung nicht die letzte und schreibt das
+  `-wal` nicht zurueck (nachgestellt). `restartStaleWalIndex` leert beim
+  Dienststart, sobald ein Vermerk liegt, und fuellt nur, wenn SQLite die
+  `-shm` beim Oeffnen nicht zurueckgesetzt hat (eine andere Verbindung, etwa
+  die Sicherung, hielt sie offen); das misst `getDb` direkt beim Oeffnen an
+  ihrer Groesse, denn spaeter waechst sie schon durch ein VACUUM dieses
+  Prozesses (SQLite verkleinert die `-shm` nie, gemessen). Ohne Vermerk
+  loest auch eine grosse `-shm` nichts aus.
+  Nach dem Neuaufbau beim Umfrageende leert `clearWalSoon({ measure: false })`
+  ohne Messung: Dessen Frames nennen nur frisch geschriebene Seiten, und als
+  offene Fuellung waeren sie so gross wie die Tabelle. Die Teilnahme prueft
+  die Antworten VOR der Doppelteilnahme, sonst verriete 409 gegen 400 ohne
+  Schreiben, wer schon teilgenommen hat.
   Die frueheren Kanaele sind entfernt (Sender ohne Empfaenger, Doppel zu
   Ankuendigungen; Hintergrund docs/entscheidungen.md).
 - **Was die HR pflegt, muss einen Empfaenger haben.** Der Abgleich
@@ -327,6 +415,181 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **Dateien** liegen ausschließlich im Backend-Storage (`files`-Tabelle + Ordner).
   Downloads laufen über kurzlebige HMAC-signierte URLs (`core/files.ts`) — für
   Desktop- und späteren Web-Client identisch.
+- **Verschlüsselung im Ruhezustand: Datenbank, Dateiablage und damit jede
+  Sicherung.** Die Datenbank liegt im SQLCipher-4-Format vor (Rohschlüssel,
+  `cipher = 'sqlcipher'`, `legacy = 4`), die Blobs in `storage/` mit
+  AES-256-GCM in Abschnitten (`core/fileCrypto.ts`, Fassung 2: Kennung
+  `OHRGENC\x02`, Salz, Nonce-Präfix, dann je 64 KiB ein Abschnitt mit eigenem
+  Prüfwert; Schlüssel je Datei per HKDF, Abschnittsnummer und
+  Schlusskennzeichen in der Nonce). Fassung 1 (ein Prüfwert am Ende) bleibt
+  lesbar, geschrieben wird nur Fassung 2. Der Schlüssel steht in
+  `<dataDir>/data.key`: 64 Hex-Zeichen oder der Verweis
+  `extern:<absoluter Pfad>` auf eine Datei außerhalb des Datenverzeichnisses.
+  **`db/encryption.ts` ist die einzige Stelle, die eine Datenbankdatei
+  öffnet** (`openDatabase`: liegengebliebenes Journal zuerst zurückspielen,
+  dann Zustand an den ersten 16 Byte, Klartext ohne, verschlüsselt mit
+  Schlüssel, neu verschlüsselt); `db.ts`, die Sicherung und
+  die Betreiberwerkzeuge (`toolkit.ts#openInstanceDb`) gehen alle dort durch.
+  Nie `new Database(pfad)` direkt, sonst scheitert es am verschlüsselten
+  Bestand mit „file is not a database“. **POSIX-Falle:** Den Dateikopf (oder
+  sonst die Datenbankdatei per `fs.openSync`/`closeSync`) nie lesen, während
+  im selben Prozess eine Verbindung darauf offen ist; das `close()` hebt alle
+  fcntl-Sperren des Prozesses auf die Datei auf, auch die von SQLite
+  (gemessen). Regeln:
+  **Für einen verschlüsselten Bestand entsteht nie ein neuer Schlüssel**
+  (fehlt `data.key`, bricht der Start mit Klartextmeldung ab; ein Schlüssel
+  wird nur für eine neue Datenbank und bei der Umstellung erzeugt,
+  durchgeschrieben und per Hardlink eingehängt, damit nie eine halbe
+  `data.key` entsteht; nur auf Dateisystemen ohne Hardlinks kopiert der
+  Rückfall nicht atomar). **Einen Klartextbestand stellt nur der Dienststart
+  um** (`encryptDatabaseAtRest` in `buildServer` → `convertDatabaseAtRest`
+  → `encryptDatabaseFile`, alles in `db/encryption.ts` bis auf den ersten):
+  Zustand erst NACH dem Zurückspielen eines Journals bestimmen
+  (`settledDatabaseState`; nach einem Abbruch im Commit ist Seite 1 schon
+  verschlüsselt, der Bestand aber Klartext), dann Journalmodus DELETE und die
+  Datei exklusiv sperren (`locking_mode = EXCLUSIVE`, sonst stellte die
+  Sicherung über getDb() zwischendurch auf WAL zurück und das Umschlüsseln
+  landete im -wal; auf andere Verbindungen gewartet wird für beide Schritte
+  zusammen höchstens 10 s), dann `quick_check` des KLARTEXTS (ein alter
+  Schaden, mit dem die bisherige Fassung lief, hielte sonst nach dem
+  Umschlüsseln den Dienst an; so bleibt der Bestand unverschlüsselt und der
+  Dienst läuft wie bisher), dann `PRAGMA rekey` **an Ort und Stelle** in einer
+  Transaktion mit Rollback-Journal, dann `quick_check`. NIE Kopie plus
+  Umbenennen: Ein Prozess, der die alte Datei offen hatte, fand danach das
+  WAL der neuen über den Pfad und beschädigte sie (gemessen unter Linux). An
+  Ort und Stelle bleibt es dieselbe Datei; eine vorher geöffnete Verbindung
+  scheitert mit SQLITE_NOTADB. Ein Abbruch hinterlässt den Klartextbestand
+  oder ein Journal mit Klartextseiten, das `rollBackHotJournal` OHNE
+  Schlüssel zurückspielt (mit Schlüssel spielt SQLite3MC es nicht zurück;
+  gemessen). Das Journal eines schon verschlüsselten Bestands dagegen muss
+  MIT Schlüssel zurück: Ohne ihn stimmen die Prüfsummen nicht (SQLite bildet
+  sie über den Klartext), SQLite löscht das Journal und lässt die halbe
+  Transaktion stehen (gemessen). `journalContent` entscheidet an den
+  Prüfsummen über die rohen Bytes und an Seite 1 und liest die Segmente des
+  Journals wie SQLite (Satzzahl 0 heisst leeres Segment, nicht Ende).
+  Lesen bis zur vollen Länge über `core/fileRead.ts#readFullSync`. **Vermerk
+  `umstellung-pruefung-gescheitert.txt`** (`CONVERSION_FAILED_FILE`): VOR dem
+  Umschlüsseln angelegt und durchgeschrieben (lässt er sich nicht anlegen,
+  wird nicht umgestellt), erst nach bestandener Prüfung entfernt; so
+  hinterlässt jeder Abbruch dazwischen einen (ein erst nach dem Scheitern
+  geschriebener fehlte genau bei voller Platte). Der Vermerk einer laufenden
+  Umstellung wird nur unter ihrer exklusiven Sperre angelegt und entfernt
+  (`encryptDatabaseFile`), sonst entfernte ein gleichzeitig startender
+  zweiter Prozess ihn; ausserhalb entfernt ihn nur eine eigene bestandene
+  Prüfung der verschlüsselten Datei oder das Fehlen jeder Datenbank (beides
+  scheitert an einer laufenden Umstellung mit SQLITE_BUSY bzw. trifft sie
+  nicht). Die Prüfung nach dem Umschlüsseln leert vorher den Seitencache
+  (`shrink_memory`): Unter `locking_mode = EXCLUSIVE` behält die
+  Verbindung ihn, und eine Datenbank unter etwa 16 MB prüfte sonst nur den
+  Cache statt der Platte (nachgestellt). Über einen Fehler
+  entscheidet der ZUSTAND der Datei danach, nicht die Art des Fehlers:
+  Klartext heißt, der Dienst läuft unverändert weiter, und `status.cjs`/
+  `provision.sh check` melden „NICHT verschluesselt“; verschlüsselt heißt
+  `ConversionVerificationError`, der Dienst startet nicht. Findet ein Start
+  den Vermerk: bei verschlüsselter Datei läuft die Prüfung erneut (besteht
+  sie, fällt er weg; sonst startet der Dienst nicht, auch kein Neustart durch
+  systemd oder NSSM; fehlt der Schlüssel oder hält ein anderer Prozess die
+  Datei, sagt die Meldung genau das statt „Sicherung zurückspielen“), bei
+  Klartext (Umstellung nie committed, oder die Sicherung von vorher ist
+  zurückgespielt, auch von Hand unter Windows) wird umgestellt, und die
+  Umstellung entfernt ihn mit ihrem Erfolg. `status.cjs` meldet ihn
+  (`encryption.conversion_marker`), `provision.sh check` neben einer
+  verschlüsselten Datenbank als Befund. Die Rücknahme in
+  `ohrganize-update.sh` entfernt ihn zusätzlich selbst. Sicherung
+  und Werkzeuge stellen nie um. **Kopien entstehen mit `copyDatabaseTo`
+  (`VACUUM INTO`), nicht mit `db.backup()`**: Die Online-Backup-Schnittstelle
+  lehnt eine verschlüsselte Quelle ab. Weil `VACUUM INTO` die Kopie aus den
+  Zeilen neu aufbaut, sieht ihre Prüfung keine Schäden der Quelle; die
+  Sicherung prüft deshalb vorher die laufende Datenbank (`quick_check`).
+  **SQLite-Hilfsdateien sind unverschlüsselt** (SQLite3MC verschlüsselt nur
+  Datenbankdatei und -wal; ein VACUUM legte eine Klartextkopie des Inhalts
+  ab, gemessen). Deshalb `configureConnection`: Eine Verbindung auf eine
+  VERSCHLÜSSELTE Datenbank hält alles Temporäre im Arbeitsspeicher
+  (`temp_store = MEMORY`); eine auf einen KLARTEXTBESTAND (nur noch die
+  Umstellung und eine gescheiterte Umstellung) legt es in
+  `<dataDir>/.sqlite-tmp` (`PRAGMA temp_store_directory`, prozessweit;
+  Rückfall `temp_store = MEMORY`), weil das Umschlüsseln im Arbeitsspeicher
+  die 1,3-fache Datenbankgrösse kostete und im System-Temp eine Klartextkopie
+  lag. Das gilt nur für Verbindungen über `openDatabase` (die einzige
+  erlaubte Art, siehe oben): Eine Verbindung, die an `configureConnection`
+  vorbei entsteht, schreibt ihre Hilfsdateien unverschlüsselt in eine Datei
+  (System-Temp, oder `.sqlite-tmp`, falls im Prozess schon gesetzt).
+  **Verschlüsselt geschrieben wird erst, wenn die Datenbank verschlüsselt
+  ist** (`isDatabaseEncrypted`, `writeStorageKey` in `core/files.ts`):
+  Bleibt sie im Klartext, bleiben es auch neue Dateien, und eine ältere
+  Fassung kann beides lesen. `encryptStoredFiles` stellt den Altbestand nach
+  `listen` im Hintergrund um, mit Zwischendateien in
+  `storage/.umstellung` (gleiches Dateisystem; ein eigenes Verzeichnis, weil
+  jeder Dateiname in `storage/` einem Upload gehören kann; die Sicherung lässt
+  es aus). Der Lauf schreibt auch Dateien der Fassung 1 auf Fassung 2 um.
+  Für jede geprüfte Datei steht ein Fingerabdruck (Datei-ID, Grösse, mtime in
+  Nanosekunden) in der Tabelle `_storage_checked` (in der Datenbank, damit er
+  mit ihr zurückgespielt wird; geschrieben wird nur, was sich geändert hat);
+  stimmt er, kostet die Datei beim nächsten Start
+  nur ein stat. KEINE Zeitmarke auf ctime: Windows erhält beim Kopieren
+  (Copy-Item, robocopy, CopyFile) die ctime der Quelle (gemessen), ein
+  Umbenennen des Verzeichnisses tut es überall, und zurückgelegte
+  Klartextdateien blieben liegen. Gescheiterte Dateien bekommen keinen
+  Eintrag und kommen beim nächsten Start wieder dran, ebenso leere Dateien,
+  die jünger als `UPLOAD_IN_FLIGHT_MS` sind (ein Upload, der gerade
+  entsteht). Die Umstellung einer
+  Datei läuft asynchron je Abschnitt (synchron blockierte eine grosse Datei
+  den Dienst, in der Desktop-App samt Fenster); unmittelbar vor dem
+  Umbenennen vergleicht sie die Datei synchron mit dem Stand beim Öffnen,
+  sonst legte sie eine währenddessen gelöschte Datei wieder an
+  (nachgestellt). `openBlob` gibt jeden Abschnitt erst nach seiner Prüfung ab und
+  prüft den ersten, bevor die Download-Route Kopfzeilen setzt; scheitert ein
+  späterer, bricht der Strom ab (Fassung 1: zwei Durchgänge, erst prüfen,
+  dann senden). Die EINZIGE Einordnung einer Datei (`blobKind`: Klartext,
+  Fassung 1 oder 2, beschädigt = Kennung, aber zu kurz) nutzen Download,
+  Umstellung, `status.cjs` und Sicherung gemeinsam. Dateien ohne
+  Kennung gelten als Klartext-Altbestand und gehen unverändert hinaus;
+  `files.size_bytes` und `sha256` beschreiben immer den Klartext.
+  `storageEncryptionState` (fileCrypto.ts) liefert `status.cjs` und dem
+  MANIFEST den tatsächlichen Stand von `storage/` (gelöschte Dateien
+  übersprungen, nicht zu öffnende gezählt statt abzubrechen, gerade
+  entstehende Uploads nicht als beschädigt; die Sicherung kopiert deshalb mit
+  `preserveTimestamps`, sonst trüge unter Linux jede Kopie die Uhrzeit des
+  Kopierens und galt als gerade entstehend). Die Rücknahme in
+  `ohrganize-update.sh` spielt Datenbank (erst daneben kopieren, dann
+  tauschen) UND `storage/` aus der Sicherung zurück (jeder Schritt einzeln
+  geprüft: `set -e` greift in Funktionen nicht, die links von `||`
+  aufgerufen werden), und die Update-Skripte warten auf den ersten Start bis
+  zu 15 Minuten gemessener Zeit (nicht Durchläufe), solange der Dienst läuft
+  (`warte_auf_start`, `Wait-ForStart`; eine leere Antwort von systemctl zählt
+  nicht als Neustart). `update-server.ps1` spielt die Sicherung nicht selbst
+  zurück (den Zielordner kennt nur die geplante Aufgabe), seine Meldung nennt
+  Migration UND Umstellung als Grund. Die Sicherung nimmt `data.key` mit
+  und nennt im MANIFEST nur Dateien, die sie enthält; bei einem Verweis
+  enthält sie nur den Verweis und kein `secret.key`. **Grenzen:** Liegt der
+  Schlüssel neben den Daten (Vorgabe), schützt das einzelne Dateien, nicht
+  den vollständig kopierten Ordner. Ein Umzug des Schlüssels nach außen
+  wechselt ihn nicht; ältere Sicherungen mit Schlüssel öffnen weiterhin alle
+  späteren. Einen Schlüsselwechsel gibt es nicht. Jede API-Antwort trägt
+  `Cache-Control: no-store` (Hook in `server.ts`). Migrationen, die Daten
+  entfernen, setzen `vacuumAfter: true`: `migrateDatabase` vermerkt das
+  VACUUM im Commit (`_vacuum_pending`), führt es danach aus und entfernt den
+  Vermerk erst nach einem vollständigen Checkpoint (im WAL-Modus landet das
+  VACUUM sonst nur im -wal), warnt bei einem Fehlschlag statt den Start
+  abzubrechen und holt es bei jedem späteren Start nach; ist nur der
+  Checkpoint blockiert (ein Leser), steht danach nur er aus
+  (`_vacuum_checkpoint_pending`), nicht ein zweites VACUUM. Bei verschlüsselter
+  Datenbank entsteht die Kopie des VACUUM im Arbeitsspeicher (siehe
+  Hilfsdateien oben; gemessen das 1,5-Fache der Nutzdaten); über 300 MB
+  Nutzdaten wird es endgültig übersprungen (eine Warnung, Vermerk weg; an
+  ihm hängt keine Zusicherung, siehe unten), statt die
+  Hosting-Unit über MemoryHigh=512M zu treiben. Damit das VACUUM für die
+  eigenen Daten einer Migration nicht nötig ist, läuft jede Migration unter
+  `secure_delete`, und eine, die schutzwürdige Inhalte aus einer Tabelle
+  entfernt, baut die Tabelle danach mit `rebuildTableInKeyOrder` neu auf,
+  über den TypeScript-Schritt `run` der Migration (gleiche Transaktion,
+  Vorbild `502_survey_anonymity`): Beim Umschreiben an Ort und Stelle (DROP
+  COLUMN, UPDATE) bleiben Kopien in Seitenlücken, die `secure_delete` nicht
+  erfasst, und ein DELETE FROM gibt die Wurzelseite nie frei (gemessen).
+  Verwaiste Zeilen vorher löschen: Das Wiedereinfügen prüft die
+  Fremdschlüssel, sonst bricht der Lauf ab. Der Probelauf (`migrate-check`) ruft `migrateDatabase` mit
+  `{ vacuum: false }`, weil seine Kopie gleich gelöscht wird. Test:
+  `src/test/encryptionSmoke.ts`; Hintergrund: docs/entscheidungen.md.
 - **Lizenz: signierte Offline-Datei, Nur-Lese statt Sperre.** Die
   Nutzungsberechtigung ist `<dataDir>/lizenz.ohrganize` (eine Zeile
   `OHRG1.<payload>.<Ed25519-Signatur>`; Format und Prüfung `core/licenseCodec.ts`,
@@ -622,7 +885,7 @@ Jedes Fachmodul fasst **nur eigene Dateien** an; die Verdrahtung existiert berei
 
 | Was | Wo | Hinweis |
 |---|---|---|
-| SQL-Migrationen | `backend/src/db/migrations/<NNN>_<modul>.ts` | Nummernkreise: 0xx Core, 1xx Personal, 2xx Abwesenheit, 3xx Leistung (inkl. 310 Führung), 4xx Vergütung, 5xx Kommunikation, 6xx Recruiting, 7xx Verwaltung. Array in der Moduldatei füllen — `index.ts` nicht anfassen. |
+| SQL-Migrationen | `backend/src/db/migrations/<NNN>_<modul>.ts` | Nummernkreise: 0xx Core, 1xx Personal, 2xx Abwesenheit, 3xx Leistung (inkl. 310 Führung), 4xx Vergütung, 5xx Kommunikation, 6xx Recruiting, 7xx Verwaltung. Array in der Moduldatei füllen, `index.ts` nicht anfassen. Wer schutzwürdige Daten entfernt: optionaler TypeScript-Schritt `run` (gleiche Transaktion) mit `rebuildTableInKeyOrder` statt DROP COLUMN/DELETE allein, Regel unter „Verschlüsselung im Ruhezustand“. |
 | API-Routen | `backend/src/modules/<modul>/` | `routes.ts` exportiert das Fastify-Plugin (bereits registriert). |
 | OpenAPI | `backend/openapi/<modul>.paths.yaml` | Nur ein top-level `paths:`-Block; Merge via `npm run openapi -w apps/backend`. |
 | Shared-Typen | `packages/shared/src/<modul>.ts` | Bereits aus `index.ts` re-exportiert. |
@@ -644,6 +907,23 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
 - **better-sqlite3 ist die einzige native Abhängigkeit.** Sie steht bewusst auch in
   den Dependencies von `apps/desktop`, damit electron-builder sie für die
   Electron-ABI neu baut/prebuildet. Im esbuild-Bundle als `--external` markiert.
+- **`better-sqlite3` ist ein npm-Alias auf `better-sqlite3-multiple-ciphers`**
+  (dieselbe Versionsnummer, dieselbe Schnittstelle, dazu die Verschlüsselung;
+  Spec `npm:better-sqlite3-multiple-ciphers@<version>` in den drei
+  Workspaces, Lockfile-Eintrag `node_modules/better-sqlite3` mit `name`).
+  Importe, `--external`, `npm rebuild better-sqlite3`, `reset-native.mjs` und
+  die Ladeproben der Deploy-Skripte nennen deshalb weiter `better-sqlite3`.
+  Vier Folgen: Der Eintrag in `allowScripts` trägt den ECHTEN Paketnamen;
+  Fertigpakete für eine Electron-ABI stehen im GitHub-Release des Forks, nicht
+  des Originals; **`npm install` tauscht ein vorhandenes Modul nicht aus**,
+  weil npm bei einem Alias nur die Versionsnummer vergleicht (das Original
+  gleicher Version gilt als passend, und dann kann die Datenbank nicht
+  verschlüsselt werden; `applyKey` in `db/encryption.ts` bricht mit Erklärung
+  ab) und **`npm dedupe` hebt nebenbei fremde Pakete an**. Eine
+  Versionsanhebung deshalb so: Spec in den drei `package.json`, Eintrag in
+  `allowScripts`, im Lockfile `version`, `resolved` und `integrity` des einen
+  Eintrags von Hand, dann `npm ci`. `scripts/release-server.mjs` schreibt den
+  Alias in das gekürzte Manifest des Server-Archivs.
 - **`allowScripts` in der Root-`package.json` ist ein echtes npm-Feld (ab 12)
   und hängt am Lockfile.** npm sperrt seit dieser Fassung die
   Installationsskripte von Abhängigkeiten; freigegeben ist, was dort als
@@ -750,7 +1030,7 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   (Zustand einer Instanz: Installations-ID, Lizenz, Plaetze, Zaehlungen,
   ausstehende Migrationen; `--json` fuer Skripte), `admin-reset.ts`
   (Passwort neu setzen, Sitzungen entwerten, Audit-Zeile mit `user_id NULL`)
-  und `migrate-check.ts` (Migrations-Probelauf auf einer `db.backup()`-Kopie).
+  und `migrate-check.ts` (Migrations-Probelauf auf einer Kopie per `VACUUM INTO`).
   Drei Regeln gelten fuer jedes weitere Werkzeug, sie stehen ausfuehrlich in
   `scripts/toolkit.ts`:
   **kein Import von `config.ts`** (der Import legt Verzeichnisse an und

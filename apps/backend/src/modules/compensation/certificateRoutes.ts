@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { parse, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { storeFile, signDownloadUrl, assertMayReadFile } from '../../core/files.js';
+import { storeFile, signDownloadUrl, assertMayReadFile, deleteFileIfUnreferenced } from '../../core/files.js';
 import { getAllSettings } from '../../core/settings.js';
 import { CERTIFICATE_KIND_LABELS, type CertificateKind } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
@@ -146,13 +146,17 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/compensation/certificates/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
     const certificate = getDb().prepare('SELECT * FROM certificates WHERE id = ?').get(id) as
-      | { status: string }
+      | { status: string; file_id: number | null }
       | undefined;
     if (!certificate) throw notFound('Bescheinigung nicht gefunden');
     if (certificate.status === 'ausgehaendigt') {
       throw conflict('Ausgehändigte Bescheinigungen können nicht gelöscht werden');
     }
     getDb().prepare('DELETE FROM certificates WHERE id = ?').run(id);
+    // Auch die erzeugte Datei muss weg, sonst bliebe die gelöschte
+    // Bescheinigung im Storage liegen und für das anlegende Konto signierbar
+    // (Muster: core/files.ts deleteFileIfUnreferenced).
+    if (certificate.file_id) deleteFileIfUnreferenced(certificate.file_id);
     audit(req, 'certificate.delete', 'certificate', id);
     reply.status(204);
   });

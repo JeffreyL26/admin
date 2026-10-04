@@ -1,10 +1,14 @@
 import type { Migration } from './types.js';
+import { rebuildTableInKeyOrder } from '../rebuildTable.js';
 
 // Nummernkreis 5xx: Kommunikation & Engagement.
 //
 // Zielgruppen-Muster (Kontrakt, überall identisch): audience_type
 // ('alle'|'abteilung'|'team'|'standort') + audience_id (NULL bei 'alle',
 // sonst id der Abteilung/des Teams/des Standorts).
+/** Zustand des Neuaufbaus der Umfrageantworten (Migration 504, surveyService.ts). */
+export const REBUILD_STATE_TABLE = '_survey_rebuild_state';
+
 export const communicationMigrations: Migration[] = [
   {
     name: '500_communication',
@@ -81,6 +85,7 @@ export const communicationMigrations: Migration[] = [
       -- es gibt bewusst keinen Fremdschlüssel auf employees. Die Teilnahme
       -- selbst wird GETRENNT davon in survey_participations markiert (Dedup +
       -- Teilnahmequote), sodass Antworten niemals einer Person zuordenbar sind.
+      -- (Zeitstempel und fortlaufende ID entfernt 502_survey_anonymity.)
       CREATE TABLE survey_responses (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
@@ -149,6 +154,94 @@ export const communicationMigrations: Migration[] = [
         UNIQUE (list_id, member_type, member_id)
       );
       CREATE INDEX idx_dlm_member ON distribution_list_members(member_type, member_id);
+    `,
+  },
+  {
+    // Anonymitaet der Umfragen auch gegenueber der Datenbank. Teilnahme und
+    // Antwort entstehen in derselben Transaktion; mit fortlaufenden IDs und
+    // sekundengleichen Zeitstempeln war die n-te Teilnahme die n-te Antwort.
+    // Deshalb: keine Zeitstempel mehr, Antworten unter zufaelliger ID (die
+    // Zeilen liegen im B-Baum nach ID, die Einfuegereihenfolge ist damit
+    // weg), und der Bestand wird hier durchmischt. Geschrieben wird die ID
+    // in surveyService.recordParticipation.
+    name: '502_survey_anonymity',
+    // Die eigenen Daten raeumen secure_delete und der Neuaufbau unten (run)
+    // aus der Datei; das VACUUM danach erfasst nur noch aeltere Reste aus der
+    // Zeit vor secure_delete (frueher geloeschte Umfragen).
+    vacuumAfter: true,
+    sql: `
+      CREATE TABLE survey_responses_new (
+        id INTEGER PRIMARY KEY,
+        survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+        answers TEXT NOT NULL                       -- JSON [{question_id, value}]
+      );
+      -- Nur Zeilen, deren Umfrage existiert (hier und unten): Das Umkopieren
+      -- prueft die Fremdschluessel (in diesem SQLite-Build und im Dienst an),
+      -- und eine verwaiste Zeile, entstanden ohne Fremdschluessel ausserhalb
+      -- der Anwendung, braeche sonst den ganzen Migrationslauf ab. Die
+      -- Kaskade haette sie ohnehin geloescht; defer_foreign_keys hilft nicht
+      -- (das Loeschen einer verwaisten Zeile zaehlt nicht gegen, gemessen).
+      INSERT INTO survey_responses_new (id, survey_id, answers)
+        SELECT (random() & 9007199254740991) + 1, survey_id, answers FROM survey_responses
+        WHERE survey_id IN (SELECT id FROM surveys);
+      DROP TABLE survey_responses;
+      ALTER TABLE survey_responses_new RENAME TO survey_responses;
+      CREATE INDEX idx_survey_responses_survey ON survey_responses(survey_id);
+
+      -- Teilnahmen ohne Zeitstempel. Verwaiste Zeilen zuerst weg (Grund oben
+      -- bei survey_responses_new; der Neuaufbau in run fuegt wieder ein und
+      -- prueft dabei die Fremdschluessel).
+      DELETE FROM survey_participations
+        WHERE survey_id NOT IN (SELECT id FROM surveys) OR employee_id NOT IN (SELECT id FROM employees);
+      ALTER TABLE survey_participations DROP COLUMN participated_at;
+    `,
+    // DROP COLUMN schreibt jede Zeile an Ort und Stelle um; dabei verschiebt
+    // SQLite Zellen zwischen Seiten und laesst Kopien mit den alten
+    // Zeitstempeln in Seitenluecken stehen, die secure_delete nicht erfasst
+    // (nachgestellt, encryptionSmoke.ts Abschnitt 7). Der Neuaufbau entfernt
+    // die Tabelle mit DROP TABLE (unter secure_delete: jede Seite genullt,
+    // auch die Wurzel) und legt sie in Schluesselreihenfolge neu an, samt
+    // AUTOINCREMENT-Zaehler. Das VACUUM danach ist dafuer nicht noetig und
+    // entfaellt bei grossen Datenbanken.
+    run: (db) => rebuildTableInKeyOrder(db, 'survey_participations'),
+  },
+  {
+    // Nachbesserung zu 502, drei Dinge:
+    // - Antwort-IDs im selben Bereich wie neue Antworten (1 bis 2^48 - 1,
+    //   surveyService.RESPONSE_ID_LIMIT). 502 vergab bis 2^53, und an der
+    //   Groesse der ID liessen sich Antworten von vor und nach dem Update
+    //   trennen, aus einem einzigen Stand der Datei.
+    // - Einfuegen in Schluesselreihenfolge: Ohne ORDER BY landeten die Zeilen
+    //   in der alten Reihenfolge der Teilnahmen auf den Seiten, und die
+    //   Anonymitaet des Bestands hing allein am VACUUM danach.
+    // - Kein Index auf survey_id mehr: Er war die teuerste Stelle beim
+    //   Neuschreiben jeder Teilnahme (storeAnonymousResponse), und seine
+    //   Seiten verrieten die Reihenfolge eigenstaendig. Die Auswertung liest
+    //   die Tabelle ganz; bei Umfragen dieser Groesse sind das Millisekunden.
+    name: '503_survey_response_ids',
+    vacuumAfter: true,
+    sql: `
+      CREATE TABLE survey_responses_new (
+        id INTEGER PRIMARY KEY,
+        survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
+        answers TEXT NOT NULL                       -- JSON [{question_id, value}]
+      );
+      INSERT INTO survey_responses_new (id, survey_id, answers)
+        SELECT id, survey_id, answers FROM (
+          SELECT ((random() & 281474976710655) % 281474976710655) + 1 AS id, survey_id, answers
+          FROM survey_responses
+        ) ORDER BY id;
+      DROP TABLE survey_responses;
+      ALTER TABLE survey_responses_new RENAME TO survey_responses;
+    `,
+  },
+  {
+    // Zustand des Neuaufbaus von survey_responses (surveyService.ts): eine
+    // Zeile je Vermerk statt einer Tabelle je Vermerk, damit keine Teilnahme
+    // das Schema aendert. Ohne Zeitstempel.
+    name: '504_survey_rebuild_state',
+    sql: `
+      CREATE TABLE ${REBUILD_STATE_TABLE} (key TEXT PRIMARY KEY) WITHOUT ROWID;
     `,
   },
 ];

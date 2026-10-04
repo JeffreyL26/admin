@@ -226,11 +226,54 @@ json_feld() {
   fi
 }
 
+# Wie json_feld, aber fuer Zahlen (ohne Anfuehrungszeichen), etwa
+# encryption.storage_damaged_files aus status.cjs. Leer, wenn das Feld fehlt.
+json_zahl() {
+  local json="$1" a="$2" b="$3"
+  json="$(printf '%s' "$json" | tr -d '\n\r')"
+  printf '%s' "$json" | sed -n "s/.*\"$a\"[[:space:]]*:[[:space:]]*{[^}]*\"$b\"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p" | head -1
+}
+
 warte_auf_health() {
   local port="$1" sekunden="${2:-30}" versuch
   for ((versuch = 1; versuch <= sekunden; versuch++)); do
     if curl -fsS --max-time 2 "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then
       return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+# Wartet auf /api/health, solange der Dienst laeuft, hoechstens $3 Sekunden
+# (Vorgabe 900). Ein erster Start einer Fassung kann deutlich laenger brauchen
+# als ein gewoehnlicher (Umstellung auf Verschluesselung, VACUUM nach einer
+# Migration, beides waechst mit der Datenbank); eine feste Frist von 45 s
+# hielt einen solchen Start fuer gescheitert und nahm ihn bei jedem Versuch
+# zurueck. Ein abgestuerzter Dienst bricht das Warten dagegen sofort ab:
+# systemd meldet failed/inactive oder zaehlt einen Neustart (NRestarts).
+# Eine leere Antwort (systemctl scheitert unter Last an D-Bus) ist keine
+# Auskunft und zaehlt weder als Neustart noch als Ausgangswert; sonst naehme
+# eine einzige verlorene Antwort einen gesunden, langen Start zurueck.
+warte_auf_start() {
+  local unit="$1" port="$2" sekunden="${3:-900}" ende zustand neustarts vorher
+  vorher="$(systemctl show -p NRestarts --value "$unit" 2>/dev/null || true)"
+  # Echte Zeit (SECONDS) statt Durchlaeufe: Jeder Durchlauf kostet bis zu 2 s
+  # curl plus 1 s Pause, gezaehlt waeren 900 Durchlaeufe bis zu 45 Minuten.
+  ende=$((SECONDS + sekunden))
+  while ((SECONDS < ende)); do
+    if curl -fsS --max-time 2 "http://127.0.0.1:$port/api/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    zustand="$(systemctl is-active "$unit" 2>/dev/null || true)"
+    neustarts="$(systemctl show -p NRestarts --value "$unit" 2>/dev/null || true)"
+    if [[ -z "$vorher" ]]; then
+      vorher="$neustarts"
+    elif [[ -n "$neustarts" && "$neustarts" != "$vorher" ]]; then
+      return 1
+    fi
+    if [[ "$zustand" == failed || "$zustand" == inactive ]]; then
+      return 1
     fi
     sleep 1
   done

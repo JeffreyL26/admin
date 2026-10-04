@@ -12,6 +12,109 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Verschluesselung im Ruhezustand, anonyme Umfragen (04.10.2026)
+- Datenbank (`ohrganize.db` samt WAL), die Dateien in `storage/` und damit
+  jede Sicherung liegen verschluesselt auf der Platte: Datenbank im
+  SQLCipher-4-Format, Dateien mit AES-256-GCM. Der Schluessel steht in
+  `data.key` im Datenverzeichnis und entsteht beim ersten Start; ein Bestand
+  aus einer aelteren Fassung wird beim ersten Start umgestellt (Datenbank
+  sofort, Dateiablage im Hintergrund). Bedienung, Routen und Oberflaeche sind
+  unveraendert.
+- **Fuer den Betrieb:** `data.key` gehoert zu jeder Sicherung und zu jedem
+  Restore (das Sicherungsskript, `ohrganize-provision.sh restore` und das
+  MANIFEST beruecksichtigen sie). Ohne sie ist der Bestand nicht lesbar. Ein
+  Zurueck auf eine aeltere Fassung geht nur ueber den vollstaendigen Restore
+  einer Sicherung von davor.
+- Optional kann `data.key` auf eine Schluesseldatei ausserhalb des
+  Datenverzeichnisses verweisen (`extern:<absoluter Pfad>`); die Sicherung
+  enthaelt dann nur den Verweis und kein `secret.key`.
+- `better-sqlite3` ist jetzt ein npm-Alias auf
+  `better-sqlite3-multiple-ciphers` gleicher Version (Fertigpakete fuer
+  dieselben Node- und Electron-Fassungen). Sicherung und Migrations-Probelauf
+  kopieren die Datenbank mit `VACUUM INTO` statt ueber die
+  Online-Backup-Schnittstelle.
+- Jede API-Antwort traegt `Cache-Control: no-store`: Antworten mit
+  Stammdaten, Gehaeltern oder Exporten landen nicht mehr im Cache des
+  Browserkerns auf der Platte.
+- Eine geloeschte Bescheinigung entfernt jetzt auch ihre Datei aus dem
+  Storage; bisher blieb sie liegen und fuer das anlegende Konto abrufbar.
+- Hosting: Eine Kundeninstanz sieht die Sicherungen der anderen nicht mehr
+  (`InaccessiblePaths` in `ohrganize-backend@.service`). Auf einem
+  bestehenden Host wirkt das erst, wenn die Vorlage von Hand neu kopiert ist;
+  das Update-Skript zieht Unit-Vorlagen nicht nach (`deploy/README.md`,
+  Abschnitt 9.6).
+- **Umstellung der Datenbank beim ersten Start:** an Ort und Stelle in einer
+  Transaktion (`PRAGMA rekey`), die Datei ist dabei exklusiv gesperrt, davor
+  und danach `quick_check`. Ein Abbruch an beliebiger Stelle wird beim
+  naechsten Oeffnen zurueckgespielt (gemessen an ueber 60 Abbruchstellen unter
+  Linux und Windows). Scheitert die Umstellung, auch weil der Bestand schon
+  vorher die Pruefung nicht besteht, laeuft der Dienst unveraendert weiter und
+  versucht es beim naechsten Start. Scheitert nur die Pruefung danach,
+  startet er nicht: Der Vermerk `umstellung-pruefung-gescheitert.txt` entsteht
+  vor dem Umschluesseln und faellt erst nach bestandener Pruefung weg; jeder
+  Start mit Vermerk prueft erneut, und nach dem Zurueckspielen der Sicherung
+  von vor dem Update erledigt er sich mit dem naechsten Start von selbst;
+  `status.cjs` und `provision.sh check` melden ihn. Hilfsdateien von SQLite
+  entstehen bei verschluesselter Datenbank nur im Arbeitsspeicher (SQLite
+  verschluesselt sie nicht; ein VACUUM legte sonst eine Klartextkopie ab),
+  bei einem unverschluesselten Bestand in `.sqlite-tmp` im
+  Datenverzeichnis. Jede Verbindung loescht mit `secure_delete` (Geloeschtes
+  wird mit Nullen ueberschrieben, auch ueber Kaskaden); das VACUUM nach
+  Migrationen entfaellt ueber 300 MB Nutzdaten mit Warnung, ohne dass
+  entfernte Umfragedaten in der Datei bleiben. Verwaiste Umfragezeilen
+  (Umfrage oder Person fehlt) uebernimmt Migration 502 nicht. `data.key`
+  entsteht atomar.
+- **Dateiablage:** AES-256-GCM in Abschnitten zu 64 KiB; ein Download prueft
+  jeden Abschnitt, bevor er hinausgeht, den ersten vor den Kopfzeilen. Der
+  Bestand wird nach dem Start im Hintergrund umgestellt (Zwischendateien in
+  `storage/.umstellung`), danach prueft jeder Start die Dateien, deren
+  Fingerabdruck (Datei-ID, Groesse, mtime) sich seit der letzten Pruefung
+  geaendert hat, auch einzeln aus einer Sicherung zurueckgelegte. Eine Datei,
+  die waehrend ihrer Umstellung geloescht wird, bleibt geloescht; ein gerade
+  beginnender Upload wird nicht angefasst.
+  Verschluesselt geschrieben wird erst, wenn die Datenbank verschluesselt ist.
+- **Sicherung:** prueft die laufende Datenbank vor dem Kopieren
+  (`quick_check`), kopiert per `VACUUM INTO`, nimmt `data.key` mit und nennt
+  im MANIFEST nur, was sie enthaelt, samt dem tatsaechlichen Stand von
+  `storage/` (auch abgeschnittene Dateien unter Linux, die Kopie behaelt die
+  Zeitstempel); unter Windows die PowerShell-Schritte. Eine unbrauchbare
+  `data.key` haelt die Sicherung eines noch unverschluesselten Bestands nicht
+  auf.
+- **Betreiberskripte:** `status.cjs` und `provision.sh check` melden den
+  Verschluesselungszustand sowie unverschluesselte, abgeschnittene und nicht
+  lesbare Dateien. Die Ruecknahme in `ohrganize-update.sh` spielt Datenbank
+  (erst daneben kopieren, dann tauschen) und `storage/` aus derselben
+  Sicherung zurueck, jeder Schritt einzeln geprueft. Beide Update-Skripte
+  warten auf den ersten Start bis zu 15 Minuten (gemessene Zeit), solange
+  der Dienst laeuft, und brechen bei einem Absturz sofort ab (eine leere
+  Antwort von `systemctl` gilt nicht als Absturz). `update-server.ps1` nennt
+  bei einer gescheiterten Ruecknahme Migration und Umstellung als Grund. Der
+  Migrations-Probelauf laesst das VACUUM aus. `update-server.ps1` findet
+  `better-sqlite3` beim Probelauf ueber `NODE_PATH` (vorher brach jedes
+  Update ab). Die Anleitung zum Kopieren der Unit-Vorlage nutzt
+  `systemctl try-restart` (pausierte Instanzen bleiben aus).
+- Am Deployment selbst (Subdomain, Zertifikat, Proxy, Einrichtung) aendert
+  sich nichts. Noch offen ist der Durchlauf ueber `ohrganize-provision.sh`,
+  `ohrganize-update.sh` und die Windows-Skripte mit einem Archiv dieser
+  Fassung; geprueft sind bisher die Einzelschritte (`deploy/README.md`,
+  Abschnitt 9.7).
+- **Umfragen sind auch gegenueber der Datei anonym:** Antworten ohne
+  Zeitstempel und unter zufaelliger 48-Bit-ID, Teilnahmen ohne Zeitstempel
+  (Migrationen `502_survey_anonymity` und `503_survey_response_ids`, stellen
+  auch den Bestand um; vorher liess sich die n-te Teilnahme der n-ten Antwort
+  zuordnen). Jede Teilnahme schreibt die Nachbarschaft der neuen Antwort
+  gemischt neu und leert danach das `-wal` samt Seitenliste der `-shm`, ohne
+  auf Leser zu warten; das Beenden einer Umfrage baut die Antworttabelle neu
+  auf, sofern seit dem letzten Neuaufbau Antworten hinzukamen, ebenso eine
+  Umfrage, die ohne Beenden ueber ihr Enddatum hinaus laeuft (einmal je Umfrage; Status bleibt;
+  Zustand in `_survey_rebuild_state`, Migration `504_survey_rebuild_state`;
+  kein VACUUM; ein gescheiterter Neuaufbau wird beim naechsten Start
+  nachgeholt). Ein Leeren, das ein Neustart unterbricht, holt der naechste
+  Start nach. Die HR-Testerfassung
+  prueft die Antworten vor der Doppelteilnahme. Freitextantworten erscheinen
+  in der Auswertung bewusst nicht mehr in der Reihenfolge der Abgabe (die
+  waere genau die geschlossene Luecke).
+
 ### Release-Signatur (01.10.2026)
 - `scripts/release.mjs` entfernt vor dem Schreiben des Manifests eine
   `release.json.sig` aus einem frueheren Lauf derselben Version. Bisher fragte

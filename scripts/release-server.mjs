@@ -179,9 +179,15 @@ while (queue.length) {
   }
 }
 
+// better-sqlite3 ist ein npm-Alias auf better-sqlite3-multiple-ciphers (die
+// verschluesselnde Fassung, apps/backend/src/db/encryption.ts). Der
+// Lockfile-Eintrag traegt dann den echten Paketnamen in `name`; das gekuerzte
+// Manifest muss denselben Alias nennen, sonst passten Manifest und Lockfile
+// nicht zusammen.
 const trimmedDeps = {};
 for (const name of Object.keys(RUNTIME_DEPS)) {
-  trimmedDeps[name] = packages[resolveDep('', name)].version;
+  const entry = packages[resolveDep('', name)];
+  trimmedDeps[name] = entry.name && entry.name !== name ? `npm:${entry.name}@${entry.version}` : entry.version;
 }
 
 // Installationsskripte: nur, was die Root-package.json bereits freigibt UND
@@ -189,7 +195,8 @@ for (const name of Object.keys(RUNTIME_DEPS)) {
 const allowScripts = {};
 for (const [key, entry] of collected) {
   if (!entry.hasInstallScript) continue;
-  const name = key.slice(key.lastIndexOf('node_modules/') + 'node_modules/'.length);
+  // Bei einem Alias zaehlt fuer allowScripts der echte Paketname (entry.name).
+  const name = entry.name ?? key.slice(key.lastIndexOf('node_modules/') + 'node_modules/'.length);
   const spec = `${name}@${entry.version}`;
   if (rootPkg.allowScripts?.[spec] === true) {
     allowScripts[spec] = true;
@@ -402,6 +409,14 @@ einzige native Abhaengigkeit - die Build-Werkzeuge der jeweiligen Plattform,
 falls npm kein Fertigpaket findet (Linux: build-essential python3; Windows:
 siehe deploy/windows/README.md, Abschnitt 1). esbuild, typescript und git
 werden nicht gebraucht; der Quelltext ist nicht enthalten.
+
+Verschluesselung: Datenbank und Dateiablage liegen verschluesselt auf der
+Platte. Der Schluessel (data.key) entsteht beim ersten Start im
+Datenverzeichnis und gehoert zu jeder Sicherung und zu jedem Restore; ohne ihn
+sind die Daten nicht lesbar. better-sqlite3 ist dafuer in der Fassung
+better-sqlite3-multiple-ciphers installiert (gleicher Name, gleiche Version).
+Ein Bestand aus einer aelteren Fassung wird beim ersten Start umgestellt.
+Einzelheiten: deploy/README.md, Abschnitt 5 und 6.
 
 Lizenz: Eine frische Installation laeuft 30 Tage als Testphase, danach im
 Nur-Lese-Betrieb. Die Lizenzdatei (lizenz.ohrganize) wird in der Desktop-App

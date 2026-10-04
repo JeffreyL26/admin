@@ -297,7 +297,7 @@ instanz_umstellen() {
   schritt 'Dienst starten'
   systemctl start "ohrganize-backend@$kunde" || true
 
-  if warte_auf_health "$port" 45; then
+  if warte_auf_start "ohrganize-backend@$kunde" "$port"; then
     local health gemeldet
     health="$(health_json "$port")"
     gemeldet="$(json_feld "$health" variant id)"
@@ -311,7 +311,7 @@ instanz_umstellen() {
     return 0
   fi
 
-  warnung "$kunde: Das Backend antwortet nach 45 s nicht."
+  warnung "$kunde: Das Backend ist nicht hochgekommen (abgestuerzt oder nach 15 Minuten ohne Antwort)."
   journalctl -u "ohrganize-backend@$kunde" -n 30 --no-pager >&2 || true
   instanz_zuruecknehmen "$kunde" "$alt" "$sicherung"
   return 1
@@ -325,6 +325,12 @@ instanz_zuruecknehmen() {
   port="$(kunden_port "$kunde")"
 
   printf '  Nehme %s zurueck.\n' "$kunde"
+  # Ohne Datenverzeichnis kein Zurueckspielen: Die Pfade unten wuerden sonst zu
+  # /ohrganize.db und /storage (env_wert liefert bei fehlendem Eintrag leer).
+  if [[ -z "$daten" ]]; then
+    warnung "$kunde: In der env-Datei steht kein OHRGANIZE_DATA_DIR. Datenbank und storage/ werden nicht angefasst."
+    sicherung=''
+  fi
   systemctl stop "ohrganize-backend@$kunde" || true
   if [[ -n "$alt" && -d "$alt" ]]; then
     schritt "Symlink zurueck auf $(basename "$alt")"
@@ -335,32 +341,97 @@ instanz_zuruecknehmen() {
   fi
   systemctl start "ohrganize-backend@$kunde" || true
 
-  if warte_auf_health "$port" 45; then
+  if warte_auf_start "ohrganize-backend@$kunde" "$port"; then
     hinweis 'Die alte Fassung laeuft wieder.'
   else
-    # Der haeufigste Grund: Die neue Fassung hat die Datenbank bereits
-    # migriert, und die alte verweigert deshalb den Start ("von einer neueren
-    # Version migriert"). Dann hilft nur die Sicherung von eben.
-    warnung "$kunde: Auch die alte Fassung startet nicht. Vermutlich wurde die Datenbank bereits migriert."
+    # Die haeufigsten Gruende: Die neue Fassung hat die Datenbank bereits
+    # migriert (die alte verweigert den Start, "von einer neueren Version
+    # migriert") oder auf Verschluesselung umgestellt (die alte meldet "file
+    # is not a database"). Dann hilft nur die Sicherung von eben.
+    warnung "$kunde: Auch die alte Fassung startet nicht. Vermutlich wurde die Datenbank bereits migriert oder auf Verschluesselung umgestellt."
     if [[ -n "$sicherung" && -d "$sicherung" ]]; then
-      schritt "Datenbank aus $sicherung zurueckspielen"
+      schritt "Datenbank und storage/ aus $sicherung zurueckspielen"
       systemctl stop "ohrganize-backend@$kunde" || true
-      cp -a "$sicherung/ohrganize.db" "$daten/ohrganize.db"
-      rm -f "$daten/ohrganize.db-wal" "$daten/ohrganize.db-shm"
-      chown "$DIENST_BENUTZER":"$DIENST_BENUTZER" "$daten/ohrganize.db"
-      chmod 0600 "$daten/ohrganize.db"
+      # Erst neben die Datenbank kopieren, dann tauschen: Ein direktes cp
+      # ueber ohrganize.db liesse sie bei vollem Datentraeger abgeschnitten
+      # zurueck. Jeder Schritt einzeln geprueft, denn set -e greift hier nicht
+      # (die Funktion wird links von || aufgerufen).
+      local db_zurueck=0 storage_zurueck=0
+      rm -f "$daten/ohrganize.db.zurueck"
+      if cp -a "$sicherung/ohrganize.db" "$daten/ohrganize.db.zurueck" &&
+        mv -f "$daten/ohrganize.db.zurueck" "$daten/ohrganize.db"; then
+        db_zurueck=1
+        # Nebendateien des verworfenen Stands, dazu der Vermerk einer
+        # gescheiterten Pruefung nach der Umstellung (db/encryption.ts,
+        # CONVERSION_FAILED_FILE): Er gehoert zur verworfenen Datenbank.
+        rm -f "$daten/ohrganize.db-wal" "$daten/ohrganize.db-shm" "$daten/ohrganize.db-journal" \
+          "$daten/umstellung-pruefung-gescheitert.txt"
+        chown "$DIENST_BENUTZER":"$DIENST_BENUTZER" "$daten/ohrganize.db"
+        chmod 0600 "$daten/ohrganize.db"
+      else
+        rm -f "$daten/ohrganize.db.zurueck"
+        warnung "$kunde: Die Datenbank liess sich nicht aus $sicherung kopieren (Platz?); Datenbank und storage/ bleiben, wie sie sind."
+      fi
+      # storage/ aus DERSELBEN Sicherung: Die neue Fassung kann Dateien schon
+      # verschluesselt haben, die die alte nicht lesen kann, und Uploads aus
+      # dem misslungenen Lauf haetten in der zurueckgespielten Datenbank keinen
+      # Eintrag mehr. Erst kopieren, dann tauschen; scheitert die Kopie, bleibt
+      # der bisherige Stand liegen. Nur, wenn die Datenbank zurueck ist: sonst
+      # passten Datenbank und Dateien nicht mehr zusammen.
+      if [[ $db_zurueck -eq 1 && -d "$sicherung/storage" ]]; then
+        # Rest eines frueheren, abgebrochenen Laufs: Fehlt storage/, IST der
+        # Rest der aktuelle Stand und kommt zuerst zurueck; sonst ist er
+        # ueberholt. Bliebe er liegen, schoebe das mv unten storage/ in ihn
+        # hinein, statt es umzubenennen.
+        if [[ -e "$daten/storage.alt-update" ]]; then
+          if [[ -d "$daten/storage" ]]; then
+            rm -rf "$daten/storage.alt-update"
+          else
+            mv "$daten/storage.alt-update" "$daten/storage" || true
+          fi
+        fi
+        rm -rf "$daten/storage.zurueck"
+        if [[ -e "$daten/storage.alt-update" || -e "$daten/storage.zurueck" ]]; then
+          # Ein verbliebenes storage.zurueck liesse cp -a die Sicherung IN
+          # dieses Verzeichnis kopieren (storage/storage/...).
+          warnung "$kunde: Reste unter $daten/storage.alt-update bzw. storage.zurueck liessen sich nicht aufraeumen; storage/ bleibt, wie es ist."
+        elif cp -a "$sicherung/storage" "$daten/storage.zurueck"; then
+          if mv "$daten/storage" "$daten/storage.alt-update" && mv "$daten/storage.zurueck" "$daten/storage"; then
+            storage_zurueck=1
+            rm -rf "$daten/storage.alt-update"
+            chown -R "$DIENST_BENUTZER":"$DIENST_BENUTZER" "$daten/storage"
+            chmod -R go-rwx "$daten/storage"
+          else
+            [[ -d "$daten/storage" ]] || mv "$daten/storage.alt-update" "$daten/storage" || true
+            warnung "$kunde: storage/ liess sich nicht tauschen; der bisherige Stand bleibt (Rest: $daten/storage.zurueck)."
+          fi
+        else
+          rm -rf "$daten/storage.zurueck"
+          warnung "$kunde: storage/ liess sich nicht aus $sicherung kopieren (Platz?); der bisherige Stand bleibt."
+        fi
+      fi
       systemctl start "ohrganize-backend@$kunde" || true
-      if warte_auf_health "$port" 45; then
-        hinweis 'Die alte Fassung laeuft mit der zurueckgespielten Datenbank.'
+      if warte_auf_start "ohrganize-backend@$kunde" "$port"; then
+        if [[ $storage_zurueck -eq 1 || ! -d "$sicherung/storage" ]]; then
+          hinweis 'Die alte Fassung laeuft mit der zurueckgespielten Datenbank und storage/.'
+        elif [[ $db_zurueck -eq 1 ]]; then
+          warnung "$kunde: Die alte Fassung laeuft mit der zurueckgespielten Datenbank, aber storage/ ist NICHT zurueckgespielt: Dateien, die die neue Fassung schon verschluesselt hat, liefert sie unlesbar aus. storage/ von Hand aus $sicherung zurueckholen."
+        else
+          warnung "$kunde: Die alte Fassung laeuft, aber weder Datenbank noch storage/ sind zurueckgespielt. Bitte von Hand nachsehen."
+        fi
       else
         warnung "$kunde: Auch das hat nicht geholfen. Bitte von Hand nachsehen (journalctl -t ohrganize-$kunde)."
       fi
     fi
   fi
-  date -Iseconds >"$daten/.update-fehlgeschlagen" 2>/dev/null || true
-  # Dem Dienstbenutzer geben: Im Datenverzeichnis soll nichts root gehoeren
-  # (find /var/lib/ohrganize -user root ist Teil der Abnahme).
-  chown "$DIENST_BENUTZER":"$DIENST_BENUTZER" "$daten/.update-fehlgeschlagen" 2>/dev/null || true
+  # Ohne Datenverzeichnis keine Markerdatei: Sie landete sonst als
+  # /.update-fehlgeschlagen im Wurzelverzeichnis.
+  if [[ -n "$daten" ]]; then
+    date -Iseconds >"$daten/.update-fehlgeschlagen" 2>/dev/null || true
+    # Dem Dienstbenutzer geben: Im Datenverzeichnis soll nichts root gehoeren
+    # (find /var/lib/ohrganize -user root ist Teil der Abnahme).
+    chown "$DIENST_BENUTZER":"$DIENST_BENUTZER" "$daten/.update-fehlgeschlagen" 2>/dev/null || true
+  fi
 }
 
 # ---------------------------------------------------------------------------

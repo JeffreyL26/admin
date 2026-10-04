@@ -444,8 +444,11 @@ Get-ChildItem 'C:\ProgramData\oHRganize\backups' | Sort-Object LastWriteTime -De
 - [ ] Zeitplan aktiv (Timer bzw. geplante Aufgabe) und mit einem
       erfolgreichen Lauf hinterlegt.
 - [ ] Ein Lauf erfolgreich, Verzeichnis enthält `ohrganize.db`, `storage/`,
-      `secret.key`, `lizenz.ohrganize` (sobald eingespielt, Punkt 10),
-      `MANIFEST.txt`.
+      `data.key`, `secret.key`, `lizenz.ohrganize` (sobald eingespielt,
+      Punkt 10), `MANIFEST.txt`. `data.key` ist der Schlüssel zu Datenbank und
+      `storage/`: Ohne sie ist die Sicherung nicht lesbar, mit ihr kann sie
+      jeder lesen, der sie in die Hand bekommt. Die Auslagerung braucht
+      deshalb denselben Schutz wie der Server.
 - [ ] Auslagerung auf ein zweites System eingerichtet (eine Sicherung neben den
       Daten schützt vor keinem der Fälle, für die man sichert).
 - [ ] **Restore-Probe** einmal durchgeführt und protokolliert (Datum, wer,
@@ -460,7 +463,7 @@ Get-ChildItem 'C:\ProgramData\oHRganize\backups' | Sort-Object LastWriteTime -De
 
       Er stoppt die Instanz, verschiebt den jetzigen Stand nach
       `<datenverzeichnis>.alt-<zeit>` (statt ihn zu überschreiben), spielt
-      Datenbank, `storage/`, `secret.key` und die Lizenzdatei ein, zieht die
+      Datenbank, `storage/`, `data.key`, `secret.key` und die Lizenzdatei ein, zieht die
       Rechte nach, startet und zeigt den Lizenzzustand. Das `MANIFEST.txt`
       jeder Sicherung nennt genau diese Zeile. Danach prüfen, ob seit der
       Sicherung eine neuere Lizenzdatei eingespielt wurde, und sie dann erneut

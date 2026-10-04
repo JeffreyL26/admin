@@ -265,6 +265,12 @@ Abschnitt 5. Insbesondere gilt unverändert: **Eine Dateikopie von `ohrganize.db
 ohne `-wal` ist kein gültiges Backup**, und `--keep 14` ist **keine
 Auslagerung**.
 
+Datenbank und `storage\` liegen verschlüsselt vor, der Schlüssel steht in
+**`data.key`** im Datenverzeichnis (Einzelheiten und Grenzen: `../README.md`,
+Abschnitt „Verschlüsselung im Ruhezustand"). Für den Betrieb heißt das genau
+eines: `data.key` gehört zu jeder Sicherung und zu jedem Restore. Die
+Sicherungsaufgabe nimmt sie mit; ohne sie ist der Bestand nicht lesbar.
+
 Der Windows-typische Weg für die Auslagerung: Die VM läuft ohnehin in der
 Sicherung des Hauses (Veeam o. ä.). Es genügt, wenn diese
 `C:\ProgramData\oHRganize\backups` mitnimmt. Wichtig ist die Reihenfolge — erst
@@ -302,9 +308,10 @@ New-Item -ItemType Directory $Probe -Force | Out-Null
 icacls $Probe /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F'     | Out-Null   # SYSTEM
 icacls $Probe /grant:r      '*S-1-5-32-544:(OI)(CI)F'           | Out-Null   # Administratoren
 
-Copy-Item "$Backup\ohrganize.db","$Backup\secret.key" $Probe
+Copy-Item "$Backup\ohrganize.db" $Probe
 Copy-Item "$Backup\storage" $Probe -Recurse
-if (Test-Path "$Backup\lizenz.ohrganize") { Copy-Item "$Backup\lizenz.ohrganize" $Probe }   # falls gesichert
+# Je nach Stand fehlen einzelne Dateien in der Sicherung (MANIFEST.txt nennt den Inhalt):
+foreach ($f in 'data.key','secret.key','lizenz.ohrganize') { if (Test-Path "$Backup\$f") { Copy-Item "$Backup\$f" $Probe } }
 
 # OHRGANIZE_DATA_DIR ausdruecklich setzen: Ohne die Variable faellt das Backend
 # auf sein Vorgabe-Datenverzeichnis zurueck und legte dort eine leere Datenbank
@@ -347,9 +354,9 @@ nssm stop oHRganize
 Rename-Item 'C:\ProgramData\oHRganize\data' "data.defekt-$(Get-Date -Format yyyy-MM-dd)"
 
 New-Item -ItemType Directory 'C:\ProgramData\oHRganize\data' -Force | Out-Null
-Copy-Item "$Backup\ohrganize.db","$Backup\secret.key" 'C:\ProgramData\oHRganize\data'
+Copy-Item "$Backup\ohrganize.db" 'C:\ProgramData\oHRganize\data'
 Copy-Item "$Backup\storage" 'C:\ProgramData\oHRganize\data' -Recurse
-if (Test-Path "$Backup\lizenz.ohrganize") { Copy-Item "$Backup\lizenz.ohrganize" 'C:\ProgramData\oHRganize\data' }
+foreach ($f in 'data.key','secret.key','lizenz.ohrganize') { if (Test-Path "$Backup\$f") { Copy-Item "$Backup\$f" 'C:\ProgramData\oHRganize\data' } }
 
 # Das frisch angelegte Verzeichnis erbt die Rechte von C:\ProgramData —
 # also inklusive Lesezugriff der Gruppe "Benutzer". Ohne diesen Aufruf ist der
@@ -363,8 +370,8 @@ Get-Content 'C:\ProgramData\oHRganize\logs\backend.log' -Tail 50
 Eventuell vorhandene `ohrganize.db-wal`/`-shm` des **defekten** Standes nicht
 mitkopieren — sie gehören zu einer anderen Datenbankdatei und überschreiben den
 zurückgespielten Stand. In einem Sicherungsordner gibt es sie ohnehin nicht: Das
-Sicherungsskript schreibt über die Online-Backup-Schnittstelle von SQLite einen
-in sich geschlossenen Stand. (Beim **Umzug einer laufenden Einzelplatz-App** gilt
+Sicherungsskript schreibt mit `VACUUM INTO` einen in sich geschlossenen Stand
+(Journalmodus DELETE, ohne `-wal`). (Beim **Umzug einer laufenden Einzelplatz-App** gilt
 das Gegenteil — siehe Abschnitt 8.)
 
 ## 6. Update
@@ -425,6 +432,17 @@ beim Start in **einer** Transaktion; bricht eine ab, bleibt die Datenbank auf
 dem Stand davor und der Dienst startet nicht. **Ein Downgrade ist nicht
 vorgesehen** — der Rückweg ist immer das Backup von vor dem Update. Die
 Lizenzdatei liegt im Datenverzeichnis und ist vom Update nicht betroffen.
+
+**Erstes Update auf eine Fassung mit Verschlüsselung im Ruhezustand:** Der
+Ablauf bleibt derselbe. Der erste Start stellt Datenbank und `storage\` um
+(`backend.log` nennt beides), braucht dafür einmalig freien Platz im
+Datenverzeichnis (Journal und Hilfsdatei, je etwa so groß wie `ohrganize.db`)
+und legt `data.key` an. `update-server.ps1` wartet auf diesen Start bis zu
+15 Minuten, solange derselbe Backend-Prozess läuft, und nimmt sofort zurück,
+wenn er abstürzt. Die
+Sicherung von VOR dem Update ist noch unverschlüsselt und der einzige Rückweg
+auf die ältere Fassung, und zwar vollständig (Datenbank und `storage\`).
+Einzelheiten: `../README.md`, Abschnitt 6.
 
 Hat sich `MIN_CLIENT_VERSION` erhöht (`packages/shared/src/version.ts`), weist
 der Server ältere Desktop-Apps nach dem Update mit einer klaren Meldung ab. Die
@@ -623,6 +641,7 @@ nicht nur die Datenbankdatei.
 | `ohrganize.db` | die Daten |
 | `ohrganize.db-wal`, `ohrganize.db-shm` | **die jüngsten Änderungen** — siehe unten |
 | `storage\` | Verträge, AU-Bescheinigungen, Fotos |
+| `data.key` | Schlüssel zu Datenbank und `storage\`; **ohne sie ist beides nicht lesbar** (fehlt sie, stammt der Bestand aus einer Fassung vor der Verschlüsselung und wird beim ersten Start umgestellt) |
 | `secret.key` | ohne sie erzeugt der Server ein neues Secret: alle Sitzungen und alle verschickten Download-Links sind tot |
 | `lizenz.ohrganize` (falls vorhanden) | die Lizenz ist an die Installations-ID gebunden, und die steht in der Datenbank — Datei und Datenbank gehören zusammen; ohne die Datei läuft der Server im Nur-Lese-Betrieb |
 
@@ -635,8 +654,8 @@ verschiedene Fälle, und wer sie verwechselt, verliert Daten:
   `ohrganize.db` mitnimmt, verliert sie stillschweigend — die Datei ist für sich
   gültig, nur eben älter. Also: `-wal` und `-shm` mitkopieren.
 - **Restore aus einem Sicherungsordner:** Dort gibt es keine `-wal`-Datei, weil
-  das Sicherungsskript über die Online-Backup-Schnittstelle von SQLite einen in
-  sich geschlossenen Stand schreibt. Taucht dort trotzdem eine auf, gehört sie
+  das Sicherungsskript mit `VACUUM INTO` einen in sich geschlossenen Stand
+  schreibt. Taucht dort trotzdem eine auf, gehört sie
   zu einer **anderen** Datenbankdatei und würde den zurückgespielten Stand
   zerstören — nicht mitkopieren (Abschnitt 5, „Ernstfall-Restore").
 
@@ -766,9 +785,9 @@ eingespielt ist.
 
 ## 10. Wenn etwas nicht startet
 
-Die fachlichen Startfehler (CORS, Token-Laufzeit, Downgrade, `SQLITE_CANTOPEN`)
-stehen in `../README.md`, Abschnitt 8 — sie gelten unverändert. Windows-eigen
-sind diese:
+Die fachlichen Startfehler (CORS, Token-Laufzeit, Downgrade, `SQLITE_CANTOPEN`,
+fehlender oder unpassender Schlüssel `data.key`) stehen in `../README.md`,
+Abschnitt 8. Sie gelten unverändert. Windows-eigen sind diese:
 
 | Symptom | Ursache | Abhilfe |
 |---|---|---|
@@ -834,6 +853,16 @@ durchlaufen. Die Begründungen stehen in `../../docs/entscheidungen.md`.
       unbrauchbare Lizenz → `400 LICENSE_INVALID`, Sicherungslauf mit
       `backup.cjs`. Ohne Dienstregistrierung — die ist gegenüber dem Probelauf
       oben unverändert, weil die Dienstpfade dieselben sind.
+- [x] **Verschlüsselung im Ruhezustand** (04.10.2026, Node 24.16 / npm 12.0.1):
+      Archiv entpackt, `npm ci --omit=dev` (38 Pakete, die verschlüsselnde
+      Fassung kommt als Fertigpaket), Kontrollzeile `better-sqlite3 ok`,
+      Start von `cli.cjs` mit verschlüsselter Datenbank und `data.key`,
+      `status.cjs`, `migrate-check.cjs` und `backup.cjs` neben dem laufenden
+      Dienst, Sicherung mit verschlüsselter Kopie, `data.key`, `secret.key`
+      und MANIFEST. Die gepackte Desktop-App hat eine Kopie eines echten
+      Einzelplatz-Bestands umgestellt (361 Dateien, Bestandszahlen
+      unverändert). Ohne Dienstregistrierung und ohne die Skripte dieses
+      Verzeichnisses.
 
 **Weiterhin offen:**
 
@@ -844,3 +873,4 @@ durchlaufen. Die Begründungen stehen in `../../docs/entscheidungen.md`.
 | `package-lock.json` ohne `integrity` | Der ausgelieferte Lockfile trägt für **keinen** der 538 Einträge eine Prüfsumme — `npm ci` verifiziert damit kein einziges Paket. Der Bezug funktioniert, die Absicherung fehlt. | `node -e "const l=require('./package-lock.json');console.log(Object.entries(l.packages).filter(([k,v])=>k.startsWith('node_modules/')&&!v.integrity).length)"` — erwartet: `0`. |
 | Rückbau bei fehlgeschlagener Kontozuweisung | Scheitert `sc.exe config obj=`, entfernt `install-service.ps1` den soeben angelegten Dienst wieder bzw. nimmt einem vorhandenen den Autostart. Dieser Fehlerpfad ist nicht ausgelöst worden. | `sc.exe qc oHRganize` nach einem Abbruch: Der Dienst darf entweder nicht existieren oder nicht auf `AUTO_START` stehen. |
 | Umzug einer Einzelplatz-Installation (Abschnitt 8) | Der Weg ist aus dem Verhalten der App abgeleitet (kein WAL-Checkpoint beim Beenden), aber nicht mit einem echten gewachsenen Datenbestand durchgespielt. | Vor dem Umzug eine Kopie des Arbeitsplatz-Verzeichnisses beiseitelegen und den Serverstand gegen den bekannten Datenbestand prüfen (Anzahl Mitarbeitende, jüngster Antrag). |
+| Fassung mit Verschlüsselung über die Skripte | `setup-server.ps1`, `update-server.ps1` und die Sicherungsaufgabe sind mit einem Archiv dieser Fassung nicht erneut durchgespielt. `update-server.ps1` ist geändert (Migrations-Probelauf mit `NODE_PATH`, Warten auf den ersten Start über `Wait-ForStart` mit gemessener Zeit und Absturzerkennung) und nur auf Syntax geprüft; die übrigen Skripte sind unverändert und ihre Schritte einzeln geprüft (Eintrag vom 04.10.2026 oben). | Einmal `setup-server.ps1` in ein leeres Verzeichnis, danach `update-server.ps1` auf einen Stand mit Klartextbestand; in `backend.log` die Zeile zur Umstellung, im Sicherungsordner `data.key`. |

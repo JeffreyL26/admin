@@ -6,10 +6,19 @@ import { Transform, type Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { permits, type AdminArea } from '@ohrganize/shared';
 import { config } from '../config.js';
-import { getDb, inTransaction } from '../db/db.js';
+import { dataKey, getDb, inTransaction, isDatabaseEncrypted } from '../db/db.js';
 import { audit } from './audit.js';
 import { permissionsFor } from './permissions.js';
 import { AppError, badRequest, forbidden, notFound, unauthorized } from './errors.js';
+import {
+  STORAGE_CONVERSION_DIR,
+  UPLOAD_IN_FLIGHT_MS,
+  encryptBlobInPlace,
+  encryptBuffer,
+  encryptingStream,
+  openBlob,
+  storageKeyFrom,
+} from './fileCrypto.js';
 
 export interface FileRecord {
   id: number;
@@ -65,6 +74,154 @@ const FILE_AREAS_SQL = FILE_REFERENCES.map(
 const FILE_REFERENCED_SQL = `${FILE_REFERENCES.map(
   ([table, column]) => `SELECT 1 AS referenced FROM ${table} WHERE ${column} = @file_id`,
 ).join('\n       UNION ALL ')}\n       LIMIT 1`;
+
+let storageKeyCache: { hex: string; key: Buffer } | null = null;
+
+/**
+ * Schlüssel der Dateiablage zum LESEN (core/fileCrypto.ts), abgeleitet aus
+ * data.key. `null`, solange das Datenverzeichnis keinen Schlüssel hat.
+ * openBlob ruft das nur für verschlüsselte Dateien auf; ein Klartext-
+ * Altbestand bleibt damit lesbar, auch wenn data.key unbrauchbar ist.
+ */
+function readStorageKey(): Buffer | null {
+  const key = dataKey();
+  if (!key) return null;
+  if (storageKeyCache?.hex !== key.hex) {
+    storageKeyCache = { hex: key.hex, key: storageKeyFrom(key.hex) };
+  }
+  return storageKeyCache.key;
+}
+
+/**
+ * Schlüssel zum SCHREIBEN: nur, wenn die Datenbank selbst verschlüsselt ist.
+ * Solange sie im Klartext liegt, entstehen auch keine verschlüsselten Dateien;
+ * sonst stünde nach einem Zurück auf eine ältere Fassung eine lesbare
+ * Datenbank neben Dateien, die diese Fassung nicht öffnen kann.
+ */
+function writeStorageKey(): Buffer | null {
+  return isDatabaseEncrypted() ? readStorageKey() : null;
+}
+
+/**
+ * Fingerabdruck einer Datei in storage/: Datei-ID (Inode bzw. NTFS-Dateinummer),
+ * Grösse und mtime in Nanosekunden. Wird eine Datei ersetzt, zurückgelegt oder
+ * überschrieben, ändert sich mindestens einer der Werte, auch wenn das
+ * Kopieren alle Zeitstempel erhält (Windows behält beim Kopieren sogar die
+ * ctime der Quelle, gemessen; cp -a die mtime).
+ */
+function fingerprintOf(stat: fs.BigIntStats): string {
+  return `${stat.ino}:${stat.size}:${stat.mtimeNs}`;
+}
+
+/**
+ * Stellt Klartextdateien in storage/ auf das verschlüsselte Format um
+ * (Bestand aus der Zeit vor der Verschlüsselung). Läuft nach dem Start im
+ * Hintergrund, Datei für Datei, und ist wiederholbar: Was schon verschlüsselt
+ * ist, bleibt liegen; was scheitert (auf Windows etwa eine gerade geöffnete
+ * Datei), kommt beim nächsten Start wieder dran.
+ *
+ * Nur bei verschlüsselter Datenbank (writeStorageKey): Dann startet eine
+ * ältere Fassung ohnehin nicht mehr, ohne dass jemand die Sicherung von vor
+ * dem Update zurückspielt, und die enthält storage/ im Klartext
+ * (deploy/ohrganize-update.sh tut das selbst; unter Windows ist es der
+ * dokumentierte Restore in deploy/windows/README.md).
+ *
+ * Halb geschriebene Uploads trifft die Umstellung nicht: Jede Datei, die nach
+ * dem Start entsteht, stammt aus diesem Prozess und ist schon verschlüsselt;
+ * solange sie geschrieben wird, gilt sie als abgeschnitten (bleibt liegen)
+ * oder ist noch leer. Leere Dateien, die jünger sind als UPLOAD_IN_FLIGHT_MS,
+ * überspringt der Lauf deshalb ohne Eintrag: Als Klartext umgestellt, träte
+ * ein leerer Blob an die Stelle des Uploads, der gerade hineinschreibt.
+ *
+ * Dateien der ersten Fassung des Formats (ein Prüfwert am Ende) schreibt der
+ * Lauf ebenfalls um, auf Fassung 2.
+ *
+ * Nur, was sich seit der letzten Prüfung geändert hat: Für jede geprüfte Datei
+ * steht ihr Fingerabdruck (fingerprintOf) in der Tabelle _storage_checked;
+ * stimmt er noch, kostet die Datei nur ein stat statt Öffnen und Lesen. Eine
+ * Zeitmarke (ctime, zweite Fassung) taugte dafür nicht: Windows erhält beim
+ * Kopieren die ctime der Quelle, ein Umbenennen des Verzeichnisses tut es
+ * überall, und eine zurückgelegte Klartextdatei blieb liegen. Gescheiterte
+ * Dateien bekommen keinen Eintrag und kommen beim nächsten Start wieder dran,
+ * ohne die übrigen aufzuhalten. Die Tabelle steht in der Datenbank, damit sie
+ * mit ihr zurückgespielt wird. Geschrieben wird nur, was sich geändert hat:
+ * Nach der Umstellung ändert ein Start dort in aller Regel nichts.
+ */
+export async function encryptStoredFiles(): Promise<{ encrypted: number; failed: number }> {
+  const result = { encrypted: 0, failed: 0 };
+  const key = writeStorageKey();
+  if (!key || !fs.existsSync(config.storageDir)) return result;
+  const db = getDb();
+  db.exec('CREATE TABLE IF NOT EXISTS _storage_checked (name TEXT PRIMARY KEY, fingerprint TEXT NOT NULL)');
+  const known = new Map(
+    (db.prepare('SELECT name, fingerprint FROM _storage_checked').all() as { name: string; fingerprint: string }[]).map(
+      (r) => [r.name, r.fingerprint],
+    ),
+  );
+  const checked = new Map<string, string>();
+  const tmpDir = path.join(config.storageDir, STORAGE_CONVERSION_DIR);
+  // Reste eines abgebrochenen Laufs: Die Originale in storage/ sind unverändert.
+  // Hält Windows eine Restdatei noch fest (Virenscanner), betrifft das nur die
+  // Datei gleichen Namens (deren Zwischendatei sich dann nicht anlegen lässt),
+  // nicht den ganzen Lauf.
+  try {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch {
+    // siehe oben
+  }
+  fs.mkdirSync(tmpDir, { recursive: true, mode: 0o700 });
+  // Die Ereignisschleife freigeben: Der Dienst beantwortet währenddessen
+  // Anfragen. Die Umstellung selbst wartet je Abschnitt auf das Dateisystem;
+  // übersprungene Dateien kosten ein stat, dazwischen alle paar hundert eine Pause.
+  const breather = () => new Promise<void>((resolve) => setImmediate(resolve));
+  try {
+    let skipped = 0;
+    for (const entry of fs.readdirSync(config.storageDir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const file = path.join(config.storageDir, entry.name);
+      try {
+        const stat = fs.statSync(file, { bigint: true });
+        const before = fingerprintOf(stat);
+        if (known.get(entry.name) === before) {
+          checked.set(entry.name, before);
+          if (++skipped % 500 === 0) await breather();
+          continue;
+        }
+        if (stat.size === 0n && Date.now() - Number(stat.mtimeMs) < UPLOAD_IN_FLIGHT_MS) continue;
+        if (await encryptBlobInPlace(file, key, tmpDir)) result.encrypted++;
+        checked.set(entry.name, fingerprintOf(fs.statSync(file, { bigint: true })));
+      } catch (err) {
+        // Inzwischen gelöscht (deleteFileIfUnreferenced): nichts mehr umzustellen.
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') result.failed++;
+      }
+      await breather();
+    }
+  } finally {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      // Windows hält gelegentlich noch ein Handle; der nächste Lauf räumt auf.
+    }
+  }
+  // Nur nach einem vollständigen Durchgang (ein Abbruch kommt hier nicht an).
+  // Einträge fallen weg für gelöschte, gescheiterte und übersprungene
+  // Dateien; neu oder geändert geschrieben wird nur ein abweichender
+  // Fingerabdruck. Nicht über getDb(): Beim Beenden ist die Verbindung
+  // womöglich schon zu, und getDb() öffnete sie neu.
+  const forgotten = [...known.keys()].filter((name) => !checked.has(name));
+  const changed = [...checked].filter(([name, fingerprint]) => known.get(name) !== fingerprint);
+  if (db.open && (forgotten.length > 0 || changed.length > 0)) {
+    db.transaction(() => {
+      const forget = db.prepare('DELETE FROM _storage_checked WHERE name = ?');
+      for (const name of forgotten) forget.run(name);
+      const remember = db.prepare(
+        'INSERT INTO _storage_checked (name, fingerprint) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET fingerprint = excluded.fingerprint',
+      );
+      for (const [name, fingerprint] of changed) remember.run(name, fingerprint);
+    })();
+  }
+  return result;
+}
 
 /**
  * Dateiendung für den Namen im Storage. Nur Buchstaben und Ziffern, sonst leer.
@@ -159,7 +316,10 @@ export function storeFile(
   // AU-Bescheinigungen. Auf einem Mehrbenutzer-Server darf sie außer dem
   // Dienstkonto niemand lesen. (Wirkt nur beim Neuanlegen — Bestandsdateien
   // repariert der chmod-Lauf beim Start, siehe config.ts.)
-  fs.writeFileSync(target, buffer, { mode: 0o600 });
+  // Auf der Platte liegt das Chiffrat; size_bytes und sha256 beschreiben
+  // weiterhin den Klartext, so wie ihn der Download ausliefert.
+  const key = writeStorageKey();
+  fs.writeFileSync(target, key ? encryptBuffer(key, buffer) : buffer, { mode: 0o600 });
   // Durchschreiben, BEVOR insertFileRow den Datensatz anlegt (siehe syncToDisk).
   syncToDisk(target);
   return insertFileRow(originalName, storedName, mimeType, buffer.length, sha256, uploadedBy);
@@ -193,13 +353,19 @@ export async function storeFileStream(
     },
   });
 
+  // Schlüssel VOR dem Anlegen der Zieldatei: Scheitert er (unbrauchbare
+  // data.key), darf keine leere Datei im Storage zurückbleiben.
+  const key = writeStorageKey();
+
   // 'wx' statt 'w': Eine vorhandene Datei wird nie überschrieben (die UUID
   // sollte kollisionsfrei sein — falls doch nicht, ist ein Fehler besser als
   // ein zerstörter Bestand). mode 0o600 wie in storeFile.
   const out = fs.createWriteStream(target, { flags: 'wx', mode: 0o600 });
 
   try {
-    await pipeline(source, meter, out);
+    // Prüfsumme und Größe messen den Klartext, verschlüsselt wird dahinter.
+    if (key) await pipeline(source, meter, encryptingStream(key), out);
+    else await pipeline(source, meter, out);
     // Erst durchschreiben, dann den Datensatz anlegen (siehe syncToDisk).
     // Schlägt der fsync fehl, ist die Datei nicht verlässlich gespeichert —
     // dann soll der Upload scheitern, statt eine Zeile ohne Inhalt zu
@@ -424,7 +590,17 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     }
     const record = getFileRecord(id);
     const filePath = path.join(config.storageDir, record.stored_name);
-    if (!fs.existsSync(filePath)) throw notFound('Dateiinhalt fehlt im Storage');
+    // Öffnen und (bei verschlüsselten Dateien) prüfen, BEVOR eine Kopfzeile
+    // gesetzt ist: Scheitert es, geht eine Fehlerantwort im einheitlichen
+    // Schema hinaus und kein "Anhang", den der Browser unter dem Dateinamen
+    // speichert.
+    let body: Readable;
+    try {
+      body = await openBlob(filePath, readStorageKey);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') throw notFound('Dateiinhalt fehlt im Storage');
+      throw err;
+    }
     reply
       .header('Content-Type', plausibleMimeType(record.mime_type))
       // nosniff gehört an die Route selbst, nicht nur in die Proxy-Konfigs
@@ -440,6 +616,8 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
         'Content-Disposition',
         `attachment; filename*=UTF-8''${encodeURIComponent(record.original_name)}`,
       );
-    return reply.send(fs.createReadStream(filePath));
+    // Entschlüsselt beim Ausliefern; Bestand aus der Zeit vor der
+    // Verschlüsselung geht unverändert hinaus (core/fileCrypto.ts).
+    return reply.send(body);
   });
 }
