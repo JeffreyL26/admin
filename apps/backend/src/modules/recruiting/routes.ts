@@ -722,7 +722,22 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
         'Diese Person wurde über eine Bewerbung eingestellt. Der Talentpool-Eintrag bleibt als Nachweis erhalten.',
       );
     }
+    // Foto und Lebenslaeufe VOR dem DELETE einsammeln: Die Bewerbungen fallen
+    // per CASCADE mit der Person, danach weiss niemand mehr, welche Dateien
+    // dazugehoerten (Art. 17 DSGVO: sonst bleiben sie im Storage und in jeder
+    // Sicherung).
+    const fileIds = [
+      candidate.photo_file_id,
+      ...(
+        getDb()
+          .prepare('SELECT cv_file_id FROM applications WHERE candidate_id = ? AND cv_file_id IS NOT NULL')
+          .all(id) as { cv_file_id: number }[]
+      ).map((r) => r.cv_file_id),
+    ].filter((fileId): fileId is number => typeof fileId === 'number');
     getDb().prepare('DELETE FROM candidates WHERE id = ?').run(id);
+    // Erst NACH dem DELETE: Vorher hielte die Referenzpruefung jede Datei fuer
+    // weiter gebraucht.
+    for (const fileId of new Set(fileIds)) deleteFileIfUnreferenced(fileId);
     audit(req, 'delete', 'candidate', id, {
       name: `${candidate.first_name} ${candidate.last_name}`,
     });

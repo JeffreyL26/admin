@@ -8,6 +8,7 @@ import { permits, type AdminArea } from '@ohrganize/shared';
 import { config } from '../config.js';
 import { dataKey, getDb, inTransaction, isDatabaseEncrypted } from '../db/db.js';
 import { audit } from './audit.js';
+import { errorText } from './errorText.js';
 import { permissionsFor } from './permissions.js';
 import { AppError, badRequest, forbidden, notFound, unauthorized } from './errors.js';
 import {
@@ -147,8 +148,10 @@ function fingerprintOf(stat: fs.BigIntStats): string {
  * mit ihr zurückgespielt wird. Geschrieben wird nur, was sich geändert hat:
  * Nach der Umstellung ändert ein Start dort in aller Regel nichts.
  */
-export async function encryptStoredFiles(): Promise<{ encrypted: number; failed: number }> {
-  const result = { encrypted: 0, failed: 0 };
+export async function encryptStoredFiles(): Promise<{ encrypted: number; failed: number; failures: string[] }> {
+  // `failures`: je gescheiterter Datei "Name: Grund", damit der Betreiber im
+  // Journal sieht, welche Datei auf der Platte noch im Klartext liegt und warum.
+  const result = { encrypted: 0, failed: 0, failures: [] as string[] };
   const key = writeStorageKey();
   if (!key || !fs.existsSync(config.storageDir)) return result;
   const db = getDb();
@@ -192,7 +195,10 @@ export async function encryptStoredFiles(): Promise<{ encrypted: number; failed:
         checked.set(entry.name, fingerprintOf(fs.statSync(file, { bigint: true })));
       } catch (err) {
         // Inzwischen gelöscht (deleteFileIfUnreferenced): nichts mehr umzustellen.
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') result.failed++;
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          result.failed++;
+          result.failures.push(`${entry.name}: ${errorText(err)}`);
+        }
       }
       await breather();
     }
@@ -409,6 +415,22 @@ export function getFileRecord(id: number): FileRecord {
 }
 
 /**
+ * Für Ersetzen und Entfernen einer Datei an einem Datensatz: wie
+ * deleteFileIfUnreferenced, liefert aber, WAS entfernt wurde, damit der
+ * Audit-Eintrag der Änderung die Datei nennt (das Ersetzen löscht die alte
+ * Datei endgültig; ohne Spur wüsste später niemand, was an der Stelle lag).
+ * Bewusst nur ID und Prüfsumme, nicht der Dateiname: Namen wie
+ * `AU_Mueller_Rueckenleiden.pdf` sind selbst Gesundheitsdaten und blieben im
+ * Audit-Log stehen, nachdem die Datei gelöscht ist.
+ * `null`, wenn nichts entfernt wurde (nirgends sonst verknüpft heisst: weg).
+ */
+export function removeReplacedFile(fileId: number): { id: number; sha256: string } | null {
+  const row = getDb().prepare('SELECT sha256 FROM files WHERE id = ?').get(fileId) as { sha256: string } | undefined;
+  if (!row || !deleteFileIfUnreferenced(fileId)) return null;
+  return { id: fileId, sha256: row.sha256 };
+}
+
+/**
  * Löscht Datensatz und Blob — aber nur, wenn keine Fachtabelle mehr auf die
  * Datei zeigt. Rückgabe: `true`, wenn tatsächlich gelöscht wurde.
  *
@@ -416,6 +438,12 @@ export function getFileRecord(id: number): FileRecord {
  * Erst die eigene Zeile löschen, dann diese Funktion mit der `file_id` rufen.
  * Ohne sie bleibt „Gelöschtes" über eine signierte URL abrufbar — DSGVO
  * Art. 17 wäre damit nur vorgetäuscht.
+ *
+ * Wirft nach dem Commit nicht mehr: Scheitert das Entfernen des Blobs (unter
+ * Windows hält ein Virenscanner die Datei fest), bleibt unerreichbarer Müll
+ * zurück, aber der Aufrufer, der gerade seine Zeile gelöscht hat, soll danach
+ * noch auditieren und antworten können; ein Fehler dort liesse die Löschung
+ * ohne Protokolleintrag und beim zweiten Versuch mit 404 stehen.
  */
 export function deleteFileIfUnreferenced(fileId: number): boolean {
   // Referenzprüfung und DELETE gehören in dieselbe Transaktion, sonst kann
@@ -438,7 +466,11 @@ export function deleteFileIfUnreferenced(fileId: number): boolean {
   // Der Blob wird bewusst ERST NACH dem Commit entfernt: Ein übrig gebliebener
   // Blob ohne Datensatz ist unerreichbarer Müll, ein Datensatz ohne Blob ist
   // ein Fehler vor den Augen der Nutzer („Dateiinhalt fehlt im Storage").
-  fs.rmSync(path.join(config.storageDir, storedName), { force: true });
+  try {
+    fs.rmSync(path.join(config.storageDir, storedName), { force: true });
+  } catch {
+    // Siehe oben: Müll ohne Datensatz, nicht erreichbar.
+  }
   return true;
 }
 

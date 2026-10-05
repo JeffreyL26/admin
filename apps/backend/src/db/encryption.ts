@@ -120,6 +120,12 @@ export function createDataKey(dataDir: string): DataKey {
     }
     try {
       fs.linkSync(tmp, file);
+      removeQuietly(tmp);
+      // Der Eintrag muss durchgeschrieben sein, BEVOR die Umstellung den Bestand
+      // mit diesem Schlüssel verschlüsselt: Ein Stromausfall danach liesse sonst
+      // einen verschlüsselten Bestand ohne data.key zurück (siehe auch den
+      // Aufräumschritt in config.ts#hardenDataPermissions).
+      fsyncDirectory(dataDir);
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
       if (code === 'EEXIST') return existingKey(err);
@@ -138,9 +144,12 @@ export function createDataKey(dataDir: string): DataKey {
       } finally {
         fs.closeSync(fd);
       }
+      fsyncDirectory(dataDir);
     }
   } finally {
-    fs.rmSync(tmp, { force: true });
+    // Ein Rest ist unschädlich (config.ts räumt ihn auf); er darf einen schon
+    // eingehängten Schlüssel nicht zum Fehler machen.
+    removeQuietly(tmp);
   }
   return { hex, file, external: false };
 }
@@ -354,15 +363,42 @@ export function settledDatabaseState(file: string, dataDir: string = path.dirnam
   return databaseState(file);
 }
 
-/** Setzt Verfahren und Schlüssel auf einer frisch geöffneten Verbindung. */
-function applyKey(db: Database.Database, hex: string, verb: 'key' | 'rekey' = 'key'): void {
-  const cipher = db.pragma("cipher = 'sqlcipher'");
-  if (!Array.isArray(cipher) || cipher.length === 0) {
-    db.close();
-    throw new Error(
+/**
+ * Das installierte SQLite-Modul kann nicht verschlüsseln (ein gleichnamiges
+ * Fremdmodul, etwa nach `npm install` statt `npm ci`). Der Dienst startet dann
+ * nicht, auch nicht auf einem Klartextbestand: Er liesse sonst Datenbank und
+ * neue Dateien still unverschlüsselt.
+ */
+export class CipherUnavailableError extends Error {
+  constructor() {
+    super(
       'Das installierte SQLite-Modul kann nicht verschlüsseln. Erwartet wird better-sqlite3-multiple-ciphers ' +
         'unter dem Namen better-sqlite3 (npm-Alias in package.json). Bitte "npm ci" im Programmverzeichnis ausführen.',
     );
+    this.name = 'CipherUnavailableError';
+  }
+}
+
+function cipherAvailable(db: Database.Database): boolean {
+  const cipher = db.pragma("cipher = 'sqlcipher'");
+  return Array.isArray(cipher) && cipher.length > 0;
+}
+
+/** Wirft CipherUnavailableError, bevor eine Umstellung Schlüssel oder Vermerk anlegt. */
+function assertCipherAvailable(): void {
+  const probe = new Database(':memory:');
+  try {
+    if (!cipherAvailable(probe)) throw new CipherUnavailableError();
+  } finally {
+    probe.close();
+  }
+}
+
+/** Setzt Verfahren und Schlüssel auf einer frisch geöffneten Verbindung. */
+function applyKey(db: Database.Database, hex: string, verb: 'key' | 'rekey' = 'key'): void {
+  if (!cipherAvailable(db)) {
+    db.close();
+    throw new CipherUnavailableError();
   }
   db.pragma('legacy = 4');
   // hex ist auf [0-9a-f]{64} geprüft (parseKey bzw. randomBytes).
@@ -521,10 +557,15 @@ function writeDurably(file: string, text: string): void {
   } finally {
     fs.closeSync(fd);
   }
+  fsyncDirectory(path.dirname(file));
+}
+
+/** Schreibt die Einträge eines Verzeichnisses durch (POSIX); NTFS schreibt sie mit der Datei. */
+function fsyncDirectory(dir: string): void {
   if (process.platform === 'win32') return;
   let dirFd: number | null = null;
   try {
-    dirFd = fs.openSync(path.dirname(file), 'r');
+    dirFd = fs.openSync(dir, 'r');
     fs.fsyncSync(dirFd);
   } catch {
     // Manche Dateisysteme kennen kein fsync auf Verzeichnissen; die Datei selbst ist durchgeschrieben.
@@ -537,7 +578,7 @@ function removeQuietly(file: string): void {
   try {
     fs.rmSync(file, { force: true });
   } catch {
-    // Wer ihn findet, entscheidet neu (convertDatabaseAtRest).
+    // Bleibt die Datei liegen, entscheidet, wer sie findet (Vermerk: convertDatabaseAtRest; Zwischendatei: config.ts).
   }
 }
 
@@ -724,6 +765,7 @@ export function encryptDatabaseFile(
   mark?: string,
   options: ConversionOptions = {},
 ): DataKey {
+  assertCipherAvailable();
   rollBackHotJournal(file, dataDir);
   const conn = configureConnection(new Database(file, { fileMustExist: true }), dataDir, false);
   try {
@@ -740,6 +782,14 @@ export function encryptDatabaseFile(
     conn.pragma('locking_mode = EXCLUSIVE');
     conn.pragma(`busy_timeout = ${Math.max(0, deadline - Date.now())}`);
     conn.exec('BEGIN EXCLUSIVE; COMMIT');
+    // Zwischen dem Wechsel nach DELETE und der Sperre hielt diese Verbindung
+    // keine: Ein anderer Prozess (die Sicherung öffnet über getDb() im
+    // WAL-Modus) konnte die Datei dort zurück in den WAL-Modus stellen, und das
+    // Umschlüsseln landete im -wal. Jetzt gehört die Datei dieser Verbindung;
+    // der Modus wird unter der Sperre erneut gesetzt und geprüft.
+    if (conn.pragma('journal_mode = DELETE', { simple: true }) !== 'delete') {
+      throw new Error('Die Datenbank liess sich nicht auf den Journalmodus DELETE stellen.');
+    }
 
     // Ab hier gehört die Datei dieser Verbindung.
     if (mark) writeDurably(mark, `${new Date().toISOString()}\nUmstellung auf Verschlüsselung begonnen, Prüfung steht aus.\n`);

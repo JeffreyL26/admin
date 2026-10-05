@@ -324,10 +324,40 @@ try {
   Write-Step 'Sicherung vor dem Update'
   $task = Get-ScheduledTask -TaskName 'oHRganize-Sicherung' -ErrorAction SilentlyContinue
   if ($task) {
-    Start-ScheduledTask -TaskName 'oHRganize-Sicherung'
-    # Die Aufgabe laeuft asynchron; auf ihr Ende warten, sonst sichert sie
-    # gegen eine Datenbank, die gleich ersetzt wird.
-    while ((Get-ScheduledTask -TaskName 'oHRganize-Sicherung').State -eq 'Running') { Start-Sleep -Seconds 2 }
+    $taskName = 'oHRganize-Sicherung'
+    $vorher = (Get-ScheduledTaskInfo -TaskName $taskName).LastRunTime
+    # Eine Aufgabe, die noch nie lief, meldet unter Umstaenden keine Zeit.
+    if (-not $vorher) { $vorher = [datetime]::MinValue }
+    Start-ScheduledTask -TaskName $taskName
+    # Die Aufgabe laeuft asynchron, und ihr Zustand springt erst nach einem
+    # Moment von Ready auf Running. Gewartet wird deshalb auf das Ende eines
+    # NEUEN Laufs (Zustand Running gesehen oder LastRunTime weitergerueckt);
+    # sonst endet die Schleife vor dem Start, und die Sicherung liefe gegen eine
+    # Datenbank, die gleich ersetzt wird.
+    $ende = (Get-Date).AddMinutes(30)
+    $gelaufen = $false
+    while ($true) {
+      $zustand = (Get-ScheduledTask -TaskName $taskName).State
+      if ($zustand -eq 'Running') {
+        $gelaufen = $true
+      } else {
+        $info = Get-ScheduledTaskInfo -TaskName $taskName
+        # 267009 (laeuft) und 267011 (noch nicht gelaufen) sind kein Ergebnis:
+        # weiter warten, statt einen Lauf, der gleich beginnt, als gescheitert zu melden.
+        if (($gelaufen -or $info.LastRunTime -gt $vorher) -and $info.LastTaskResult -notin 267009, 267011) { break }
+      }
+      if ((Get-Date) -gt $ende) {
+        throw 'Die Sicherung vor dem Update ist nach 30 Minuten nicht fertig. Es wurde nichts veraendert.'
+      }
+      Start-Sleep -Seconds 2
+    }
+    # Der Dienst wird erst angehalten, wenn die Sicherung gelungen ist: Die erste
+    # Anlaufphase der neuen Fassung stellt die Datenbank einseitig um, ohne
+    # Sicherung gaebe es aus einer misslungenen Umstellung keinen Rueckweg.
+    $ergebnis = (Get-ScheduledTaskInfo -TaskName $taskName).LastTaskResult
+    if ($ergebnis -ne 0) {
+      throw ("Die Sicherung vor dem Update ist fehlgeschlagen (Ergebnis 0x{0:X}). Es wurde nichts veraendert; Ursache im Sicherungslog suchen." -f $ergebnis)
+    }
     Write-Note 'Sicherung abgeschlossen (Zielordner siehe Aufgabendefinition).'
   } else {
     Write-Warn 'Die geplante Aufgabe oHRganize-Sicherung gibt es nicht. Ohne Sicherung gibt es keinen Rueckweg aus einer Migration.'
@@ -353,9 +383,11 @@ try {
   Write-Step 'better-sqlite3 laedt'
   # Ein blosses require() laedt die native Bindung noch nicht; erst `new` zeigt,
   # ob sie da ist.
-  $probe = Invoke-Native -File 'node' -Arguments @('-e', "new (require('better-sqlite3'))(':memory:')") -WorkDir $InstallDir
+  # Dazu die Probe auf Verschluesselung: Ein gleichnamiges Fremdmodul laedt auch,
+  # kann aber nicht verschluesseln, und der Dienst liefe dann im Klartext.
+  $probe = Invoke-Native -File 'node' -Arguments @('-e', "const D=require('better-sqlite3'); if(!new D(':memory:').pragma('cipher').length){throw new Error('Das Modul kann nicht verschluesseln')}") -WorkDir $InstallDir
   if ($probe.Code -ne 0) {
-    throw "better-sqlite3 laedt nicht. Build-Werkzeuge fehlen? Siehe deploy/windows/README.md, Abschnitt 1.`n$($probe.Output)"
+    throw "better-sqlite3 laedt nicht oder kann nicht verschluesseln. Build-Werkzeuge fehlen oder falsches Modul? Siehe deploy/windows/README.md, Abschnitt 1.`n$($probe.Output)"
   }
 
   Write-Step "Portal nach $WebDir kopieren"

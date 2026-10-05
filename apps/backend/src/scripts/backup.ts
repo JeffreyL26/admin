@@ -393,7 +393,7 @@ async function main(): Promise<void> {
     const hasSecret = !keyOutside && fs.existsSync(secretSource);
     if (keyOutside) {
       log('secret.key bleibt draußen (der Schlüssel liegt außerhalb des Datenverzeichnisses).');
-    } else if (fs.existsSync(secretSource)) {
+    } else if (hasSecret) {
       const secretTarget = path.join(tmpDir, 'secret.key');
       fs.copyFileSync(secretSource, secretTarget);
       fs.chmodSync(secretTarget, 0o600);
@@ -456,7 +456,8 @@ async function main(): Promise<void> {
                     '                (Umstellung beim Start gescheitert oder noch nicht gelaufen).',
                   ]),
             ]),
-      ...(keyOutside ? [] : ['  secret.key    JWT-/Signatur-Secret']),
+      // Nur, was die Sicherung enthält: Fehlt secret.key, wurde es nicht kopiert.
+      ...(hasSecret ? ['  secret.key    JWT-/Signatur-Secret'] : []),
       hasLicense
         ? `  ${licenseName}  Signierte Lizenzdatei (ohne sie: Nur-Lese-Betrieb nach dem Restore)`
         : `  (keine ${licenseName} vorhanden — Testphase oder noch nicht eingespielt)`,

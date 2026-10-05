@@ -600,8 +600,21 @@ async function startBackend(): Promise<string> {
   const { startServer } = require(path.join(__dirname, 'server.cjs')) as {
     startServer: (port?: number) => Promise<{ port: number }>;
   };
-  const { port } = await startServer(0);
-  return `http://127.0.0.1:${port}`;
+  try {
+    const { port } = await startServer(0);
+    return `http://127.0.0.1:${port}`;
+  } catch (err) {
+    // Mit der Verschlüsselung im Ruhezustand sind Startabbrüche Zustände, die ein
+    // Satz erklärt (Schlüssel fehlt oder passt nicht, Prüfung nach der Umstellung
+    // gescheitert, SQLite-Modul kann nicht verschlüsseln). Der Dialog soll nur
+    // diesen Satz zeigen, nicht einen Stacktrace aus dem Bundle; der Stack geht
+    // ins Log. Programmierfehler behalten ihren Stack.
+    console.error('[oHRganize] Das Backend ist nicht gestartet:', err);
+    const programmingError =
+      err instanceof TypeError || err instanceof ReferenceError || err instanceof RangeError || err instanceof SyntaxError;
+    if (err instanceof Error && !programmingError) throw new StartupError(err.message);
+    throw err;
+  }
 }
 
 async function createWindow(apiBaseUrl: string): Promise<void> {

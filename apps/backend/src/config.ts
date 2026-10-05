@@ -93,10 +93,13 @@ export function hardenDataPermissions(): void {
   // Klartext und überlebten sonst auch einen späteren Umzug nach aussen. Nur
   // ältere als zehn Minuten: Diese Funktion läuft in JEDEM Prozess, der
   // config.ts lädt (auch in der Sicherung), und eine frische Datei kann die
-  // gerade entstehende eines anderen Prozesses sein.
+  // gerade entstehende eines anderen Prozesses sein. Und nur, solange data.key
+  // selbst steht: Fehlt es nach einem Stromausfall, kann die Zwischendatei die
+  // einzige Kopie des Schlüssels sein (sie bleibt dann für den Betreiber liegen).
   try {
     const cutoff = Date.now() - 10 * 60_000;
-    for (const name of fs.readdirSync(dataDir)) {
+    const names = fs.existsSync(dataKeyPath) ? fs.readdirSync(dataDir) : [];
+    for (const name of names) {
       if (!name.startsWith(`${DATA_KEY_FILE}.`) || !name.endsWith('.neu')) continue;
       const leftover = path.join(dataDir, name);
       if (fs.statSync(leftover).mtimeMs < cutoff) fs.rmSync(leftover, { force: true });

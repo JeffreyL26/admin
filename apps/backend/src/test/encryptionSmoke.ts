@@ -291,6 +291,8 @@ check(
   check(
     'Dauerhaft scheiternde Datei: ohne Eintrag, bei jedem Lauf erneut versucht, die übrigen bleiben vermerkt',
     firstFail.failed === 1 &&
+      firstFail.failures.length === 1 &&
+      firstFail.failures[0].startsWith('dauerhaft-kaputt: ') &&
       secondFail.failed === 1 &&
       secondFail.encrypted === 0 &&
       !checkedNames().includes('dauerhaft-kaputt') &&
@@ -409,6 +411,28 @@ const storageKey = storageKeyFrom(fs.readFileSync(keyFile, 'utf8').trim());
     fs.writeFileSync(shortFile, whole.subarray(0, 20));
     return blobKind(shortFile) === 'damaged';
   })());
+  // Dieselbe Kennung, aber eine Fassung, die dieser Stand nicht kennt (neuere
+  // Programmfassung nach einem Zurück, gekipptes Bit im letzten Kennungsbyte):
+  // kein Klartext. Nicht ausliefern, nicht umstellen (sonst ein zweites Mal
+  // verpackt), Datei unverändert.
+  const unknownVersion = path.join(blobDir, 'unbekannte-fassung');
+  const unknownBytes = Buffer.concat([Buffer.from('OHRGENC\x03', 'latin1'), crypto.randomBytes(4096)]);
+  fs.writeFileSync(unknownVersion, unknownBytes);
+  let unknownError: unknown = null;
+  try {
+    await openBlob(unknownVersion, () => storageKey);
+  } catch (err) {
+    unknownError = err;
+  }
+  const unknownConverted = await encryptBlobInPlace(unknownVersion, storageKey, blobTmp);
+  check(
+    'Abschnitte: unbekannte Fassung der Kennung gilt als beschädigt, wird nicht ausgeliefert und nicht umgestellt',
+    blobKind(unknownVersion) === 'damaged' &&
+      unknownError instanceof BlobIntegrityError &&
+      unknownConverted === false &&
+      fs.readFileSync(unknownVersion).equals(unknownBytes),
+    String(unknownError),
+  );
 
   // Fassung 1 (ein Prüfwert am Ende) bleibt lesbar.
   const v1Plain = Buffer.from(`Fassung-1-Inhalt ${'v'.repeat(3000)}`);
@@ -1161,6 +1185,45 @@ for (const encrypted of [false, true]) {
     'Umfrage (1500 Antworten, viele Seiten): Lage verrät die Reihenfolge nicht (einen Index gibt es seit 503 nicht mehr)',
     stored === total && leaks.table[1] > 10 && leaks.table[0] <= 4 && leaks.index === null,
     { stored, leaks },
+  );
+}
+// Längere Antworten (Freitext, 2 bis 3 KB): Eine Seite fasst dann nur eine
+// Zeile, und jede Teilnahme hängt eine Seite am Dateiende an. Die
+// darf nicht an eine Zeile in der Nähe der neuen Antwort gehen, sonst ordnet
+// die Seitennummer die jüngsten Teilnehmer auf rund 21 Antworten ein (vor der
+// Änderung: 50 bis 75 Prozent Treffer gegen etwa 10 bei zufälliger Vergabe).
+{
+  const { allocationHits } = await import('./pageOrder.js');
+  const { storeAnonymousResponse } = await import('../modules/communication/surveyService.js');
+  const longDb = path.join(work, 'umfrage-lang.db');
+  const m = new Database(longDb);
+  m.pragma('secure_delete = ON');
+  m.pragma('journal_mode = MEMORY');
+  m.pragma('synchronous = OFF');
+  m.pragma('foreign_keys = OFF');
+  migrateAgain(m, { vacuum: false });
+  m.exec(
+    "INSERT INTO surveys (id, title, date_from, date_to, status) VALUES (9, 'Lang', '2026-01-01', '2026-12-31', 'laufend')",
+  );
+  const total = 400;
+  const trace: { id: number; pagesBefore: number; pagesAfter: number }[] = [];
+  const idOf = m.prepare('SELECT id FROM survey_responses WHERE answers LIKE ?').pluck();
+  for (let i = 1; i <= total; i++) {
+    const text = `teilnahme-${i} ${'Freitext '.repeat(230 + (i % 100))}`;
+    const pagesBefore = m.pragma('page_count', { simple: true }) as number;
+    m.transaction(() => storeAnonymousResponse(m, 9, JSON.stringify([{ question_id: 1, value: text }])))();
+    const pagesAfter = m.pragma('page_count', { simple: true }) as number;
+    trace.push({ id: idOf.get(`%teilnahme-${i} %`) as number, pagesBefore, pagesAfter });
+  }
+  // Nur die jüngsten Teilnahmen: Älteres hat sich durch spätere Umschreibungen
+  // verwischt (vor der Änderung: 52 bis 62 Prozent bei den letzten 60, 28 bis 32
+  // bei den 60 davor, 13 bis 16 weiter zurück).
+  const recent = allocationHits(m, longDb, trace.slice(-60));
+  m.close();
+  check(
+    'Umfrage (längere Antworten): die angehängte Seite verrät die jüngsten Teilnehmer nicht',
+    recent.total >= 40 && recent.hits / recent.total <= 0.3,
+    recent,
   );
 }
 

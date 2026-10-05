@@ -1238,7 +1238,10 @@ der Dienst laeuft wie bisher. Scheitert die Pruefung danach (nie beobachtet),
 startet der Dienst nicht, denn einen Klartextstand zum Weiterlaufen gibt es
 dann nicht mehr. Scheitert die Umstellung selbst, laeuft der Dienst
 unveraendert weiter (Verfuegbarkeit geht vor, der naechste Start versucht es
-erneut). Welcher der beiden Faelle vorliegt, entscheidet der Zustand der
+erneut). Ausnahme: Ein SQLite-Modul, das gar nicht verschluesseln kann
+(`CipherUnavailableError`, vor Schluessel und Vermerk geprueft), ist ein
+Startabbruch; Weiterlaufen hiesse, Datenbank und neue Dateien dauerhaft im
+Klartext zu halten, ohne dass es jemand sieht. Welcher der beiden Faelle vorliegt, entscheidet der Zustand der
 Datei danach, nicht die Art des Fehlers: Ob ein Fehler des Umschluesselns
 vor oder nach dessen Commit lag, sieht man ihm nicht an. Auf andere
 Verbindungen wartet die Umstellung hoechstens 10 s, fuer Journalmodus und
@@ -1448,8 +1451,25 @@ Bestandszahlen unveraendert).
   `secure_delete` fuer die geloeschten Zellen (`storeAnonymousResponse`):
   alle Zeilen, die mit ihr auf einer Tabellenseite liegen koennen, gesammelt
   nach ID zu beiden Seiten, bis eine Untergrenze der belegten Bytes eine Seite
-  uebersteigt. Die erste Fassung schrieb die ganze Umfrage neu, was mit der
-  Umfrage quadratisch wuchs; die zweite schrieb wegen des Index auf
+  uebersteigt. Bei grossen Antworten (ab einem Achtel Seite, 512 Byte) genuegt
+  das nicht: Dann haengt fast jede Teilnahme eine Seite am Dateiende an, und
+  die geht an eine Zeile der Nachbarschaft, also an eine mit aehnlicher ID
+  (gemessen bei 400 bis 800 Antworten zu 0,7 bis 2,5 KB: 60 bis 76 Prozent
+  Treffer gegen 5 bis 10 bei Zufall). Darum nimmt eine grosse Antwort eine
+  Stichprobe von 256 zufaelligen Antworten aus der ganzen Tabelle in das
+  gemischte Neuschreiben auf (`REWRITE_SAMPLE_ROWS`, eine Indexsuche je Zeile
+  ab einer zufaelligen ID; eine Tabelle bis 256 Zeilen wird ganz neu
+  geschrieben). Die angehaengte Seite gehoert dann einer beliebigen Zeile der
+  Stichprobe: Anonymitaetsmenge rund 256, Trefferquote wie bei Zufall
+  (nachgemessen bei 800 und 1200 Antworten). Die erste Fassung dieser Aenderung
+  schrieb die GANZE Tabelle neu: gleiche Wirkung, aber 41 ms bei 1 MiB, 135 ms
+  bei 2,4 MiB und 210 ms bei 3,6 MiB je Teilnahme (verschluesselt), im
+  Hauptprozess der Desktop-App; die Stichprobe kostet 35 bis 100 ms auch bei
+  3000 bis 6000 Antworten. Ein Neuaufbau der Tabelle in
+  Schluesselreihenfolge nach jeder Teilnahme genuegte nicht (18 Prozent in den
+  letzten 60 Teilnahmen, weiter ueber Zufall). Die erste Fassung schrieb bei
+  JEDER Teilnahme die ganze Umfrage neu, ohne Grenze, was mit der Umfrage
+  quadratisch wuchs; die zweite schrieb wegen des Index auf
   `survey_id` je Teilnahme rund 1000 volle Zeilen neu (gemessen bis 390 ms
   bei 2 KB je Antwort). Migration 503 entfernt den Index deshalb (die
   Auswertung liest die Tabelle ganz, bei dieser Groesse Millisekunden), legt

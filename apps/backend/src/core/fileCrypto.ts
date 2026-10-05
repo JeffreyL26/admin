@@ -37,6 +37,8 @@ import { readFullSync } from './fileRead.js';
 const MAGIC_V1 = Buffer.from('OHRGENC\x01', 'latin1');
 const MAGIC_V2 = Buffer.from('OHRGENC\x02', 'latin1');
 const MAGIC_BYTES = 8;
+/** Gemeinsamer Anfang beider Kennungen; das letzte Byte nennt die Fassung. */
+const MAGIC_PREFIX = MAGIC_V2.subarray(0, MAGIC_BYTES - 1);
 const TAG_BYTES = 16;
 const CIPHER = 'aes-256-gcm';
 
@@ -64,7 +66,8 @@ export const STORAGE_CONVERSION_DIR = '.umstellung';
 
 /**
  * Was in einer Datei der Dateiablage liegt. `damaged`: Kennung vorhanden,
- * aber die Grösse kann zu keiner vollständigen Datei gehören (abgeschnitten).
+ * aber die Grösse kann zu keiner vollständigen Datei gehören (abgeschnitten)
+ * oder die Fassung der Kennung ist unbekannt.
  * Die einzige Einordnung für Download, Umstellung, status.cjs und Sicherung.
  */
 export type BlobKind = 'plaintext' | 'v1' | 'v2' | 'damaged';
@@ -83,6 +86,12 @@ function classify(size: number, head: Buffer): BlobKind {
   const magic = head.subarray(0, MAGIC_BYTES);
   if (magic.equals(MAGIC_V1)) return size >= V1_HEADER_BYTES + TAG_BYTES ? 'v1' : 'damaged';
   if (magic.equals(MAGIC_V2)) return v2Layout(size) ? 'v2' : 'damaged';
+  // Dieselbe Kennung, aber eine Fassung, die dieser Stand nicht kennt (etwa
+  // eine neuere nach einem Zurück auf eine ältere Programmfassung, oder ein
+  // gekipptes Bit im letzten Kennungsbyte): keine Klartextdatei. Als Klartext
+  // lieferte der Download das Chiffrat mit 200 aus, und die Umstellung packte es
+  // ein zweites Mal ein.
+  if (magic.subarray(0, MAGIC_BYTES - 1).equals(MAGIC_PREFIX)) return 'damaged';
   return 'plaintext';
 }
 
@@ -420,7 +429,7 @@ export async function openBlob(file: string, keyFor: () => Buffer | null): Promi
     const head = Buffer.alloc(Math.min(size, HEAD_BYTES));
     const headRead = await readFully(handle, head, 0);
     const kind = classify(size, head.subarray(0, headRead));
-    if (kind === 'damaged') throw new BlobIntegrityError(file, 'zu kurz');
+    if (kind === 'damaged') throw new BlobIntegrityError(file, 'abgeschnitten oder unbekannte Fassung');
     if (kind === 'plaintext') {
       handedOver = true;
       return handle.createReadStream({ start: 0, autoClose: true });

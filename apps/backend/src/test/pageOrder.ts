@@ -45,6 +45,50 @@ function leafPages(raw: Buffer, pageSize: number, root: number): number[] {
   return leaves;
 }
 
+/**
+ * Misst, ob die Seite, die eine Teilnahme am Dateiende angehängt hat, eine Zeile
+ * in der Nähe der neuen Antwort trägt (höchstens 10 Plätze entfernt in der
+ * Schlüsselreihenfolge). Bei zufälliger Vergabe trifft das etwa 21 von n
+ * Antworten (`expected`); ein Leck der Teilnahmereihenfolge über die
+ * Seitenvergabe trifft die Mehrheit. `trace`: je Teilnahme die ID der neuen
+ * Antwort und die Seitenzahl der Datei davor und danach. Nur Klartextdatei.
+ */
+export function allocationHits(
+  db: Database.Database,
+  file: string,
+  trace: { id: number; pagesBefore: number; pagesAfter: number }[],
+): { hits: number; total: number; expected: number } {
+  const pageSize = db.pragma('page_size', { simple: true }) as number;
+  const root = (db.prepare("SELECT rootpage FROM sqlite_master WHERE name = 'survey_responses'").get() as { rootpage: number }).rootpage;
+  const raw = fs.readFileSync(file);
+  const idsOn = new Map<number, number[]>();
+  for (const pageNo of leafPages(raw, pageSize, root)) {
+    const page = raw.subarray((pageNo - 1) * pageSize, pageNo * pageSize);
+    idsOn.set(
+      pageNo,
+      Array.from({ length: page.readUInt16BE(3) }, (_, k) => {
+        const offset = page.readUInt16BE(8 + 2 * k);
+        const [, lenBytes] = varint(page, offset);
+        return varint(page, offset + lenBytes)[0];
+      }),
+    );
+  }
+  const all = [...idsOn.values()].flat().sort((a, b) => a - b);
+  const rank = new Map(all.map((id, i) => [id, i]));
+  let hits = 0;
+  let total = 0;
+  let expected = 0;
+  for (const { id, pagesBefore, pagesAfter } of trace) {
+    const near: number[] = [];
+    for (let pageNo = pagesBefore + 1; pageNo <= pagesAfter; pageNo++) near.push(...(idsOn.get(pageNo) ?? []));
+    if (near.length === 0) continue;
+    total++;
+    if (near.some((other) => Math.abs(rank.get(other)! - rank.get(id)!) <= 10)) hits++;
+    expected += Math.min(1, (near.length * 21) / all.length);
+  }
+  return { hits, total, expected };
+}
+
 /** Teilnahmenummer aus dem Antworttext (`teilnahme-<n>`). */
 export function pageOrderLeaks(
   db: Database.Database,

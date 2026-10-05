@@ -15,7 +15,7 @@ import { migrate } from './db/migrate.js';
 import { AppError, errorHandler, forbidden, unauthorized } from './core/errors.js';
 import { authRoutes, ensureDefaultAdmin, type AuthUser } from './core/auth.js';
 import { encryptDatabaseAtRest, getDb, restartStaleWalIndex } from './db/db.js';
-import { ConversionVerificationError } from './db/encryption.js';
+import { CipherUnavailableError, ConversionVerificationError } from './db/encryption.js';
 import { encryptStoredFiles, fileRoutes } from './core/files.js';
 import { settingsRoutes } from './core/settingsRoutes.js';
 import { lookupRoutes } from './core/lookupRoutes.js';
@@ -57,8 +57,10 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   } catch (err) {
     // Verschlüsselt, aber die Prüfung danach gescheitert: Es gibt keinen
-    // Klartextstand mehr, auf dem der Dienst weiterlaufen könnte.
-    if (err instanceof ConversionVerificationError) throw err;
+    // Klartextstand mehr, auf dem der Dienst weiterlaufen könnte. Ebenso ein
+    // Modul, das gar nicht verschlüsseln kann: Weiterlaufen hiesse, Datenbank
+    // und neue Dateien dauerhaft im Klartext zu halten, ohne dass es jemand sieht.
+    if (err instanceof ConversionVerificationError || err instanceof CipherUnavailableError) throw err;
     encryptionNote =
       'Die Datenbank konnte nicht auf Verschlüsselung im Ruhezustand umgestellt werden und läuft unverändert weiter ' +
       `(${errorText(err)}). Der nächste Start versucht es erneut.`;
@@ -298,9 +300,18 @@ export async function startServer(port?: number): Promise<{ app: FastifyInstance
   // Dateiablage aus der Zeit vor der Verschlüsselung umstellen, im
   // Hintergrund und erst jetzt (Begründung an encryptStoredFiles).
   void encryptStoredFiles()
-    .then(({ encrypted, failed }) => {
+    .then(({ encrypted, failed, failures }) => {
       if (encrypted > 0) app.log.warn(`Dateiablage: ${encrypted} Datei(en) auf Verschlüsselung im Ruhezustand umgestellt.`);
-      if (failed > 0) app.log.warn(`Dateiablage: ${failed} Datei(en) konnten nicht umgestellt werden; der nächste Start versucht es erneut.`);
+      if (failed > 0) {
+        // Mit Namen und Grund, aber begrenzt: Bei einem Schaden an vielen
+        // Dateien soll das Journal nicht überlaufen.
+        const shown = failures.slice(0, 20).join('; ');
+        const rest = failures.length > 20 ? `; und ${failures.length - 20} weitere` : '';
+        app.log.warn(
+          `Dateiablage: ${failed} Datei(en) konnten nicht umgestellt werden und liegen weiter im Klartext auf der Platte ` +
+            `(${shown}${rest}). Der nächste Start versucht es erneut.`,
+        );
+      }
     })
     .catch((err: unknown) => {
       app.log.warn(`Dateiablage: Umstellung auf Verschlüsselung abgebrochen (${errorText(err)}).`);

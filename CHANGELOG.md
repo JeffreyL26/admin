@@ -12,6 +12,71 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Nachbesserungen zur Verschluesselung (05.10.2026)
+- **Windows-Update:** `update-server.ps1` wartet auf das Ende eines NEUEN
+  Sicherungslaufs und bricht ab, wenn dessen Ergebnis nicht 0 ist, noch
+  bevor der Dienst angehalten wird (bisher lief es mit einer fehlgeschlagenen
+  Sicherung weiter in die einseitige Umstellung). `setup-server.ps1` wartet
+  beim ersten Start bis zu 15 Minuten statt 30 Sekunden.
+- **Modul ohne Verschluesselung:** Ein SQLite-Modul, das nicht verschluesseln
+  kann (Fremdmodul nach `npm install` statt `npm ci`), ist ein Startabbruch
+  (`CipherUnavailableError`, geprueft vor Schluessel und Vermerk), auch auf
+  einem Klartextbestand; vorher lief der Dienst mit Klartext weiter. Die
+  Lade-Proben in `ohrganize-update.sh`, `update-server.ps1` und
+  `setup-server.ps1` pruefen jetzt `PRAGMA cipher`.
+- **Umfragen, grosse Antworten:** Ab einem Achtel der Seitengroesse (512 Byte)
+  nimmt eine Teilnahme 256 zufaellige Antworten aus der ganzen Tabelle in das
+  gemischte Neuschreiben auf (`REWRITE_SAMPLE_ROWS`; eine kleinere Tabelle
+  ganz). Die Nachbarschaft allein liess bei Antworten ab etwa 700 Byte die
+  Seitenvergabe die Teilnahmereihenfolge verraten (gemessen: 40 bis 76 Prozent
+  Treffer gegen 2 bis 10 bei Zufall; nach der Aenderung wie Zufall). Aufwand
+  je Teilnahme 35 bis 100 ms, unabhaengig von der Umfragegroesse. Eine Erfassung
+  der HR nach dem Enddatum streicht den Ablaufvermerk, damit der naechste
+  Durchlauf ihre Kopien ebenfalls raeumt.
+- **Dateiablage:** Eine Kennung mit unbekannter Fassung (neuere Programm-
+  fassung, gekipptes Bit im letzten Kennungsbyte) gilt als beschaedigt und
+  wird weder ausgeliefert noch umgestellt (vorher als Klartext ausgeliefert
+  und ein zweites Mal verschluesselt). Eine gescheiterte Umstellung nennt im
+  Journal Datei und Grund. Nicht geaendert: die Dateikennung bindet den
+  gespeicherten Namen nicht in die Authentisierung (Formatwechsel; ausserhalb
+  des Bedrohungsmodells: Schreibzugriff auf `storage/` ohne `data.key`).
+- **`data.key`:** Das Verzeichnis wird nach dem Einhaengen durchgeschrieben;
+  `config.ts` raeumt `data.key.*.neu` nur noch auf, solange `data.key` steht
+  (fehlt es, kann die Zwischendatei die einzige Kopie sein); ein Rest der
+  Zwischendatei macht den Start nicht mehr zum Fehler. Die Umstellung setzt
+  den Journalmodus DELETE unter der Sperre erneut.
+- **Loeschen und Ersetzen:** Bewerber (Foto, Lebenslaeufe), AU-Bescheinigung,
+  Trainingszertifikat, Vorlagen und Mitarbeiterfoto raeumen ihre Datei ab,
+  wenn sie geloescht oder ersetzt werden und nirgends sonst verknuepft sind.
+  `deleteFileIfUnreferenced` wirft nach dem Commit nicht mehr (ein Fehler beim
+  Entfernen des Blobs liess die Bescheinigungsloeschung ohne Audit-Eintrag).
+- **Hosting:** `ohrganize-backend@.service` und `ohrganize-backend.service`
+  setzen `RestartSec=30`, `StartLimitIntervalSec=600` und
+  `StartLimitBurst=10`: Ein Start, der immer scheitert (etwa die Pruefung nach
+  der Umstellung), laeuft nicht mehr endlos im Fuenf-Sekunden-Takt, sondern
+  endet nach etwa fuenf Minuten; kurze Ausfaelle heilen sich in dieser Zeit. Auf einem bestehenden Host wirkt das erst
+  mit neu kopierter Vorlage (`deploy/README.md`, Abschnitt 9.6); danach
+  `systemctl reset-failed ohrganize-backend@<kunde>` und neu starten. Die
+  Ruecknahme in `ohrganize-update.sh` legt die verworfene Datenbank (samt
+  `-wal`) und `storage/` als `.verworfen-<zeit>` beiseite, statt sie zu
+  ueberschreiben.
+- **Startlimit und Skripte:** `ohrganize-provision.sh` (fortsetzen, restore) und
+  `ohrganize-update.sh` starten das Backend ueber `backend_starten`
+  (`ohrganize-lib.sh`), das vorher `systemctl reset-failed` ausfuehrt; sonst
+  lehnt systemd nach einem Dauerfehler jeden Start ab (`Start request repeated
+  too quickly`), und ein Restore innerhalb der naechsten zehn Minuten liess den
+  Dienst gestoppt zurueck. Die Restore-Schritte im README tragen den Aufruf
+  ebenfalls. Die Units haben jetzt `RestartSec=30` und `StartLimitBurst=10`.
+- **Ersetzen von Dateien:** Das Ersetzen oder Entfernen einer Datei an einer
+  Krankmeldung, einer Trainingsanmeldung, einer Vorlage oder am
+  Mitarbeiterfoto loescht die alte Datei endgueltig; der Audit-Eintrag der
+  Aenderung nennt sie jetzt (`removed_file`: ID und Pruefsumme, kein Dateiname,
+  `removeReplacedFile` in `core/files.ts`). Wer das Ersetzen nicht
+  destruktiv will, ruft an diesen Stellen `deleteFileIfUnreferenced` nicht auf.
+- Kleinigkeiten: Die Desktop-App zeigt bei einem Startabbruch des Backends nur
+  den Text, nicht den Stack (der geht ins Log). Das MANIFEST der Sicherung nennt
+  `secret.key` nur, wenn es mitgesichert wurde.
+
 ### Verschluesselung im Ruhezustand, anonyme Umfragen (04.10.2026)
 - Datenbank (`ohrganize.db` samt WAL), die Dateien in `storage/` und damit
   jede Sicherung liegen verschluesselt auf der Platte: Datenbank im

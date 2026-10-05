@@ -111,7 +111,7 @@ npm ci --omit=dev
 #     bindings file" ab.
 #     ACHTUNG: Ein blosses require() genügt als Prüfung NICHT. Die native
 #     Bindung wird erst beim "new Database" geladen.
-node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
+node -e "const D=require('better-sqlite3'); if (new D(':memory:').pragma('cipher').length === 0) { throw new Error('kann nicht verschluesseln') } console.log('better-sqlite3 ok')"
 
 #     Schlägt die Zeile fehl, das Installationsskript von Hand nachholen und
 #     die Kontrollzeile wiederholen:
@@ -389,6 +389,7 @@ if grep -qx '[0-9a-f]\{64\}' /var/lib/ohrganize/data.key && [ ! -e "$SCHLUESSEL"
 else
   echo "Nichts geändert: data.key enthält schon einen Verweis, oder $SCHLUESSEL existiert bereits."
 fi
+systemctl reset-failed ohrganize-backend 2>/dev/null || true  # Startlimit der Unit zurücksetzen
 systemctl start ohrganize-backend
 ```
 
@@ -464,6 +465,7 @@ cp -a $BACKUP/ohrganize.db $BACKUP/storage /var/lib/ohrganize/
 for f in data.key secret.key lizenz.ohrganize; do [ -f "$BACKUP/$f" ] && cp -a "$BACKUP/$f" /var/lib/ohrganize/; done
 chown -R ohrganize:ohrganize /var/lib/ohrganize
 chmod -R go-rwx /var/lib/ohrganize
+systemctl reset-failed ohrganize-backend 2>/dev/null || true  # Startlimit der Unit zurücksetzen
 systemctl start ohrganize-backend
 ```
 
@@ -510,8 +512,9 @@ systemctl start ohrganize-backup.service          # Sicherung VOR dem Update
 # rm -rf apps: Altstand weg (node_modules bleibt), sonst sammeln sich alte
 # Portal-Assets an. npm ci: nur nötig, wenn better-sqlite3 gewechselt hat —
 # schadet nie.
-node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
+node -e "const D=require('better-sqlite3'); if (new D(':memory:').pragma('cipher').length === 0) { throw new Error('kann nicht verschluesseln') } console.log('better-sqlite3 ok')"
 cp -a apps/web/dist/. /srv/ohrganize-web/
+systemctl reset-failed ohrganize-backend 2>/dev/null || true
 systemctl start ohrganize-backend
 journalctl -u ohrganize-backend -n 50 --no-pager  # Migrationen und Startwarnungen prüfen
 ```

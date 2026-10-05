@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
+import { removeReplacedFile } from '../../core/files.js';
 import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../core/dates.js';
 import { holidaysByRegion, isHoliday } from '../../core/holidays.js';
 import type { CountryCode, RegionCode } from '@ohrganize/shared';
@@ -800,15 +801,20 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       }),
       req.body,
     );
+    let removedFile: ReturnType<typeof removeReplacedFile> = null;
     if (body.certificate_file_id !== undefined) {
       db()
         .prepare('UPDATE sick_notes SET certificate_file_id = ? WHERE id = ?')
         .run(body.certificate_file_id, id);
+      // Ersetzte oder entfernte AU-Bescheinigung (Gesundheitsdaten) aufraeumen,
+      // sofern nirgends sonst verknuepft; der Audit-Eintrag nennt die Datei.
+      const replaced = (existing as { certificate_file_id: number | null }).certificate_file_id;
+      if (replaced && replaced !== body.certificate_file_id) removedFile = removeReplacedFile(replaced);
     }
     if (body.received_date !== undefined) {
       db().prepare('UPDATE sick_notes SET received_date = ? WHERE id = ?').run(body.received_date, id);
     }
-    audit(req, 'update', 'sick_note', id, body);
+    audit(req, 'update', 'sick_note', id, removedFile ? { ...body, removed_file: removedFile } : body);
     return { sick_note: db().prepare(`${SICK_SELECT} WHERE s.id = ?`).get(id) };
   });
 

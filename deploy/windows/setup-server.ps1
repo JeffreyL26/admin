@@ -258,14 +258,16 @@ try {
   Invoke-Native -Exe 'npm.cmd' -ArgList @('ci', '--omit=dev', '--no-audit', '--no-fund') -What 'npm ci --omit=dev fehlgeschlagen'
   # Einfache Anfuehrungszeichen IM JavaScript: Windows PowerShell 5.1 reicht
   # innere doppelte nicht an native Programme weiter.
-  $probe = "new (require('better-sqlite3'))(':memory:'); console.log('ok')"
+  # Die Probe prueft auch die Verschluesselung: Ein gleichnamiges Fremdmodul
+  # laedt ebenfalls, kann aber nicht verschluesseln.
+  $probe = "const D=require('better-sqlite3'); if(!new D(':memory:').pragma('cipher').length){throw new Error('keine Verschluesselung')} console.log('ok')"
   $out = Invoke-Quiet -Exe 'node' -ArgList @('-e', $probe)
   if ($QuietExit -ne 0 -or $out -ne 'ok') {
     Warn 'Native Bindung fehlt - Installationsskript wird nachgeholt (prebuild-install)'
     Push-Location (Join-Path $InstallDir 'node_modules\better-sqlite3')
     try { & node ..\prebuild-install\bin.js } finally { Pop-Location }
     $out = Invoke-Quiet -Exe 'node' -ArgList @('-e', $probe)
-    if ($QuietExit -ne 0 -or $out -ne 'ok') { Fail 'better-sqlite3 laedt seine native Bibliothek nicht. Siehe deploy\windows\README.md, Abschnitt 2.2 (allowScripts, Build Tools).' }
+    if ($QuietExit -ne 0 -or $out -ne 'ok') { Fail 'better-sqlite3 laedt seine native Bibliothek nicht oder kann nicht verschluesseln (falsches Modul?). Siehe deploy\windows\README.md, Abschnitt 2.2 (allowScripts, Build Tools).' }
   }
   Ok 'better-sqlite3 bereit'
 } finally { Pop-Location }
@@ -323,9 +325,26 @@ if ($serviceOn) {
 # ---------------------------------------------------------------------------
 if ($serviceOn) {
   Step 'Warten auf das Backend'
-  Wait-Until -Seconds 30 -What "Backend antwortet nicht auf $healthUrl" -Test {
-    (Invoke-RestMethod -Uri $healthUrl -TimeoutSec 3).ok -eq $true
-  } | Out-Null
+  # Auf einer bestehenden Installation stellt der erste Start die Datenbank um
+  # (Verschluesselung, Migrationen); update-server.ps1 wartet dafuer ebenfalls
+  # bis zu 15 Minuten. Echte Zeit statt Durchlaeufe (eine abgewiesene Verbindung
+  # auf localhost dauert unter Windows gut 2 s, 900 Durchlaeufe wuerden eher eine
+  # dreiviertel Stunde), und ein angehaltener Dienst beendet das Warten sofort:
+  # Ein harter Startfehler (falsches SQLite-Modul, fehlender Schluessel,
+  # gescheiterte Pruefung nach der Umstellung) startet nicht von selbst neu.
+  $clock = [Diagnostics.Stopwatch]::StartNew()
+  $backendUp = $false
+  while ($clock.Elapsed.TotalSeconds -lt 900) {
+    try {
+      if ((Invoke-RestMethod -Uri $healthUrl -TimeoutSec 3).ok -eq $true) { $backendUp = $true; break }
+    } catch { }
+    $svc = Get-Service -Name 'oHRganize' -ErrorAction SilentlyContinue
+    if ($svc -and ($svc.Status -eq 'Stopped' -or $svc.Status -eq 'Paused')) { break }
+    Start-Sleep -Seconds 1
+  }
+  if (-not $backendUp) {
+    Fail "Backend antwortet nicht auf $healthUrl (Dienst angehalten oder nach 15 Minuten ohne Antwort). Log: $(Join-Path $logDir 'backend.log')"
+  }
   $health = Invoke-RestMethod -Uri $healthUrl
   Ok ("Backend {0} laeuft, read_only={1}" -f $health.version, $health.license.read_only)
   $listen = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') }

@@ -4,6 +4,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { isValidIsoDate } from '../../core/dates.js';
+import { deleteFileIfUnreferenced, removeReplacedFile } from '../../core/files.js';
 import { roleRoutes } from './roleRoutes.js';
 import { adminUserRoutes } from './userRoutes.js';
 
@@ -117,9 +118,10 @@ export const adminModule: FastifyPluginAsync = async (app) => {
 
   app.patch('/api/admin/templates/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
-    if (!db().prepare('SELECT id FROM hr_templates WHERE id = ?').get(id)) {
-      throw notFound('Vorlage nicht gefunden');
-    }
+    const current = db().prepare('SELECT file_id FROM hr_templates WHERE id = ?').get(id) as
+      | { file_id: number | null }
+      | undefined;
+    if (!current) throw notFound('Vorlage nicht gefunden');
     const patch = parse(templatePatchSchema, req.body);
     if (patch.file_id !== undefined && !db().prepare('SELECT id FROM files WHERE id = ?').get(patch.file_id)) {
       throw notFound('Datei nicht gefunden — bitte zuerst über POST /api/files hochladen');
@@ -133,17 +135,25 @@ export const adminModule: FastifyPluginAsync = async (app) => {
         `UPDATE hr_templates SET ${cols.map((c) => `${c} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`,
       )
       .run(...cols.map((c) => patch[c] ?? null), id);
-    audit(req, 'update', 'hr_template', id, { changed: patch });
+    // Ersetzte Datei aufraeumen, sofern nirgends sonst verknuepft; der
+    // Audit-Eintrag nennt sie.
+    const removedFile =
+      patch.file_id !== undefined && current.file_id && current.file_id !== patch.file_id
+        ? removeReplacedFile(current.file_id)
+        : null;
+    audit(req, 'update', 'hr_template', id, removedFile ? { changed: patch, removed_file: removedFile } : { changed: patch });
     return { template: db().prepare(`${TEMPLATE_SELECT} WHERE t.id = ?`).get(id) };
   });
 
   app.delete('/api/admin/templates/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const existing = db().prepare('SELECT title FROM hr_templates WHERE id = ?').get(id) as
-      | { title: string }
+    const existing = db().prepare('SELECT title, file_id FROM hr_templates WHERE id = ?').get(id) as
+      | { title: string; file_id: number | null }
       | undefined;
     if (!existing) throw notFound('Vorlage nicht gefunden');
     db().prepare('DELETE FROM hr_templates WHERE id = ?').run(id);
+    // Erst NACH dem DELETE: Vorher hielte die Referenzpruefung die Datei fuer weiter gebraucht.
+    if (existing.file_id) deleteFileIfUnreferenced(existing.file_id);
     audit(req, 'delete', 'hr_template', id, { title: existing.title });
     reply.status(204);
   });

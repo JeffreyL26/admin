@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
-import { deleteFileIfUnreferenced } from '../../core/files.js';
+import { deleteFileIfUnreferenced, removeReplacedFile } from '../../core/files.js';
 import { assertSeatsAvailable } from '../../core/license.js';
 import {
   EMPLOYEE_COLUMNS,
@@ -452,7 +452,17 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
          updated_at = datetime('now') WHERE id = ?`,
       )
       .run(...cols.map((c) => patch[c] ?? null), id);
-    audit(req, 'update', 'employee', id, { changed: Object.fromEntries(cols.map((c) => [c, patch[c]])) });
+    // Ersetztes oder entferntes Foto aufraeumen, sofern nirgends sonst
+    // verknuepft; der Audit-Eintrag nennt die Datei.
+    const replacedPhoto = (existing as { photo_file_id?: number | null }).photo_file_id;
+    const removedFile =
+      patch.photo_file_id !== undefined && replacedPhoto && replacedPhoto !== patch.photo_file_id
+        ? removeReplacedFile(replacedPhoto)
+        : null;
+    audit(req, 'update', 'employee', id, {
+      changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
+      ...(removedFile ? { removed_file: removedFile } : {}),
+    });
     return { employee: getEmployeeOr404(id) };
   });
 

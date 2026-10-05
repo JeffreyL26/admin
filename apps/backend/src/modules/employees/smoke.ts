@@ -726,13 +726,40 @@ const removePhoto = await app.inject({
   payload: { photo_file_id: null },
 });
 check('PATCH photo_file_id = null löst das Foto', removePhoto.statusCode === 200 && removePhoto.json().employee.photo_file_id === null);
-await app.inject({ method: 'PATCH', url: `/api/employees/${frankId}`, headers: auth, payload: { photo_file_id: photoFileId } });
 const fileExists = (id: number) => !!getDb().prepare('SELECT 1 FROM files WHERE id = ?').get(id);
+check('Foto entfernt: die nirgends sonst verknüpfte Datei ist mit weg', !fileExists(photoFileId));
+// Neues Foto für den folgenden Löschtest; ein Ersetzen räumt das alte ab.
+const secondPhotoUpload = await app.inject({
+  method: 'POST',
+  url: '/api/files',
+  headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
+  payload: filePart('frank2.png', 'PNGDUMMY2'),
+});
+const secondPhotoId = secondPhotoUpload.json().file.id as number;
+await app.inject({ method: 'PATCH', url: `/api/employees/${frankId}`, headers: auth, payload: { photo_file_id: secondPhotoId } });
+const thirdPhotoUpload = await app.inject({
+  method: 'POST',
+  url: '/api/files',
+  headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
+  payload: filePart('frank3.png', 'PNGDUMMY3'),
+});
+const thirdPhotoId = thirdPhotoUpload.json().file.id as number;
+await app.inject({ method: 'PATCH', url: `/api/employees/${frankId}`, headers: auth, payload: { photo_file_id: thirdPhotoId } });
+check('Foto ersetzt: die alte Datei ist weg, die neue bleibt', !fileExists(secondPhotoId) && fileExists(thirdPhotoId));
+const removedAudit = getDb()
+  .prepare("SELECT details FROM audit_log WHERE entity = 'employee' AND entity_id = ? AND details LIKE '%removed_file%' ORDER BY id DESC LIMIT 1")
+  .pluck()
+  .get(frankId) as string | undefined;
+check(
+  'Foto ersetzt: der Audit-Eintrag nennt die entfernte Datei',
+  !!removedAudit && JSON.parse(removedAudit).removed_file?.id === secondPhotoId && typeof JSON.parse(removedAudit).removed_file?.sha256 === 'string' && JSON.parse(removedAudit).removed_file?.name === undefined,
+  removedAudit,
+);
 const delFrank = await app.inject({ method: 'DELETE', url: `/api/employees/${frankId}`, headers: auth });
 check(
   'Person löschen entfernt Foto und Dokumentdatei, fremde Dateien bleiben',
-  delFrank.statusCode === 204 && !fileExists(photoFileId) && !fileExists(frankDocFileId) && fileExists(fileId),
-  { photo: fileExists(photoFileId), doc: fileExists(frankDocFileId), erika: fileExists(fileId) },
+  delFrank.statusCode === 204 && !fileExists(thirdPhotoId) && !fileExists(frankDocFileId) && fileExists(fileId),
+  { photo: fileExists(thirdPhotoId), doc: fileExists(frankDocFileId), erika: fileExists(fileId) },
 );
 
 // ---------- Auth-Pflicht ----------

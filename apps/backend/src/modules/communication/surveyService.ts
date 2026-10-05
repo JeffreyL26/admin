@@ -41,6 +41,55 @@ interface ResponseRow {
 export const RESPONSE_ID_LIMIT = 2 ** 48;
 
 /**
+ * Ab einem Achtel der Seitengroesse fasst eine Seite nur noch wenige Zeilen.
+ * Dann haengt fast jede Teilnahme EINE Seite am Dateiende an, und die geht an
+ * eine zufaellige Zeile der Nachbarschaft, also an eine mit aehnlicher ID wie
+ * die der neuen Antwort. Wer die Seiten nach ihrer Nummer ordnet, grenzt die
+ * juengsten Teilnehmer so auf rund 21 Antworten ein (gemessen an 400 bis 1200
+ * Antworten zu 0,7 bis 2,5 KB: Trefferquote 40 bis 76 Prozent gegen 2 bis 10
+ * Prozent bei Zufall; bei 300 Byte, mit ueber 40 Zeilen je Seite, trat es nicht
+ * auf). Das Umschreiben der Nachbarn mischt nur Zellen INNERHALB der Seiten und
+ * die Zuordnung Zeile zu Seite unter den Nachbarn, nicht die Vergabe der neuen
+ * Seite. Deshalb nimmt eine grosse Antwort (oder grosse Nachbarn) eine
+ * Stichprobe zufaelliger Antworten aus der ganzen Tabelle in das gemischte
+ * Neuschreiben auf: Die angehaengte Seite gehoert dann einer beliebigen Zeile
+ * der Stichprobe, die neue Antwort verraet nur noch, dass sie unter rund
+ * REWRITE_SAMPLE_ROWS liegt (gemessen: Trefferquote wie bei Zufall).
+ */
+const FULL_REWRITE_DIVISOR = 8;
+
+/**
+ * Zeilen der Stichprobe (siehe oben): Anonymitaetsmenge UND Obergrenze der
+ * Kosten je Teilnahme. Die ganze Tabelle neu zu schreiben wuchs mit der Umfrage
+ * (gemessen, verschluesselt: 41 ms bei 1 MiB, 135 ms bei 2,4 MiB, 210 ms bei
+ * 3,6 MiB Antworttext, gegen 4 ms mit der Nachbarschaft); mit 256 Zeilen
+ * bleiben es 35 bis 100 ms auch bei Umfragen mit 3000 bis 6000 Antworten, und
+ * der Neuaufbau des -wal (db.ts) bleibt klein. Hat die Tabelle hoechstens so
+ * viele Zeilen, wird sie ganz neu geschrieben.
+ */
+export const REWRITE_SAMPLE_ROWS = 256;
+
+/**
+ * Bis zu REWRITE_SAMPLE_ROWS zufaellige Antworten. IDs sind gleichverteilte
+ * 48-Bit-Zahlen, die naechste Zeile ab einer zufaelligen ID ist deshalb eine
+ * (fast) gleichverteilte Wahl; eine Indexsuche je Zeile, ohne die Tabelle zu
+ * lesen. Eine kleine Tabelle kommt ganz zurueck.
+ */
+function sampleResponseTable(db: Database.Database, columns: string): ResponseRow[] {
+  const head = db.prepare(`${columns} LIMIT ?`).all(REWRITE_SAMPLE_ROWS + 1) as ResponseRow[];
+  if (head.length <= REWRITE_SAMPLE_ROWS) return head;
+  const up = db.prepare(`${columns} WHERE id >= ? ORDER BY id LIMIT 1`);
+  const down = db.prepare(`${columns} WHERE id < ? ORDER BY id DESC LIMIT 1`);
+  const sample = new Map<number, ResponseRow>();
+  for (let i = 0; i < REWRITE_SAMPLE_ROWS; i++) {
+    const probe = randomInt(1, RESPONSE_ID_LIMIT);
+    const row = (up.get(probe) ?? down.get(probe)) as ResponseRow | undefined;
+    if (row) sample.set(row.id, row);
+  }
+  return [...sample.values()];
+}
+
+/**
  * Legt eine Antwort so ab, dass weder ID noch Lage in der Datei die
  * Reihenfolge der Teilnahmen verraten. Innerhalb der Transaktion der
  * Teilnahme aufrufen.
@@ -57,7 +106,8 @@ export const RESPONSE_ID_LIMIT = 2 ** 48;
  * der neuen ID, bis die Untergrenze der belegten Bytes eine Seite
  * uebersteigt. Damit ist die Zelle der neuen Antwort auf ihrer Seite nur eine
  * von vielen frisch eingefuegten, und der Aufwand je Teilnahme bleibt bei
- * einigen Dutzend Zeilen, statt mit der Umfrage zu wachsen. secure_delete
+ * einigen Dutzend Zeilen, statt mit der Umfrage zu wachsen. (Bei grossen
+ * Antworten genuegt das nicht: FULL_REWRITE_DIVISOR.) secure_delete
  * ueberschreibt die geloeschten Zellen; sonst stuende der vorige Stand
  * daneben, und die eine Antwort, die dort fehlt, waere die neue.
  *
@@ -96,6 +146,13 @@ export function storeAnonymousResponse(db: Database.Database, surveyId: number, 
   const columns = 'SELECT id, survey_id, answers FROM survey_responses';
   collect(`${columns} WHERE id < ? ORDER BY id DESC`);
   collect(`${columns} WHERE id > ? ORDER BY id`);
+  // Grosse Antworten: siehe FULL_REWRITE_DIVISOR. Reicht die Nachbarschaft nicht,
+  // kommt eine Stichprobe der ganzen Tabelle in das gemischte Neuschreiben.
+  const largeFrom = Math.floor(pageSize / FULL_REWRITE_DIVISOR);
+  const large =
+    Buffer.byteLength(answers) >= largeFrom ||
+    [...neighbours.values()].some((row) => Buffer.byteLength(row.answers) >= largeFrom);
+  if (large) for (const row of sampleResponseTable(db, columns)) neighbours.set(row.id, row);
 
   const rows: ResponseRow[] = [...neighbours.values(), { id, survey_id: surveyId, answers }];
   for (let i = rows.length - 1; i > 0; i--) {
@@ -375,6 +432,13 @@ export function recordParticipation(surveyId: number, employeeId: number, answer
       .prepare('INSERT INTO survey_participations (survey_id, employee_id) VALUES (?, ?)')
       .run(surveyId, employeeId);
     storeAnonymousResponse(getDb(), surveyId, JSON.stringify(answers));
+    // Die HR-Erfassung darf auch nach dem Enddatum nachtragen (Status noch
+    // `laufend`). Der Neuaufbau nach dem Ablauf lief aber schon (einmal je
+    // Umfrage, rebuildForExpiredSurveys); den Vermerk streichen, damit der
+    // naechste Durchlauf die Kopien dieser Nachtragung ebenfalls raeumt.
+    if (survey.date_to < todayIso()) {
+      getDb().prepare(`DELETE FROM ${REBUILD_STATE_TABLE} WHERE key = ?`).run(`${EXPIRED_PREFIX}${surveyId}`);
+    }
   });
   // Jeder Commit steht als eigener Stand im -wal: Neben dem vorigen Stand der
   // Datei zeigte er, welche Antwort und welche Teilnahme hinzukamen (gemessen).

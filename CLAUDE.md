@@ -485,7 +485,11 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   entscheidet der ZUSTAND der Datei danach, nicht die Art des Fehlers:
   Klartext heißt, der Dienst läuft unverändert weiter, und `status.cjs`/
   `provision.sh check` melden „NICHT verschluesselt“; verschlüsselt heißt
-  `ConversionVerificationError`, der Dienst startet nicht. Findet ein Start
+  `ConversionVerificationError`, der Dienst startet nicht. Ausnahme vom
+  „unverändert weiterlaufen“: Ein SQLite-Modul, das gar nicht verschlüsseln
+  kann, ist ein Startabbruch (`CipherUnavailableError`, geprüft VOR Schlüssel
+  und Vermerk; die Lade-Proben der Deploy-Skripte prüfen `PRAGMA cipher`, nicht
+  nur das Laden). Findet ein Start
   den Vermerk: bei verschlüsselter Datei läuft die Prüfung erneut (besteht
   sie, fällt er weg; sonst startet der Dienst nicht, auch kein Neustart durch
   systemd oder NSSM; fehlt der Schlüssel oder hält ein anderer Prozess die

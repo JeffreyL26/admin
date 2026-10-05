@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, notFound, conflict } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
+import { removeReplacedFile } from '../../core/files.js';
 import { todayIso, addDaysIso } from '../../core/dates.js';
 import { isoDateString } from '../../core/validation.js';
 import {
@@ -1238,7 +1239,14 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
         merged.note ?? null,
         id,
       );
-    audit(req, 'training_registration.updated', 'training_registration', id, body);
+    // Ersetztes oder entferntes Zertifikat aufraeumen, sofern nirgends sonst
+    // verknuepft; der Audit-Eintrag nennt die Datei.
+    const replacedCertificate = existing.certificate_file_id as number | null | undefined;
+    const removedFile =
+      replacedCertificate && replacedCertificate !== (merged.certificate_file_id ?? null)
+        ? removeReplacedFile(replacedCertificate)
+        : null;
+    audit(req, 'training_registration.updated', 'training_registration', id, removedFile ? { ...body, removed_file: removedFile } : body);
     return { registration: getRowOrThrow('training_registrations', id, 'Anmeldung nicht gefunden') };
   });
 

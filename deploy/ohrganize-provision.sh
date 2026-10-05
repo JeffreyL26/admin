@@ -534,7 +534,7 @@ fortsetzen() {
   [[ -n "$kunde" ]] || fehler 'Aufruf: ohrganize-provision.sh fortsetzen <kunde>'
   kunde_vorhanden "$kunde" || fehler "Kunde \"$kunde\" ist nicht angelegt."
   schritt "Dienst von \"$kunde\" starten"
-  systemctl start "ohrganize-backend@$kunde"
+  backend_starten "$kunde"
   systemctl start "ohrganize-backup@$kunde.timer" || true
   local port
   port="$(kunden_port "$kunde")"
@@ -616,7 +616,7 @@ restore() {
   chmod -R go-rwx "$daten"
 
   schritt 'Dienst starten'
-  systemctl start "ohrganize-backend@$kunde"
+  backend_starten "$kunde"
   local port
   port="$(kunden_port "$kunde")"
   if ! warte_auf_start "ohrganize-backend@$kunde" "$port"; then

@@ -245,6 +245,16 @@ warte_auf_health() {
   return 1
 }
 
+# Startet die Backend-Einheit eines Kunden. Vorher wird ein Startlimit
+# zurueckgesetzt (StartLimitBurst in der Unit): Nach einem Dauerfehler lehnt
+# systemd jeden Start mit "Start request repeated too quickly" ab, bis das
+# Fenster von 600 s abgelaufen ist oder reset-failed lief; ein Restore oder
+# Rollback innerhalb dieser Zeit liesse den Dienst sonst gestoppt zurueck.
+backend_starten() {
+  systemctl reset-failed "ohrganize-backend@$1" 2>/dev/null || true
+  systemctl start "ohrganize-backend@$1"
+}
+
 # Wartet auf /api/health, solange der Dienst laeuft, hoechstens $3 Sekunden
 # (Vorgabe 900). Ein erster Start einer Fassung kann deutlich laenger brauchen
 # als ein gewoehnlicher (Umstellung auf Verschluesselung, VACUUM nach einer

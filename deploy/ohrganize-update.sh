@@ -164,9 +164,12 @@ einspielen() {
   schritt 'better-sqlite3 laedt (Bindung vorhanden)'
   # Ein blosses require() laedt die native Bindung noch nicht; erst `new`
   # zeigt, ob sie da ist. Genau daran ist frueher ein scheinbar erfolgreiches
-  # npm ci aufgefallen (siehe CLAUDE.md, allowScripts).
-  ( cd "$tmp" && node -e "new (require('better-sqlite3'))(':memory:')" ) ||
-    { rm -rf "$tmp"; fehler 'better-sqlite3 laedt nicht. Build-Werkzeuge fehlen? Siehe deploy/README.md, Abschnitt 1.'; }
+  # npm ci aufgefallen (siehe CLAUDE.md, allowScripts). Dazu kommt die Probe auf
+  # Verschluesselung: Das Modul heisst im Bundle weiterhin better-sqlite3 (npm-
+  # Alias auf die Cipher-Fassung); ein gleichnamiges Fremdmodul laedt ebenfalls,
+  # kann aber nicht verschluesseln, und der Dienst liefe dann im Klartext.
+  ( cd "$tmp" && node -e "const D=require('better-sqlite3');if(!new D(':memory:').pragma('cipher').length)throw new Error('Das Modul kann nicht verschluesseln')" ) ||
+    { rm -rf "$tmp"; fehler 'better-sqlite3 laedt nicht oder kann nicht verschluesseln. Build-Werkzeuge fehlen oder falsches Modul? Siehe deploy/README.md, Abschnitt 1.'; }
 
   rm -rf "$ziel"
   mv "$tmp" "$ziel"
@@ -295,7 +298,7 @@ instanz_umstellen() {
   ln -sfn "$RELEASE_VERZ/$release/apps/web/dist" "$WEB_VERZ/kunden/$kunde.$BASIS_DOMAIN"
 
   schritt 'Dienst starten'
-  systemctl start "ohrganize-backend@$kunde" || true
+  backend_starten "$kunde" || true
 
   if warte_auf_start "ohrganize-backend@$kunde" "$port"; then
     local health gemeldet
@@ -339,7 +342,7 @@ instanz_zuruecknehmen() {
   else
     warnung "$kunde: Kein vorheriges Release bekannt - der Symlink bleibt, wie er ist."
   fi
-  systemctl start "ohrganize-backend@$kunde" || true
+  backend_starten "$kunde" || true
 
   if warte_auf_start "ohrganize-backend@$kunde" "$port"; then
     hinweis 'Die alte Fassung laeuft wieder.'
@@ -356,20 +359,35 @@ instanz_zuruecknehmen() {
       # ueber ohrganize.db liesse sie bei vollem Datentraeger abgeschnitten
       # zurueck. Jeder Schritt einzeln geprueft, denn set -e greift hier nicht
       # (die Funktion wird links von || aufgerufen).
-      local db_zurueck=0 storage_zurueck=0
+      local db_zurueck=0 storage_zurueck=0 stempel verworfen
+      stempel="$(date +%Y%m%d-%H%M%S)"
+      verworfen="$daten/ohrganize.db.verworfen-$stempel"
       rm -f "$daten/ohrganize.db.zurueck"
+      # Der verworfene Stand (die Datenbank der neuen Fassung samt -wal, in dem
+      # schon angenommene Schreibvorgaenge stehen koennen) wird NEBEN die
+      # zurueckgespielte gelegt statt ueberschrieben, wie es auch
+      # ohrganize-provision.sh restore tut: Er ist die einzige Quelle fuer alles,
+      # was seit der Sicherung dazukam, und der Betreiber entscheidet spaeter.
       if cp -a "$sicherung/ohrganize.db" "$daten/ohrganize.db.zurueck" &&
+        { [[ ! -e "$daten/ohrganize.db" ]] || mv "$daten/ohrganize.db" "$verworfen"; } &&
         mv -f "$daten/ohrganize.db.zurueck" "$daten/ohrganize.db"; then
         db_zurueck=1
-        # Nebendateien des verworfenen Stands, dazu der Vermerk einer
+        # Nebendateien des verworfenen Stands mitnehmen, dazu der Vermerk einer
         # gescheiterten Pruefung nach der Umstellung (db/encryption.ts,
-        # CONVERSION_FAILED_FILE): Er gehoert zur verworfenen Datenbank.
-        rm -f "$daten/ohrganize.db-wal" "$daten/ohrganize.db-shm" "$daten/ohrganize.db-journal" \
-          "$daten/umstellung-pruefung-gescheitert.txt"
+        # CONVERSION_FAILED_FILE): Er gehoert zur verworfenen Datenbank und
+        # wuerde sonst die zurueckgespielte Datei als geprueft ausgeben.
+        local nebenher
+        for nebenher in -wal -shm -journal; do
+          [[ -e "$daten/ohrganize.db$nebenher" ]] && { mv "$daten/ohrganize.db$nebenher" "$verworfen$nebenher" || true; }
+        done
+        rm -f "$daten/umstellung-pruefung-gescheitert.txt"
         chown "$DIENST_BENUTZER":"$DIENST_BENUTZER" "$daten/ohrganize.db"
         chmod 0600 "$daten/ohrganize.db"
+        [[ -e "$verworfen" ]] && hinweis "Verworfene Datenbank der neuen Fassung: $verworfen (nach der Kontrolle loeschen)"
       else
         rm -f "$daten/ohrganize.db.zurueck"
+        # Schlug erst das Tauschen fehl, die Datenbank wieder an ihren Platz.
+        [[ ! -e "$daten/ohrganize.db" && -e "$verworfen" ]] && { mv "$verworfen" "$daten/ohrganize.db" || true; }
         warnung "$kunde: Die Datenbank liess sich nicht aus $sicherung kopieren (Platz?); Datenbank und storage/ bleiben, wie sie sind."
       fi
       # storage/ aus DERSELBEN Sicherung: Die neue Fassung kann Dateien schon
@@ -398,7 +416,10 @@ instanz_zuruecknehmen() {
         elif cp -a "$sicherung/storage" "$daten/storage.zurueck"; then
           if mv "$daten/storage" "$daten/storage.alt-update" && mv "$daten/storage.zurueck" "$daten/storage"; then
             storage_zurueck=1
-            rm -rf "$daten/storage.alt-update"
+            # Nicht loeschen: Uploads seit der Sicherung stehen nur hier (siehe
+            # die verworfene Datenbank oben).
+            mv "$daten/storage.alt-update" "$daten/storage.verworfen-$stempel" || true
+            hinweis "Verworfenes storage/ der neuen Fassung: $daten/storage.verworfen-$stempel (nach der Kontrolle loeschen)"
             chown -R "$DIENST_BENUTZER":"$DIENST_BENUTZER" "$daten/storage"
             chmod -R go-rwx "$daten/storage"
           else
@@ -410,7 +431,7 @@ instanz_zuruecknehmen() {
           warnung "$kunde: storage/ liess sich nicht aus $sicherung kopieren (Platz?); der bisherige Stand bleibt."
         fi
       fi
-      systemctl start "ohrganize-backend@$kunde" || true
+      backend_starten "$kunde" || true
       if warte_auf_start "ohrganize-backend@$kunde" "$port"; then
         if [[ $storage_zurueck -eq 1 || ! -d "$sicherung/storage" ]]; then
           hinweis 'Die alte Fassung laeuft mit der zurueckgespielten Datenbank und storage/.'

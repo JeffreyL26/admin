@@ -38,6 +38,15 @@ Description=oHRganize Backend — Kunde %i
 Documentation=file:/opt/ohrganize/deploy/README.md
 After=network-online.target
 Wants=network-online.target
+# Ein Start, der immer wieder scheitert (etwa die Pruefung nach der Umstellung
+# auf Verschluesselung, die bei jedem Start die ganze Datenbank liest), soll
+# nicht endlos neu laufen: Nach zehn Fehlstarts in zehn Minuten (bei 30 s
+# Abstand also nach etwa fuenf Minuten) bleibt die Einheit stehen. Kurze
+# Ausfaelle (spaet eingehaengtes Laufwerk, noch belegter Port, kurz gesperrte
+# Datenbank) heilen sich in dieser Zeit selbst. Nach einem Dauerfehler Ursache
+# beheben, dann systemctl reset-failed ohrganize-backend@<kunde> und neu starten.
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
 Type=simple
@@ -198,7 +207,7 @@ CPUWeight=100
 IOWeight=100
 
 Restart=on-failure
-RestartSec=5
+RestartSec=30
 
 # SIGTERM => index.ts schließt den Server und führt einen WAL-Checkpoint aus.
 KillSignal=SIGTERM
