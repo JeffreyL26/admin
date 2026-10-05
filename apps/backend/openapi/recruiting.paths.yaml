@@ -51,7 +51,7 @@ paths:
       responses: { "200": { description: Liste } }
     post:
       summary: Bewerber:in anlegen
-      responses: { "201": { description: Angelegt } }
+      responses: { "201": { description: Angelegt }, "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" } }
   /api/recruiting/candidates/{id}:
     get:
       summary: Bewerber:in inkl. aller Bewerbungen
@@ -60,7 +60,7 @@ paths:
     put:
       summary: Bewerber:in bearbeiten (photo_file_id ohne Angabe bleibt erhalten, null entfernt das Foto)
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
-      responses: { "200": { description: Aktualisiert } }
+      responses: { "200": { description: Aktualisiert }, "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" } }
     delete:
       summary: Bewerber:in löschen (kaskadiert Bewerbungen; 409 bei eingestellter Bewerbung)
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
@@ -77,7 +77,7 @@ paths:
       responses: { "200": { description: Bewerbungsliste (für Pipeline-Board) } }
     post:
       summary: Bewerbung anlegen (bestehende:r candidate_id ODER inline candidate)
-      responses: { "201": { description: Bewerbung angelegt }, "409": { description: Duplikat } }
+      responses: { "201": { description: Bewerbung angelegt }, "409": { description: Duplikat }, "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" } }
   /api/recruiting/applications/{id}:
     get:
       summary: Bewerbung inkl. Timeline und Interviews
@@ -86,7 +86,7 @@ paths:
     patch:
       summary: Bewerbung teilweise ändern (Bewertung, Kanal, Anschreiben, CV …)
       parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
-      responses: { "200": { description: Aktualisiert } }
+      responses: { "200": { description: Aktualisiert }, "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" } }
   /api/recruiting/applications/{id}/stage:
     post:
       summary: Bewerbung in andere aktive Stufe verschieben (Kanban-Move)

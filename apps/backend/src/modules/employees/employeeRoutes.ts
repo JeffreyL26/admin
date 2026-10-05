@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
-import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
+import { assertUsableAsPhoto, detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
 import { assertSeatsAvailable } from '../../core/license.js';
 import {
   EMPLOYEE_COLUMNS,
@@ -205,6 +205,24 @@ function settlePhotoThumb(
   const thumb = patch.photo_thumb_file_id !== undefined ? patch.photo_thumb_file_id : existing?.photo_thumb_file_id;
   if (thumb && !photo) {
     throw badRequest('Ein Vorschaubild ist nur zusammen mit einem Foto möglich.', { field: 'photo_thumb_file_id' });
+  }
+}
+
+/**
+ * Neue Datei-IDs der Fotospalten pruefen (assertUsableAsPhoto in
+ * core/files.ts), unveraenderte nicht: Eine ID, die schon in einer der beiden
+ * Fotospalten DIESER Person steht, bleibt zulaessig, damit das Formular mit
+ * bestehendem Foto speicherbar bleibt.
+ */
+function assertNewPhotoFiles(
+  patch: { photo_file_id?: number | null; photo_thumb_file_id?: number | null },
+  userId: number,
+  existing?: Record<string, unknown>,
+): void {
+  const current = [existing?.photo_file_id, existing?.photo_thumb_file_id];
+  for (const field of ['photo_file_id', 'photo_thumb_file_id'] as const) {
+    const fileId = patch[field];
+    if (fileId && !current.includes(fileId)) assertUsableAsPhoto(fileId, userId, field);
   }
 }
 
@@ -418,6 +436,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/employees', async (req, reply) => {
     const body = parse(employeeBodySchema, req.body);
     settlePhotoThumb(body);
+    assertNewPhotoFiles(body, req.user.id);
     assertTypeRules(body);
     // Beim Anlegen kommen beide Datumsfelder frisch aus der Eingabe — hier
     // darf die Reihenfolge-Prüfung immer laufen (sie greift nur, wenn beide
@@ -459,6 +478,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     }
     const patch = parse(employeePatchSchema, req.body);
     settlePhotoThumb(patch, existing);
+    assertNewPhotoFiles(patch, req.user.id, existing);
     const cols = EMPLOYEE_COLUMNS.filter((c) => patch[c] !== undefined);
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
     assertTypeRules({ ...existing, ...patch });

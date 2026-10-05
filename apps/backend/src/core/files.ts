@@ -46,6 +46,8 @@ export interface FileRecord {
  * (sie gilt als "keinem Bereich zugeordnet"), und der Aufräumer hält sie für
  * unreferenziert und löscht den Blob unter der Fachtabelle weg.
  * Gegenprobe: `grep -rn "REFERENCES files(id)" src/db/migrations`.
+ * Die Route, die so eine Spalte aus dem Request setzt, ruft vorher
+ * `assertMayLinkFiles` auf (Personenfotos: `assertUsableAsPhoto`).
  */
 const FILE_REFERENCES: ReadonlyArray<readonly [string, string, AdminArea]> = [
   ['employees', 'photo_file_id', 'personal'],
@@ -583,6 +585,41 @@ function photoUrlExpiry(): number {
 }
 
 /**
+ * Wirft 400, wenn eine Fotospalte die Datei nicht NEU übernehmen darf
+ * (Mitarbeiterfoto und Vorschaubild). signPhotoUrl signiert, was in diesen
+ * Spalten steht, für alle, die die Person sehen (Organigramm, Verzeichnis im
+ * Portal, Führung), ohne assertMayReadFile. Ohne diese Prüfung machte
+ * `personal: bearbeiten` aus jeder Datei-ID ein Foto: die ID einer
+ * Entgeltbescheinigung eintragen, und das Portal verteilt sie.
+ *
+ * Zulässig ist nur ein eigener, noch unverknüpfter Upload (dieselbe Regel wie
+ * beim Signieren unverknüpfter Dateien in assertMayReadFile; eine fremde,
+ * noch unverknüpfte Datei kann ein laufender Upload für einen Vertrag sein)
+ * und davon nur ein Bild (`mime_type` image/...). Keine Frist ab dem Upload:
+ * Wer die eigene Datei verwendet, verteilt nur den eigenen Upload, und eine
+ * Frist ließe ein lange offenes Formular scheitern.
+ *
+ * Unveränderte IDs prüft der Aufrufer nicht (das Formular schickt das
+ * bestehende Foto beim Speichern mit, hochgeladen vielleicht von einem
+ * anderen Konto). Fehlend, fremd oder schon verknüpft ergibt dieselbe
+ * Meldung, weil der Weg für alle drei derselbe ist (neu hochladen); ein
+ * Geheimnis ist das nicht, Existenz und Lesbarkeit verrät die Signier-Route
+ * ohnehin (siehe assertMayLinkFiles).
+ */
+export function assertUsableAsPhoto(fileId: number, userId: number, field: string): void {
+  const db = getDb();
+  const file = db.prepare('SELECT mime_type, uploaded_by FROM files WHERE id = ?').get(fileId) as
+    | { mime_type: string; uploaded_by: number | null }
+    | undefined;
+  if (!file || file.uploaded_by !== userId || db.prepare(FILE_REFERENCED_SQL).get({ file_id: fileId })) {
+    throw badRequest('Diese Datei lässt sich nicht als Foto verwenden. Bitte das Bild neu hochladen.', { field });
+  }
+  if (!file.mime_type.toLowerCase().startsWith('image/')) {
+    throw badRequest('Als Foto sind nur Bilddateien möglich (z. B. JPG, PNG oder WebP).', { field });
+  }
+}
+
+/**
  * Obergrenze für die Gültigkeit signierter Links: 60 Sekunden.
  *
  * Der Link steht im Query-String und landet damit im Access-Log jedes
@@ -652,6 +689,39 @@ export function assertMayReadFile(req: FastifyRequest, fileId: number): void {
     .prepare('SELECT 1 AS ok FROM files WHERE id = ? AND uploaded_by = ?')
     .get([fileId, req.user.id]) as { ok: number } | undefined;
   if (!own) throw forbidden('Für diese Datei haben Sie keine Berechtigung.');
+}
+
+/**
+ * Wirft 403, wenn eine Route eine Datei an einen Datensatz hängen soll, die
+ * das Konto selbst nicht lesen dürfte (assertMayReadFile). Jede Verknüpfung
+ * stellt die Datei zusätzlich in den Bereich des neuen Datensatzes, und beim
+ * Signieren genügt ein Bereich (Mehrfachverwendung oben). Ohne diese Prüfung
+ * hängte `personal: bearbeiten` eine Entgeltbescheinigung als Dokument an
+ * und läse sie danach, `kommunikation: bearbeiten` verteilte sie als Anhang
+ * an alle Mitarbeitenden.
+ *
+ * Bewusst nicht strenger: Was das Konto lesen darf, darf es auch an einen
+ * weiteren Datensatz hängen (dieselbe Datei an zwei Dokumenten ist gewollt;
+ * herunterladen und neu hochladen könnte es sie ohnehin). Die Datei, die
+ * schon an diesem Datensatz hängt, gehört zu dessen Bereich und geht beim
+ * erneuten Speichern damit durch. Personenfotos prüft assertUsableAsPhoto
+ * strenger, weil Listen sie für alle signieren.
+ *
+ * Eine unbekannte ID ist 404, eine nicht lesbare 403, wie beim Signieren
+ * (POST /api/files/:id/sign). Den Unterschied hier zu verbergen schützte
+ * nichts, solange jedes Admin-Konto ihn über die Signier-Route erfährt.
+ * src/test/fileLinkCheck.ts (Teil von npm test) prüft statisch je Route,
+ * dass jedes Datei-ID-Feld eines Request-Schemas hier oder durch einen
+ * Fotowächter mit assertUsableAsPhoto geht.
+ */
+export function assertMayLinkFiles(req: FastifyRequest, fileIds: Iterable<number | null | undefined>): void {
+  for (const fileId of fileIds) {
+    if (!fileId) continue;
+    if (!getDb().prepare('SELECT 1 FROM files WHERE id = ?').get(fileId)) {
+      throw notFound('Datei nicht gefunden. Bitte die Datei erneut hochladen.');
+    }
+    assertMayReadFile(req, fileId);
+  }
 }
 
 export async function fileRoutes(app: FastifyInstance): Promise<void> {

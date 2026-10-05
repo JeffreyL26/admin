@@ -49,6 +49,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" }
   /api/communication/announcements/{id}:
     get:
       summary: Ankündigung mit Anhangsliste
@@ -69,6 +70,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: Aktualisierte Ankündigung }
+        "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" }
     delete:
       summary: Ankündigung löschen
       tags: [Kommunikation]

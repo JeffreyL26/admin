@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, notFound, conflict } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
+import { assertMayLinkFiles, detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
 import { todayIso, addDaysIso } from '../../core/dates.js';
 import { isoDateString } from '../../core/validation.js';
 import {
@@ -1283,6 +1283,7 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     if (body.certificate_file_id) {
       getRowOrThrow('files', Number(body.certificate_file_id), 'Zertifikatsdatei nicht gefunden');
     }
+    assertMayLinkFiles(req, [body.certificate_file_id]);
     const replacedCertificate = existing.certificate_file_id as number | null | undefined;
     const removedFile = inTransaction(() => {
       getDb()

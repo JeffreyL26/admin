@@ -479,9 +479,9 @@ check(
 
 // ---------- Dokumente (Upload + FTS + Ablauf) ----------
 const boundary = '----ohrganizeSmokeBoundary';
-const filePart = (name: string, content: string) =>
+const filePart = (name: string, content: string, type = 'application/pdf') =>
   Buffer.from(
-    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: application/pdf\r\n\r\n${content}\r\n--${boundary}--\r\n`,
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: ${type}\r\n\r\n${content}\r\n--${boundary}--\r\n`,
   );
 const upload = await app.inject({
   method: 'POST',
@@ -726,15 +726,16 @@ const photoUpload = await app.inject({
   method: 'POST',
   url: '/api/files',
   headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
-  payload: filePart('frank.png', 'PNGDUMMY'),
+  payload: filePart('frank.png', 'PNGDUMMY', 'image/png'),
 });
 const photoFileId = photoUpload.json().file.id as number;
-await app.inject({
+const setPhoto = await app.inject({
   method: 'PATCH',
   url: `/api/employees/${frankId}`,
   headers: auth,
   payload: { photo_file_id: photoFileId },
 });
+check('Eigener Bild-Upload als Foto → 200', setPhoto.statusCode === 200 && setPhoto.json().employee.photo_file_id === photoFileId, setPhoto.json());
 const frankDocUpload = await app.inject({
   method: 'POST',
   url: '/api/files',
@@ -762,7 +763,7 @@ const secondPhotoUpload = await app.inject({
   method: 'POST',
   url: '/api/files',
   headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
-  payload: filePart('frank2.png', 'PNGDUMMY2'),
+  payload: filePart('frank2.png', 'PNGDUMMY2', 'image/png'),
 });
 const secondPhotoId = secondPhotoUpload.json().file.id as number;
 await app.inject({ method: 'PATCH', url: `/api/employees/${frankId}`, headers: auth, payload: { photo_file_id: secondPhotoId } });
@@ -770,7 +771,7 @@ const thirdPhotoUpload = await app.inject({
   method: 'POST',
   url: '/api/files',
   headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
-  payload: filePart('frank3.png', 'PNGDUMMY3'),
+  payload: filePart('frank3.png', 'PNGDUMMY3', 'image/png'),
 });
 const thirdPhotoId = thirdPhotoUpload.json().file.id as number;
 await app.inject({ method: 'PATCH', url: `/api/employees/${frankId}`, headers: auth, payload: { photo_file_id: thirdPhotoId } });
@@ -785,16 +786,16 @@ check(
   removedAudit,
 );
 // Vorschaubild zum aktuellen Foto: Das Loeschen der Person nimmt es mit.
-const uploadFileId = async (name: string, content: string) =>
+const uploadFileId = async (name: string, content: string, type: string) =>
   (
     await app.inject({
       method: 'POST',
       url: '/api/files',
       headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
-      payload: filePart(name, content),
+      payload: filePart(name, content, type),
     })
   ).json().file.id as number;
-const frankThumbId = await uploadFileId('frank3_vorschau.webp', 'WEBPDUMMY3');
+const frankThumbId = await uploadFileId('frank3_vorschau.webp', 'WEBPDUMMY3', 'image/webp');
 await app.inject({ method: 'PATCH', url: `/api/employees/${frankId}`, headers: auth, payload: { photo_thumb_file_id: frankThumbId } });
 const delFrank = await app.inject({ method: 'DELETE', url: `/api/employees/${frankId}`, headers: auth });
 check(
@@ -811,8 +812,8 @@ check(
 // Original und Vorschaubild an Erika. Das Vorschaubild gehoert zum Bereich
 // personal (FILE_REFERENCES), Listen signieren es mit stabiler URL, und ein
 // neues Foto ohne Vorschaubild raeumt das alte ab.
-const erikaPhotoId = await uploadFileId('erika.jpg', 'JPEGDUMMY');
-const erikaThumbId = await uploadFileId('erika_vorschau.webp', 'WEBPDUMMY');
+const erikaPhotoId = await uploadFileId('erika.jpg', 'JPEGDUMMY', 'image/jpeg');
+const erikaThumbId = await uploadFileId('erika_vorschau.webp', 'WEBPDUMMY', 'image/webp');
 const withThumb = await app.inject({
   method: 'PATCH',
   url: `/api/employees/${empId}`,
@@ -922,7 +923,7 @@ check(
 
 // Neues Foto ohne Vorschaubild: Das alte Vorschaubild faellt weg, die Liste
 // zeigt das Original.
-const erikaNewPhotoId = await uploadFileId('erika_neu.jpg', 'JPEGDUMMY2');
+const erikaNewPhotoId = await uploadFileId('erika_neu.jpg', 'JPEGDUMMY2', 'image/jpeg');
 const replacedWithoutThumb = await app.inject({
   method: 'PATCH',
   url: `/api/employees/${empId}`,
@@ -1009,8 +1010,8 @@ check(
     payload: { first_name: 'Gerda', last_name: 'Probe', employee_type: 'freiberufler' },
   });
   const gerdaId = gerda.json().employee.id as number;
-  const gerdaPhotoId = await uploadFileId('gerda.png', 'PNGGERDA');
-  const gerdaDocFileId = await uploadFileId('gerda.pdf', '%PDF-1.4 gerda');
+  const gerdaPhotoId = await uploadFileId('gerda.png', 'PNGGERDA', 'image/png');
+  const gerdaDocFileId = await uploadFileId('gerda.pdf', '%PDF-1.4 gerda', 'application/pdf');
   await app.inject({ method: 'PATCH', url: `/api/employees/${gerdaId}`, headers: auth, payload: { photo_file_id: gerdaPhotoId } });
   const gerdaDoc = await app.inject({
     method: 'POST',
@@ -1061,7 +1062,7 @@ check(
   // Der Audit-Eintrag sagt vor dem Commit, ob das Aufräumen danach die Datei
   // entfernt: Eine Datei an zwei Dokumenten bleibt beim ersten Löschen
   // (file_deleted false) und geht erst mit dem zweiten.
-  const sharedFileId = await uploadFileId('geteilt.pdf', '%PDF-1.4 geteilt');
+  const sharedFileId = await uploadFileId('geteilt.pdf', '%PDF-1.4 geteilt', 'application/pdf');
   const sharedDocs = [];
   for (const title of ['Geteilt A', 'Geteilt B']) {
     const res = await app.inject({
@@ -1088,6 +1089,418 @@ check(
     firstDeleted === false && keptAfterFirst && secondDeleted === true && !fileExists(sharedFileId),
     { firstDeleted, keptAfterFirst, secondDeleted },
   );
+}
+
+// ---------- Foto: nur eigene, unverknuepfte Bilder ----------
+// Listen signieren Fotos fuer alle, die die Person sehen (signPhotoUrl). Eine
+// beliebige Datei-ID als Foto verteilte sonst fremde Dateien, etwa eine
+// Ausweiskopie aus der Dokumentablage oder eine Entgeltbescheinigung.
+type PhotoError = { error?: { message?: string; details?: { field?: string } } };
+const NOT_USABLE = 'Diese Datei lässt sich nicht als Foto verwenden.';
+const rejectedAs = (res: { statusCode: number; json: () => unknown }, field: string, message: string) => {
+  const err = (res.json() as PhotoError).error;
+  return res.statusCode === 400 && err?.details?.field === field && !!err.message?.startsWith(message);
+};
+const photoOf = (id: number) =>
+  getDb().prepare('SELECT photo_file_id, photo_thumb_file_id FROM employees WHERE id = ?').get(id) as {
+    photo_file_id: number | null;
+    photo_thumb_file_id: number | null;
+  };
+
+const idScanId = await uploadFileId('Ausweiskopie_Musterfrau.jpg', 'JPEGSCAN', 'image/jpeg');
+const idScanDoc = await app.inject({
+  method: 'POST',
+  url: '/api/documents',
+  headers: auth,
+  payload: { employee_id: empId, file_id: idScanId, category: 'sonstiges', title: 'Ausweiskopie' },
+});
+check('Ausweiskopie (Bild) in der Dokumentablage', idScanDoc.statusCode === 201, idScanDoc.json());
+const docAsPhoto = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${werkstudentId}`,
+  headers: auth,
+  payload: { photo_file_id: idScanId },
+});
+check(
+  'Bild aus der Dokumentablage als Foto → 400, das Profil bleibt ohne Foto',
+  rejectedAs(docAsPhoto, 'photo_file_id', NOT_USABLE) && photoOf(werkstudentId).photo_file_id === null,
+  docAsPhoto.json(),
+);
+
+const certScanId = await uploadFileId('Entgeltbescheinigung_Musterfrau.png', 'PNGCERT', 'image/png');
+getDb()
+  .prepare("INSERT INTO certificates (employee_id, kind, period, file_id, status) VALUES (?, 'entgeltbescheinigung_108', '2026', ?, 'erstellt')")
+  .run([empId, certScanId]);
+const photoForCert = await uploadFileId('werkstudent.jpg', 'JPEGWS', 'image/jpeg');
+const certAsThumb = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${werkstudentId}`,
+  headers: auth,
+  payload: { photo_file_id: photoForCert, photo_thumb_file_id: certScanId },
+});
+check(
+  'Bescheinigung als Vorschaubild → 400, auch das Foto daneben wird nicht gespeichert',
+  rejectedAs(certAsThumb, 'photo_thumb_file_id', NOT_USABLE) && photoOf(werkstudentId).photo_file_id === null,
+  certAsThumb.json(),
+);
+
+const otherPhoto = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${werkstudentId}`,
+  headers: auth,
+  payload: { photo_file_id: erikaNewPhotoId },
+});
+check('Foto einer anderen Person → 400', rejectedAs(otherPhoto, 'photo_file_id', NOT_USABLE), otherPhoto.json());
+
+const pdfId = await uploadFileId('Lebenslauf.pdf', '%PDF-1.4 cv', 'application/pdf');
+const pdfAsPhoto = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${werkstudentId}`,
+  headers: auth,
+  payload: { photo_file_id: pdfId },
+});
+check(
+  'Eigener Upload, aber kein Bild → 400 mit Hinweis auf Bilddateien',
+  rejectedAs(pdfAsPhoto, 'photo_file_id', 'Als Foto sind nur Bilddateien möglich'),
+  pdfAsPhoto.json(),
+);
+
+// Unverknuepftes Bild, aber nicht von diesem Konto hochgeladen (NULL: vom
+// Server erzeugt oder Konto geloescht): ein fremder, laufender Upload.
+const foreignId = await uploadFileId('fremd.jpg', 'JPEGFOREIGN', 'image/jpeg');
+getDb().prepare('UPDATE files SET uploaded_by = NULL WHERE id = ?').run(foreignId);
+const foreignAsPhoto = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${werkstudentId}`,
+  headers: auth,
+  payload: { photo_file_id: foreignId },
+});
+check('Fremder Upload als Foto → 400', rejectedAs(foreignAsPhoto, 'photo_file_id', NOT_USABLE), foreignAsPhoto.json());
+
+const unknownAsPhoto = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${werkstudentId}`,
+  headers: auth,
+  payload: { photo_file_id: 999_999 },
+});
+check('Unbekannte Datei-ID als Foto → 400 statt Fremdschluesselfehler', rejectedAs(unknownAsPhoto, 'photo_file_id', NOT_USABLE), unknownAsPhoto.json());
+
+const docAsPhotoOnCreate = await app.inject({
+  method: 'POST',
+  url: '/api/employees',
+  headers: auth,
+  payload: { first_name: 'Fiona', last_name: 'Foto', employee_type: 'freiberufler', photo_file_id: idScanId },
+});
+check('POST mit Bild aus der Dokumentablage als Foto → 400', rejectedAs(docAsPhotoOnCreate, 'photo_file_id', NOT_USABLE), docAsPhotoOnCreate.json());
+const createWithPhoto = await app.inject({
+  method: 'POST',
+  url: '/api/employees',
+  headers: auth,
+  payload: { first_name: 'Fiona', last_name: 'Foto', employee_type: 'freiberufler', photo_file_id: photoForCert },
+});
+check(
+  'POST mit eigenem Bild-Upload als Foto → 201',
+  createWithPhoto.statusCode === 201 && createWithPhoto.json().employee.photo_file_id === photoForCert,
+  createWithPhoto.json(),
+);
+
+// Unveraenderte IDs: Das Formular schickt das bestehende Foto beim Speichern
+// mit. Es zaehlt nicht als neu, auch wenn ein anderes Konto es hochgeladen hat
+// und es schon verknuepft ist (an dieser Person).
+const erikaThumbAgainId = await uploadFileId('erika_neu_vorschau.webp', 'WEBPDUMMY2', 'image/webp');
+const addThumb = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { photo_thumb_file_id: erikaThumbAgainId },
+});
+check('Vorschaubild zum bestehenden Foto ergaenzen → 200', addThumb.statusCode === 200, addThumb.json());
+getDb().prepare('UPDATE files SET uploaded_by = NULL WHERE id IN (?, ?)').run([erikaNewPhotoId, erikaThumbAgainId]);
+const resave = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { photo_file_id: erikaNewPhotoId, photo_thumb_file_id: erikaThumbAgainId, phone: '+49 89 123' },
+});
+check(
+  'Erneutes Speichern mit unveraenderten Foto-IDs → 200',
+  resave.statusCode === 200 &&
+    resave.json().employee.photo_file_id === erikaNewPhotoId &&
+    resave.json().employee.photo_thumb_file_id === erikaThumbAgainId &&
+    resave.json().employee.phone === '+49 89 123',
+  resave.json(),
+);
+
+// ---------- Verknuepfen nur, was das Konto lesen darf ----------
+// Eine Rolle mit personal, kommunikation und recruiting, aber ohne
+// verguetung, haengt eine Entgeltbescheinigung an Dokument, Vertrag,
+// Ankuendigung und Bewerberfoto: 403 (sonst laege die Datei danach auch im
+// eigenen Bereich und waere signierbar). Eigene Uploads, eine lesbare Datei
+// an einem zweiten Dokument und erneutes Speichern bleiben erlaubt.
+{
+  const salaryCertId = await uploadFileId('Entgeltbescheinigung_2026.pdf', '%PDF-1.4 entgelt', 'application/pdf');
+  getDb()
+    .prepare("INSERT INTO certificates (employee_id, kind, period, file_id, status) VALUES (?, 'entgeltbescheinigung_108', '2026', ?, 'erstellt')")
+    .run([empId, salaryCertId]);
+  const sharedDocFileId = await uploadFileId('Hausordnung.pdf', '%PDF-1.4 hausordnung', 'application/pdf');
+  const firstShared = await app.inject({
+    method: 'POST',
+    url: '/api/documents',
+    headers: auth,
+    payload: { employee_id: werkstudentId, file_id: sharedDocFileId, category: 'sonstiges', title: 'Hausordnung' },
+  });
+  check('Dokument mit eigener Datei (volle Rechte) → 201', firstShared.statusCode === 201, firstShared.json());
+
+  // Datensaetze fuer die uebrigen Verknuepfungsrouten, angelegt mit vollen
+  // Rechten: Krankmeldung, Trainingsanmeldung, Vorlage, aktueller Vertrag,
+  // Stelle.
+  const post = (url: string, payload: unknown) => app.inject({ method: 'POST', url, headers: auth, payload: payload as object });
+  const sickNote = await post('/api/absences/sick-notes', { employee_id: empId, date_from: '2031-03-03', date_to: '2031-03-05' });
+  const training = await post('/api/performance/trainings', { title: 'Erste Hilfe' });
+  const registration = await post('/api/performance/training-registrations', {
+    training_id: training.json().training?.id,
+    employee_id: empId,
+  });
+  const template = await post('/api/admin/templates', {
+    file_id: await uploadFileId('Musterschreiben.pdf', '%PDF-1.4 muster', 'application/pdf'),
+    category: 'schreiben',
+    title: 'Musterschreiben',
+  });
+  const freelancerId = createWithPhoto.json().employee.id as number;
+  const contract = await post(`/api/employees/${freelancerId}/contracts`, { contract_type: 'werkvertrag', valid_from: isoInDays(-1) });
+  const posting = await post('/api/recruiting/postings', { title: 'Probestelle', employment_type: 'vollzeit', seats: 1 });
+  check(
+    'Vorbereitung: Krankmeldung, Training, Anmeldung, Vorlage, Vertrag und Stelle angelegt',
+    [sickNote, training, registration, template, contract, posting].every((r) => r.statusCode === 201),
+    [sickNote, training, registration, template, contract, posting].map((r) => [r.statusCode, r.statusCode === 201 ? '' : r.json()]),
+  );
+  const sickNoteId = sickNote.json().sick_note?.id as number;
+  const registrationId = registration.json().registration?.id as number;
+  const templateId = template.json().template?.id as number;
+  const contractId = contract.json().contract?.id as number;
+  const postingId = posting.json().posting?.id as number;
+
+  const linkRoleId = Number(
+    getDb().prepare("INSERT INTO admin_roles (name) VALUES ('Smoke ohne Verguetung')").run().lastInsertRowid,
+  );
+  const grant = getDb().prepare("INSERT INTO admin_role_permissions (role_id, area, level) VALUES (?, ?, 'bearbeiten')");
+  for (const area of ['personal', 'kommunikation', 'recruiting', 'abwesenheit', 'leistung', 'verwaltung']) {
+    grant.run([linkRoleId, area]);
+  }
+  // 403 aus assertMayLinkFiles, nicht aus der Bereichspruefung der Route.
+  const linkDenied = (res: { statusCode: number; json: () => unknown }) =>
+    res.statusCode === 403 &&
+    (res.json() as { error?: { message?: string } }).error?.message === 'Für diese Datei haben Sie keine Berechtigung.';
+  getDb().prepare("UPDATE users SET admin_role_id = ? WHERE email = 'admin@ohrganize.de'").run(linkRoleId);
+  try {
+    const documentCount = () => (getDb().prepare('SELECT COUNT(*) AS n FROM documents').get() as { n: number }).n;
+    const docsBefore = documentCount();
+    const certAsDoc = await app.inject({
+      method: 'POST',
+      url: '/api/documents',
+      headers: auth,
+      payload: { employee_id: empId, file_id: salaryCertId, category: 'sonstiges', title: 'Kopie', visibility: 'portal' },
+    });
+    check(
+      'Ohne verguetung: Entgeltbescheinigung als Dokument → 403, keine Zeile',
+      linkDenied(certAsDoc) && documentCount() === docsBefore,
+      certAsDoc.json(),
+    );
+    const certSignDenied = await app.inject({ method: 'POST', url: `/api/files/${salaryCertId}/sign`, headers: auth });
+    check('Ohne verguetung: die Bescheinigung bleibt nicht signierbar', certSignDenied.statusCode === 403);
+
+    const ownDocFileId = await uploadFileId('Nachweis_eigen.pdf', '%PDF-1.4 eigen', 'application/pdf');
+    const ownDoc = await app.inject({
+      method: 'POST',
+      url: '/api/documents',
+      headers: auth,
+      payload: { employee_id: empId, file_id: ownDocFileId, category: 'sonstiges', title: 'Eigener Nachweis' },
+    });
+    check('Ohne verguetung: eigener Upload als Dokument → 201', ownDoc.statusCode === 201, ownDoc.json());
+    const secondShared = await app.inject({
+      method: 'POST',
+      url: '/api/documents',
+      headers: auth,
+      payload: { employee_id: empId, file_id: sharedDocFileId, category: 'sonstiges', title: 'Hausordnung' },
+    });
+    check(
+      'Lesbare Datei eines anderen Dokuments an ein zweites Dokument → 201',
+      secondShared.statusCode === 201,
+      secondShared.json(),
+    );
+
+    const certAsContract = await app.inject({
+      method: 'POST',
+      url: `/api/employees/${empId}/contracts`,
+      headers: auth,
+      payload: { contract_type: 'unbefristet', valid_from: '2030-01-01', document_file_id: salaryCertId },
+    });
+    check('Ohne verguetung: Entgeltbescheinigung als Vertragsdokument → 403', linkDenied(certAsContract), certAsContract.json());
+
+    const announcement = (attachmentIds: number[]) => ({
+      title: 'Anhangprobe',
+      body: 'Probe',
+      audience_type: 'alle',
+      audience_id: null,
+      publish_at: isoInDays(0),
+      expires_at: null,
+      requires_ack: false,
+      attachment_file_ids: attachmentIds,
+    });
+    const certAsAttachment = await app.inject({
+      method: 'POST',
+      url: '/api/communication/announcements',
+      headers: auth,
+      payload: announcement([salaryCertId]),
+    });
+    check('Ohne verguetung: Entgeltbescheinigung als Ankuendigungsanhang → 403', linkDenied(certAsAttachment), certAsAttachment.json());
+    const ownAttachmentId = await uploadFileId('Aushang.pdf', '%PDF-1.4 aushang', 'application/pdf');
+    const withOwnAttachment = await app.inject({
+      method: 'POST',
+      url: '/api/communication/announcements',
+      headers: auth,
+      payload: announcement([ownAttachmentId]),
+    });
+    check('Ohne verguetung: eigener Upload als Anhang → 201', withOwnAttachment.statusCode === 201, withOwnAttachment.json());
+    const announcementId = withOwnAttachment.json().announcement?.id as number;
+    const resaveAnnouncement = await app.inject({
+      method: 'PUT',
+      url: `/api/communication/announcements/${announcementId}`,
+      headers: auth,
+      payload: announcement([ownAttachmentId]),
+    });
+    check('Ankuendigung mit bestehendem Anhang erneut speichern → 200', resaveAnnouncement.statusCode === 200, resaveAnnouncement.json());
+
+    const certAsCandidatePhoto = await app.inject({
+      method: 'POST',
+      url: '/api/recruiting/candidates',
+      headers: auth,
+      payload: { first_name: 'Carla', last_name: 'Kandidat', source: 'website', photo_file_id: salaryCertId },
+    });
+    check('Ohne verguetung: Entgeltbescheinigung als Bewerberfoto → 403', linkDenied(certAsCandidatePhoto), certAsCandidatePhoto.json());
+    const candidatePhotoId = await uploadFileId('carla.jpg', 'JPEGCARLA', 'image/jpeg');
+    const withOwnPhoto = await app.inject({
+      method: 'POST',
+      url: '/api/recruiting/candidates',
+      headers: auth,
+      payload: { first_name: 'Carla', last_name: 'Kandidat', source: 'website', photo_file_id: candidatePhotoId },
+    });
+    check('Ohne verguetung: eigener Upload als Bewerberfoto → 201', withOwnPhoto.statusCode === 201, withOwnPhoto.json());
+
+    // Die uebrigen Verknuepfungsrouten mit derselben Bescheinigung.
+    const send = (method: 'POST' | 'PUT' | 'PATCH', url: string, payload: unknown) =>
+      app.inject({ method, url, headers: auth, payload: payload as object });
+    const denied: Record<string, Awaited<ReturnType<typeof send>>> = {
+      'Krankmeldung anlegen': await send('POST', '/api/absences/sick-notes', {
+        employee_id: empId,
+        date_from: '2031-04-07',
+        date_to: '2031-04-08',
+        certificate_file_id: salaryCertId,
+      }),
+      'AU-Bescheinigung nachtragen': await send('PATCH', `/api/absences/sick-notes/${sickNoteId}`, { certificate_file_id: salaryCertId }),
+      'Trainingszertifikat': await send('PUT', `/api/performance/training-registrations/${registrationId}`, {
+        certificate_file_id: salaryCertId,
+      }),
+      'Vorlage anlegen': await send('POST', '/api/admin/templates', { file_id: salaryCertId, category: 'schreiben', title: 'Kopie' }),
+      'Vorlage Datei tauschen': await send('PATCH', `/api/admin/templates/${templateId}`, { file_id: salaryCertId }),
+      'Vertrag korrigieren': await send('PATCH', `/api/contracts/${contractId}`, { document_file_id: salaryCertId }),
+      'Bewerbung mit Lebenslauf': await send('POST', '/api/recruiting/applications', {
+        posting_id: postingId,
+        candidate: { first_name: 'Lena', last_name: 'Lauf', source: 'website' },
+        cv_file_id: salaryCertId,
+      }),
+      'Bewerbung mit neuer Person samt Foto': await send('POST', '/api/recruiting/applications', {
+        posting_id: postingId,
+        candidate: { first_name: 'Lena', last_name: 'Lauf', source: 'website', photo_file_id: salaryCertId },
+      }),
+    };
+    const notDenied = Object.entries(denied).filter(([, res]) => !linkDenied(res));
+    check(
+      'Ohne verguetung: AU, Training, Vorlagen, Vertragskorrektur, Lebenslauf und Bewerberfoto → 403',
+      notDenied.length === 0,
+      notDenied.map(([name, res]) => [name, res.statusCode, res.json()]),
+    );
+
+    // Bestehende Person: Die mitgeschickte (ignorierte) Person wird nicht
+    // angelegt, ihr Foto also auch nicht geprueft.
+    const carlaId = withOwnPhoto.json().candidate?.id as number;
+    const forExisting = await send('POST', '/api/recruiting/applications', {
+      posting_id: postingId,
+      candidate_id: carlaId,
+      candidate: { first_name: 'Ignoriert', last_name: 'Ignoriert', source: 'website', photo_file_id: salaryCertId },
+    });
+    check('Bewerbung fuer bestehende Person: ignoriertes Foto wird nicht geprueft → 201', forExisting.statusCode === 201, forExisting.json());
+    const cvDenied = await send('PATCH', `/api/recruiting/applications/${forExisting.json().application?.id}`, {
+      cv_file_id: salaryCertId,
+    });
+    check('Ohne verguetung: Lebenslauf einer Bewerbung tauschen → 403', linkDenied(cvDenied), cvDenied.json());
+
+    // Bearbeiten bestehender Datensaetze: Die eigene Datei bleibt, die fremde
+    // kommt nicht hinzu (PUT, PATCH teilen sich das Schema mit dem Anlegen).
+    const editDenied: Record<string, Awaited<ReturnType<typeof send>>> = {
+      'Bewerber bearbeiten': await send('PUT', `/api/recruiting/candidates/${carlaId}`, {
+        first_name: 'Carla',
+        last_name: 'Kandidat',
+        source: 'website',
+        photo_file_id: salaryCertId,
+      }),
+      'Ankuendigung bearbeiten': await send(
+        'PUT',
+        `/api/communication/announcements/${announcementId}`,
+        announcement([ownAttachmentId, salaryCertId]),
+      ),
+      'Dokument Datei tauschen': await send('PATCH', `/api/documents/${ownDoc.json().document?.id}`, { file_id: salaryCertId }),
+    };
+    const editNotDenied = Object.entries(editDenied).filter(([, res]) => !linkDenied(res));
+    check(
+      'Ohne verguetung: Bewerber, Ankuendigung und Dokument bearbeiten mit Bescheinigung → 403',
+      editNotDenied.length === 0,
+      editNotDenied.map(([name, res]) => [name, res.statusCode, res.json()]),
+    );
+
+    const unknownAttachment = await app.inject({
+      method: 'POST',
+      url: '/api/communication/announcements',
+      headers: auth,
+      payload: announcement([999_999]),
+    });
+    check('Unbekannte Datei-ID beim Verknuepfen → 404 statt 403', unknownAttachment.statusCode === 404, unknownAttachment.json());
+  } finally {
+    getDb().prepare("UPDATE users SET admin_role_id = NULL WHERE email = 'admin@ohrganize.de'").run();
+  }
+
+  // Wer die Bescheinigung lesen darf (hier Vollzugriff), darf sie weiter
+  // verknuepfen: Die Regel schraenkt nur den Fall ohne Leserecht ein.
+  const certAsDocFull = await app.inject({
+    method: 'POST',
+    url: '/api/documents',
+    headers: auth,
+    payload: { employee_id: empId, file_id: salaryCertId, category: 'bescheinigung', title: 'Entgeltbescheinigung 2026' },
+  });
+  check('Mit Leserecht (Vollzugriff): Entgeltbescheinigung als Dokument → 201', certAsDocFull.statusCode === 201, certAsDocFull.json());
+
+  // Freelancer-Rechnungen verlangen selbst verguetung: Eine Rolle nur mit
+  // verguetung haengt die Ausweiskopie (Bereich personal) als Beleg an.
+  const payRoleId = Number(getDb().prepare("INSERT INTO admin_roles (name) VALUES ('Smoke nur Verguetung')").run().lastInsertRowid);
+  getDb()
+    .prepare("INSERT INTO admin_role_permissions (role_id, area, level) VALUES (?, 'verguetung', 'bearbeiten')")
+    .run(payRoleId);
+  getDb().prepare("UPDATE users SET admin_role_id = ? WHERE email = 'admin@ohrganize.de'").run(payRoleId);
+  try {
+    const invoice = (number: string, fileId: number) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/compensation/freelancer-invoices',
+        headers: auth,
+        payload: { employee_id: freelancerId, invoice_number: number, invoice_date: '2026-09-30', amount_cents: 120_000, file_id: fileId },
+      });
+    const scanAsInvoice = await invoice('R-2026-1', idScanId);
+    check('Nur verguetung: Ausweiskopie als Rechnungsbeleg → 403', linkDenied(scanAsInvoice), scanAsInvoice.json());
+    const ownInvoice = await invoice('R-2026-2', await uploadFileId('Rechnung.pdf', '%PDF-1.4 rechnung', 'application/pdf'));
+    check('Nur verguetung: eigener Upload als Rechnungsbeleg → 201', ownInvoice.statusCode === 201, ownInvoice.json());
+  } finally {
+    getDb().prepare("UPDATE users SET admin_role_id = NULL WHERE email = 'admin@ohrganize.de'").run();
+  }
 }
 
 // ---------- Auth-Pflicht ----------

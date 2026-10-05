@@ -199,6 +199,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" }
   /api/absences/sick-notes/missing:
     get:
       summary: Fehlende AU-Bescheinigungen (Frist überschritten, kein Upload)
@@ -211,6 +212,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: Aktualisierte Krankmeldung }
+        "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" }
   /api/absences/closures:
     get:
       summary: Betriebsruhetage auflisten

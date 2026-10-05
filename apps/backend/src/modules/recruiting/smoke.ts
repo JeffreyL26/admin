@@ -304,8 +304,8 @@ let interviewId = 0;
 // ---------------------------------------------------------------------------
 {
   db.prepare(
-    `INSERT INTO files (id, original_name, stored_name, mime_type, size_bytes, sha256)
-     VALUES (77, 'foto.png', 'x-77.png', 'image/png', 10, 'ff')`,
+    `INSERT INTO files (id, original_name, stored_name, mime_type, size_bytes, sha256, uploaded_by)
+     VALUES (77, 'foto.png', 'x-77.png', 'image/png', 10, 'ff', (SELECT id FROM users WHERE email = 'admin@ohrganize.de'))`,
   ).run();
   const created = await app.inject({
     method: 'POST',
@@ -398,8 +398,8 @@ let interviewId = 0;
     return Number(
       db
         .prepare(
-          `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
-           VALUES (?, ?, 'text/plain', 10, ?)`,
+          `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256, uploaded_by)
+           VALUES (?, ?, 'text/plain', 10, ?, (SELECT id FROM users WHERE email = 'admin@ohrganize.de'))`,
         )
         .run(name, name, `sha-${name}`).lastInsertRowid,
     );

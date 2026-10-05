@@ -117,7 +117,9 @@ export function FilePicker({
  * Foto-Auswahl mit runder Vorschau — für das Mitarbeiterfoto. Lädt sofort hoch
  * (async) und meldet die neue file_id. `previewUrl` zeigt ein bereits
  * hinterlegtes Foto. `onRemove` blendet einen Knopf „Foto entfernen“ ein; der
- * Aufrufer setzt daraufhin seine file_id zurueck.
+ * Aufrufer setzt daraufhin seine file_id zurueck. `imageOnly` weist
+ * Nicht-Bilder vor dem Hochladen ab, fuer Felder, deren Backend nur Bilder
+ * annimmt (Mitarbeiterfoto, assertUsableAsPhoto).
  */
 export function PhotoPicker({
   name,
@@ -126,6 +128,7 @@ export function PhotoPicker({
   disabled,
   onPick,
   onRemove,
+  imageOnly,
 }: {
   name: string;
   previewUrl?: string;
@@ -133,17 +136,21 @@ export function PhotoPicker({
   disabled?: boolean;
   onPick: (file: File) => void;
   onRemove?: () => void;
+  imageOnly?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const [typeError, setTypeError] = useState<string | null>(null);
   const shown = localPreview ?? previewUrl;
   // Sobald der Server das hinterlegte Foto liefert (oder es wechselt), ist die
   // lokale Vorschau ueberholt: freigeben, sonst haelt der Browser die Bytes.
+  // Eine Meldung zur vorigen Auswahl gilt dann auch nicht mehr.
   React.useEffect(() => {
     setLocalPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
+    setTypeError(null);
   }, [previewUrl]);
 
   return (
@@ -183,6 +190,7 @@ export function PhotoPicker({
             onClick={() => {
               if (localPreview) URL.revokeObjectURL(localPreview);
               setLocalPreview(null);
+              setTypeError(null);
               onRemove();
             }}
           >
@@ -192,6 +200,7 @@ export function PhotoPicker({
         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 5 }}>
           JPG oder PNG, quadratisch wirkt am besten
         </div>
+        {typeError && <span className="hm-field__error">{typeError}</span>}
       </div>
       <input
         ref={inputRef}
@@ -202,6 +211,15 @@ export function PhotoPicker({
           const f = e.target.files?.[0];
           e.target.value = '';
           if (!f) return;
+          // accept="image/*" ist nur ein Filter im Dialog ("Alle Dateien"
+          // umgeht ihn). Mit imageOnly ein Nicht-Bild hier abweisen, bevor es
+          // hochgeladen wird, sonst scheiterte erst das Speichern des ganzen
+          // Formulars.
+          if (imageOnly && !f.type.toLowerCase().startsWith('image/')) {
+            setTypeError('Bitte eine Bilddatei wählen, etwa JPG oder PNG.');
+            return;
+          }
+          setTypeError(null);
           setLocalPreview(URL.createObjectURL(f));
           onPick(f);
         }}

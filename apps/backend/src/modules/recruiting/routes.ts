@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { detachUnreferencedFile, removeDetachedBlob, signDownloadUrl } from '../../core/files.js';
+import { assertMayLinkFiles, detachUnreferencedFile, removeDetachedBlob, signDownloadUrl } from '../../core/files.js';
 import { todayIso } from '../../core/dates.js';
 import { assertSeatsAvailable } from '../../core/license.js';
 import { isoDateString } from '../../core/validation.js';
@@ -680,6 +680,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
 
   app.post('/api/recruiting/candidates', async (req, reply) => {
     const body = parse(candidateBodySchema, req.body);
+    assertMayLinkFiles(req, [body.photo_file_id]);
     const id = inTransaction(() => {
       const candidateId = insertCandidate(body);
       audit(req, 'create', 'candidate', candidateId, { name: `${body.first_name} ${body.last_name}` });
@@ -693,6 +694,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     const { id } = parse(idParam, req.params);
     const existing = getCandidate(id);
     const body = parse(candidateBodySchema, req.body);
+    assertMayLinkFiles(req, [body.photo_file_id]);
     // Fehlt photo_file_id im Rumpf, bleibt das Foto erhalten: Der Editor
     // schickt das Feld nur, wenn ein Foto gewaehlt wurde; explizites null
     // entfernt es.
@@ -870,6 +872,8 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     if (posting.status === 'geschlossen') {
       throw conflict('Für eine geschlossene Stelle können keine Bewerbungen erfasst werden');
     }
+    // Das Foto der mitgeschickten Person nur, wenn sie auch angelegt wird.
+    assertMayLinkFiles(req, [body.cv_file_id, body.candidate_id ? null : body.candidate?.photo_file_id]);
 
     const stage = firstActiveStage();
     const appliedAt = body.applied_at ?? todayIso();
@@ -927,6 +931,7 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     );
     const fields = Object.entries(body).filter(([, v]) => v !== undefined);
     if (fields.length === 0) throw badRequest('Keine Änderungen übergeben');
+    assertMayLinkFiles(req, [body.cv_file_id]);
     const removedCv = inTransaction(() => {
       getDb()
         .prepare(`UPDATE applications SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`)

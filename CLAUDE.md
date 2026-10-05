@@ -485,6 +485,19 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **Dateien** liegen ausschließlich im Backend-Storage (`files`-Tabelle + Ordner).
   Downloads laufen über kurzlebige HMAC-signierte URLs (`core/files.ts`) — für
   Desktop- und späteren Web-Client identisch.
+  **Verknüpfen verlangt Leserecht:** Jede Route, die eine Datei-ID aus dem
+  Request an einen Datensatz hängt, ruft vorher `assertMayLinkFiles` (403,
+  unbekannte ID 404); sonst läge die Datei danach auch im Bereich des neuen
+  Datensatzes, und beim Signieren genügt ein Bereich. Was ein Konto lesen
+  darf, darf es weiter an mehrere Datensätze hängen.
+  `src/test/fileLinkCheck.ts` (Teil von `npm test`, TypeScript-AST wie
+  `auditTransactionCheck.ts`) prüft das statisch je Route: Nennt eine Route
+  (`<instanz>.<verb>('/…')` oder `.route({ url })`, auch in eingekapselten
+  Plugins) ein Schema mit einem Feld `*file_id`/`*file_ids` (auf jeder
+  Ebene deklariert, abgeleitet über `.partial()`, `.omit()`, `.pick()` oder
+  eingebettet), muss sie es an `assertMayLinkFiles` geben
+  (Mitarbeiterfotos: Wächter mit `assertUsableAsPhoto`). Ein Feld, das eine
+  Datei-ID unter anderem Namen trägt, sieht die Prüfung nicht.
   **Mitarbeiterfotos** bestehen aus Original (`photo_file_id`, unverändert)
   und Vorschaubild (`photo_thumb_file_id`, Migration
   `111_employee_photo_thumbnails`, in `FILE_REFERENCES` Bereich `personal`),
@@ -504,6 +517,11 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `useAvatarPhoto` (lädt erst bei Sichtbarkeit, `lib/useSeenOnce.ts`), im
   Portal über `usePhotoSrc` (`lib/photo.ts`), nicht direkt über
   `usePhotoUrl(photo_file_id)`.
+  Weil Listen die Fotospalten ohne `assertMayReadFile` für alle signieren,
+  die die Person sehen, nimmt eine Fotospalte eine NEUE Datei-ID nur als
+  eigenen, noch unverknüpften Bild-Upload an (`assertUsableAsPhoto` in
+  `core/files.ts`, sonst 400); unveränderte IDs gehen durch, sonst ließe
+  sich das Formular mit bestehendem Foto nicht mehr speichern.
 - **Verschlüsselung im Ruhezustand: Datenbank, Dateiablage und damit jede
   Sicherung.** Die Datenbank liegt im SQLCipher-4-Format vor (Rohschlüssel,
   `cipher = 'sqlcipher'`, `legacy = 4`), die Blobs in `storage/` mit

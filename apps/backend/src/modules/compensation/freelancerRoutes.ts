@@ -4,7 +4,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { isValidIsoDate } from '../../core/dates.js';
-import { deleteFileIfUnreferenced } from '../../core/files.js';
+import { assertMayLinkFiles, deleteFileIfUnreferenced } from '../../core/files.js';
 import { getEmployee } from './lib.js';
 
 const isoDate = z
@@ -150,6 +150,7 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
     if (body.file_id && !getDb().prepare('SELECT id FROM files WHERE id = ?').get(body.file_id)) {
       throw badRequest('Die hochgeladene Datei wurde nicht gefunden');
     }
+    assertMayLinkFiles(req, [body.file_id]);
     const invoice = inTransaction(() => {
       const info = getDb()
         .prepare(

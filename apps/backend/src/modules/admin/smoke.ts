@@ -30,12 +30,12 @@ db.prepare(
    VALUES ('Anna', 'Adler', 'aktiv', 1, 'Entwicklerin')`,
 ).run();
 db.prepare(
-  `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
-   VALUES ('musterschreiben.docx', 'x-1.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1234, 'abc')`,
+  `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256, uploaded_by)
+   VALUES ('musterschreiben.docx', 'x-1.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1234, 'abc', (SELECT id FROM users WHERE email = 'admin@ohrganize.de'))`,
 ).run();
 db.prepare(
-  `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
-   VALUES ('musterschreiben-v2.docx', 'x-2.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1300, 'def')`,
+  `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256, uploaded_by)
+   VALUES ('musterschreiben-v2.docx', 'x-2.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 1300, 'def', (SELECT id FROM users WHERE email = 'admin@ohrganize.de'))`,
 ).run();
 
 const { token, auth } = await firstAdminLogin(app, check);
@@ -225,16 +225,16 @@ await del(`/api/admin/roles/${roleNoCal.json().role.id}`);
   const fileA = Number(
     db
       .prepare(
-        `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
-         VALUES ('probe-a.txt', 'audit-probe-a.txt', 'text/plain', 7, 'sha-probe-a')`,
+        `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256, uploaded_by)
+         VALUES ('probe-a.txt', 'audit-probe-a.txt', 'text/plain', 7, 'sha-probe-a', (SELECT id FROM users WHERE email = 'admin@ohrganize.de'))`,
       )
       .run().lastInsertRowid,
   );
   const fileB = Number(
     db
       .prepare(
-        `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
-         VALUES ('probe-b.txt', 'audit-probe-b.txt', 'text/plain', 7, 'sha-probe-b')`,
+        `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256, uploaded_by)
+         VALUES ('probe-b.txt', 'audit-probe-b.txt', 'text/plain', 7, 'sha-probe-b', (SELECT id FROM users WHERE email = 'admin@ohrganize.de'))`,
       )
       .run().lastInsertRowid,
   );

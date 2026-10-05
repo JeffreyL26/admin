@@ -224,6 +224,7 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
       </Field>
       <Field label="Foto" span2>
         <PhotoPicker
+          imageOnly
           name={`${form.first_name} ${form.last_name}`.trim() || 'Neu'}
           previewUrl={form.photo_file_id ? photo.data : undefined}
           busy={uploading}

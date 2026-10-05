@@ -269,6 +269,7 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: Aktualisierte Anmeldung }
+        "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" }
   /api/performance/feedback-meetings:
     get:
       summary: Feedback-Gespräche auflisten (Filter employee_id, status)

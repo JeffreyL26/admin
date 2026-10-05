@@ -207,6 +207,7 @@ paths:
         "201": { description: Rechnung angelegt }
         "400": { description: Keine Freiberufler:in oder Datei nicht gefunden }
         "409": { description: Rechnungsnummer existiert bereits }
+        "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles)" }
   /api/compensation/freelancer-invoices/{id}/status:
     post:
       summary: Rechnungs-Statuswechsel offen → geprueft → bezahlt (bezahlt mit Zahldatum)

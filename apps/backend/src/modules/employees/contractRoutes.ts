@@ -3,6 +3,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { addDaysIso, todayIso } from '../../core/dates.js';
 import { AppError, badRequest, conflict, notFound, parse } from '../../core/errors.js';
+import { assertMayLinkFiles } from '../../core/files.js';
 import { assertTypeRules, assertWeeklyHoursWithinRule, contractBodySchema, contractPatchSchema, type ContractBody } from './validation.js';
 
 interface ContractRow {
@@ -147,6 +148,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
     assertEmployee(employeeId);
     const body = parse(contractBodySchema, req.body);
     validateRange(body);
+    assertMayLinkFiles(req, [body.document_file_id]);
 
     const db = getDb();
     const today = todayIso();
@@ -212,6 +214,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
     const merged = { ...existing, ...patch } as ContractRow;
     validateRange(merged);
+    assertMayLinkFiles(req, [patch.document_file_id]);
 
     const db = getDb();
     inTransaction(() => {

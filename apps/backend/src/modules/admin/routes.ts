@@ -4,7 +4,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { isValidIsoDate } from '../../core/dates.js';
-import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
+import { assertMayLinkFiles, detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
 import { roleRoutes } from './roleRoutes.js';
 import { adminUserRoutes } from './userRoutes.js';
 
@@ -107,6 +107,7 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     if (!db().prepare('SELECT id FROM files WHERE id = ?').get(body.file_id)) {
       throw notFound('Datei nicht gefunden — bitte zuerst über POST /api/files hochladen');
     }
+    assertMayLinkFiles(req, [body.file_id]);
     const id = inTransaction(() => {
       const result = db()
         .prepare('INSERT INTO hr_templates (file_id, category, title, description) VALUES (?, ?, ?, ?)')
@@ -129,6 +130,7 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     if (patch.file_id !== undefined && !db().prepare('SELECT id FROM files WHERE id = ?').get(patch.file_id)) {
       throw notFound('Datei nicht gefunden — bitte zuerst über POST /api/files hochladen');
     }
+    assertMayLinkFiles(req, [patch.file_id]);
     const cols = (['file_id', 'category', 'title', 'description'] as const).filter(
       (c) => patch[c] !== undefined,
     );

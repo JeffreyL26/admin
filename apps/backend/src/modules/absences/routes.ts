@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
+import { assertMayLinkFiles, detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
 import { pageOffsetOf, pageRequest } from '../../core/paging.js';
 import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../core/dates.js';
 import { holidaysByRegion, isHoliday } from '../../core/holidays.js';
@@ -839,6 +839,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     if (body.received_date && !body.certificate_file_id) {
       throw badRequest('Ein Eingangsdatum erfordert eine hochgeladene Bescheinigung');
     }
+    assertMayLinkFiles(req, [body.certificate_file_id]);
 
     const sickNoteId = inTransaction(() => {
       const requestId = createRequest(
@@ -893,6 +894,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       }),
       req.body,
     );
+    assertMayLinkFiles(req, [body.certificate_file_id]);
     // Ersetzte oder entfernte AU-Bescheinigung (Gesundheitsdaten) aufraeumen,
     // sofern nirgends sonst verknuepft; der Audit-Eintrag nennt die Datei.
     const replaced = (existing as { certificate_file_id: number | null }).certificate_file_id;

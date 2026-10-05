@@ -737,8 +737,12 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
   // AU-Bescheinigung ersetzen: Die alte Datei räumt erst der Schritt nach
   // dem Commit weg. Scheitert das Audit, bleiben Verknüpfung, files-Zeile
   // UND Blob auf der Platte stehen.
-  const oldCert = storeFile(Buffer.from('AU alt'), 'au-alt.pdf', 'application/pdf');
-  const newCert = storeFile(Buffer.from('AU neu'), 'au-neu.pdf', 'application/pdf');
+  // Hochgeladen vom handelnden Konto wie ueber POST /api/files: Verknuepfen
+  // verlangt Leserecht (assertMayLinkFiles), eine fremde, unverknuepfte Datei
+  // gilt als fremder Upload.
+  const uploaderId = (db.prepare("SELECT id FROM users WHERE email = 'admin@ohrganize.de'").get() as { id: number }).id;
+  const oldCert = storeFile(Buffer.from('AU alt'), 'au-alt.pdf', 'application/pdf', uploaderId);
+  const newCert = storeFile(Buffer.from('AU neu'), 'au-neu.pdf', 'application/pdf', uploaderId);
   const patchCert = (fileId: number) =>
     app.inject({ method: 'PATCH', url: `/api/absences/sick-notes/${s1.id}`, headers: auth, payload: { certificate_file_id: fileId } });
   const certOf = () =>

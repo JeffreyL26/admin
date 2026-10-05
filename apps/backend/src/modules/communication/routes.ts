@@ -6,7 +6,7 @@ import { AppError, badRequest, conflict, notFound, parse } from '../../core/erro
 import { audit } from '../../core/audit.js';
 import { todayIso } from '../../core/dates.js';
 import { getSetting } from '../../core/settings.js';
-import { deleteFileIfUnreferenced } from '../../core/files.js';
+import { assertMayLinkFiles, deleteFileIfUnreferenced } from '../../core/files.js';
 import { isoDateString } from '../../core/validation.js';
 import {
   audienceShape,
@@ -418,6 +418,7 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     if (body.expires_at && body.expires_at < body.publish_at) {
       throw badRequest('Das Ablaufdatum darf nicht vor dem Veröffentlichungsdatum liegen');
     }
+    assertMayLinkFiles(req, body.attachment_file_ids ?? []);
     const id = inTransaction(() => {
       const info = getDb()
         .prepare(
@@ -456,6 +457,7 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     if (body.expires_at && body.expires_at < body.publish_at) {
       throw badRequest('Das Ablaufdatum darf nicht vor dem Veröffentlichungsdatum liegen');
     }
+    assertMayLinkFiles(req, body.attachment_file_ids ?? []);
     const previousFileIds = attachmentFileIds(id);
     inTransaction(() => {
       getDb()

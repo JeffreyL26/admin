@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, notFound, parse } from '../../core/errors.js';
-import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
+import { assertMayLinkFiles, detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
 import { pageOffsetOf, pageRequest } from '../../core/paging.js';
 import { documentBodySchema, documentCategorySchema, documentPatchSchema } from './validation.js';
 
@@ -181,6 +181,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     if (!db.prepare('SELECT id FROM files WHERE id = ?').get(body.file_id)) {
       throw notFound('Datei nicht gefunden — bitte zuerst über POST /api/files hochladen');
     }
+    assertMayLinkFiles(req, [body.file_id]);
     if (body.employee_id && !db.prepare('SELECT id FROM employees WHERE id = ?').get(body.employee_id)) {
       throw notFound('Mitarbeiter:in nicht gefunden');
     }
@@ -241,6 +242,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       ['employee_id', 'file_id', 'category', 'title', 'note', 'expiry_date', 'reminder_days', 'visibility'] as const
     ).filter((c) => patch[c] !== undefined);
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
+    assertMayLinkFiles(req, [patch.file_id]);
     // Wird die hinterlegte Datei ausgetauscht, verliert die alte ihren letzten
     // Verweis. Ohne diesen Aufruf bliebe sie als Waise im Storage liegen und
     // wäre über eine signierte URL weiter abrufbar — derselbe Befund wie beim

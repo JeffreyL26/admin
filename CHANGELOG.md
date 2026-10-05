@@ -12,6 +12,35 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Dateien verknuepfen nur mit Leserecht, Mitarbeiterfoto nur aus eigenem Bild-Upload (05.10.2026)
+- **Sicherheit, Verknuepfen:** Dokumente, Vertraege, AU-Bescheinigungen,
+  Trainingszertifikate, Freelancer-Rechnungen, Vorlagen, Ankuendigungs-
+  anhaenge, Bewerberfotos und Lebenslaeufe nahmen jede Datei-ID an. Eine
+  Rolle ohne `verguetung` konnte so eine Entgeltbescheinigung als Dokument
+  anhaengen und danach lesen (beim Signieren genuegt ein Bereich) oder sie
+  als Anhang an alle Mitarbeitenden verteilen. Jetzt verlangt jede dieser
+  Routen, dass das Konto die Datei lesen darf (`assertMayLinkFiles`, sonst
+  403; eine unbekannte ID gibt 404, wo die Route sie nicht schon selbst
+  abweist, statt bisher teils eines Serverfehlers). Auch das Austauschen der
+  Datei eines bestehenden Dokuments (`PATCH /api/documents/:id`) ist erfasst.
+  Eigene Uploads, dieselbe lesbare Datei an mehreren Datensaetzen und
+  erneutes Speichern mit unveraenderten Anhaengen gehen wie bisher.
+  `src/test/fileLinkCheck.ts` (Teil von `npm test`) prueft statisch je
+  Route, dass jedes Datei-ID-Feld eines Request-Schemas (auf jeder Ebene
+  deklariert, abgeleitet oder eingebettet, auch in eingekapselten Plugins)
+  durch die Pruefung geht.
+- **Sicherheit, Mitarbeiterfoto:** `photo_file_id` und `photo_thumb_file_id`
+  nahmen jede Datei-ID an. Mit `personal: bearbeiten` liess sich so eine
+  Entgeltbescheinigung oder Ausweiskopie als Foto eintragen, und Organigramm,
+  Verzeichnis (auch im Portal) und Fuehrungslisten signierten sie fuer alle,
+  die die Person sehen. Beim Anlegen und Aendern einer Person muss eine neue
+  Foto-ID jetzt ein Bild (`mime_type` image/...) sein, das dasselbe Konto
+  hochgeladen hat und das noch nirgends verknuepft ist (`assertUsableAsPhoto`
+  in `core/files.ts`, sonst 400). Unveraenderte IDs bleiben zulaessig, eine
+  unbekannte ID gibt 400 statt eines Serverfehlers. Bestehende Eintraege
+  werden nicht nachtraeglich geprueft. Die Fotoauswahl im Personalformular
+  weist Nicht-Bilder schon vor dem Hochladen ab (`PhotoPicker imageOnly`).
+
 ### Leistung (05.10.2026)
 Ergebnis einer Performance-Pruefung mit synthetischem Bestand (2000 Personen,
 sechs Jahre Historie, verschluesselt wie im Betrieb). Zurueckgestellt und in

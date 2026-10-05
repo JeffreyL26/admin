@@ -577,8 +577,8 @@ check('Meine Entwicklung: Admin ohne Personalprofil → 403', devAsAdmin.statusC
     return Number(
       db
         .prepare(
-          `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
-           VALUES (?, ?, 'text/plain', 10, ?)`,
+          `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256, uploaded_by)
+           VALUES (?, ?, 'text/plain', 10, ?, (SELECT id FROM users WHERE email = 'admin@ohrganize.de'))`,
         )
         .run(name, name, `sha-${name}`).lastInsertRowid,
     );
