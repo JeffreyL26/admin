@@ -61,7 +61,7 @@ paths:
         "200": { description: Benutzer }
   /api/regions:
     get:
-      summary: Regionen eines Landes (Vorgabe: Land der Variante)
+      summary: "Regionen eines Landes (Vorgabe: Land der Variante)"
       description: >-
         Nachschlagewerk fuer Auswahlfelder. Das Land der Installation kommt aus
         der Variante (Build), nicht aus einer Einstellung; der Parameter dient

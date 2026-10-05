@@ -83,9 +83,9 @@ paths:
                 half_day_end: { type: boolean }
                 comment: { type: string, maxLength: 2000 }
                 override_balance: { type: boolean, description: Saldopruefung uebersteuern (nur HR) }
-                approve: { type: boolean, description: Nachtraegliche Erfassung, sofort genehmigt (nur HR, nie fuer die eigene Abwesenheit) }
+                approve: { type: boolean, description: "Nachtraegliche Erfassung, sofort genehmigt (nur HR, nie fuer die eigene Abwesenheit)" }
       responses:
-        "201": { description: Antrag angelegt, days_counted berechnet }
+        "201": { description: "Antrag angelegt, days_counted berechnet" }
         "403":
           description: approve fuer die eigene Abwesenheit (Vier-Augen-Prinzip) oder Art fuer die Person nicht freigegeben
           content:

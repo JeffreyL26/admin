@@ -50,7 +50,7 @@ paths:
                       comment: { type: string, description: Pflichtkommentar }
       responses:
         "200": { description: "{ ratings } — Stand des Zeitraums" }
-        "400": { description: Ungültiger Zeitraum, Wert außerhalb der Skala, fehlender Kommentar, Zukunft }
+        "400": { description: "Ungültiger Zeitraum, Wert außerhalb der Skala, fehlender Kommentar, Zukunft" }
         "403": { description: Person gehört nicht zum eigenen Zuständigkeitsbereich }
   # Gespräche: Modul leadership UND communication (Routen in modules/leadership/meetingRoutes.ts).
   /api/leadership/me/employees/{id}/meetings:
@@ -161,7 +161,7 @@ paths:
       responses:
         "200": { description: "{ employee, leader, period, ratings, history }" }
         "400": { description: Ungültiger Zeitraum }
-        "404": { description: Person ist keine Führungskraft, Mitarbeiter:in unbekannt, oder es liegt keine Bewertung dieser Führungskraft vor }
+        "404": { description: "Person ist keine Führungskraft, Mitarbeiter:in unbekannt, oder es liegt keine Bewertung dieser Führungskraft vor" }
   /api/leadership/leaders/{employeeId}/assignments:
     post:
       summary: Manuelle Zuweisung anlegen (include/exclude; Person, Abteilung, Team oder Fachrolle; optional befristet)

@@ -891,7 +891,7 @@ Jedes Fachmodul fasst **nur eigene Dateien** an; die Verdrahtung existiert berei
 |---|---|---|
 | SQL-Migrationen | `backend/src/db/migrations/<NNN>_<modul>.ts` | Nummernkreise: 0xx Core, 1xx Personal, 2xx Abwesenheit, 3xx Leistung (inkl. 310 Führung), 4xx Vergütung, 5xx Kommunikation, 6xx Recruiting, 7xx Verwaltung. Array in der Moduldatei füllen, `index.ts` nicht anfassen. Wer schutzwürdige Daten entfernt: optionaler TypeScript-Schritt `run` (gleiche Transaktion) mit `rebuildTableInKeyOrder` statt DROP COLUMN/DELETE allein, Regel unter „Verschlüsselung im Ruhezustand“. |
 | API-Routen | `backend/src/modules/<modul>/` | `routes.ts` exportiert das Fastify-Plugin (bereits registriert). |
-| OpenAPI | `backend/openapi/<modul>.paths.yaml` | Nur ein top-level `paths:`-Block; Merge via `npm run openapi -w apps/backend`. |
+| OpenAPI | `backend/openapi/<modul>.paths.yaml` | Nur ein top-level `paths:`-Block; Merge via `npm run openapi -w apps/backend`. Text mit `: ` oder ` #` immer in Anführungszeichen (sonst Parserfehler bzw. still abgeschnitten), innerhalb von `{ ... }` auch Text mit `,`. `npm test` prüft mit `merge-openapi.mjs --check` (js-yaml, kommt NUR über electron-builder mit; fällt es dort weg, scheitert `npm test`, dann js-yaml als devDependency abstimmen). |
 | Shared-Typen | `packages/shared/src/<modul>.ts` | Bereits aus `index.ts` re-exportiert. |
 | Seiten | `renderer/src/features/<modul>/` | `routes.tsx` exportiert `RouteObject[]` — Pfad-Kontrakt steht in `layout/nav.ts`, exakt diese Pfade implementieren. |
 

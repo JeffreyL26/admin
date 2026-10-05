@@ -53,7 +53,7 @@ paths:
               type: object
               required: [license]
               properties:
-                license: { type: string, description: Inhalt der Datei lizenz.ohrganize (eine Zeile, max. 16 KiB) }
+                license: { type: string, description: "Inhalt der Datei lizenz.ohrganize (eine Zeile, max. 16 KiB)" }
       responses:
         "200": { description: Eingespielt; Antwort wie GET }
         "400":

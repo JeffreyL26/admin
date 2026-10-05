@@ -5,7 +5,7 @@ paths:
       summary: Gesamtübersicht aktuelles Monatsbrutto aller Mitarbeitenden (ohne Freiberufler)
       tags: [Vergütung]
       responses:
-        "200": { description: Liste mit Monatsbrutto, Komponentenzahl und letzter Änderung }
+        "200": { description: "Liste mit Monatsbrutto, Komponentenzahl und letzter Änderung" }
   /api/compensation/employees/{id}/salary:
     get:
       summary: Aktuelle Vergütung einer Mitarbeiter:in (Komponenten + Summe)
@@ -40,7 +40,7 @@ paths:
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
-        "200": { description: Audit-Einträge mit Details (alter/neuer Betrag, Begründung) }
+        "200": { description: "Audit-Einträge mit Details (alter/neuer Betrag, Begründung)" }
   /api/compensation/change-requests:
     get:
       summary: Gehaltsänderungsanträge auflisten
@@ -55,7 +55,7 @@ paths:
       tags: [Vergütung]
       responses:
         "201": { description: Antrag angelegt }
-        "400": { description: Validierungsfehler (u. a. fehlende Begründung, Freiberufler:in) }
+        "400": { description: "Validierungsfehler (u. a. fehlende Begründung, Freiberufler:in)" }
         "409": { description: Überschneidung mit der Komponentenhistorie (wie bei der Genehmigung) }
   /api/compensation/change-requests/{id}/decide:
     post:
@@ -88,7 +88,7 @@ paths:
       tags: [Vergütung]
       responses:
         "201": { description: Bonus angelegt }
-        "400": { description: Validierungsfehler (Betrag/Zielbetrag-Pflicht, fremdes Ziel) }
+        "400": { description: "Validierungsfehler (Betrag/Zielbetrag-Pflicht, fremdes Ziel)" }
   /api/compensation/bonuses/{id}/status:
     post:
       summary: Bonus-Statuswechsel geplant → freigegeben → ausgezahlt (auditiert)
@@ -117,7 +117,7 @@ paths:
       summary: Abrechnungslauf erstellen (stellt Bewegungsdaten des Monats zusammen)
       tags: [Vergütung]
       responses:
-        "201": { description: Lauf mit Items (Flags, Warnungen) }
+        "201": { description: "Lauf mit Items (Flags, Warnungen)" }
         "409": { description: Für den Monat existiert bereits ein Lauf }
   /api/compensation/payroll-runs/{id}:
     get:
@@ -238,7 +238,7 @@ paths:
       summary: Bescheinigung erstellen (generiert HTML-Dokument im Storage → file_id)
       tags: [Vergütung]
       responses:
-        "201": { description: Bescheinigung mit file_id, Status erstellt }
+        "201": { description: "Bescheinigung mit file_id, Status erstellt" }
         "400": { description: Arbeitgeberbescheinigung ohne Eintrittsdatum }
   /api/compensation/certificates/{id}/sign:
     post:

@@ -41,7 +41,7 @@ paths:
       parameters:
         - { name: kind, in: query, schema: { type: string, enum: [onboarding, offboarding] } }
       responses:
-        "200": { description: Vorlagenliste (kind, title, sort_order, active) }
+        "200": { description: "Vorlagenliste (kind, title, sort_order, active)" }
     post:
       summary: Vorlage anlegen (sort_order ohne Angabe ans Ende)
       responses:

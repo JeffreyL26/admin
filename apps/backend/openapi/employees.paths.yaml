@@ -38,7 +38,7 @@ paths:
       summary: Massenbearbeitung (nur department_id, team_id, location_id, manager_id, status, weekly_hours, annual_leave_days; transaktional, auditiert)
       responses:
         "200": { description: "{ updated: n }" }
-        "400": { description: Unzulässiges Feld, Typregel-Verletzung oder Team passt nicht zur Abteilung }
+        "400": { description: "Unzulässiges Feld, Typregel-Verletzung oder Team passt nicht zur Abteilung" }
   /api/employees/change-requests:
     get:
       summary: Änderungsanträge Mitarbeitender zu ihren Stammdaten (offene zuerst, Bankwerte ungekürzt)
