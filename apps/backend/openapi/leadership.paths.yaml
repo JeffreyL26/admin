@@ -15,7 +15,7 @@ paths:
       parameters:
         - { name: period, in: query, schema: { type: string }, description: "Zeitraumschlüssel der eingestellten Kadenz, z. B. 2026-Q3; ohne Angabe der aktuelle" }
       responses:
-        "200": { description: "{ period, current_period, settings, categories, team (je Person mit history), scope (Abteilungen, Teams, Kopfzahl), history_periods }" }
+        "200": { description: "{ period, current_period, settings, categories, team (je Person mit history; photo_url zeigt auf das Vorschaubild photo_thumb_file_id, sonst photo_file_id, gleich innerhalb eines Zehn-Minuten-Fensters), scope (Abteilungen, Teams, Kopfzahl), history_periods }" }
         "403": { description: Konto ist keine freigeschaltete Führungskraft }
   /api/leadership/me/employees/{id}:
     get:
@@ -190,7 +190,7 @@ paths:
       parameters:
         - { name: period, in: query, schema: { type: string } }
       responses:
-        "200": { description: "{ period, current_period, category, scale, leaders }" }
+        "200": { description: "{ period, current_period, category, scale, leaders } (je Führungskraft photo_file_id, photo_thumb_file_id und photo_url wie unter /api/leadership/me/team)" }
   /api/leadership/employees/{id}/ratings:
     get:
       summary: Alle Bewertungen einer Person (von allen Führungskräften) samt Protokoll — Verwaltungssicht

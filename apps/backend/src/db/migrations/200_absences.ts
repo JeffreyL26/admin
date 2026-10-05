@@ -167,4 +167,29 @@ export const absencesMigrations: Migration[] = [
         );
     `,
   },
+  {
+    // Kalender, Dashboard und Portal fragen "status = ? AND date_from <= ?
+    // AND date_to >= ?". Mit dem reinen Statusindex las SQLite dafuer alle
+    // genehmigten Antraege seit Inbetriebnahme, der Aufwand wuchs mit jedem
+    // Jahr (gemessen bei 6 Jahren: Portal-Kalender vorher 33 ms ohne und
+    // 170 ms mit Verschluesselung, mit diesem Index 6,5 ms ohne).
+    // (status, date_to) begrenzt auf die Antraege, die nicht vor dem Zeitraum
+    // enden, und deckt als Praefix alle reinen Statusabfragen weiter ab; der
+    // alte Index faellt deshalb weg,
+    // damit der Planer ihn nicht weiter waehlt. Es wird nichts geloescht oder
+    // gefiltert, die ganze Historie bleibt abfragbar.
+    // Dazu die Verweise auf Konten (Kontoloeschung, siehe
+    // 006_user_reference_indexes), die AU-Datei (FILE_REFERENCES) und die
+    // Folgebescheinigung (ON DELETE SET NULL prueft die Kinder).
+    name: '205_absence_query_indexes',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_absence_requests_status_to ON absence_requests(status, date_to);
+      DROP INDEX IF EXISTS idx_absence_requests_status;
+      CREATE INDEX IF NOT EXISTS idx_absence_requests_type ON absence_requests(type_id);
+      CREATE INDEX IF NOT EXISTS idx_absence_requests_created_by ON absence_requests(created_by_user_id) WHERE created_by_user_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_absence_requests_decided_by ON absence_requests(decided_by_user_id) WHERE decided_by_user_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_sick_notes_certificate_file ON sick_notes(certificate_file_id) WHERE certificate_file_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_sick_notes_follow_up ON sick_notes(follow_up_of_id) WHERE follow_up_of_id IS NOT NULL;
+    `,
+  },
 ];

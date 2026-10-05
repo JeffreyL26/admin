@@ -281,7 +281,12 @@ export interface DirectoryEmployee {
   email?: string | null;
   phone?: string | null;
   photo_file_id?: number | null;
-  /** Kurzlebig signiert (core/files.ts): sofort laden, nicht merken. */
+  /** Vorschaubild zum Foto; ohne (Bestand von vorher) gilt das Original. */
+  photo_thumb_file_id?: number | null;
+  /**
+   * Vorschaubild, sonst Original; befristet signiert und innerhalb eines
+   * Zeitfensters stabil (signPhotoUrl in core/files.ts): bald laden, nicht merken.
+   */
   photo_url?: string | null;
   department_name?: string | null;
   team_name?: string | null;

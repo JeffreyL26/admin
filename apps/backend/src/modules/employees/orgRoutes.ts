@@ -1,9 +1,15 @@
 import type { FastifyInstance } from 'fastify';
-import type { CountryCode, OrgChartPerson, OrgChartResponse, OrgTreeNode } from '@ohrganize/shared';
-import { getDb } from '../../db/db.js';
+import type {
+  CountryCode,
+  OrgChartOriginalsResponse,
+  OrgChartPerson,
+  OrgChartResponse,
+  OrgTreeNode,
+} from '@ohrganize/shared';
+import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
-import { signDownloadUrl } from '../../core/files.js';
+import { signOriginalPhotoUrl, signPhotoUrl } from '../../core/files.js';
 import {
   assertLocationRegion,
   departmentBodySchema,
@@ -107,6 +113,7 @@ interface ChartRow {
   location_id: number | null;
   location_name: string | null;
   photo_file_id: number | null;
+  photo_thumb_file_id: number | null;
 }
 
 /**
@@ -124,8 +131,36 @@ interface ChartRow {
  * Fotos kommen signiert mit (wie im Mitarbeiterverzeichnis): `/api/org` hängt
  * am Bereich `personal`, demselben Bereich, dem Mitarbeiterfotos zugeordnet
  * sind (core/files.ts). Wer diese Route erreicht, dürfte also auch selbst
- * signieren; hier wird nur ein Roundtrip je Karte gespart.
+ * signieren; hier wird nur ein Roundtrip je Karte gespart. Signiert wird das
+ * Vorschaubild (sonst das Original) mit stabiler URL im Zeitfenster
+ * (signPhotoUrl), damit Refetches keine Fotos neu laden. Die Originale für
+ * hohen Zoom liefert erst GET /api/org/chart/originals (buildOrgChartOriginals).
  */
+/**
+ * Signierte Links auf die ORIGINALE der Fotos im Organigramm, je Person mit
+ * Vorschaubild (ohne zeigt photo_url schon das Original). Eigene Route statt
+ * Feld in buildOrgChart: Gebraucht werden sie nur über der Grenze des
+ * Vorschaubilds (hoher Zoom auf einem Bildschirm mit hoher Pixeldichte), und
+ * als Feld trüge jeder Abruf des Organigramms bei 2000 Fotos rund 230 KB
+ * zusätzlich. Signiert wie die Liste selbst (signOriginalPhotoUrl, ohne
+ * Audit-Zeile; selbst signiert entstünde je Karte eine). Nur aktive Profile,
+ * wie im Organigramm; das Portal erreicht die Route nicht (Bereich personal).
+ */
+export function buildOrgChartOriginals(): OrgChartOriginalsResponse {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, photo_file_id, photo_thumb_file_id FROM employees
+       WHERE status = 'aktiv' AND photo_file_id IS NOT NULL AND photo_thumb_file_id IS NOT NULL`,
+    )
+    .all() as { id: number; photo_file_id: number; photo_thumb_file_id: number }[];
+  const originals: Record<number, string> = {};
+  for (const row of rows) {
+    const url = signOriginalPhotoUrl(row);
+    if (url) originals[row.id] = url;
+  }
+  return { originals };
+}
+
 export function buildOrgChart(): OrgChartResponse {
   const db = getDb();
   const rows = db
@@ -134,7 +169,7 @@ export function buildOrgChart(): OrgChartResponse {
               e.email, e.phone, e.hire_date, e.manager_id,
               e.department_id, d.name AS department_name,
               e.team_id, t.name AS team_name, t.lead_employee_id AS team_lead_id,
-              e.location_id, l.name AS location_name, e.photo_file_id
+              e.location_id, l.name AS location_name, e.photo_file_id, e.photo_thumb_file_id
        FROM employees e
        LEFT JOIN departments d ON d.id = e.department_id
        LEFT JOIN teams t ON t.id = e.team_id
@@ -169,7 +204,7 @@ export function buildOrgChart(): OrgChartResponse {
     return {
       ...person,
       ...resolveParent(row),
-      photo_url: row.photo_file_id ? signDownloadUrl(row.photo_file_id) : null,
+      photo_url: signPhotoUrl(row),
     };
   });
 
@@ -218,17 +253,22 @@ function assertNoCycle(departmentId: number, newParentId: number): void {
 export async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/org/tree', async () => buildOrgTree());
   app.get('/api/org/chart', async () => buildOrgChart());
+  app.get('/api/org/chart/originals', async () => buildOrgChartOriginals());
 
   // ---------------- Abteilungen ----------------
   app.get('/api/departments', async () => ({ departments: loadDepartments() }));
 
   app.post('/api/departments', async (req, reply) => {
     const body = parse(departmentBodySchema, req.body);
-    const info = getDb()
-      .prepare('INSERT INTO departments (name, parent_id, head_employee_id) VALUES (?, ?, ?)')
-      .run(body.name, body.parent_id ?? null, body.head_employee_id ?? null);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'create', 'department', id, { name: body.name });
+    // Änderung und Audit-Eintrag in EINER Transaktion: Kein Stand ohne Protokoll.
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare('INSERT INTO departments (name, parent_id, head_employee_id) VALUES (?, ?, ?)')
+        .run(body.name, body.parent_id ?? null, body.head_employee_id ?? null);
+      const newId = Number(info.lastInsertRowid);
+      audit(req, 'create', 'department', newId, { name: body.name });
+      return newId;
+    });
     reply.status(201);
     return { department: getDb().prepare('SELECT * FROM departments WHERE id = ?').get(id) };
   });
@@ -249,10 +289,12 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       (c) => patch[c] !== undefined,
     );
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
-    getDb()
-      .prepare(`UPDATE departments SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-      .run(...cols.map((c) => patch[c] ?? null), id);
-    audit(req, 'update', 'department', id, { changed: patch });
+    inTransaction(() => {
+      getDb()
+        .prepare(`UPDATE departments SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+        .run(...cols.map((c) => patch[c] ?? null), id);
+      audit(req, 'update', 'department', id, { changed: patch });
+    });
     return { department: getDb().prepare('SELECT * FROM departments WHERE id = ?').get(id) };
   });
 
@@ -275,8 +317,10 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
           .join(', ')}). Bitte zuerst umhängen oder löschen.`,
       );
     }
-    getDb().prepare('DELETE FROM departments WHERE id = ?').run(id);
-    audit(req, 'delete', 'department', id, { name: existing.name });
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM departments WHERE id = ?').run(id);
+      audit(req, 'delete', 'department', id, { name: existing.name });
+    });
     reply.status(204);
   });
 
@@ -285,11 +329,14 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/teams', async (req, reply) => {
     const body = parse(teamBodySchema, req.body);
-    const info = getDb()
-      .prepare('INSERT INTO teams (name, department_id, lead_employee_id) VALUES (?, ?, ?)')
-      .run(body.name, body.department_id ?? null, body.lead_employee_id ?? null);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'create', 'team', id, { name: body.name });
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare('INSERT INTO teams (name, department_id, lead_employee_id) VALUES (?, ?, ?)')
+        .run(body.name, body.department_id ?? null, body.lead_employee_id ?? null);
+      const newId = Number(info.lastInsertRowid);
+      audit(req, 'create', 'team', newId, { name: body.name });
+      return newId;
+    });
     reply.status(201);
     return { team: getDb().prepare('SELECT * FROM teams WHERE id = ?').get(id) };
   });
@@ -307,10 +354,12 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       (c) => patch[c] !== undefined,
     );
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
-    getDb()
-      .prepare(`UPDATE teams SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-      .run(...cols.map((c) => patch[c] ?? null), id);
-    audit(req, 'update', 'team', id, { changed: patch });
+    inTransaction(() => {
+      getDb()
+        .prepare(`UPDATE teams SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+        .run(...cols.map((c) => patch[c] ?? null), id);
+      audit(req, 'update', 'team', id, { changed: patch });
+    });
     return { team: getDb().prepare('SELECT * FROM teams WHERE id = ?').get(id) };
   });
 
@@ -320,8 +369,10 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       | { name: string }
       | undefined;
     if (!existing) throw notFound('Team nicht gefunden');
-    getDb().prepare('DELETE FROM teams WHERE id = ?').run(id);
-    audit(req, 'delete', 'team', id, { name: existing.name });
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM teams WHERE id = ?').run(id);
+      audit(req, 'delete', 'team', id, { name: existing.name });
+    });
     reply.status(204);
   });
 
@@ -339,23 +390,26 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/locations', async (req, reply) => {
     const body = parse(locationBodySchema, req.body);
     assertLocationRegion(body.country, body.bundesland);
-    const info = getDb()
-      .prepare(
-        'INSERT INTO locations (name, street, zip, city, country, bundesland) VALUES (?, ?, ?, ?, ?, ?)',
-      )
-      .run(
-        body.name,
-        body.street ?? null,
-        body.zip ?? null,
-        body.city ?? null,
-        body.country,
-        body.bundesland,
-      );
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'create', 'location', id, {
-      name: body.name,
-      country: body.country,
-      bundesland: body.bundesland,
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          'INSERT INTO locations (name, street, zip, city, country, bundesland) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+        .run(
+          body.name,
+          body.street ?? null,
+          body.zip ?? null,
+          body.city ?? null,
+          body.country,
+          body.bundesland,
+        );
+      const newId = Number(info.lastInsertRowid);
+      audit(req, 'create', 'location', newId, {
+        name: body.name,
+        country: body.country,
+        bundesland: body.bundesland,
+      });
+      return newId;
     });
     reply.status(201);
     return { location: getDb().prepare('SELECT * FROM locations WHERE id = ?').get(id) };
@@ -381,10 +435,12 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       (c) => patch[c] !== undefined,
     );
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
-    getDb()
-      .prepare(`UPDATE locations SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-      .run(...cols.map((c) => patch[c] ?? null), id);
-    audit(req, 'update', 'location', id, { changed: patch });
+    inTransaction(() => {
+      getDb()
+        .prepare(`UPDATE locations SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+        .run(...cols.map((c) => patch[c] ?? null), id);
+      audit(req, 'update', 'location', id, { changed: patch });
+    });
     return { location: getDb().prepare('SELECT * FROM locations WHERE id = ?').get(id) };
   });
 
@@ -394,8 +450,10 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       | { name: string }
       | undefined;
     if (!existing) throw notFound('Standort nicht gefunden');
-    getDb().prepare('DELETE FROM locations WHERE id = ?').run(id);
-    audit(req, 'delete', 'location', id, { name: existing.name });
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM locations WHERE id = ?').run(id);
+      audit(req, 'delete', 'location', id, { name: existing.name });
+    });
     reply.status(204);
   });
 }

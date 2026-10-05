@@ -63,7 +63,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     queryKey: ['palette', 'documents', q],
     queryFn: () =>
       api.get<{ documents: { id: number; title: string; category: string; first_name?: string | null; last_name?: string | null }[] }>(
-        `/api/documents?search=${encodeURIComponent(q)}`,
+        // Nur die ersten fünf Treffer laden statt aller (die Ablage kann
+        // fünfstellig sein); Reihenfolge wie bisher, das Backend sortiert.
+        `/api/documents?search=${encodeURIComponent(q)}&limit=5`,
       ),
     enabled: open && q.length >= 2 && can('personal'),
     select: (d) => d.documents.slice(0, 5),

@@ -1,14 +1,30 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  checkIntervalMs,
+  desktopSessionAction,
+  DESKTOP_REFRESH_CHECK_MS,
   FULL_ACCESS,
   hasFeature,
   permits,
+  sessionEndReached,
+  sessionEndsAt as endsAtFrom,
+  sessionEndWarningMs,
+  SESSION_END_NOTICE,
   type AdminArea,
   type AdminPermissions,
   type LicenseStatus,
 } from '@ohrganize/shared';
-import { api, hasToken, setLicenseStateHandler, setToken, setUnauthorizedHandler } from '../api/client';
+import {
+  api,
+  hasToken,
+  refreshToken,
+  setLicenseStateHandler,
+  setToken,
+  setUnauthorizedHandler,
+  tokenLifetime,
+  tokenState,
+} from '../api/client';
 
 export interface AuthUser {
   id: number;
@@ -86,6 +102,13 @@ interface AuthState {
    */
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => void;
+  /** Hinweis für die Anmeldeseite (Ende der Sitzung nach ihrer Höchstdauer), sonst null. */
+  notice: string | null;
+  /**
+   * Ende der Sitzung (ms), sobald es in die Vorwarnung fällt (zehn Minuten
+   * vorher, layout/SessionEndBanner.tsx); sonst null.
+   */
+  sessionEndsAt: number | null;
 }
 
 const AuthContext = createContext<AuthState>({
@@ -100,6 +123,8 @@ const AuthContext = createContext<AuthState>({
   login: async () => {},
   changePassword: async () => {},
   logout: () => {},
+  notice: null,
+  sessionEndsAt: null,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -109,6 +134,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [permissions, setPermissions] = useState<AdminPermissions>(FULL_ACCESS);
   const [license, setLicense] = useState<LicenseStatus | null>(null);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [sessionEndsAt, setSessionEndsAt] = useState<number | null>(null);
   const queryClient = useQueryClient();
   // Für den Signal-Handler des API-Clients: Der läuft außerhalb des Renderings
   // und soll den jeweils aktuellen Zustand sehen, nicht den beim Registrieren.
@@ -127,11 +154,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setPermissions(FULL_ACCESS);
     setLicense(null);
+    setSessionEndsAt(null);
     // Gecachte Personaldaten dürfen einen Kontowechsel am selben Gerät nicht
     // überleben — mit den abgestuften Admin-Rollen sähe das nächste Konto sonst
     // minutenlang Daten aus Bereichen, die ihm gar nicht zustehen.
     queryClient.clear();
   }, [queryClient]);
+
+  /**
+   * Sitzung von außen beendet (401) oder an ihrer Höchstdauer angekommen. War
+   * es das Ende der Sitzung, mit Hinweis; ein 401 aus anderem Grund (etwa
+   * Passwortwechsel auf einem anderen Gerät) meldet ohne Hinweis ab.
+   */
+  const endSession = useCallback(() => {
+    const ended = sessionEndReached(tokenState());
+    logout();
+    if (ended) setNotice(SESSION_END_NOTICE);
+  }, [logout]);
 
   const refreshLicense = useCallback(async () => {
     if (!hasToken()) return;
@@ -145,7 +184,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setUnauthorizedHandler(logout);
+    setUnauthorizedHandler(endSession);
     if (!hasToken()) {
       setLoading(false);
       return;
@@ -158,7 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       .catch(() => setToken(null))
       .finally(() => setLoading(false));
-  }, [logout, applyMe]);
+  }, [endSession, applyMe]);
 
   // Zustandswechsel mitten in der Sitzung (Header oder 403 LICENSE_EXPIRED,
   // siehe api/client.ts): nur nachladen, wenn sich wirklich etwas geändert
@@ -177,13 +216,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setLicenseStateHandler(null);
   }, [refreshLicense]);
 
+  // Solange angemeldet: Token verlängern, sobald es zehn Minuten alt ist, bei
+  // kurzer Laufzeit (OHRGANIZE_DESKTOP_TOKEN_TTL) spätestens nach der halben
+  // (Regeln in packages/shared/src/session.ts). Geprüft wird jede Minute und
+  // zusätzlich sofort, wenn das Fenster wieder sichtbar wird, den Fokus
+  // bekommt oder das Netz zurückkommt: Im Hintergrund und im Ruhezustand
+  // drosselt Chromium die Timer oder hält sie an, nach dem Aufwachen soll die
+  // Verlängerung nicht auf den nächsten Takt warten. Angemeldet bleibt man so
+  // bis zum Schließen der App oder zum Logout, höchstens bis zum Ende der
+  // Sitzung (OHRGANIZE_DESKTOP_SESSION_MAX, Vorgabe fünf Tage): Reicht das Token
+  // bis dorthin, wird nicht mehr verlängert, und nach seinem Ablauf meldet die
+  // App mit Hinweis ab. Nicht bei erzwungenem
+  // Passwortwechsel (das Backend lehnt dort jede Verlängerung mit 403 ab; der
+  // Wechsel selbst liefert ein frisches Token). Logout stoppt die Timer über
+  // das Aufräumen; eine danach eintreffende Antwort verwirft refreshToken.
+  const sessionActive = user !== null && user.must_change_password !== 1;
+  useEffect(() => {
+    if (!sessionActive) return;
+    const maybeRefresh = () => {
+      const state = tokenState();
+      setSessionEndsAt(endsAtFrom(sessionEndWarningMs(state), Date.now()));
+      const action = desktopSessionAction(state);
+      if (action === 'expired') {
+        endSession();
+        return;
+      }
+      if (action !== 'refresh') return;
+      // Netzfehler: nächster Versuch beim nächsten Anlass. Ein 401 meldet der
+      // API-Client selbst ab (Unauthorized-Handler).
+      refreshToken().catch(() => undefined);
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') maybeRefresh();
+    };
+    const timer = window.setInterval(maybeRefresh, checkIntervalMs(DESKTOP_REFRESH_CHECK_MS, tokenLifetime()));
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', maybeRefresh);
+    window.addEventListener('online', maybeRefresh);
+    // Nach dem Neuladen kann das Token schon älter sein.
+    maybeRefresh();
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', maybeRefresh);
+      window.removeEventListener('online', maybeRefresh);
+    };
+  }, [sessionActive, endSession]);
+
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api.post<MeResponse & { token: string }>('/api/auth/login', { email, password });
+    // client 'desktop': lange Laufzeit, die das Backend nur Admin-Konten gibt.
+    const res = await api.post<MeResponse & { token: string }>('/api/auth/login', {
+      email,
+      password,
+      client: 'desktop',
+    });
     if (res.user.role !== 'admin') throw new Error(ADMIN_ONLY_MESSAGE);
     // Auch hier leeren: Nicht jedes Sitzungsende läuft durch logout() — so gilt
     // die Regel unabhängig davon, wie die vorherige Sitzung endete.
     queryClient.clear();
     setToken(res.token);
+    setNotice(null);
     applyMe(res);
   }, [queryClient, applyMe]);
 
@@ -210,7 +302,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider
       value={{
         user, license, refreshLicense, permissions, can, features, hasFeature: hasFeatureFn, loading, login,
-        changePassword, logout,
+        changePassword, logout, notice, sessionEndsAt,
       }}
     >
       {children}

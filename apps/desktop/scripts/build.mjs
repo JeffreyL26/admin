@@ -98,12 +98,17 @@ if (!devOnly) {
 
   const rendererDist = path.join(root, '../renderer/dist');
   const backendBundle = path.join(root, '../backend/dist/server.cjs');
+  // bcrypt im Worker-Thread (backend core/passwordHashing.ts). server.cjs
+  // liest die Datei aus seinem eigenen Verzeichnis; fehlt sie, rechnet das
+  // eingebettete Backend wieder im Hauptprozess, und das Fenster steht bei
+  // jeder Anmeldung still. Deshalb Pflicht statt stiller Ersatzbetrieb.
+  const passwordWorker = path.join(root, '../backend/dist/password-worker.cjs');
   if (!fs.existsSync(rendererDist)) {
     console.error('Renderer-Build fehlt — zuerst `npm run build -w apps/renderer` ausführen.');
     process.exit(1);
   }
-  if (!fs.existsSync(backendBundle)) {
-    console.error('Backend-Bundle fehlt — zuerst `npm run build -w apps/backend` ausführen.');
+  if (!fs.existsSync(backendBundle) || !fs.existsSync(passwordWorker)) {
+    console.error('Backend-Bundle fehlt oder ist unvollständig: zuerst `npm run build -w apps/backend` ausführen.');
     process.exit(1);
   }
   assertMarker(backendBundle, 'Backend-Bundle server.cjs');
@@ -117,6 +122,7 @@ if (!devOnly) {
   fs.rmSync(path.join(root, 'dist/renderer'), { recursive: true, force: true });
   fs.cpSync(rendererDist, path.join(root, 'dist/renderer'), { recursive: true });
   fs.copyFileSync(backendBundle, path.join(root, 'dist/server.cjs'));
+  fs.copyFileSync(passwordWorker, path.join(root, 'dist/password-worker.cjs'));
   fs.writeFileSync(path.join(root, 'dist/VARIANTE.txt'), `${variantId}\n`);
 }
 

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { parse, conflict, notFound } from '../../core/errors.js';
-import { audit } from '../../core/audit.js';
+import { audit, auditStandalone } from '../../core/audit.js';
 import { storeFile, signDownloadUrl, assertMayReadFile, deleteFileIfUnreferenced } from '../../core/files.js';
 import { getAllSettings } from '../../core/settings.js';
 import { CERTIFICATE_KIND_LABELS, type CertificateKind } from '@ohrganize/shared';
@@ -52,21 +52,26 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
     const employee = getEmployee(body.employee_id);
     const html = template.render(body.kind, body.period, employee, getAllSettings());
     const fileName = `${body.kind}_${employee.last_name.toLowerCase()}_${body.period.replace(/[^\w-]/g, '_')}.html`;
+    // Die Datei liegt vor dem Datensatz auf der Platte (wie bei jedem Upload);
+    // scheitert der Commit unten, bleibt höchstens ein unreferenzierter Blob.
     const file = storeFile(Buffer.from(html, 'utf8'), fileName, 'text/html; charset=utf-8', req.user.id);
-    const info = getDb()
-      .prepare(
-        `INSERT INTO certificates (employee_id, kind, period, file_id, status, note)
-         VALUES (?, ?, ?, ?, 'erstellt', ?)`,
-      )
-      .run(body.employee_id, body.kind, body.period, file.id, body.note ?? null);
-    const certificate = getDb()
-      .prepare('SELECT * FROM certificates WHERE id = ?')
-      .get(Number(info.lastInsertRowid));
-    audit(req, 'certificate.create', 'certificate', Number(info.lastInsertRowid), {
-      employee_id: body.employee_id,
-      kind: body.kind,
-      period: body.period,
-      file_id: file.id,
+    // Datensatz und Audit-Eintrag in einem Commit.
+    const certificate = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO certificates (employee_id, kind, period, file_id, status, note)
+           VALUES (?, ?, ?, ?, 'erstellt', ?)`,
+        )
+        .run(body.employee_id, body.kind, body.period, file.id, body.note ?? null);
+      audit(req, 'certificate.create', 'certificate', Number(info.lastInsertRowid), {
+        employee_id: body.employee_id,
+        kind: body.kind,
+        period: body.period,
+        file_id: file.id,
+      });
+      return getDb()
+        .prepare('SELECT * FROM certificates WHERE id = ?')
+        .get(Number(info.lastInsertRowid));
     });
     reply.status(201);
     return { certificate };
@@ -93,7 +98,7 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
     assertMayReadFile(req, certificate.file_id);
     // Der Link darf in keinem Cache landen (Browser, Proxy).
     reply.header('Cache-Control', 'no-store, private');
-    audit(req, 'certificate.sign', 'certificate', id, {
+    auditStandalone(req, 'certificate.sign', 'certificate', id, {
       employee_id: certificate.employee_id,
       kind: certificate.kind,
       file_id: certificate.file_id,
@@ -118,27 +123,31 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
     }
     if (!certificate.file_id) throw conflict('Für diese Bescheinigung liegt keine Datei vor');
     const fileId = certificate.file_id;
-    const documentId = inTransaction(() => {
+    inTransaction(() => {
       db.prepare('UPDATE certificates SET status = ? WHERE id = ?').run(body.status, id);
       const existing = db
         .prepare('SELECT id FROM documents WHERE employee_id = ? AND file_id = ?')
         .get(certificate.employee_id, fileId) as { id: number } | undefined;
-      if (existing) return existing.id;
-      const label = CERTIFICATE_KIND_LABELS[certificate.kind as CertificateKind] ?? certificate.kind;
-      const info = db
-        .prepare(
-          `INSERT INTO documents (employee_id, file_id, category, title, source, visibility, uploaded_by_user_id)
-           VALUES (?, ?, 'bescheinigung', ?, 'hr', 'portal', ?)`,
-        )
-        .run(certificate.employee_id, fileId, `${label} ${certificate.period}`, req.user.id);
-      return Number(info.lastInsertRowid);
-    });
-    audit(req, 'certificate.handover', 'certificate', id, {
-      employee_id: certificate.employee_id,
-      kind: certificate.kind,
-      old_status: certificate.status,
-      new_status: body.status,
-      document_id: documentId,
+      let documentId: number;
+      if (existing) {
+        documentId = existing.id;
+      } else {
+        const label = CERTIFICATE_KIND_LABELS[certificate.kind as CertificateKind] ?? certificate.kind;
+        const info = db
+          .prepare(
+            `INSERT INTO documents (employee_id, file_id, category, title, source, visibility, uploaded_by_user_id)
+             VALUES (?, ?, 'bescheinigung', ?, 'hr', 'portal', ?)`,
+          )
+          .run(certificate.employee_id, fileId, `${label} ${certificate.period}`, req.user.id);
+        documentId = Number(info.lastInsertRowid);
+      }
+      audit(req, 'certificate.handover', 'certificate', id, {
+        employee_id: certificate.employee_id,
+        kind: certificate.kind,
+        old_status: certificate.status,
+        new_status: body.status,
+        document_id: documentId,
+      });
     });
     return { certificate: db.prepare('SELECT * FROM certificates WHERE id = ?').get(id) };
   });
@@ -152,12 +161,15 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
     if (certificate.status === 'ausgehaendigt') {
       throw conflict('Ausgehändigte Bescheinigungen können nicht gelöscht werden');
     }
-    getDb().prepare('DELETE FROM certificates WHERE id = ?').run(id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM certificates WHERE id = ?').run(id);
+      audit(req, 'certificate.delete', 'certificate', id);
+    });
     // Auch die erzeugte Datei muss weg, sonst bliebe die gelöschte
     // Bescheinigung im Storage liegen und für das anlegende Konto signierbar
-    // (Muster: core/files.ts deleteFileIfUnreferenced).
+    // (Muster: core/files.ts deleteFileIfUnreferenced). Erst nach dem Commit,
+    // weil ein Rollback den gelöschten Blob nicht zurückbrächte.
     if (certificate.file_id) deleteFileIfUnreferenced(certificate.file_id);
-    audit(req, 'certificate.delete', 'certificate', id);
     reply.status(204);
   });
 }

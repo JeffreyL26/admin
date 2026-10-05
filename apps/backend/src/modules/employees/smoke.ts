@@ -634,6 +634,35 @@ check(
 const badSource = await app.inject({ method: 'GET', url: '/api/documents?source=mail', headers: auth });
 check('Ungültige Herkunft → 400', badSource.statusCode === 400);
 
+// Blättern (Dokumentablage): mit limit eine Seite samt total und offset;
+// ohne limit wie bisher alles (Personalakte). Filter wirken über alle Seiten.
+{
+  const docsGet = async (query: string) =>
+    (await app.inject({ method: 'GET', url: `/api/documents?${query}`, headers: auth })).json();
+  const all = await docsGet('include_superseded=true');
+  const rows = all.documents as { id: number }[];
+  check('Dokumente ohne limit: alle, ohne total', rows.length >= 3 && all.total === undefined, all);
+  const p1 = await docsGet('include_superseded=true&limit=1');
+  const p2 = await docsGet('include_superseded=true&limit=1&offset=1');
+  check(
+    'Dokumente limit/offset: Seiten in der Sortierung, total über alle Seiten',
+    p1.total === rows.length && p1.offset === 0 && p1.documents[0]?.id === rows[0].id &&
+      p2.offset === 1 && p2.documents[0]?.id === rows[1].id && p2.documents.length === 1,
+    { p1, p2 },
+  );
+  const lastId = rows[rows.length - 1].id;
+  const focused = await docsGet(`include_superseded=true&limit=1&focus_id=${lastId}`);
+  check('Dokumente focus_id liefert die Seite des Dokuments', focused.offset === rows.length - 1 && focused.documents[0]?.id === lastId, focused);
+  const current = await docsGet('limit=1');
+  const searched = await docsGet('search=Musterfrau&include_superseded=true&limit=1');
+  check(
+    'Dokumente: Filter und Suche zählen über alle Seiten',
+    current.total === currentOnly.json().documents.length &&
+      searched.total === (await docsGet('search=Musterfrau&include_superseded=true')).documents.length,
+    { current: current.total, searched: searched.total },
+  );
+}
+
 // ---------- Massenbearbeitung ----------
 const bulk = await app.inject({
   method: 'POST',
@@ -755,12 +784,311 @@ check(
   !!removedAudit && JSON.parse(removedAudit).removed_file?.id === secondPhotoId && typeof JSON.parse(removedAudit).removed_file?.sha256 === 'string' && JSON.parse(removedAudit).removed_file?.name === undefined,
   removedAudit,
 );
+// Vorschaubild zum aktuellen Foto: Das Loeschen der Person nimmt es mit.
+const uploadFileId = async (name: string, content: string) =>
+  (
+    await app.inject({
+      method: 'POST',
+      url: '/api/files',
+      headers: { ...auth, 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: filePart(name, content),
+    })
+  ).json().file.id as number;
+const frankThumbId = await uploadFileId('frank3_vorschau.webp', 'WEBPDUMMY3');
+await app.inject({ method: 'PATCH', url: `/api/employees/${frankId}`, headers: auth, payload: { photo_thumb_file_id: frankThumbId } });
 const delFrank = await app.inject({ method: 'DELETE', url: `/api/employees/${frankId}`, headers: auth });
 check(
-  'Person löschen entfernt Foto und Dokumentdatei, fremde Dateien bleiben',
-  delFrank.statusCode === 204 && !fileExists(thirdPhotoId) && !fileExists(frankDocFileId) && fileExists(fileId),
-  { photo: fileExists(thirdPhotoId), doc: fileExists(frankDocFileId), erika: fileExists(fileId) },
+  'Person löschen entfernt Foto, Vorschaubild und Dokumentdatei, fremde Dateien bleiben',
+  delFrank.statusCode === 204 &&
+    !fileExists(thirdPhotoId) &&
+    !fileExists(frankThumbId) &&
+    !fileExists(frankDocFileId) &&
+    fileExists(fileId),
+  { photo: fileExists(thirdPhotoId), thumb: fileExists(frankThumbId), doc: fileExists(frankDocFileId), erika: fileExists(fileId) },
 );
+
+// ---------- Vorschaubild des Fotos ----------
+// Original und Vorschaubild an Erika. Das Vorschaubild gehoert zum Bereich
+// personal (FILE_REFERENCES), Listen signieren es mit stabiler URL, und ein
+// neues Foto ohne Vorschaubild raeumt das alte ab.
+const erikaPhotoId = await uploadFileId('erika.jpg', 'JPEGDUMMY');
+const erikaThumbId = await uploadFileId('erika_vorschau.webp', 'WEBPDUMMY');
+const withThumb = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { photo_file_id: erikaPhotoId, photo_thumb_file_id: erikaThumbId },
+});
+check(
+  'Vorschaubild: PATCH speichert photo_thumb_file_id neben dem Original',
+  withThumb.statusCode === 200 &&
+    withThumb.json().employee.photo_file_id === erikaPhotoId &&
+    withThumb.json().employee.photo_thumb_file_id === erikaThumbId,
+  withThumb.json(),
+);
+const thumbWithoutPhoto = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${werkstudentId}`,
+  headers: auth,
+  payload: { photo_thumb_file_id: erikaThumbId },
+});
+check('Vorschaubild ohne Foto → 400', thumbWithoutPhoto.statusCode === 400, thumbWithoutPhoto.json());
+
+// Ohne Recht personal nicht signierbar. Fehlte der Eintrag in FILE_REFERENCES,
+// gaelte die Datei als unverknuepfter eigener Upload und ginge durch (200).
+const restrictedRoleId = Number(
+  getDb().prepare("INSERT INTO admin_roles (name) VALUES ('Smoke ohne Personal')").run().lastInsertRowid,
+);
+getDb()
+  .prepare("INSERT INTO admin_role_permissions (role_id, area, level) VALUES (?, 'kommunikation', 'lesen')")
+  .run(restrictedRoleId);
+getDb().prepare("UPDATE users SET admin_role_id = ? WHERE email = 'admin@ohrganize.de'").run(restrictedRoleId);
+const thumbSignDenied = await app.inject({ method: 'POST', url: `/api/files/${erikaThumbId}/sign`, headers: auth });
+getDb().prepare("UPDATE users SET admin_role_id = NULL WHERE email = 'admin@ohrganize.de'").run();
+const thumbSign = await app.inject({ method: 'POST', url: `/api/files/${erikaThumbId}/sign`, headers: auth });
+check(
+  'Vorschaubild gehoert zum Bereich personal (ohne das Recht 403, mit 200)',
+  thumbSignDenied.statusCode === 403 && thumbSign.statusCode === 200,
+  { denied: thumbSignDenied.statusCode, allowed: thumbSign.statusCode },
+);
+
+// Zwei Listenabrufe kurz hintereinander: dieselbe Foto-URL. Faellt der Abruf
+// genau auf eine Fenstergrenze, liegt die zweite ein Fenster spaeter.
+const chartPhotoUrl = async () =>
+  ((await app.inject({ method: 'GET', url: '/api/org/chart', headers: auth })).json().people as ChartPerson[]).find(
+    (p) => p.id === empId,
+  )?.photo_url ?? null;
+const expiresOf = (url: string | null) => Number(new URL(url ?? '/', 'http://smoke').searchParams.get('expires'));
+const firstUrl = await chartPhotoUrl();
+const secondUrl = await chartPhotoUrl();
+check(
+  'Organigramm signiert das Vorschaubild',
+  !!firstUrl && firstUrl.startsWith(`/api/files/${erikaThumbId}/download?`),
+  firstUrl,
+);
+const chartOriginals = await app.inject({ method: 'GET', url: '/api/org/chart/originals', headers: auth });
+const originalUrl = (chartOriginals.json().originals as Record<string, string> | undefined)?.[String(empId)] ?? null;
+const originalDownload = await app.inject({ method: 'GET', url: originalUrl ?? '/' });
+const auditSignsBefore = (getDb().prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'file.sign'").get() as { n: number }).n;
+check(
+  'Originale des Organigramms auf Anforderung signiert (kein Selbstsignieren je Karte)',
+  chartOriginals.statusCode === 200 &&
+    !!originalUrl &&
+    originalUrl.startsWith(`/api/files/${erikaPhotoId}/download?`) &&
+    originalDownload.statusCode === 200 &&
+    originalDownload.body === 'JPEGDUMMY',
+  { status: chartOriginals.statusCode, url: originalUrl, download: originalDownload.statusCode },
+);
+check(
+  'Organigramm selbst trägt keine Original-Links mehr',
+  !((await app.inject({ method: 'GET', url: '/api/org/chart', headers: auth })).json().people as object[]).some(
+    (p) => 'photo_original_url' in p,
+  ) &&
+    (getDb().prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'file.sign'").get() as { n: number }).n === auditSignsBefore,
+);
+check(
+  'Zwei Listenabrufe liefern dieselbe Foto-URL',
+  firstUrl === secondUrl || expiresOf(secondUrl) - expiresOf(firstUrl) === 600_000,
+  { firstUrl, secondUrl },
+);
+const validFor = expiresOf(firstUrl) - Date.now();
+check(
+  'Fotolink endet am Fensterende: mindestens rund 60 s, hoechstens rund elf Minuten',
+  expiresOf(firstUrl) % 600_000 === 0 && validFor > 50_000 && validFor <= 660_000,
+  { expires: expiresOf(firstUrl), validFor },
+);
+const thumbDownload = await app.inject({ method: 'GET', url: firstUrl ?? '/' });
+check(
+  'Fotolink laedt das Vorschaubild, weiter mit Cache-Control no-store',
+  thumbDownload.statusCode === 200 &&
+    thumbDownload.body === 'WEBPDUMMY' &&
+    String(thumbDownload.headers['cache-control']).includes('no-store'),
+  { status: thumbDownload.statusCode, cache: thumbDownload.headers['cache-control'] },
+);
+const directoryUrl = async () =>
+  ((await app.inject({ method: 'GET', url: '/api/communication/directory', headers: auth })).json().employees as {
+    id: number;
+    photo_url?: string | null;
+  }[]).find((e) => e.id === empId)?.photo_url ?? null;
+const directoryFirst = await directoryUrl();
+const directorySecond = await directoryUrl();
+check(
+  'Verzeichnis: Vorschaubild mit derselben URL bei zwei Abrufen',
+  !!directoryFirst &&
+    directoryFirst.startsWith(`/api/files/${erikaThumbId}/download?`) &&
+    (directoryFirst === directorySecond || expiresOf(directorySecond) - expiresOf(directoryFirst) === 600_000),
+  { directoryFirst, directorySecond },
+);
+
+// Neues Foto ohne Vorschaubild: Das alte Vorschaubild faellt weg, die Liste
+// zeigt das Original.
+const erikaNewPhotoId = await uploadFileId('erika_neu.jpg', 'JPEGDUMMY2');
+const replacedWithoutThumb = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { photo_file_id: erikaNewPhotoId },
+});
+check(
+  'Foto ersetzt ohne Vorschaubild: altes Foto und altes Vorschaubild sind weg, photo_thumb_file_id ist null',
+  replacedWithoutThumb.statusCode === 200 &&
+    replacedWithoutThumb.json().employee.photo_thumb_file_id === null &&
+    !fileExists(erikaPhotoId) &&
+    !fileExists(erikaThumbId) &&
+    fileExists(erikaNewPhotoId),
+  replacedWithoutThumb.json(),
+);
+const thumbAudit = getDb()
+  .prepare("SELECT details FROM audit_log WHERE entity = 'employee' AND entity_id = ? ORDER BY id DESC LIMIT 1")
+  .pluck()
+  .get(empId) as string | undefined;
+check(
+  'Foto ersetzt: der Audit-Eintrag nennt das entfernte Vorschaubild',
+  !!thumbAudit && JSON.parse(thumbAudit).removed_thumb_file?.id === erikaThumbId,
+  thumbAudit,
+);
+const fallbackUrl = await chartPhotoUrl();
+check(
+  'Ohne Vorschaubild signiert die Liste das Original',
+  !!fallbackUrl && fallbackUrl.startsWith(`/api/files/${erikaNewPhotoId}/download?`),
+  fallbackUrl,
+);
+
+// ---------- Audit in derselben Transaktion ----------
+// Ein TEMP-Trigger auf derselben Verbindung, über die auch die Routen
+// schreiben, weist jeden Audit-Eintrag ab: Die Anfrage scheitert (5xx), und
+// von der fachlichen Änderung bleibt nichts stehen. Dateien räumen die Routen
+// erst nach dem Commit ab, also bleiben auch files-Zeile und Blob.
+{
+  const { config } = await import('../../config.js');
+  async function withBrokenAudit<T>(fn: () => Promise<T>): Promise<T> {
+    getDb().exec(
+      "CREATE TEMP TRIGGER audit_kaputt BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit kaputt'); END;",
+    );
+    try {
+      return await fn();
+    } finally {
+      getDb().exec('DROP TRIGGER IF EXISTS audit_kaputt');
+    }
+  }
+  const countOf = (table: string) => (getDb().prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+  const blobExists = (id: number) => {
+    const row = getDb().prepare('SELECT stored_name FROM files WHERE id = ?').get(id) as { stored_name: string } | undefined;
+    return !!row && fs.existsSync(path.join(config.storageDir, row.stored_name));
+  };
+
+  const departmentsBefore = countOf('departments');
+  const brokenDep = await withBrokenAudit(() =>
+    app.inject({ method: 'POST', url: '/api/departments', headers: auth, payload: { name: 'Audit-Probe' } }),
+  );
+  check(
+    'Audit kaputt: Abteilung anlegen scheitert (5xx), keine Zeile',
+    brokenDep.statusCode >= 500 && countOf('departments') === departmentsBefore,
+    { status: brokenDep.statusCode },
+  );
+
+  const erikaBefore = getDb().prepare('SELECT job_title, updated_at FROM employees WHERE id = ?').get(empId);
+  const brokenPatch = await withBrokenAudit(() =>
+    app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: auth, payload: { job_title: 'Audit-Probe' } }),
+  );
+  check(
+    'Audit kaputt: Person ändern scheitert (5xx), Akte unverändert',
+    brokenPatch.statusCode >= 500 &&
+      JSON.stringify(getDb().prepare('SELECT job_title, updated_at FROM employees WHERE id = ?').get(empId)) ===
+        JSON.stringify(erikaBefore),
+    { status: brokenPatch.statusCode },
+  );
+
+  // Gerda mit Foto und Dokument: Weder das Dokument noch die Person
+  // verschwinden, solange das Audit scheitert, und ihre Dateien bleiben samt
+  // Blob. Danach gelingt das Löschen und zählt beide Dateien.
+  const gerda = await app.inject({
+    method: 'POST',
+    url: '/api/employees',
+    headers: auth,
+    payload: { first_name: 'Gerda', last_name: 'Probe', employee_type: 'freiberufler' },
+  });
+  const gerdaId = gerda.json().employee.id as number;
+  const gerdaPhotoId = await uploadFileId('gerda.png', 'PNGGERDA');
+  const gerdaDocFileId = await uploadFileId('gerda.pdf', '%PDF-1.4 gerda');
+  await app.inject({ method: 'PATCH', url: `/api/employees/${gerdaId}`, headers: auth, payload: { photo_file_id: gerdaPhotoId } });
+  const gerdaDoc = await app.inject({
+    method: 'POST',
+    url: '/api/documents',
+    headers: auth,
+    payload: { employee_id: gerdaId, file_id: gerdaDocFileId, category: 'sonstiges', title: 'Nachweis Gerda' },
+  });
+  const gerdaDocId = gerdaDoc.json().document.id as number;
+  const brokenDocDelete = await withBrokenAudit(() =>
+    app.inject({ method: 'DELETE', url: `/api/documents/${gerdaDocId}`, headers: auth }),
+  );
+  check(
+    'Audit kaputt: Dokument löschen scheitert (5xx), Zeile, Datei und Blob bleiben',
+    gerda.statusCode === 201 &&
+      gerdaDoc.statusCode === 201 &&
+      brokenDocDelete.statusCode >= 500 &&
+      !!getDb().prepare('SELECT id FROM documents WHERE id = ?').get(gerdaDocId) &&
+      blobExists(gerdaDocFileId),
+    { status: brokenDocDelete.statusCode },
+  );
+  const brokenDelete = await withBrokenAudit(() =>
+    app.inject({ method: 'DELETE', url: `/api/employees/${gerdaId}`, headers: auth }),
+  );
+  check(
+    'Audit kaputt: Person löschen scheitert (5xx), Profil, Dokument, Dateien und Blobs bleiben',
+    brokenDelete.statusCode >= 500 &&
+      !!getDb().prepare('SELECT id FROM employees WHERE id = ?').get(gerdaId) &&
+      !!getDb().prepare('SELECT id FROM documents WHERE id = ?').get(gerdaDocId) &&
+      blobExists(gerdaPhotoId) &&
+      blobExists(gerdaDocFileId),
+    { status: brokenDelete.statusCode },
+  );
+  const healedDelete = await app.inject({ method: 'DELETE', url: `/api/employees/${gerdaId}`, headers: auth });
+  const deleteAudit = getDb()
+    .prepare("SELECT details FROM audit_log WHERE entity = 'employee' AND entity_id = ? AND action = 'delete'")
+    .pluck()
+    .get(gerdaId) as string | undefined;
+  check(
+    'Audit heil: Person löschen gelingt, Dateien weg, Eintrag zählt sie',
+    healedDelete.statusCode === 204 &&
+      !fileExists(gerdaPhotoId) &&
+      !fileExists(gerdaDocFileId) &&
+      JSON.parse(deleteAudit ?? '{}').files_deleted === 2 &&
+      JSON.parse(deleteAudit ?? '{}').files_kept === 0,
+    { status: healedDelete.statusCode, deleteAudit },
+  );
+
+  // Der Audit-Eintrag sagt vor dem Commit, ob das Aufräumen danach die Datei
+  // entfernt: Eine Datei an zwei Dokumenten bleibt beim ersten Löschen
+  // (file_deleted false) und geht erst mit dem zweiten.
+  const sharedFileId = await uploadFileId('geteilt.pdf', '%PDF-1.4 geteilt');
+  const sharedDocs = [];
+  for (const title of ['Geteilt A', 'Geteilt B']) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/documents',
+      headers: auth,
+      payload: { employee_id: empId, file_id: sharedFileId, category: 'sonstiges', title },
+    });
+    sharedDocs.push(res.json().document.id as number);
+  }
+  const fileDeletedOf = async (docId: number) => {
+    await app.inject({ method: 'DELETE', url: `/api/documents/${docId}`, headers: auth });
+    const details = getDb()
+      .prepare("SELECT details FROM audit_log WHERE entity = 'document' AND entity_id = ? AND action = 'delete'")
+      .pluck()
+      .get(docId) as string | undefined;
+    return JSON.parse(details ?? '{}').file_deleted as boolean | undefined;
+  };
+  const firstDeleted = await fileDeletedOf(sharedDocs[0]);
+  const keptAfterFirst = blobExists(sharedFileId);
+  const secondDeleted = await fileDeletedOf(sharedDocs[1]);
+  check(
+    'Dokument löschen: file_deleted folgt dem Aufräumen nach dem Commit (geteilte Datei erst beim zweiten)',
+    firstDeleted === false && keptAfterFirst && secondDeleted === true && !fileExists(sharedFileId),
+    { firstDeleted, keptAfterFirst, secondDeleted },
+  );
+}
 
 // ---------- Auth-Pflicht ----------
 const noAuth = await app.inject({ method: 'GET', url: '/api/employees' });

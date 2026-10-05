@@ -149,4 +149,15 @@ export const compensationMigrations: Migration[] = [
       UPDATE certificates SET status = 'erstellt' WHERE status = 'angefordert';
     `,
   },
+  {
+    // Abrechnungspositionen je Person (ON DELETE CASCADE beim Loeschen eines
+    // Profils las sonst alle Positionen aller Monate) und die Dateiverweise
+    // (FILE_REFERENCES in core/files.ts).
+    name: '402_compensation_reference_indexes',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_payroll_items_employee ON payroll_items(employee_id);
+      CREATE INDEX IF NOT EXISTS idx_certificates_file ON certificates(file_id) WHERE file_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_freelancer_invoices_file ON freelancer_invoices(file_id) WHERE file_id IS NOT NULL;
+    `,
+  },
 ];

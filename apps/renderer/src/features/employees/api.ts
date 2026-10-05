@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import {
   keepPreviousData,
   useMutation,
@@ -16,9 +17,10 @@ import type {
   EmployeeSortField,
   EmployeeStatus,
   EmployeeType,
+  OrgChartOriginalsResponse,
   OrgChartResponse,
 } from '@ohrganize/shared';
-import { API_BASE, api } from '../../api/client';
+import { API_BASE, api, getToken } from '../../api/client';
 
 // ---------------------------------------------------------------------------
 // Typen (API-Formen mit Join-Feldern)
@@ -215,25 +217,73 @@ export function useOrgChart() {
   });
 }
 
-export function useDocuments(params: {
+/**
+ * Signierte Links auf die Original-Fotos des Organigramms (GET
+ * /api/org/chart/originals). Erst abgerufen, wenn der Zoom über der Grenze
+ * des Vorschaubilds liegt (`enabled`): Als Feld im Organigramm trüge sonst
+ * jeder Abruf alle Originale mit. Läuft ein Link ab, holt refreshListLinks
+ * genau diese Abfrage neu.
+ */
+export function useOrgChartOriginals(enabled: boolean) {
+  return useQuery({
+    queryKey: ['org', 'chart', 'originals'],
+    queryFn: () => api.get<OrgChartOriginalsResponse>('/api/org/chart/originals'),
+    select: (d) => d.originals,
+    enabled,
+    // Die Links gelten bis zum Ende ihres Zehn-Minuten-Fensters, mindestens
+    // eine Minute; abgelaufene holt refreshListLinks gezielt. Ohne diese Frist
+    // lüde jeder Fensterwechsel die ganze Liste (bei 2000 Fotos rund 230 KB) neu.
+    staleTime: 5 * 60_000,
+  });
+}
+
+export interface DocumentFilters {
   search?: string;
   category?: string;
   employee_id?: number;
   /** Herkunft: HR-Upload oder aus dem Portal hochgeladen. */
   source?: DocumentSource;
   include_superseded?: boolean;
-}) {
+}
+
+function documentFilterParams(params: DocumentFilters): URLSearchParams {
   const p = new URLSearchParams();
   if (params.search?.trim()) p.set('search', params.search.trim());
   if (params.category) p.set('category', params.category);
   if (params.employee_id !== undefined) p.set('employee_id', String(params.employee_id));
   if (params.source) p.set('source', params.source);
   if (params.include_superseded) p.set('include_superseded', 'true');
-  const qs = p.toString();
+  return p;
+}
+
+/** Alle Treffer ungeblättert: Personalakte (Dokumente EINER Person samt Versionen). */
+export function useDocuments(params: DocumentFilters) {
+  const qs = documentFilterParams(params).toString();
   return useQuery({
     queryKey: ['documents', 'list', params],
     queryFn: () => api.get<{ documents: DocumentRow[] }>(`/api/documents${qs ? `?${qs}` : ''}`),
     select: (d) => d.documents,
+  });
+}
+
+/**
+ * Dokumentablage: serverseitig geblättert (bei großer Belegschaft
+ * fünfstellig). Suche und Filter wirken im Backend über alle Seiten;
+ * `focus_id` liefert die Seite eines angesprungenen Dokuments.
+ */
+export function useDocumentPage(
+  params: DocumentFilters,
+  page: { limit: number; offset: number; focus_id?: number | null },
+) {
+  const p = documentFilterParams(params);
+  p.set('limit', String(page.limit));
+  p.set('offset', String(page.offset));
+  if (page.focus_id) p.set('focus_id', String(page.focus_id));
+  return useQuery({
+    queryKey: ['documents', 'page', params, page],
+    queryFn: () =>
+      api.get<{ documents: DocumentRow[]; total: number; offset: number }>(`/api/documents?${p.toString()}`),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -307,7 +357,7 @@ export function useDecideChangeRequest() {
 // ---------------------------------------------------------------------------
 
 export async function downloadEmployeesCsv(filters: EmployeeFilters): Promise<void> {
-  const token = localStorage.getItem('ohrganize.token');
+  const token = getToken();
   const res = await fetch(`${API_BASE}/api/employees/export.csv${filtersToQuery(filters)}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
@@ -346,7 +396,8 @@ function ensurePhotoCleanup(qc: QueryClient): void {
  * Bild-Anzeige (z. B. Mitarbeiterfoto) als Object-URL.
  *
  * Bewusst NICHT die signierte URL cachen: Der Server deckelt deren Gültigkeit
- * hart auf 60 Sekunden (core/files.ts) — eine gecachte URL wäre beim nächsten
+ * hart auf 60 Sekunden, Fotos in Listen auf das Ende eines Zeitfensters
+ * (core/files.ts); eine gecachte URL wäre beim nächsten
  * Mount längst abgelaufen und das <img> zeigt ein kaputtes Bild. Der Link wird
  * deshalb sofort konsumiert und das BILD gehalten. staleTime Infinity stimmt,
  * weil sich der Inhalt einer files-Zeile nie ändert — ein neues Foto bekommt
@@ -358,28 +409,73 @@ function ensurePhotoCleanup(qc: QueryClient): void {
  * statt selbst zu signieren. Das eigene Signieren (`POST /api/files/:id/sign`)
  * verlangt personal:lesen — ein Admin mit nur kommunikation:lesen sähe sonst
  * statt der Fotos nur Initialen plus 403- und Audit-Rauschen je Foto.
+ *
+ * `load = false` hält den Abruf zurück, bis der Avatar sichtbar wird
+ * (useAvatarPhoto in avatarPhoto.ts); ein schon gecachtes Bild kommt trotzdem.
+ * Listenlinks gelten bis zum Ende ihres Zeitfensters (signPhotoUrl in
+ * core/files.ts). Wird eine Karte erst danach sichtbar, antwortet der
+ * Download mit 401: Dann holt die Abfrage, die den Link geliefert hat, frische
+ * Links (refreshListLinks), und der Avatar lädt mit dem neuen Link nach. Auch hier
+ * nicht selbst signieren, Grund oben.
  */
-export function usePhotoUrl(fileId: number | null | undefined, signedUrl?: string | null) {
+export function usePhotoUrl(fileId: number | null | undefined, signedUrl?: string | null, load = true) {
   const qc = useQueryClient();
   ensurePhotoCleanup(qc);
-  return useQuery({
+  const query = useQuery({
     // Bewusst derselbe Key wie ohne signedUrl: gecacht wird das BILD je Datei —
     // Verzeichnis und Personalakte teilen sich so denselben Blob.
     queryKey: ['files', 'photo', fileId],
     queryFn: async () => {
       const url = signedUrl ?? (await api.post<{ url: string }>(`/api/files/${fileId}/sign`)).url;
       const res = await fetch(`${API_BASE}${url}`);
+      if (res.status === 401 && signedUrl) refreshListLinks(qc, signedUrl);
       if (!res.ok) throw new Error('Foto konnte nicht geladen werden');
       return URL.createObjectURL(await res.blob());
     },
-    enabled: !!fileId,
+    enabled: !!fileId && load,
     staleTime: Infinity,
-    // 15 statt 60 Minuten: Hier liegen Blobs in Originalgröße im Speicher —
-    // nach einem Verzeichnisbesuch sonst eine Stunde lang sämtliche Fotos.
+    // 15 statt 60 Minuten: Hier liegen Bilder im Speicher (Vorschaubilder,
+    // beim Bestand ohne Vorschaubild Originale); nach einem Verzeichnisbesuch
+    // sonst eine Stunde lang sämtliche Fotos.
     gcTime: 15 * 60 * 1000,
     // Kein globaler Fehler-Toast: Der Avatar fällt gewollt auf Initialen
     // zurück, und der plain Error des Blob-Fetch würde sonst als „Server
     // nicht erreichbar“ fehlgedeutet.
     meta: { silentError: true },
+  });
+  // Nach einem Fehlschlag nur mit einem NEUEN Link erneut versuchen: Mit dem
+  // bisherigen ist der Abruf gerade gescheitert.
+  const { isError, refetch } = query;
+  const lastSignedUrl = useRef(signedUrl);
+  useEffect(() => {
+    if (lastSignedUrl.current === signedUrl) return;
+    lastSignedUrl.current = signedUrl;
+    if (isError && signedUrl && load) void refetch();
+  }, [signedUrl, isError, load, refetch]);
+  return query;
+}
+
+/** Letzte Erneuerung je Abfrage (queryHash), für die Drossel unten. */
+const linksRefreshedAt = new Map<string, number>();
+
+/**
+ * Frische Fotolinks nach einem abgelaufenen (401): nur die aktiven Abfragen
+ * neu holen, deren Daten den gescheiterten Link enthalten, also die Liste,
+ * die ihn geliefert hat; nicht alles, was gerade auf der Seite steht
+ * (Dashboard-Kacheln, geblätterte Listen, Report). Je Abfrage höchstens
+ * einmal je halbe Minute, denn meist scheitern mehrere Avatare derselben
+ * Liste zugleich.
+ */
+function refreshListLinks(qc: QueryClient, signedUrl: string): void {
+  const now = Date.now();
+  for (const [hash, at] of linksRefreshedAt) if (now - at >= 30_000) linksRefreshedAt.delete(hash);
+  void qc.refetchQueries({
+    type: 'active',
+    predicate: (q) => {
+      if (q.queryKey[0] === 'files' || q.state.data === undefined || linksRefreshedAt.has(q.queryHash)) return false;
+      if (!JSON.stringify(q.state.data).includes(signedUrl)) return false;
+      linksRefreshedAt.set(q.queryHash, now);
+      return true;
+    },
   });
 }

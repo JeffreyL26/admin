@@ -2039,6 +2039,44 @@ check(
 );
 await admin.put('/api/leadership/settings', { scale: 'stars5' });
 
+// Audit in derselben Transaktion: Scheitert der Audit-Eintrag, bleibt auch die
+// fachliche Änderung ungespeichert. Der TEMP-Trigger gilt nur auf dieser
+// Verbindung, also genau der des Servers.
+{
+  const PROBE = addEmployee({ first_name: 'Abel', last_name: 'Auditprobe', job_title: 'Vertrieb', department_id: DEPT_VERTRIEB });
+  const count = (sql: string, ...params: unknown[]) => (db.prepare(sql).get(...params) as { n: number }).n;
+  const ratingRow = () =>
+    db
+      .prepare('SELECT score, comment, version FROM leadership_ratings WHERE leader_employee_id = ? AND employee_id = ? AND category_id = ? AND period_key = ?')
+      .get(TLB, DEV1, gesamt.id, period);
+  const ratingBefore = JSON.stringify(ratingRow());
+  const historyBefore = count('SELECT COUNT(*) AS n FROM leadership_rating_history WHERE employee_id = ?', DEV1);
+  const auditBefore = count('SELECT COUNT(*) AS n FROM audit_log');
+  db.exec("CREATE TEMP TRIGGER audit_kaputt BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit kaputt'); END;");
+  try {
+    const brokenGrant = await admin.post('/api/leadership/leaders', { employee_id: PROBE });
+    check(
+      'Audit scheitert: Freischaltung 5xx, Person nicht freigeschaltet',
+      brokenGrant.statusCode >= 500 && count('SELECT COUNT(*) AS n FROM leadership_leaders WHERE employee_id = ?', PROBE) === 0,
+      brokenGrant.statusCode,
+    );
+    const brokenRating = await rate(DEV1, { period_key: period, ratings: [{ category_id: gesamt.id, score: 5, comment: 'Audit-Probe' }] });
+    check(
+      'Audit scheitert: Bewertung 5xx, weder Bewertung noch Versionsprotokoll geändert',
+      brokenRating.statusCode >= 500 &&
+        JSON.stringify(ratingRow()) === ratingBefore &&
+        count('SELECT COUNT(*) AS n FROM leadership_rating_history WHERE employee_id = ?', DEV1) === historyBefore,
+      { status: brokenRating.statusCode, rating: ratingRow() },
+    );
+    check('Audit scheitert: kein Audit-Eintrag', count('SELECT COUNT(*) AS n FROM audit_log') === auditBefore);
+  } finally {
+    db.exec('DROP TRIGGER audit_kaputt');
+  }
+  const grantNow = await admin.post('/api/leadership/leaders', { employee_id: PROBE });
+  check('Ohne Trigger: Freischaltung 201', grantNow.statusCode === 201, grantNow.json());
+  await admin.del(`/api/leadership/leaders/${PROBE}`);
+}
+
 // Einstellungen liefern bestehende Paare — auch aus Organisationsänderungen.
 const settingsWithPairs = await admin.get('/api/leadership/settings');
 check('GET settings liefert mutual_pairs (Array)', settingsWithPairs.statusCode === 200 && Array.isArray(settingsWithPairs.json().mutual_pairs), settingsWithPairs.json());

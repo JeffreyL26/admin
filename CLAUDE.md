@@ -233,7 +233,16 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Führung bietet der Editor keine reine Führungsstufe neu an und sagt, dass
   niemand außer der HR liest. Die Routen liegen in `leadership/meetingRoutes.ts`
   und hängen an BEIDEN Modulen: Verdrahtung mit `requires: 'communication'` in
-  `variant-wiring.mjs`.
+  `variant-wiring.mjs`. **Zwischenspeicher nur je Berechnung:** Aufrufe
+  innerhalb EINER Berechnung (Report, Teamansicht, Mein Team, Aufschlüsselung,
+  Umkehrung) teilen sich einen `ScopeCache` (`service.scopeCache`) für
+  `scopeFor` und `leadersPossiblyResponsibleFor`. Nie modulweit, nie über den
+  Request hinaus; in Schreibtransaktionen entsteht er erst nach der letzten
+  Änderung, und `mutualPairs` legt je Aufruf einen eigenen an (sonst prüfte
+  `assertMutualAllowed` einen Stand von vor der Änderung). „Gegenseitig“ in
+  der Teamansicht grenzt die Vorauswahl ein; eine neue Quelle in `scopeFor`
+  gehört deshalb zwingend auch in `leadersPossiblyResponsibleFor` (der
+  Smoke-Test gleicht beide ab).
 - **Zielgruppen der Kommunikation (Ankuendigungen, Umfragen) loest NUR
   `modules/communication/audience.ts` auf.** `audience_type` ist `alle`,
   `abteilung` (schliesst Unterabteilungen ueber `departments.parent_id`
@@ -350,7 +359,14 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   ohne Messung: Dessen Frames nennen nur frisch geschriebene Seiten, und als
   offene Fuellung waeren sie so gross wie die Tabelle. Die Teilnahme prueft
   die Antworten VOR der Doppelteilnahme, sonst verriete 409 gegen 400 ohne
-  Schreiben, wer schon teilgenommen hat.
+  Schreiben, wer schon teilgenommen hat. Die Auswertung einer BEENDETEN
+  Umfrage haelt der Prozess je Datenbankverbindung (`finishedSurveyResults`
+  in `communication/routes.ts`, hoechstens 20): Sie aendert sich nicht mehr
+  (kein Statuswechsel zurueck, keine Teilnahme, Bearbeiten und Loeschen nur
+  im Entwurf, der Neuaufbau behaelt die IDs). Gehalten werden nur Zaehlung
+  und Auswertung, keine Rohantworten; die Mindestteilnehmerzahl wird bei
+  jedem Abruf neu geprueft. Wer eine beendete Umfrage je wieder veraenderbar
+  macht, muss diesen Speicher verwerfen.
   Die frueheren Kanaele sind entfernt (Sender ohne Empfaenger, Doppel zu
   Ankuendigungen; Hintergrund docs/entscheidungen.md).
 - **Was die HR pflegt, muss einen Empfaenger haben.** Der Abgleich
@@ -394,6 +410,60 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.ohrganize.apiBaseUrl`.
   Im Dev-Betrieb läuft das Backend separat auf 3001 (`npm run dev`).
+  Offener Punkt **PERF-1** (docs/offene-punkte.md): Das Backend läuft im
+  Electron-Hauptprozess, jede synchrone Arbeit hält auch das Fenster an;
+  Vorschlag `utilityProcess` plus Ladefenster, bewusst zurückgestellt.
+- **Sitzungen: Desktop bis zum Schließen, Portal bis 60 Minuten Leerlauf,
+  beide höchstens bis zur Höchstdauer.**
+  Der Login nimmt `client: 'desktop' | 'portal'`; `desktop` gilt nur für
+  `users.role = 'admin'` (`sessionFor` in `core/auth.ts`) und steht als
+  Claim `session` im Token, den der globale Hook unverändert übernimmt.
+  Laufzeit je Art in Sekunden (`config.ts`): Portal `OHRGANIZE_TOKEN_TTL`
+  (Vorgabe 1h), Desktop `OHRGANIZE_DESKTOP_TOKEN_TTL` (Vorgabe 3d; zählt nur,
+  solange der Rechner schläft). `POST /api/auth/refresh` stellt aus der
+  frischen users-Zeile ein Token derselben Art aus; steht in
+  `LICENSE_OPEN_ROUTES`, NICHT in `PASSWORD_CHANGE_ROUTES`, und schreibt
+  bewusst kein Audit (Dutzende Zeilen je Sitzung ohne Aussage). Der Desktop
+  hält das Token in sessionStorage und verlängert nach 10 Minuten; das Portal
+  verlängert nur nach echter Eingabe und meldet nach 60 Minuten ohne Eingabe
+  in allen Tabs ab (docs/web-portal.md). Beide verlängern spätestens nach der
+  halben Laufzeit, die sie aus `exp - iat` des Tokens lesen; die Regeln
+  stehen DOM-frei in `packages/shared/src/session.ts` (Test
+  `src/test/sessionPolicyTest.ts`), die Clients halten nur Zeitgeber und
+  Ereignisse. **Höchstdauer** je Sitzungsart ab der Anmeldung (`config.ts`:
+  Portal `OHRGANIZE_SESSION_MAX`, Vorgabe 6h; Desktop
+  `OHRGANIZE_DESKTOP_SESSION_MAX`, Vorgabe 5d): Der Beginn steht als Claim
+  `auth_time` im Token (Anmeldung, Passwortwechsel), der globale Hook reicht
+  ihn durch, die Verlängerung übernimmt ihn und gibt nach der Höchstdauer der
+  FRISCH bestimmten Sitzungsart kein Token mehr (401); jedes Token läuft
+  spätestens am Ende ab (`signToken`). Ohne die Grenze hielte ein
+  abgegriffenes Token die Sitzung beliebig lange offen, denn die Abmeldung nach
+  Leerlauf geschieht nur im Browser. Der Claim `session_end` ist nur Auskunft
+  für die Clients: Reicht das Token bis dorthin, verlängern sie nicht mehr und
+  melden nach seinem Ablauf mit Hinweis ab (`tokenSessionInfo`,
+  `sessionEndReached`, Text `SESSION_END_NOTICE` für beide Clients); zehn
+  Minuten vorher warnt ein Banner (`sessionEndWarningMs`,
+  `layout/SessionEndBanner.tsx`, im Portal `components/SessionEndNotice.tsx`),
+  damit niemand mitten in einer Eingabe abgemeldet wird. Ein 401 beendet die
+  Sitzung nur, wenn die Anfrage ein Token trug (ein falsches Passwort auf der
+  Anmeldeseite nicht). Das
+  Portal nennt den Grund einer Abmeldung mit Hinweis allen Tabs
+  (`ohrganize.portal.logout-reason`, vor dem Entfernen des Tokens geschrieben). bcrypt läuft in Request-Pfaden nur
+  über `core/passwordHashing.ts` (Worker-Pool, Rückfall synchron, eine
+  Anmeldung scheitert nie am Worker). **Drosselung:** Seit dem Worker liegt
+  ein `await` zwischen Prüfung und Ergebnis; Login und Passwortwechsel zählen
+  einen Versuch deshalb schon im preHandler als Fehlversuch des KONTOS und
+  nehmen ihn bei Erfolg zurück (`pendingAttemptAt`), sonst kämen parallele
+  Versuche an der Schwelle vorbei (gemessen: 15 von 15 statt 10). Die IP
+  zählt Fehlversuche erst mit dem Ergebnis, ihre laufenden Anmeldungen
+  (`loginsInFlight`) aber gegen dieselbe Schwelle: Fehlversuche plus laufende
+  bleiben unter 50, sonst 429: Überwiegen die laufenden, mit der Bitte um
+  einen neuen Versuch gleich danach, überwiegen die Fehlversuche, mit „in
+  einigen Minuten“. So rechnet auch ein Bündel paralleler Anfragen höchstens 50
+  Vergleiche (eine reine Obergrenze von 100 gleichzeitigen ließ rund 150
+  Rateversuche je Fenster zu), und ein Erfolg hinterlässt nichts: Hinter
+  einem Firmen-NAT trifft das erst mehr als 50 GLEICHZEITIG laufende
+  Anmeldungen.
 - **Varianten-Bundles:** `npm run build` baut die Variante aus `OHRGANIZE_VARIANT`
   (Vorgabe: `default` im Register); Backend ueber `apps/backend/scripts/build.mjs`,
   Desktop ueber `scripts/build.mjs` mit Marker-Abgleich. Nach dem Wechsel der
@@ -415,6 +485,25 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **Dateien** liegen ausschließlich im Backend-Storage (`files`-Tabelle + Ordner).
   Downloads laufen über kurzlebige HMAC-signierte URLs (`core/files.ts`) — für
   Desktop- und späteren Web-Client identisch.
+  **Mitarbeiterfotos** bestehen aus Original (`photo_file_id`, unverändert)
+  und Vorschaubild (`photo_thumb_file_id`, Migration
+  `111_employee_photo_thumbnails`, in `FILE_REFERENCES` Bereich `personal`),
+  das der Client beim Hochladen per Canvas erzeugt (`lib/photoThumbnail.ts`,
+  quadratisch `PHOTO_THUMB_EDGE` = 512 px, WebP; Rechnung für Organigramm-
+  und App-Zoom samt dpr in `shared/employees.ts`). Wer einen Avatar
+  vergrößert, rechnet dort nach. Listen und Karten signieren über
+  `signPhotoUrl` (Vorschaubild, sonst Original): Ablauf auf ein
+  Zehn-Minuten-Fenster aufgerundet, damit Refetches dieselbe URL liefern und
+  nichts neu laden; NUR für Personenfotos, Dokumente bleiben bei 60 s
+  (`signDownloadUrl`), `no-store` bleibt. Die Originale für hohen Zoom im
+  Organigramm der HR-Administration kommen erst auf Anforderung aus
+  `GET /api/org/chart/originals` (`signOriginalPhotoUrl`, nur wenn der Zoom
+  über der Grenze des Vorschaubilds liegt): als Feld trüge jeder Abruf des
+  Organigramms alle Originale mit, selbst signiert entstünde je Karte eine
+  Audit-Zeile `file.sign`. Das Portal erreicht die Route nicht. Desktop-Avatare über
+  `useAvatarPhoto` (lädt erst bei Sichtbarkeit, `lib/useSeenOnce.ts`), im
+  Portal über `usePhotoSrc` (`lib/photo.ts`), nicht direkt über
+  `usePhotoUrl(photo_file_id)`.
 - **Verschlüsselung im Ruhezustand: Datenbank, Dateiablage und damit jede
   Sicherung.** Die Datenbank liegt im SQLCipher-4-Format vor (Rohschlüssel,
   `cipher = 'sqlcipher'`, `legacy = 4`), die Blobs in `storage/` mit
@@ -804,7 +893,43 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **Fehler:** einheitliches Schema `{ error: { code, message, details? } }`
   (`core/errors.ts`). Eingaben mit `parse(zodSchema, req.body)` validieren.
 - **Audit:** Änderungen mit Begründungspflicht (z. B. Gehalt) schreiben über
-  `core/audit.ts` ins zentrale `audit_log`.
+  `core/audit.ts` ins zentrale `audit_log`. **Änderung und Audit-Eintrag
+  stehen in EINER Transaktion** (`inTransaction`): Als getrennte Commits
+  bliebe bei einem Absturz dazwischen eine Änderung ohne Protokoll, und das
+  vollständige Protokoll ist ein Verkaufsargument. Im Callback kein `await`
+  (bcrypt, Uploads davor). Was die Datenbank nicht zurückrollen kann, kommt
+  NACH dem Commit: Dateien über `detachUnreferencedFile` (Datensatz, in der
+  Transaktion, liefert, was der Audit-Eintrag als entfernt nennt) und
+  `removeDetachedBlob` (Platte, danach); `deleteFileIfUnreferenced`
+  löscht den Blob sofort und gehört deshalb nie in eine umgebende
+  Transaktion. **Erzwungen:** `audit()` wirft außerhalb einer Transaktion,
+  aber nur im Quelltextbetrieb (Entwicklung, alle Tests unter tsx); im
+  gebündelten Betrieb setzt `apps/backend/scripts/build.mjs` per define
+  `OHRGANIZE_BUNDLED`, und `audit()` schreibt den Eintrag trotzdem und meldet
+  den Fehler im Log (die Änderung ist dort schon geschrieben, ein Wurf ließe
+  sie ohne Eintrag). Beide Wege prüft `src/test/smoke.ts`
+  (`setAuditThrowsOutsideTransaction`, nur für Tests). Einträge ohne fachliche Änderung (Anmeldung, Fehlversuch, Signatur,
+  Lizenzdatei) schreiben ausdrücklich über `auditStandalone()`, und
+  `src/test/auditTransactionCheck.ts` (Teil von `npm test`) prüft statisch,
+  dass jeder `audit(`-Aufruf im Callback eines `inTransaction(` oder
+  `.transaction(` steht. Die Smoke-Tests prüfen das Zurückrollen je Modul
+  mit einem TEMP-Trigger `audit_kaputt` (5xx, nichts gespeichert).
+- **Lange Listen blättern serverseitig** über `core/paging.ts` (`limit`
+  höchstens 500, `offset`, `focus_id`; Antwort zusätzlich `total` und
+  `offset`); im Client `components/Pagination.tsx` mit `usePageState`. Ohne
+  `limit` bleibt eine Route ungeblättert, darauf verlassen sich Personalakte,
+  Genehmigungsliste und Tests. Abwesenheitslisten zeigen als Vorgabe das
+  laufende Jahr, `features/absences/YearSelect.tsx` bietet „Alle Jahre“:
+  Die ganze Historie bleibt erreichbar, nichts wird ausgeblendet (das
+  vollständige Protokoll ist ein Verkaufsargument). Regel samt Begründung:
+  docs/modul-kontrakte.md, API-Stilregeln.
+- **Indizes:** Jede neue Spalte mit `REFERENCES files(id)` oder
+  `REFERENCES users(id)` bekommt einen (Teil-)Index `WHERE col IS NOT NULL`
+  in der Migration ihres Moduls: Signatur und Aufräumer fragen alle
+  `FILE_REFERENCES` je Datei ab, die Kontolöschung setzt jede Kontospalte
+  per `UPDATE … WHERE col = ?` zurück, und ohne Index liest jede dieser
+  Abfragen ihre ganze Tabelle (gemessen: Konto löschen 12 s bei 500 000
+  Audit-Zeilen). Ausnahme ist `survey_responses` (bewusst ohne Index).
 - **Mitarbeiterliste:** Spaltenauswahl und Format der Betriebszugehörigkeit
   liegen pro Gerät im localStorage (`ohrganize.employeeList`) — wie die
   Dashboard-Konfiguration eine Arbeitsplatz-, keine Firmeneinstellung. Die
@@ -975,6 +1100,25 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
 - **Embedding-Bundle `server.cjs` kommt aus `src/server.ts`** (nur Exporte);
   `src/index.ts` ist der CLI-Einstieg mit Selbststart und wird separat zu
   `cli.cjs` gebündelt. Nicht verwechseln — Details in docs/entscheidungen.md.
+- **`password-worker.cjs` muss neben `server.cjs` bzw. `cli.cjs` liegen**
+  (`apps/backend/scripts/build.mjs` baut ihn, der Desktop-Build und
+  `release-server.mjs` nehmen ihn verpflichtend mit). Er wird per `eval`
+  aus dem gelesenen Inhalt gestartet, nicht über den Pfad: In der .exe
+  liegt `dist/` im `app.asar`, und verlässlich liest dort nur `fs` im
+  Hauptthread. Fehlt er, rechnet bcrypt synchron wie früher (Warnung im
+  Journal). Unter tsx lädt der Pool `passwordWorker.ts` direkt. Beim Pool
+  den `message`-Listener VOR `unref()` anmelden, sonst hält ein untätiger
+  Worker jeden Testprozess offen (erlebt).
+- **Seitencache 64 MB, erst NACH den Migrationen** (`enlargePageCache` in
+  `db.ts`, aufgerufen in `buildServer`): Die Vorgabe des Builds sind 16 MB,
+  und jede Seite außerhalb muss SQLCipher erneut entschlüsseln. Vorher
+  gesetzt, trüge das VACUUM nach Migrationen den größeren Cache mit, und
+  dessen Obergrenze (300 MB Nutzdaten unter MemoryHigh=512M) ist mit dem
+  kleinen gerechnet.
+- **`OHRGANIZE_TOKEN_TTL` ist eine Sekundenzahl:** `config.ts` rechnet selbst
+  um und gibt Zahlen an @fastify/jwt weiter (das Zahlen als Sekunden nimmt).
+  Eine Zeichenkette aus Ziffern hätte @fastify/jwt als Millisekunden gelesen,
+  und `0` ergab Tokens ganz ohne Ablauf; beides verhindert jetzt den Start.
 - **Zwei getrennte Datenbanken:** Die Dev-DB liegt in `apps/backend/data`
   (`npm run seed`), die **installierte App** in `%APPDATA%\oHRganize\data` (aus
   Electrons userData, abgeleitet vom `productName` "oHRganize"). `npm run seed`

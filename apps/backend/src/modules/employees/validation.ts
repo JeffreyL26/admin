@@ -57,6 +57,10 @@ export const employeeBodySchema = z.object({
   email: nullableString,
   phone: nullableString,
   photo_file_id: z.number().int().positive().nullish(),
+  // Vorschaubild zum Foto (quadratisch, im Client erzeugt, Migration 111):
+  // Listen, Karten und Avatare zeigen es, das Original bleibt daneben. Gehoert
+  // immer zum aktuellen Foto; die Regeln dazu in employeeRoutes.ts.
+  photo_thumb_file_id: z.number().int().positive().nullish(),
   birth_date: isoDate.nullish(),
   private_street: nullableString,
   private_zip: nullableString,

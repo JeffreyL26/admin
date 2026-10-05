@@ -7,7 +7,7 @@ import { pipeline } from 'node:stream/promises';
 import { permits, type AdminArea } from '@ohrganize/shared';
 import { config } from '../config.js';
 import { dataKey, getDb, inTransaction, isDatabaseEncrypted } from '../db/db.js';
-import { audit } from './audit.js';
+import { auditStandalone } from './audit.js';
 import { errorText } from './errorText.js';
 import { permissionsFor } from './permissions.js';
 import { AppError, badRequest, forbidden, notFound, unauthorized } from './errors.js';
@@ -49,6 +49,8 @@ export interface FileRecord {
  */
 const FILE_REFERENCES: ReadonlyArray<readonly [string, string, AdminArea]> = [
   ['employees', 'photo_file_id', 'personal'],
+  // Vorschaubild des Fotos (Migration 111_employee_photo_thumbnails).
+  ['employees', 'photo_thumb_file_id', 'personal'],
   ['contracts', 'document_file_id', 'personal'],
   ['documents', 'file_id', 'personal'],
   ['sick_notes', 'certificate_file_id', 'abwesenheit'],
@@ -64,8 +66,8 @@ const FILE_REFERENCES: ReadonlyArray<readonly [string, string, AdminArea]> = [
 /**
  * UNION (nicht UNION ALL) über alle referenzierenden Spalten: liefert je
  * Fachbereich höchstens eine Zeile. Der Parameter heißt bewusst benannt
- * (`@file_id`), damit er nur einmal gebunden werden muss, obwohl er elfmal
- * vorkommt.
+ * (`@file_id`), damit er nur einmal gebunden werden muss, obwohl er in
+ * jeder Teilabfrage vorkommt.
  */
 const FILE_AREAS_SQL = FILE_REFERENCES.map(
   ([table, column, area]) => `SELECT '${area}' AS area FROM ${table} WHERE ${column} = @file_id`,
@@ -415,22 +417,6 @@ export function getFileRecord(id: number): FileRecord {
 }
 
 /**
- * Für Ersetzen und Entfernen einer Datei an einem Datensatz: wie
- * deleteFileIfUnreferenced, liefert aber, WAS entfernt wurde, damit der
- * Audit-Eintrag der Änderung die Datei nennt (das Ersetzen löscht die alte
- * Datei endgültig; ohne Spur wüsste später niemand, was an der Stelle lag).
- * Bewusst nur ID und Prüfsumme, nicht der Dateiname: Namen wie
- * `AU_Mueller_Rueckenleiden.pdf` sind selbst Gesundheitsdaten und blieben im
- * Audit-Log stehen, nachdem die Datei gelöscht ist.
- * `null`, wenn nichts entfernt wurde (nirgends sonst verknüpft heisst: weg).
- */
-export function removeReplacedFile(fileId: number): { id: number; sha256: string } | null {
-  const row = getDb().prepare('SELECT sha256 FROM files WHERE id = ?').get(fileId) as { sha256: string } | undefined;
-  if (!row || !deleteFileIfUnreferenced(fileId)) return null;
-  return { id: fileId, sha256: row.sha256 };
-}
-
-/**
  * Löscht Datensatz und Blob — aber nur, wenn keine Fachtabelle mehr auf die
  * Datei zeigt. Rückgabe: `true`, wenn tatsächlich gelöscht wurde.
  *
@@ -444,34 +430,76 @@ export function removeReplacedFile(fileId: number): { id: number; sha256: string
  * zurück, aber der Aufrufer, der gerade seine Zeile gelöscht hat, soll danach
  * noch auditieren und antworten können; ein Fehler dort liesse die Löschung
  * ohne Protokolleintrag und beim zweiten Versuch mit 404 stehen.
+ *
+ * Innerhalb einer umgebenden Transaktion verschwände der Blob schon vor deren
+ * Commit. Wer Änderung, Entfernen der Datei und Audit-Eintrag in EINER
+ * Transaktion schreibt, nimmt deshalb detachUnreferencedFile und
+ * removeDetachedBlob.
  */
 export function deleteFileIfUnreferenced(fileId: number): boolean {
+  const detached = detachUnreferencedFile(fileId);
+  if (!detached) return false;
+  removeDetachedBlob(detached);
+  return true;
+}
+
+/**
+ * Ein von detachUnreferencedFile entfernter Datensatz; sein Blob liegt noch auf
+ * der Platte. Ersetzen und Entfernen nennen im Audit-Eintrag nur `id` und
+ * `sha256` (das Ersetzen löscht die alte Datei endgültig; ohne Spur wüsste
+ * später niemand, was an der Stelle lag), bewusst nicht den Dateinamen: Namen
+ * wie `AU_Mueller_Rueckenleiden.pdf` sind selbst Gesundheitsdaten und blieben
+ * im Audit-Log stehen, nachdem die Datei gelöscht ist.
+ */
+export interface DetachedFile {
+  id: number;
+  sha256: string;
+  storedName: string;
+}
+
+/**
+ * Datenbankteil von deleteFileIfUnreferenced: löscht nur den Datensatz, sofern
+ * keine Fachtabelle mehr auf die Datei zeigt, und liefert, was danach von der
+ * Platte muss (`null`: nichts entfernt). Für Routen, die ihre Änderung, das
+ * Entfernen der Datei und den Audit-Eintrag in EINER Transaktion schreiben:
+ * im Transaktions-Callback aufrufen, den Blob erst NACH dem Commit mit
+ * removeDetachedBlob entfernen. Rollt die Transaktion zurück, steht der
+ * Datensatz wieder da und sein Blob liegt noch.
+ */
+export function detachUnreferencedFile(fileId: number): DetachedFile | null {
   // Referenzprüfung und DELETE gehören in dieselbe Transaktion, sonst kann
   // zwischen beidem eine neue Referenz entstehen (z. B. eine zweite
-  // Dokumentversion, die denselben Blob verknüpft).
-  const storedName = inTransaction(() => {
+  // Dokumentversion, die denselben Blob verknüpft). In einer umgebenden
+  // Transaktion ist das ein Savepoint.
+  return inTransaction(() => {
     const db = getDb();
     const referenced = db.prepare(FILE_REFERENCED_SQL).get({ file_id: fileId }) as
       | { referenced: number }
       | undefined;
     if (referenced) return null;
-    const row = db.prepare('SELECT stored_name FROM files WHERE id = ?').get(fileId) as
-      | { stored_name: string }
+    const row = db.prepare('SELECT stored_name, sha256 FROM files WHERE id = ?').get(fileId) as
+      | { stored_name: string; sha256: string }
       | undefined;
     if (!row) return null;
     db.prepare('DELETE FROM files WHERE id = ?').run(fileId);
-    return row.stored_name;
+    return { id: fileId, sha256: row.sha256, storedName: row.stored_name };
   });
-  if (!storedName) return false;
-  // Der Blob wird bewusst ERST NACH dem Commit entfernt: Ein übrig gebliebener
-  // Blob ohne Datensatz ist unerreichbarer Müll, ein Datensatz ohne Blob ist
-  // ein Fehler vor den Augen der Nutzer („Dateiinhalt fehlt im Storage").
+}
+
+/**
+ * Entfernt den Blob eines mit detachUnreferencedFile entfernten Datensatzes.
+ * Bewusst ERST NACH dem Commit: Ein übrig gebliebener Blob ohne Datensatz ist
+ * unerreichbarer Müll, ein Datensatz ohne Blob ist ein Fehler vor den Augen
+ * der Nutzer („Dateiinhalt fehlt im Storage"). Wirft nie (siehe
+ * deleteFileIfUnreferenced).
+ */
+export function removeDetachedBlob(file: DetachedFile | null): void {
+  if (!file) return;
   try {
-    fs.rmSync(path.join(config.storageDir, storedName), { force: true });
+    fs.rmSync(path.join(config.storageDir, file.storedName), { force: true });
   } catch {
     // Siehe oben: Müll ohne Datensatz, nicht erreichbar.
   }
-  return true;
 }
 
 /**
@@ -486,12 +514,72 @@ export function deleteFileIfUnreferenced(fileId: number): boolean {
  * `assertMayReadFile`), und die Laufzeit bleibt kurz.
  */
 export function signDownloadUrl(fileId: number): string {
-  const expires = Date.now() + downloadTtlMs();
+  return signedUrlFor(fileId, Date.now() + downloadTtlMs());
+}
+
+/** URL samt Signatur über file_id und Ablaufzeit (Gegenstück: die Download-Route). */
+function signedUrlFor(fileId: number, expires: number): string {
   const sig = crypto
     .createHmac('sha256', config.secret)
     .update(`${fileId}.${expires}`)
     .digest('hex');
   return `/api/files/${fileId}/download?expires=${expires}&sig=${sig}`;
+}
+
+/** Fenster, auf dessen Ende signPhotoUrl die Ablaufzeit aufrundet. */
+const PHOTO_URL_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Signierte URL für das Foto einer Person in Listen, Karten und Avataren
+ * (Organigramm, Verzeichnis, Führung, Portal): das Vorschaubild, ohne
+ * Vorschaubild (Bestand von vorher) das Original. `null` ohne Foto.
+ *
+ * Ablauf: nicht 60 s nach dem Signieren, sondern aufgerundet auf das Ende
+ * eines festen Zehn-Minuten-Fensters (mindestens die Laufzeit aus
+ * downloadTtlMs, höchstens zehn Minuten mehr). So liefert jeder Abruf einer
+ * Liste innerhalb des Fensters für dieselbe Person dieselbe URL; React setzt
+ * das src-Attribut nicht neu, Browser und Server laden und entschlüsseln das
+ * Bild nicht bei jedem Fokus-Refetch erneut. Vorher trug jede Antwort neue
+ * URLs, und jeder Refetch lud sämtliche Fotos neu.
+ *
+ * Abwägung: Ein Fotolink gilt damit bis zum Fensterende (höchstens etwa elf
+ * Minuten) statt 60 s, auch in einer Kopie des Proxy-Logs. Vertretbar, weil
+ * es nur um Personenfotos geht, die das Portal allen Kolleg:innen zeigt,
+ * solange die HR das Feld nicht ausblendet. Die Prüfung an der Download-Route
+ * bleibt unverändert (Format, Ablauf, Signatur); `Cache-Control: no-store`
+ * auch, also landet kein Klartextfoto im Plattencache von Browser oder
+ * Electron. NIE für Dokumente: Die Funktion nimmt deshalb nur die beiden
+ * Fotospalten einer Person entgegen, keine beliebige Datei-ID; alles andere
+ * signiert weiter signDownloadUrl mit 60 s.
+ */
+export function signPhotoUrl(person: {
+  photo_file_id: number | null;
+  photo_thumb_file_id?: number | null;
+}): string | null {
+  const fileId = person.photo_thumb_file_id ?? person.photo_file_id;
+  if (!fileId) return null;
+  return signedUrlFor(fileId, photoUrlExpiry());
+}
+
+/**
+ * Wie signPhotoUrl, aber das Original, und nur, wenn es daneben ein
+ * Vorschaubild gibt (sonst zeigt signPhotoUrl bereits das Original). Für das
+ * Organigramm der HR-Administration, das bei hohem Zoom das Original zeigt:
+ * Signierte der Client es selbst (POST /api/files/:id/sign), entstünde je
+ * Karte eine Audit-Zeile „file.sign“, bei hohem Zoom hunderte je Sitzung.
+ * Dieselben Regeln wie signPhotoUrl, also nur die Fotospalten einer Person.
+ */
+export function signOriginalPhotoUrl(person: {
+  photo_file_id: number | null;
+  photo_thumb_file_id?: number | null;
+}): string | null {
+  if (!person.photo_file_id || !person.photo_thumb_file_id) return null;
+  return signedUrlFor(person.photo_file_id, photoUrlExpiry());
+}
+
+/** Ablauf eines Fotolinks: aufgerundet auf das Ende des Zehn-Minuten-Fensters. */
+function photoUrlExpiry(): number {
+  return Math.ceil((Date.now() + downloadTtlMs()) / PHOTO_URL_WINDOW_MS) * PHOTO_URL_WINDOW_MS;
 }
 
 /**
@@ -502,7 +590,8 @@ export function signDownloadUrl(fileId: number): string {
  * der Zugriffsrechte auf jede in diesem Zeitraum verlinkte Datei — und
  * Listen-Endpunkte (Recruiting, Verzeichnis) erzeugen eine signierte URL je
  * Zeile. Die Deckelung steht hier und nicht nur in config.ts, damit sie eine
- * versehentlich großzügige Konfiguration überlebt.
+ * versehentlich großzügige Konfiguration überlebt. Einzige Ausnahme sind
+ * Personenfotos in Listen (signPhotoUrl, Abwägung dort).
  */
 function downloadTtlMs(): number {
   return Math.min(config.downloadUrlTtlMs, 60_000);
@@ -595,7 +684,7 @@ export async function fileRoutes(app: FastifyInstance): Promise<void> {
     reply.header('Cache-Control', 'no-store, private');
     // Der Zugriff auf eine Personalakte ist nachvollziehbar zu machen — der
     // Download selbst ist öffentlich signiert und hinterlässt keine Spur mehr.
-    audit(req, 'file.sign', 'file', id, { original_name: record.original_name });
+    auditStandalone(req, 'file.sign', 'file', id, { original_name: record.original_name });
     return { url: signDownloadUrl(id) };
   });
 

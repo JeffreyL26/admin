@@ -7,7 +7,9 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
 
 - `employees` — Stammdaten inkl. `employee_type`, `status` ('aktiv'|'ausgeschieden'),
   `department_id`, `team_id`, `location_id`, `manager_id`, `hire_date`, `exit_date`,
-  `weekly_hours`, `annual_leave_days`, `photo_file_id`. Vollständige Spaltenliste in
+  `weekly_hours`, `annual_leave_days`, `photo_file_id` und
+  `photo_thumb_file_id` (Vorschaubild, Migration 111; Listen signieren Fotos
+  über `signPhotoUrl` in `core/files.ts`). Vollständige Spaltenliste in
   `backend/src/db/migrations/100_employees.ts`.
 - `departments` (mit `parent_id`-Hierarchie), `teams`, `locations` (mit `country`
   und `bundesland`). `employees.private_country` haelt das Land der
@@ -72,6 +74,14 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
 - Antworten sind Objekte mit benanntem Schlüssel: `{ employees: [...] }`,
   `{ request: {...} }` — nie nackte Arrays.
 - Listen-Endpunkte akzeptieren Filter als Query-Parameter.
+- Listen, die mit der Historie wachsen, blättern serverseitig über
+  `core/paging.ts`: `limit` (höchstens 500, größere Werte werden gedeckelt),
+  `offset` und optional `focus_id` (liefert die Seite, auf der dieser
+  Datensatz steht). Mit `limit` trägt die Antwort zusätzlich `total` und den
+  tatsächlichen `offset`; ohne `limit` bleibt die Route ungeblättert und
+  liefert alle Treffer ihres Filters (darauf verlassen sich Personalakte,
+  Genehmigungsliste und Tests). Ausgeblendet wird nichts, jede Zeile bleibt
+  über die Seiten erreichbar.
 - Mutationen auditieren, wo fachlich relevant (`core/audit.ts`).
 - Fehler ausschließlich über `AppError`-Helfer (`core/errors.ts`), Meldungen deutsch.
 
@@ -85,6 +95,7 @@ hier beschriebenen Schnittstellen — alles andere ist modulintern.
   `components/Tooltip.tsx`, `components/EmployeeSelect.tsx`,
   `components/Select.tsx`, `components/MultiSelect.tsx`,
   `components/FilePicker.tsx`, `components/ColorPicker.tsx`,
+  `components/Pagination.tsx` (Seitenumschalter samt `usePageState`),
   CSS-Klassen `hm-*` aus `design/components.css`.
 - Tooltips ausschließlich über `components/Tooltip.tsx`, nie per `title`-Attribut
   (Details und Begründung: CLAUDE.md → Konventionen → Tooltips). Inhalt als

@@ -54,10 +54,11 @@ import {
   type TeamMember,
   type TeamScopeSummary,
 } from '@ohrganize/shared';
+import type Database from 'better-sqlite3';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { todayIso } from '../../core/dates.js';
-import { signDownloadUrl } from '../../core/files.js';
+import { signPhotoUrl } from '../../core/files.js';
 import { badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
 import {
   assertMayRaise,
@@ -130,9 +131,11 @@ export function updateSettings(req: FastifyRequest, patch: LeadershipSettingsPat
         assertMutualAllowed(pairsBefore, 0, 'Diese Einstellung');
       }
     }
+    // Audit im selben Commit wie die Änderung: Ein Absturz dazwischen
+    // hinterliesse sonst eine Einstellung ohne Protokoll.
+    audit(req, 'update', 'leadership_settings', 1, { before, after: next });
     return next;
   });
-  audit(req, 'update', 'leadership_settings', 1, { before, after });
   return after;
 }
 
@@ -179,12 +182,22 @@ interface CategoryRow {
   is_overall: number;
   scale: RatingScaleKey | null;
   created_at: string;
-  rating_count: number;
+  rating_count?: number;
 }
 
+/**
+ * Mit Zähler je Kategorie: je Zeile eine Zählung über den Index
+ * idx_leadership_ratings_category, kein Durchgang durch den ganzen Bestand.
+ * Bewusst kein GROUP BY über alle Bewertungen: gemessen bei 13 000 und
+ * 200 000 Bewertungen rund doppelt so langsam, weil es auch inaktive
+ * Kategorien zählt und jede Zeile durch die Aggregation schickt.
+ */
 const CATEGORY_SELECT = `
   SELECT c.*, (SELECT COUNT(*) FROM leadership_ratings r WHERE r.category_id = c.id) AS rating_count
   FROM rating_categories c`;
+
+/** Ohne Zähler: für Prüfungen, die die Kategorien nicht ausgeben. */
+const CATEGORY_SELECT_WITHOUT_COUNT = 'SELECT c.* FROM rating_categories c';
 
 const CATEGORY_ORDER = 'ORDER BY c.is_overall DESC, c.sort_order, c.name COLLATE NOCASE';
 
@@ -195,10 +208,19 @@ function categoryToApi(row: CategoryRow, settings: LeadershipSettings): RatingCa
   };
 }
 
-/** Alle Kategorien (Gesamtbewertung zuerst); `activeOnly` für die Bewertungsmaske. */
-export function listCategories(activeOnly = false, settings = getSettings()): RatingCategory[] {
+/**
+ * Alle Kategorien (Gesamtbewertung zuerst); `activeOnly` für die Bewertungsmaske.
+ * `counts: false` lässt `rating_count` weg: für Prüfungen, die die Liste nicht
+ * ausgeben (saveRatings). Jede Antwort, die Kategorien ausliefert, behält ihn.
+ */
+export function listCategories(
+  activeOnly = false,
+  settings = getSettings(),
+  options: { counts?: boolean } = {},
+): RatingCategory[] {
+  const select = options.counts === false ? CATEGORY_SELECT_WITHOUT_COUNT : CATEGORY_SELECT;
   const rows = getDb()
-    .prepare(`${CATEGORY_SELECT} ${activeOnly ? 'WHERE c.active = 1' : ''} ${CATEGORY_ORDER}`)
+    .prepare(`${select} ${activeOnly ? 'WHERE c.active = 1' : ''} ${CATEGORY_ORDER}`)
     .all() as CategoryRow[];
   return rows.map((r) => categoryToApi(r, settings));
 }
@@ -229,20 +251,23 @@ export function createCategory(req: FastifyRequest, input: RatingCategoryInput):
       n: number;
     }
   ).n;
-  const info = getDb()
-    .prepare(
-      `INSERT INTO rating_categories (name, description, sort_order, active, scale)
-       VALUES (@name, @description, @sort_order, @active, @scale)`,
-    )
-    .run({
-      name: input.name,
-      description: input.description ?? null,
-      sort_order: next,
-      active: input.active === false ? 0 : 1,
-      scale: input.scale ?? null,
-    });
-  const id = Number(info.lastInsertRowid);
-  audit(req, 'create', 'rating_category', id, { name: input.name });
+  const id = inTransaction(() => {
+    const info = getDb()
+      .prepare(
+        `INSERT INTO rating_categories (name, description, sort_order, active, scale)
+         VALUES (@name, @description, @sort_order, @active, @scale)`,
+      )
+      .run({
+        name: input.name,
+        description: input.description ?? null,
+        sort_order: next,
+        active: input.active === false ? 0 : 1,
+        scale: input.scale ?? null,
+      });
+    const categoryId = Number(info.lastInsertRowid);
+    audit(req, 'create', 'rating_category', categoryId, { name: input.name });
+    return categoryId;
+  });
   return getCategory(id);
 }
 
@@ -275,8 +300,10 @@ export function updateCategory(
     params.active = patch.active ? 1 : 0;
   }
   if (sets.length === 0) throw badRequest('Keine Änderungen übergeben');
-  getDb().prepare(`UPDATE rating_categories SET ${sets.join(', ')} WHERE id = @id`).run(params);
-  audit(req, 'update', 'rating_category', id, { before: existing.name, changed: patch });
+  inTransaction(() => {
+    getDb().prepare(`UPDATE rating_categories SET ${sets.join(', ')} WHERE id = @id`).run(params);
+    audit(req, 'update', 'rating_category', id, { before: existing.name, changed: patch });
+  });
   return getCategory(id);
 }
 
@@ -291,8 +318,10 @@ export function deleteCategory(req: FastifyRequest, id: number): void {
         'Deaktivieren Sie die Kategorie stattdessen: das Protokoll bleibt so nachvollziehbar.',
     );
   }
-  getDb().prepare('DELETE FROM rating_categories WHERE id = ?').run(id);
-  audit(req, 'delete', 'rating_category', id, { name: existing.name });
+  inTransaction(() => {
+    getDb().prepare('DELETE FROM rating_categories WHERE id = ?').run(id);
+    audit(req, 'delete', 'rating_category', id, { name: existing.name });
+  });
 }
 
 /** Neue Reihenfolge: die Liste muss alle Kategorien genau einmal enthalten. */
@@ -307,8 +336,8 @@ export function reorderCategories(req: FastifyRequest, ids: number[]): RatingCat
   inTransaction(() => {
     const update = getDb().prepare('UPDATE rating_categories SET sort_order = ? WHERE id = ?');
     ids.forEach((id, index) => update.run([index + 1, id]));
+    audit(req, 'reorder', 'rating_category', undefined, { ids });
   });
-  audit(req, 'reorder', 'rating_category', undefined, { ids });
   return listCategories(false);
 }
 
@@ -320,7 +349,7 @@ interface LeaderRow extends Omit<Leader, 'team_size'> {}
 
 const LEADER_SELECT = `
   SELECT l.employee_id, e.first_name, e.last_name, e.personnel_number, e.job_title, e.status,
-         e.photo_file_id, d.name AS department_name, l.auto_scope, l.note, l.created_at,
+         e.photo_file_id, e.photo_thumb_file_id, d.name AS department_name, l.auto_scope, l.note, l.created_at,
          gu.name AS granted_by_name, u.id AS user_id, u.email AS user_email,
          (SELECT COUNT(*) FROM leadership_assignments a WHERE a.leader_employee_id = l.employee_id) AS assignment_count
   FROM leadership_leaders l
@@ -333,12 +362,12 @@ export function isLeaderEmployee(employeeId: number): boolean {
   return !!getDb().prepare('SELECT 1 FROM leadership_leaders WHERE employee_id = ?').get(employeeId);
 }
 
-export function loadLeader(employeeId: number): Leader {
+export function loadLeader(employeeId: number, cache: ScopeCache = scopeCache()): Leader {
   const row = getDb().prepare(`${LEADER_SELECT} WHERE l.employee_id = ?`).get(employeeId) as
     | LeaderRow
     | undefined;
   if (!row) throw notFound('Diese Person ist nicht als Führungskraft freigeschaltet');
-  return { ...row, team_size: scopeFor(employeeId).size };
+  return { ...row, team_size: cache.scope(employeeId).size };
 }
 
 /**
@@ -363,12 +392,14 @@ export function responsibleLeaders(employeeId: number): {
     | undefined;
   if (!person) throw notFound('Person nicht gefunden');
   if (person.status !== 'aktiv') return [];
+  // Vorauswahl und Bereiche der Kandidaten teilen sich die Abfragen.
+  const cache = scopeCache();
   const leaders = getDb()
     .prepare(
       `${LEADER_SELECT} WHERE e.status = 'aktiv' AND l.employee_id IN (SELECT value FROM json_each(?))
        ORDER BY e.last_name COLLATE NOCASE, e.first_name COLLATE NOCASE`,
     )
-    .all(JSON.stringify(leadersPossiblyResponsibleFor(employeeId))) as LeaderRow[];
+    .all(JSON.stringify([...cache.possiblyResponsibleFor(employeeId)])) as LeaderRow[];
   // Admin-Rolle je Konto in EINER Abfrage, Rechte je Rolle nur einmal auflösen.
   const roleOfUser = new Map(
     (
@@ -386,7 +417,7 @@ export function responsibleLeaders(employeeId: number): {
     return readableByRole.get(roleId) as boolean;
   };
   return leaders.flatMap((l) => {
-    const sources = scopeFor(l.employee_id).get(employeeId);
+    const sources = cache.scope(l.employee_id).get(employeeId);
     if (!sources) return [];
     // Erreicht wird nur, wer ein Desktop-Konto hat UND Protokolle lesen darf
     // (Selbstschutz beim Lesen, gleiche Regel wie in meetingRoutes.ts).
@@ -403,11 +434,16 @@ export function responsibleLeaders(employeeId: number): {
   });
 }
 
-export function listLeaders(): Leader[] {
-  const rows = getDb()
+/** Alle Freischaltungen in der Reihenfolge der Liste, ohne Bereichsgröße. */
+function leaderRows(): LeaderRow[] {
+  return getDb()
     .prepare(`${LEADER_SELECT} ORDER BY e.last_name COLLATE NOCASE, e.first_name COLLATE NOCASE`)
     .all() as LeaderRow[];
-  return rows.map((r) => ({ ...r, team_size: scopeFor(r.employee_id).size }));
+}
+
+export function listLeaders(): Leader[] {
+  const cache = scopeCache();
+  return leaderRows().map((r) => ({ ...r, team_size: cache.scope(r.employee_id).size }));
 }
 
 /**
@@ -478,10 +514,12 @@ export function grantLeader(
     // zugelassen, scheitert die Freischaltung mit Erklärung statt still eine
     // verbotene Konstellation anzulegen. Die Transaktion rollt zurück.
     warnings.push(...assertMutualAllowed(before, settings.allow_mutual, 'Die Freischaltung'));
-  });
-  audit(req, 'grant', 'leadership_leader', employeeId, {
-    name: `${employee.first_name} ${employee.last_name}`,
-    auto_scope: opts.auto_scope !== false,
+    // Erst nach bestandener Prüfung und im selben Commit: Eine Freischaltung
+    // ohne Protokoll darf auch ein Absturz nicht hinterlassen.
+    audit(req, 'grant', 'leadership_leader', employeeId, {
+      name: `${employee.first_name} ${employee.last_name}`,
+      auto_scope: opts.auto_scope !== false,
+    });
   });
   return { leader: loadLeader(employeeId), warnings };
 }
@@ -518,8 +556,8 @@ export function updateLeader(
     if (patch.auto_scope !== undefined) {
       warnings.push(...assertMutualAllowed(before, settings.allow_mutual, 'Die Änderung der Zuständigkeit'));
     }
+    audit(req, 'update', 'leadership_leader', employeeId, { changed: patch });
   });
-  audit(req, 'update', 'leadership_leader', employeeId, { changed: patch });
   return { leader: loadLeader(employeeId), warnings };
 }
 
@@ -531,10 +569,12 @@ export function updateLeader(
  */
 export function revokeLeader(req: FastifyRequest, employeeId: number): void {
   const leader = loadLeader(employeeId);
-  getDb().prepare('DELETE FROM leadership_leaders WHERE employee_id = ?').run(employeeId);
-  audit(req, 'revoke', 'leadership_leader', employeeId, {
-    name: `${leader.first_name} ${leader.last_name}`,
-    removed_assignments: leader.assignment_count,
+  inTransaction(() => {
+    getDb().prepare('DELETE FROM leadership_leaders WHERE employee_id = ?').run(employeeId);
+    audit(req, 'revoke', 'leadership_leader', employeeId, {
+      name: `${leader.first_name} ${leader.last_name}`,
+      removed_assignments: leader.assignment_count,
+    });
   });
 }
 
@@ -554,9 +594,41 @@ const DEPARTMENT_TREE_CTE = `
     SELECT d.id, sub.depth + 1 FROM departments d JOIN sub ON d.parent_id = sub.id WHERE sub.depth < 50
   )`;
 
-function activeEmployeesInDepartments(rootCondition: string, param: number): number[] {
+/**
+ * Vorbereitete Abfragen der Zuständigkeit, je Berechnung höchstens einmal
+ * kompiliert (better-sqlite3 hält keine vor), dazu die Einstellungen, einmal
+ * gelesen. Der Satz lebt nur so lange wie die Berechnung, die ihn anlegt
+ * (`scopeFor` oder `scopeCache`): Gelesene Einstellungen wären nach einer
+ * Änderung veraltet.
+ */
+interface ScopeQueries {
+  prepare(sql: string): Database.Statement;
+  settings(): LeadershipSettings;
+}
+
+function scopeQueries(): ScopeQueries {
+  const db = getDb();
+  const statements = new Map<string, Database.Statement>();
+  let settings: LeadershipSettings | undefined;
+  return {
+    prepare(sql) {
+      let statement = statements.get(sql);
+      if (!statement) {
+        statement = db.prepare(sql);
+        statements.set(sql, statement);
+      }
+      return statement;
+    },
+    settings() {
+      settings ??= getSettings();
+      return settings;
+    },
+  };
+}
+
+function activeEmployeesInDepartments(queries: ScopeQueries, rootCondition: string, param: number): number[] {
   return (
-    getDb()
+    queries
       .prepare(
         `${DEPARTMENT_TREE_CTE.replace('%ROOT%', rootCondition)}
          SELECT DISTINCT e.id FROM employees e
@@ -582,27 +654,26 @@ interface AssignmentRow {
 }
 
 /** Aktive Mitarbeitende, die ein Zuweisungsziel heute umfasst. */
-function resolveTargetMembers(a: AssignmentRow): number[] {
-  const db = getDb();
+function resolveTargetMembers(queries: ScopeQueries, a: AssignmentRow): number[] {
   if (a.target_employee_id !== null) {
-    const row = db
+    const row = queries
       .prepare(`SELECT id FROM employees WHERE id = ? AND status = 'aktiv'`)
       .get(a.target_employee_id) as { id: number } | undefined;
     return row ? [row.id] : [];
   }
   if (a.target_department_id !== null) {
-    return activeEmployeesInDepartments('id = ?', a.target_department_id);
+    return activeEmployeesInDepartments(queries, 'id = ?', a.target_department_id);
   }
   if (a.target_team_id !== null) {
     return (
-      db
+      queries
         .prepare(`SELECT id FROM employees WHERE team_id = ? AND status = 'aktiv'`)
         .all(a.target_team_id) as { id: number }[]
     ).map((r) => r.id);
   }
   if (a.target_role_id !== null) {
     return (
-      db
+      queries
         .prepare(
           `SELECT e.id FROM employees e
            JOIN employee_roles er ON er.employee_id = e.id
@@ -624,8 +695,12 @@ function resolveTargetMembers(a: AssignmentRow): number[] {
  * nicht. Zeitlich begrenzte Zuweisungen gelten am Stichtag `asOf` (heute).
  */
 export function scopeFor(leaderId: number, asOf: string = todayIso()): Map<number, ScopeSource[]> {
-  const db = getDb();
-  const leader = db
+  return resolveScope(scopeQueries(), leaderId, asOf);
+}
+
+/** Rumpf von `scopeFor`; `scopeCache` ruft ihn mit gemeinsamen Abfragen auf. */
+function resolveScope(queries: ScopeQueries, leaderId: number, asOf: string): Map<number, ScopeSource[]> {
+  const leader = queries
     .prepare('SELECT auto_scope FROM leadership_leaders WHERE employee_id = ?')
     .get(leaderId) as { auto_scope: number } | undefined;
   const result = new Map<number, ScopeSource[]>();
@@ -639,18 +714,18 @@ export function scopeFor(leaderId: number, asOf: string = todayIso()): Map<numbe
   };
 
   if (leader.auto_scope === 1) {
-    const settings = getSettings();
+    const settings = queries.settings();
     if (settings.auto_direct_reports === 1) {
-      const rows = db
+      const rows = queries
         .prepare(`SELECT id FROM employees WHERE manager_id = ? AND status = 'aktiv'`)
         .all(leaderId) as { id: number }[];
       for (const r of rows) add(r.id, 'direkt');
     }
     if (settings.auto_department_head === 1) {
-      for (const id of activeEmployeesInDepartments('head_employee_id = ?', leaderId)) add(id, 'abteilung');
+      for (const id of activeEmployeesInDepartments(queries, 'head_employee_id = ?', leaderId)) add(id, 'abteilung');
     }
     if (settings.auto_team_lead === 1) {
-      const rows = db
+      const rows = queries
         .prepare(
           `SELECT e.id FROM employees e JOIN teams t ON t.id = e.team_id
            WHERE t.lead_employee_id = ? AND e.status = 'aktiv'`,
@@ -660,7 +735,7 @@ export function scopeFor(leaderId: number, asOf: string = todayIso()): Map<numbe
     }
   }
 
-  const assignments = db
+  const assignments = queries
     .prepare(
       `SELECT * FROM leadership_assignments
        WHERE leader_employee_id = @leader
@@ -671,11 +746,11 @@ export function scopeFor(leaderId: number, asOf: string = todayIso()): Map<numbe
     .all({ leader: leaderId, asOf }) as AssignmentRow[];
   for (const a of assignments) {
     if (a.kind !== 'include') continue;
-    for (const id of resolveTargetMembers(a)) add(id, 'zugewiesen');
+    for (const id of resolveTargetMembers(queries, a)) add(id, 'zugewiesen');
   }
   for (const a of assignments) {
     if (a.kind !== 'exclude') continue;
-    for (const id of resolveTargetMembers(a)) result.delete(id);
+    for (const id of resolveTargetMembers(queries, a)) result.delete(id);
   }
   return result;
 }
@@ -684,13 +759,15 @@ export function scopeFor(leaderId: number, asOf: string = todayIso()): Map<numbe
  * Obermenge der Führungskräfte, in deren `scopeFor` die Person stehen KANN:
  * Vorgesetzte, Leitung ihrer Abteilung oder einer darüber, Leitung ihres
  * Teams und jede Führungskraft mit einer Ergänzung (deren Ziele aufzulösen
- * hieße scopeFor nachbauen). Nur eine Vorauswahl für `responsibleLeaders`;
- * entschieden wird weiter allein über scopeFor. Eine neue Quelle dort gehört
- * auch hierher, `leadership/smoke.ts` vergleicht beides über alle Personen.
+ * hieße scopeFor nachbauen). Nur eine Vorauswahl für `responsibleLeaders`
+ * und die Prüfung „gegenseitig“ (teamMembers, mutualPartners), enthält nur
+ * Freigeschaltete; entschieden wird weiter allein über scopeFor. Eine neue
+ * Quelle dort gehört auch hierher, `leadership/smoke.ts` vergleicht beides
+ * über alle Personen.
  */
-function leadersPossiblyResponsibleFor(employeeId: number): number[] {
+function leadersPossiblyResponsibleFor(employeeId: number, queries: ScopeQueries): number[] {
   return (
-    getDb()
+    queries
       .prepare(
         `WITH RECURSIVE up(id, depth) AS (
            SELECT department_id, 0 FROM employees WHERE id = @id AND department_id IS NOT NULL
@@ -710,20 +787,65 @@ function leadersPossiblyResponsibleFor(employeeId: number): number[] {
 }
 
 /**
+ * Kurzlebiger Zwischenspeicher für `scopeFor` und die Vorauswahl
+ * `leadersPossiblyResponsibleFor` innerhalb EINER Berechnung (Report, Paare,
+ * Teamansicht, Mein Team): Dieselbe Führungskraft wird dort sonst mehrfach
+ * aufgelöst, jedes Mal mit neu vorbereiteten Abfragen. Geliefert wird, was
+ * scopeFor am selben Stichtag liefert; entschieden wird weiter allein dort.
+ *
+ * Die Berechnung legt ihn an und reicht ihn weiter: nie modulweit, nie über
+ * einen Request hinaus, denn Organisation, Zuweisungen und Einstellungen
+ * ändern sich jederzeit. In einer Schreibtransaktion erst NACH der letzten
+ * Änderung anlegen, sonst prüfte `assertMutualAllowed` einen Stand von
+ * vorher. Die gelieferten Maps und Mengen sind geteilt: nur lesen.
+ */
+export interface ScopeCache {
+  scope(leaderId: number): Map<number, ScopeSource[]>;
+  possiblyResponsibleFor(employeeId: number): Set<number>;
+}
+
+function scopeCache(): ScopeCache {
+  const queries = scopeQueries();
+  const asOf = todayIso();
+  const scopes = new Map<number, Map<number, ScopeSource[]>>();
+  const candidates = new Map<number, Set<number>>();
+  return {
+    scope(leaderId) {
+      let scope = scopes.get(leaderId);
+      if (!scope) {
+        scope = resolveScope(queries, leaderId, asOf);
+        scopes.set(leaderId, scope);
+      }
+      return scope;
+    },
+    possiblyResponsibleFor(employeeId) {
+      let leaders = candidates.get(employeeId);
+      if (!leaders) {
+        leaders = new Set(leadersPossiblyResponsibleFor(employeeId, queries));
+        candidates.set(employeeId, leaders);
+      }
+      return leaders;
+    },
+  };
+}
+
+/**
  * Personen im Bereich der Führungskraft, die ihrerseits (als Führungskraft)
- * für sie zuständig sind: „gegenseitige Verantwortung“.
+ * für sie zuständig sind: „gegenseitige Verantwortung“. Über scopeFor geprüft
+ * wird nur, wer laut Vorauswahl für sie zuständig sein KANN.
  */
 export function mutualPartners(
   leaderId: number,
+  cache: ScopeCache = scopeCache(),
 ): { employee_id: number; first_name: string; last_name: string }[] {
-  const scope = scopeFor(leaderId);
+  const scope = cache.scope(leaderId);
+  const candidates = cache.possiblyResponsibleFor(leaderId);
+  const nameOf = getDb().prepare('SELECT first_name, last_name FROM employees WHERE id = ?');
   const partners: { employee_id: number; first_name: string; last_name: string }[] = [];
   for (const memberId of scope.keys()) {
-    if (!isLeaderEmployee(memberId)) continue;
-    if (!scopeFor(memberId).has(leaderId)) continue;
-    const row = getDb()
-      .prepare('SELECT first_name, last_name FROM employees WHERE id = ?')
-      .get(memberId) as { first_name: string; last_name: string };
+    if (!candidates.has(memberId)) continue;
+    if (!cache.scope(memberId).has(leaderId)) continue;
+    const row = nameOf.get(memberId) as { first_name: string; last_name: string };
     partners.push({ employee_id: memberId, ...row });
   }
   return partners.sort((a, b) => a.last_name.localeCompare(b.last_name, 'de'));
@@ -732,14 +854,16 @@ export function mutualPartners(
 /** Alle gegenseitigen Paare (a < b) über sämtliche Führungskräfte. */
 export function mutualPairs(): { a: number; b: number; label: string }[] {
   const db = getDb();
+  // Je Aufruf ein eigener Zwischenspeicher: assertMutualAllowed ruft diese
+  // Funktion NACH der Änderung in der Transaktion auf und braucht deren Stand.
+  const cache = scopeCache();
   const leaders = (db.prepare('SELECT employee_id FROM leadership_leaders').all() as { employee_id: number }[]).map(
     (r) => r.employee_id,
   );
-  const scopes = new Map(leaders.map((id) => [id, scopeFor(id)] as const));
+  const scopes = new Map(leaders.map((id) => [id, cache.scope(id)] as const));
+  const nameStatement = db.prepare('SELECT first_name, last_name FROM employees WHERE id = ?');
   const nameOf = (id: number) => {
-    const row = db.prepare('SELECT first_name, last_name FROM employees WHERE id = ?').get(id) as
-      | { first_name: string; last_name: string }
-      | undefined;
+    const row = nameStatement.get(id) as { first_name: string; last_name: string } | undefined;
     return row ? `${row.first_name} ${row.last_name}` : `#${id}`;
   };
   const pairs: { a: number; b: number; label: string }[] = [];
@@ -791,6 +915,7 @@ interface MemberRow {
   email: string | null;
   phone: string | null;
   photo_file_id: number | null;
+  photo_thumb_file_id: number | null;
   department_name: string | null;
   team_name: string | null;
   location_name: string | null;
@@ -798,7 +923,7 @@ interface MemberRow {
 
 const MEMBER_SELECT = `
   SELECT e.id, e.first_name, e.last_name, e.personnel_number, e.job_title, e.employee_type,
-         e.status, e.hire_date, e.email, e.phone, e.photo_file_id,
+         e.status, e.hire_date, e.email, e.phone, e.photo_file_id, e.photo_thumb_file_id,
          d.name AS department_name, t.name AS team_name, l.name AS location_name
   FROM employees e
   LEFT JOIN departments d ON d.id = e.department_id
@@ -825,8 +950,9 @@ export interface ViewOptions {
 export function teamMembers(
   leaderId: number,
   period: RatingPeriod,
-  scope: Map<number, ScopeSource[]> = scopeFor(leaderId),
+  scope: Map<number, ScopeSource[]>,
   view: ViewOptions = {},
+  cache: ScopeCache = scopeCache(),
 ): TeamMember[] {
   const ids = [...scope.keys()];
   if (ids.length === 0) return [];
@@ -863,12 +989,16 @@ export function teamMembers(
     byEmployee.set(r.employee_id, entry);
   }
 
+  // Gegenseitig: Das Mitglied ist seinerseits für die Führungskraft zuständig.
+  // Die Vorauswahl ersetzt die Frage „freigeschaltet?“ je Mitglied (sie
+  // enthält nur Freigeschaltete), scopeFor läuft nur noch für ihre Kandidaten.
+  const candidates = cache.possiblyResponsibleFor(leaderId);
   return rows.map((row) => {
     const stats = byEmployee.get(row.id);
-    const mutual = isLeaderEmployee(row.id) && scopeFor(row.id).has(leaderId) ? 1 : 0;
+    const mutual = candidates.has(row.id) && cache.scope(row.id).has(leaderId) ? 1 : 0;
     return {
       ...row,
-      photo_url: view.photos !== false && row.photo_file_id ? signDownloadUrl(row.photo_file_id) : null,
+      photo_url: view.photos !== false ? signPhotoUrl(row) : null,
       sources: scope.get(row.id) ?? [],
       mutual,
       overall: stats?.overall ?? null,
@@ -879,8 +1009,12 @@ export function teamMembers(
 }
 
 /** Wirft 403, wenn die Person nicht zum Bereich der Führungskraft gehört. */
-export function assertInScope(leaderId: number, employeeId: number): Map<number, ScopeSource[]> {
-  const scope = scopeFor(leaderId);
+export function assertInScope(
+  leaderId: number,
+  employeeId: number,
+  cache: ScopeCache = scopeCache(),
+): Map<number, ScopeSource[]> {
+  const scope = cache.scope(leaderId);
   if (!scope.has(employeeId)) {
     throw forbidden('Diese Person gehört nicht zu Ihrem Zuständigkeitsbereich.');
   }
@@ -952,7 +1086,7 @@ export function createAssignment(
   const settings = getSettings();
   const before = pairKeys(mutualPairs());
   const warnings: string[] = [];
-  const id = inTransaction(() => {
+  const assignment = inTransaction(() => {
     const info = getDb()
       .prepare(
         `INSERT INTO leadership_assignments (leader_employee_id, kind, ${column}, valid_from, valid_to, note, created_by_user_id)
@@ -970,14 +1104,17 @@ export function createAssignment(
     // Neue gegenseitige Verantwortung? Nur die durch DIESE Zuweisung
     // entstandene zählt. Bereits bestehende Paare wurden schon gemeldet.
     warnings.push(...assertMutualAllowed(before, settings.allow_mutual, 'Diese Zuweisung'));
-    return Number(info.lastInsertRowid);
-  });
-  const assignment = getAssignment(id);
-  audit(req, 'create', 'leadership_assignment', id, {
-    leader_employee_id: leaderId,
-    kind: input.kind,
-    target: `${input.target_type}:${input.target_id}`,
-    target_name: assignment.target_name,
+    // Audit im selben Commit; den Zielnamen liest dieselbe Verbindung schon
+    // vor dem Commit.
+    const id = Number(info.lastInsertRowid);
+    const created = getAssignment(id);
+    audit(req, 'create', 'leadership_assignment', id, {
+      leader_employee_id: leaderId,
+      kind: input.kind,
+      target: `${input.target_type}:${input.target_id}`,
+      target_name: created.target_name,
+    });
+    return created;
   });
   return { assignment, warnings };
 }
@@ -994,10 +1131,10 @@ export function deleteAssignment(req: FastifyRequest, id: number): void {
     // Das Entfernen einer Ausnahme holt Personen zurück in den Bereich. Das
     // kann damit ein verbotenes Paar wiederherstellen.
     assertMutualAllowed(before, settings.allow_mutual, 'Das Entfernen der Zuweisung');
-  });
-  audit(req, 'delete', 'leadership_assignment', id, {
-    leader_employee_id: existing.leader_employee_id,
-    target_name: existing.target_name,
+    audit(req, 'delete', 'leadership_assignment', id, {
+      leader_employee_id: existing.leader_employee_id,
+      target_name: existing.target_name,
+    });
   });
 }
 
@@ -1006,12 +1143,14 @@ export function leaderTeam(
   period: RatingPeriod,
   view: ViewOptions = {},
 ): LeaderTeamResponse {
-  const leader = loadLeader(leaderId);
+  // Kopf, Team und Partner lösen dieselben Führungskräfte auf: ein Speicher.
+  const cache = scopeCache();
+  const leader = loadLeader(leaderId, cache);
   return {
     leader,
-    team: teamMembers(leaderId, period, scopeFor(leaderId), view),
+    team: teamMembers(leaderId, period, cache.scope(leaderId), view, cache),
     assignments: listAssignments(leaderId),
-    mutual: mutualPartners(leaderId),
+    mutual: mutualPartners(leaderId, cache),
   };
 }
 
@@ -1088,9 +1227,10 @@ function selectablePeriods(leaderId: number, employeeId: number, settings: Leade
 
 export function teamMemberDetail(leaderId: number, employeeId: number, period: RatingPeriod) {
   const settings = getSettings();
-  const scope = assertInScope(leaderId, employeeId);
+  const cache = scopeCache();
+  const scope = assertInScope(leaderId, employeeId, cache);
   const single = new Map<number, ScopeSource[]>([[employeeId, scope.get(employeeId) ?? []]]);
-  const [employee] = teamMembers(leaderId, period, single);
+  const [employee] = teamMembers(leaderId, period, single, {}, cache);
   if (!employee) throw notFound('Mitarbeiter:in nicht gefunden');
   return {
     employee,
@@ -1136,7 +1276,7 @@ export function saveRatings(
   // immer alle Blöcke, sonst wäre mit der Deaktivierung auch die
   // Gesamtbewertung eingefroren. Nur NEUE Bewertungen brauchen eine aktive
   // Kategorie.
-  const categories = new Map(listCategories(false, settings).map((c) => [c.id, c]));
+  const categories = new Map(listCategories(false, settings, { counts: false }).map((c) => [c.id, c]));
   const alreadyRated = new Set(
     (
       db
@@ -1253,14 +1393,15 @@ export function saveRatings(
         changed.push({ category: item.category.name, version: 1, change_kind: 'erstellt' });
       }
     }
+    // Im selben Commit wie Bewertung und Versionsprotokoll.
+    if (changed.length > 0) {
+      audit(req, 'bewertung_gespeichert', 'leadership_rating', employeeId, {
+        leader_employee_id: leaderId,
+        period_key: period.key,
+        changed,
+      });
+    }
   });
-  if (changed.length > 0) {
-    audit(req, 'bewertung_gespeichert', 'leadership_rating', employeeId, {
-      leader_employee_id: leaderId,
-      period_key: period.key,
-      changed,
-    });
-  }
   return ratingsFor(leaderId, employeeId, period.key);
 }
 
@@ -1340,15 +1481,19 @@ export function buildReport(period: RatingPeriod, view: ViewOptions = {}): Leade
   const scale = category.effective_scale;
   const levels = scaleLevelsBestFirst(scale);
   const db = getDb();
+  const cache = scopeCache();
+  const ratingsOf = db.prepare(
+    `SELECT employee_id, score, scale FROM leadership_ratings
+     WHERE leader_employee_id = @leader AND category_id = @category AND period_key = @period`,
+  );
 
-  const leaders = listLeaders().filter((l) => l.status === 'aktiv');
+  // Bereichsgröße und offene Bewertungen aus DERSELBEN Auflösung je
+  // Führungskraft, und nur für aktive (die Liste der Einrichtung rechnet
+  // dieselbe Größe auch für Ausgeschiedene).
+  const leaders = leaderRows().filter((l) => l.status === 'aktiv');
   const rows: ReportLeaderRow[] = leaders.map((leader) => {
-    const ratings = db
-      .prepare(
-        `SELECT employee_id, score, scale FROM leadership_ratings
-         WHERE leader_employee_id = @leader AND category_id = @category AND period_key = @period`,
-      )
-      .all({ leader: leader.employee_id, category: category.id, period: period.key }) as {
+    const scope = cache.scope(leader.employee_id);
+    const ratings = ratingsOf.all({ leader: leader.employee_id, category: category.id, period: period.key }) as {
       employee_id: number;
       score: number;
       scale: RatingScaleKey;
@@ -1358,7 +1503,7 @@ export function buildReport(period: RatingPeriod, view: ViewOptions = {}): Leade
     // Personen, die inzwischen nicht mehr zum Bereich gehören. Beide Zahlen
     // sind deshalb getrennt und werden nicht voneinander abgezogen.
     const ratedIds = new Set(ratings.map((r) => r.employee_id));
-    const openCount = [...scopeFor(leader.employee_id).keys()].filter((id) => !ratedIds.has(id)).length;
+    const openCount = [...scope.keys()].filter((id) => !ratedIds.has(id)).length;
     const onScale = ratings.filter((r) => r.scale === scale);
     const counts = levels.map((level) => onScale.filter((r) => r.score === level).length);
     const percent = percentages(counts);
@@ -1380,8 +1525,9 @@ export function buildReport(period: RatingPeriod, view: ViewOptions = {}): Leade
       job_title: leader.job_title,
       department_name: leader.department_name,
       photo_file_id: leader.photo_file_id,
-      photo_url: view.photos !== false && leader.photo_file_id ? signDownloadUrl(leader.photo_file_id) : null,
-      team_size: leader.team_size,
+      photo_thumb_file_id: leader.photo_thumb_file_id,
+      photo_url: view.photos !== false ? signPhotoUrl(leader) : null,
+      team_size: scope.size,
       rated_count: onScale.length,
       open_count: openCount,
       distribution,
@@ -1461,14 +1607,15 @@ export function leaderBreakdown(
   columns: number = BREAKDOWN_COLUMNS_DEFAULT,
 ): LeaderBreakdown {
   const db = getDb();
-  const leader = loadLeader(leaderId);
+  const cache = scopeCache();
+  const leader = loadLeader(leaderId, cache);
   const settings = getSettings();
   const category = overallCategory(settings);
   const count = Math.min(BREAKDOWN_COLUMNS_MAX, Math.max(1, Math.trunc(columns)));
   const periods = recentPeriods(period.key, count);
   const periodKeys = periods.map((p) => p.key);
 
-  const scope = scopeFor(leaderId);
+  const scope = cache.scope(leaderId);
   // Bewertungen der Führungskraft in den angezeigten Zeiträumen: die
   // Gesamtbewertung für die Zellen, alle übrigen Kategorien nur gezählt.
   const ratings = db
@@ -1583,13 +1730,14 @@ export function ratingDetail(leaderId: number, employeeId: number, period: Ratin
   // beliebige Personal-ID, und gäbe damit Stammdaten (Personalnummer, Titel,
   // Abteilung) an Konten heraus, die nur `fuehrung: lesen` haben. Sie sollen
   // sehen, was der Report zeigt, und nicht das Personalverzeichnis.
-  loadLeader(leaderId);
+  const cache = scopeCache();
+  loadLeader(leaderId, cache);
 
   const ratings = ratingsFor(leaderId, employeeId, period.key);
   // Zweite Schranke: Die Person muss zum Bereich dieser Führungskraft gehören
   // ODER von ihr in diesem Zeitraum bewertet worden sein: genau die beiden
   // Fälle, die in der Aufschlüsselung als Zeile stehen.
-  if (ratings.length === 0 && !scopeFor(leaderId).has(employeeId)) {
+  if (ratings.length === 0 && !cache.scope(leaderId).has(employeeId)) {
     throw notFound('Für diese Person liegt bei dieser Führungskraft keine Bewertung vor');
   }
 
@@ -1721,8 +1869,9 @@ function historyCells(
  * `personal` hat, also keine zweite Quelle für Abteilungsnamen kennt.
  */
 export function myTeam(leaderId: number, period: RatingPeriod, settings = getSettings()): MyTeamResponse {
-  const scope = scopeFor(leaderId);
-  const team = teamMembers(leaderId, period, scope);
+  const cache = scopeCache();
+  const scope = cache.scope(leaderId);
+  const team = teamMembers(leaderId, period, scope, {}, cache);
   const historyPeriods = recentPeriods(period.key, TEAM_HISTORY_COLUMNS);
   const cells = historyCells(
     leaderId,

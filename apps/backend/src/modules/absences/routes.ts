@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { removeReplacedFile } from '../../core/files.js';
+import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
+import { pageOffsetOf, pageRequest } from '../../core/paging.js';
 import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../core/dates.js';
 import { holidaysByRegion, isHoliday } from '../../core/holidays.js';
 import type { CountryCode, RegionCode } from '@ohrganize/shared';
@@ -221,26 +222,30 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
 
   app.post('/api/absences/types', async (req, reply) => {
     const body = parse(typeBodySchema, req.body);
-    const result = db()
-      .prepare(
-        `INSERT INTO absence_types
-         (name, category, paid, affects_balance, requires_proof, requires_approval, color, max_days_per_year, active, portal_visibility)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        body.name,
-        body.category,
-        body.paid ? 1 : 0,
-        body.affects_balance ? 1 : 0,
-        body.requires_proof ? 1 : 0,
-        body.requires_approval ? 1 : 0,
-        body.color,
-        body.max_days_per_year ?? null,
-        body.active === false ? 0 : 1,
-        body.portal_visibility ?? defaultPortalVisibility(body.category),
-      );
-    const id = Number(result.lastInsertRowid);
-    audit(req, 'create', 'absence_type', id, body);
+    // Änderung und Audit in EINER Transaktion: kein Stand ohne Protokoll.
+    const id = inTransaction(() => {
+      const result = db()
+        .prepare(
+          `INSERT INTO absence_types
+           (name, category, paid, affects_balance, requires_proof, requires_approval, color, max_days_per_year, active, portal_visibility)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          body.name,
+          body.category,
+          body.paid ? 1 : 0,
+          body.affects_balance ? 1 : 0,
+          body.requires_proof ? 1 : 0,
+          body.requires_approval ? 1 : 0,
+          body.color,
+          body.max_days_per_year ?? null,
+          body.active === false ? 0 : 1,
+          body.portal_visibility ?? defaultPortalVisibility(body.category),
+        );
+      const newId = Number(result.lastInsertRowid);
+      audit(req, 'create', 'absence_type', newId, body);
+      return newId;
+    });
     reply.status(201);
     return { type: db().prepare('SELECT * FROM absence_types WHERE id = ?').get(id) };
   });
@@ -250,27 +255,29 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     const existing = db().prepare('SELECT * FROM absence_types WHERE id = ?').get(id);
     if (!existing) throw notFound('Abwesenheitsart nicht gefunden');
     const body = parse(typeBodySchema, req.body);
-    db()
-      .prepare(
-        `UPDATE absence_types SET name = ?, category = ?, paid = ?, affects_balance = ?,
-         requires_proof = ?, requires_approval = ?, color = ?, max_days_per_year = ?, active = ?,
-         portal_visibility = ?
-         WHERE id = ?`,
-      )
-      .run(
-        body.name,
-        body.category,
-        body.paid ? 1 : 0,
-        body.affects_balance ? 1 : 0,
-        body.requires_proof ? 1 : 0,
-        body.requires_approval ? 1 : 0,
-        body.color,
-        body.max_days_per_year ?? null,
-        body.active === false ? 0 : 1,
-        body.portal_visibility ?? defaultPortalVisibility(body.category),
-        id,
-      );
-    audit(req, 'update', 'absence_type', id, body);
+    inTransaction(() => {
+      db()
+        .prepare(
+          `UPDATE absence_types SET name = ?, category = ?, paid = ?, affects_balance = ?,
+           requires_proof = ?, requires_approval = ?, color = ?, max_days_per_year = ?, active = ?,
+           portal_visibility = ?
+           WHERE id = ?`,
+        )
+        .run(
+          body.name,
+          body.category,
+          body.paid ? 1 : 0,
+          body.affects_balance ? 1 : 0,
+          body.requires_proof ? 1 : 0,
+          body.requires_approval ? 1 : 0,
+          body.color,
+          body.max_days_per_year ?? null,
+          body.active === false ? 0 : 1,
+          body.portal_visibility ?? defaultPortalVisibility(body.category),
+          id,
+        );
+      audit(req, 'update', 'absence_type', id, body);
+    });
     return { type: db().prepare('SELECT * FROM absence_types WHERE id = ?').get(id) };
   });
 
@@ -288,8 +295,10 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         `Die Art "${existing.name}" wird von ${used.n} Antrag/Anträgen verwendet und kann nicht gelöscht werden. Deaktivieren Sie sie stattdessen.`,
       );
     }
-    db().prepare('DELETE FROM absence_types WHERE id = ?').run(id);
-    audit(req, 'delete', 'absence_type', id, { name: existing.name });
+    inTransaction(() => {
+      db().prepare('DELETE FROM absence_types WHERE id = ?').run(id);
+      audit(req, 'delete', 'absence_type', id, { name: existing.name });
+    });
     reply.status(204);
   });
 
@@ -353,12 +362,11 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         'INSERT INTO absence_type_employee_rules (type_id, employee_id, effect) VALUES (?, ?, ?)',
       );
       for (const rule of employeeRules) insertRule.run(id, rule.employee_id, rule.effect);
-    });
-
-    audit(req, 'update', 'absence_type_eligibility', id, {
-      name: existing.name,
-      role_ids: roleIds,
-      employee_rules: employeeRules,
+      audit(req, 'update', 'absence_type_eligibility', id, {
+        name: existing.name,
+        role_ids: roleIds,
+        employee_rules: employeeRules,
+      });
     });
     return { role_ids: roleIds, employee_rules: employeeRules };
   });
@@ -394,10 +402,54 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       where.push('r.date_from <= ?');
       params.push(q.to);
     }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const sql = `${REQUEST_SELECT}
-      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ${whereSql}
       ORDER BY r.date_from DESC, r.id DESC`;
-    return { requests: db().prepare(sql).all(...params) };
+    // Ohne limit ungeblättert wie bisher: Offene Anträge und Personalakte
+    // brauchen alle Treffer ihres engen Filters. "Alle Anträge" blättert, die
+    // ganze Historie samt aller Jahre bleibt dort über die Seiten erreichbar.
+    const page = pageRequest(req.query);
+    if (!page) return { requests: db().prepare(sql).all(...params) };
+
+    // Zählen ohne die Joins von REQUEST_SELECT: Person und Art sind
+    // Pflichtverweise, die Joins ändern die Zahl der Treffer nicht.
+    const count = (extra: string[], extraParams: unknown[]) =>
+      (
+        db()
+          .prepare(`SELECT COUNT(*) AS n FROM absence_requests r WHERE ${[...where, ...extra].join(' AND ') || '1'}`)
+          .get([...params, ...extraParams]) as { n: number }
+      ).n;
+    const total = count([], []);
+    let offset = page.offset;
+    if (page.focusId !== null) {
+      const focus = db()
+        .prepare(`SELECT r.date_from FROM absence_requests r WHERE ${[...where, 'r.id = ?'].join(' AND ')}`)
+        .get([...params, page.focusId]) as { date_from: string } | undefined;
+      // Vorgänger in derselben Sortierung (date_from DESC, id DESC) zählen.
+      if (focus) {
+        const before = count(
+          ['(r.date_from > ? OR (r.date_from = ? AND r.id > ?))'],
+          [focus.date_from, focus.date_from, page.focusId],
+        );
+        offset = pageOffsetOf(before, page.limit);
+      }
+    }
+    // Erst die IDs der Seite über den Index wählen, dann nur diese Zeilen mit
+    // ihren Joins laden: Mit LIMIT/OFFSET direkt am Gesamtselect baute SQLite
+    // für jede übersprungene Zeile die volle Ergebniszeile (gemessen bei
+    // 220 000 Anträgen: letzte Seite 505 statt 45 ms).
+    const requests = db()
+      .prepare(
+        `${REQUEST_SELECT}
+         WHERE r.id IN (
+           SELECT r.id FROM absence_requests r ${whereSql}
+           ORDER BY r.date_from DESC, r.id DESC LIMIT ? OFFSET ?
+         )
+         ORDER BY r.date_from DESC, r.id DESC`,
+      )
+      .all([...params, page.limit, offset]);
+    return { requests, total, offset };
   });
 
   /** Live-Vorschau der gezählten Tage für das Antragsformular. */
@@ -482,13 +534,15 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       }
     }
     const userId = (req.user as { id?: number }).id ?? null;
-    db()
-      .prepare(
-        `UPDATE absence_requests SET status = 'genehmigt', decided_by_user_id = ?, decided_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(userId, id);
-    audit(req, 'approve', 'absence_request', id, body.override_balance ? { override_balance: true } : undefined);
+    inTransaction(() => {
+      db()
+        .prepare(
+          `UPDATE absence_requests SET status = 'genehmigt', decided_by_user_id = ?, decided_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(userId, id);
+      audit(req, 'approve', 'absence_request', id, body.override_balance ? { override_balance: true } : undefined);
+    });
     return { request: db().prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(id) };
   });
 
@@ -507,13 +561,15 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     }
     assertNotOwnRequest(req, row);
     const userId = (req.user as { id?: number }).id ?? null;
-    db()
-      .prepare(
-        `UPDATE absence_requests SET status = 'abgelehnt', rejection_reason = ?,
-         decided_by_user_id = ?, decided_at = datetime('now') WHERE id = ?`,
-      )
-      .run(body.reason, userId, id);
-    audit(req, 'reject', 'absence_request', id, { reason: body.reason });
+    inTransaction(() => {
+      db()
+        .prepare(
+          `UPDATE absence_requests SET status = 'abgelehnt', rejection_reason = ?,
+           decided_by_user_id = ?, decided_at = datetime('now') WHERE id = ?`,
+        )
+        .run(body.reason, userId, id);
+      audit(req, 'reject', 'absence_request', id, { reason: body.reason });
+    });
     return { request: db().prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(id) };
   });
 
@@ -528,13 +584,15 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       throw conflict(`Dieser Antrag kann nicht mehr storniert werden (Status: ${row.status})`);
     }
     const userId = (req.user as { id?: number }).id ?? null;
-    db()
-      .prepare(
-        `UPDATE absence_requests SET status = 'storniert', decided_by_user_id = ?, decided_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(userId, id);
-    audit(req, 'cancel', 'absence_request', id);
+    inTransaction(() => {
+      db()
+        .prepare(
+          `UPDATE absence_requests SET status = 'storniert', decided_by_user_id = ?, decided_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(userId, id);
+      audit(req, 'cancel', 'absence_request', id);
+    });
     return { request: db().prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(id) };
   });
 
@@ -679,15 +737,41 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     const calendarDays = (from: string, to: string): number =>
       Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
 
-    const placeCache = new Map<number, ReturnType<typeof regionForEmployee>>();
+    // Land und Region aller betroffenen Personen in EINER Abfrage statt einer
+    // je Person (regionForEmployee); gleiche Ausdrücke, gleiche Vorgaben.
+    const places = new Map<number, ReturnType<typeof regionForEmployee>>();
+    const placeRows = db()
+      .prepare(
+        `SELECT e.id, ${REGION_SELECT_SQL} FROM employees e
+         ${REGION_JOIN_SQL}
+         WHERE e.id IN (${employeeIds.map(() => '?').join(',')})`,
+      )
+      .all([...regionSelectParams(), ...employeeIds]) as { id: number; country: CountryCode; bundesland: RegionCode }[];
+    for (const p of placeRows) places.set(p.id, { country: p.country, region: p.bundesland });
+
+    // Betriebsruhetage EINMAL für die Spanne aller gezählten Zeiträume statt
+    // einer Abfrage je Zeile (countAbsenceDays ohne `closures` lädt selbst).
+    // Gezählt wird je Zeile date_from bis min(date_to, heute), und die Zählung
+    // fragt nur `has` für Tage dieses Zeitraums; die Tage außerhalb, die das
+    // gemeinsame Set mehr enthält, ändern das Ergebnis also nicht. Zeilen, die
+    // erst nach heute beginnen, zählen 0, bevor die Betriebsruhe gefragt wird.
+    let spanFrom: string | null = null;
+    let spanTo: string | null = null;
+    for (const row of rows) {
+      const to = row.date_to < today ? row.date_to : today;
+      if (row.date_from > to) continue;
+      if (spanFrom === null || row.date_from < spanFrom) spanFrom = row.date_from;
+      if (spanTo === null || to > spanTo) spanTo = to;
+    }
+    const closures = spanFrom !== null && spanTo !== null ? closureDates(spanFrom, spanTo) : new Set<string>();
+
     return rows.map((row) => {
-      let place = placeCache.get(row.employee_id);
-      if (!place) placeCache.set(row.employee_id, (place = regionForEmployee(row.employee_id)));
       const daysAbsent = countAbsenceDays({
-        place,
+        place: places.get(row.employee_id) ?? regionForEmployee(row.employee_id),
         dateFrom: row.date_from,
         dateTo: row.date_to,
         clipTo: today,
+        closures,
       });
       const chain = chains.get(rootOf(byId.get(row.id) ?? row)) ?? { from: row.date_from, to: row.date_to };
       const chainEnd = chain.to < today ? chain.to : today;
@@ -702,7 +786,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
   }
 
   app.get('/api/absences/sick-notes', async (req) => {
-    const q = req.query as { child_sick?: string; year?: string };
+    const q = req.query as { child_sick?: string; year?: string; employee_id?: string };
     const where: string[] = ["r.status != 'storniert'"];
     const params: unknown[] = [];
     if (q.child_sick === '1' || q.child_sick === 'true') where.push('s.child_sick = 1');
@@ -710,6 +794,12 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     if (q.year && /^\d{4}$/.test(q.year)) {
       where.push('r.date_from <= ? AND r.date_to >= ?');
       params.push(`${q.year}-12-31`, `${q.year}-01-01`);
+    }
+    // Eine Person über alle Jahre: Auswahl der Erstbescheinigung im
+    // Erfassungsdialog, ohne dafür die Liste der ganzen Belegschaft zu laden.
+    if (q.employee_id) {
+      where.push('r.employee_id = ?');
+      params.push(Number(q.employee_id));
     }
     const rows = db()
       .prepare(`${SICK_SELECT} WHERE ${where.join(' AND ')} ORDER BY r.date_from DESC, s.id DESC`)
@@ -777,13 +867,15 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
           body.follow_up_of_id ?? null,
           body.child_sick ? 1 : 0,
         );
-      return Number(result.lastInsertRowid);
-    });
-    audit(req, 'create', 'sick_note', sickNoteId, {
-      employee_id: body.employee_id,
-      date_from: body.date_from,
-      date_to: body.date_to,
-      child_sick: !!body.child_sick,
+      const id = Number(result.lastInsertRowid);
+      // Audit in derselben Transaktion wie Antrag und Krankmeldung.
+      audit(req, 'create', 'sick_note', id, {
+        employee_id: body.employee_id,
+        date_from: body.date_from,
+        date_to: body.date_to,
+        child_sick: !!body.child_sick,
+      });
+      return id;
     });
     reply.status(201);
     return { sick_note: db().prepare(`${SICK_SELECT} WHERE s.id = ?`).get(sickNoteId) };
@@ -801,20 +893,34 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       }),
       req.body,
     );
-    let removedFile: ReturnType<typeof removeReplacedFile> = null;
-    if (body.certificate_file_id !== undefined) {
-      db()
-        .prepare('UPDATE sick_notes SET certificate_file_id = ? WHERE id = ?')
-        .run(body.certificate_file_id, id);
-      // Ersetzte oder entfernte AU-Bescheinigung (Gesundheitsdaten) aufraeumen,
-      // sofern nirgends sonst verknuepft; der Audit-Eintrag nennt die Datei.
-      const replaced = (existing as { certificate_file_id: number | null }).certificate_file_id;
-      if (replaced && replaced !== body.certificate_file_id) removedFile = removeReplacedFile(replaced);
-    }
-    if (body.received_date !== undefined) {
-      db().prepare('UPDATE sick_notes SET received_date = ? WHERE id = ?').run(body.received_date, id);
-    }
-    audit(req, 'update', 'sick_note', id, removedFile ? { ...body, removed_file: removedFile } : body);
+    // Ersetzte oder entfernte AU-Bescheinigung (Gesundheitsdaten) aufraeumen,
+    // sofern nirgends sonst verknuepft; der Audit-Eintrag nennt die Datei.
+    const replaced = (existing as { certificate_file_id: number | null }).certificate_file_id;
+    const replacedFile =
+      body.certificate_file_id !== undefined && replaced && replaced !== body.certificate_file_id ? replaced : null;
+    // Änderung, Entfernen des Dateieintrags und Audit in EINER Transaktion;
+    // den Blob auf der Platte erst nach dem Commit, ihn nimmt kein Rollback
+    // zurück (detachUnreferencedFile/removeDetachedBlob in core/files.ts).
+    const detached = inTransaction(() => {
+      if (body.certificate_file_id !== undefined) {
+        db()
+          .prepare('UPDATE sick_notes SET certificate_file_id = ? WHERE id = ?')
+          .run(body.certificate_file_id, id);
+      }
+      if (body.received_date !== undefined) {
+        db().prepare('UPDATE sick_notes SET received_date = ? WHERE id = ?').run(body.received_date, id);
+      }
+      const removed = replacedFile ? detachUnreferencedFile(replacedFile) : null;
+      audit(
+        req,
+        'update',
+        'sick_note',
+        id,
+        removed ? { ...body, removed_file: { id: removed.id, sha256: removed.sha256 } } : body,
+      );
+      return removed;
+    });
+    removeDetachedBlob(detached);
     return { sick_note: db().prepare(`${SICK_SELECT} WHERE s.id = ?`).get(id) };
   });
 
@@ -833,12 +939,13 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       const result = db()
         .prepare('INSERT INTO company_closures (name, date_from, date_to) VALUES (?, ?, ?)')
         .run(body.name, body.date_from, body.date_to);
-      return {
+      const created = {
         id: Number(result.lastInsertRowid),
         recounted: recountRequestsOverlapping(body.date_from, body.date_to),
       };
+      audit(req, 'create', 'company_closure', created.id, { ...body, recounted_request_ids: created.recounted });
+      return created;
     });
-    audit(req, 'create', 'company_closure', id, { ...body, recounted_request_ids: recounted });
     reply.status(201);
     return {
       closure: db().prepare('SELECT * FROM company_closures WHERE id = ?').get(id),
@@ -852,11 +959,11 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       | { id: number; name: string; date_from: string; date_to: string }
       | undefined;
     if (!existing) throw notFound('Betriebsruhe nicht gefunden');
-    const recounted = inTransaction(() => {
+    inTransaction(() => {
       db().prepare('DELETE FROM company_closures WHERE id = ?').run(id);
-      return recountRequestsOverlapping(existing.date_from, existing.date_to);
+      const recounted = recountRequestsOverlapping(existing.date_from, existing.date_to);
+      audit(req, 'delete', 'company_closure', id, { ...existing, recounted_request_ids: recounted });
     });
-    audit(req, 'delete', 'company_closure', id, { ...existing, recounted_request_ids: recounted });
     reply.status(204);
   });
 

@@ -556,6 +556,226 @@ check('Jahreskalender liefert Gesamtzeitraum', calYear.json().range.from === '20
 const calFiltered = await get('/api/absences/calendar?year=2026&month=12&team_id=1');
 check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
 
+// ------------------------------------------- Krankmeldungen: Filter, Zählung ---
+{
+  const all = (await get('/api/absences/sick-notes')).json().sick_notes as { id: number; employee_id: number }[];
+  const ofBen = (await get('/api/absences/sick-notes?employee_id=2')).json().sick_notes as typeof all;
+  check(
+    'Krankmeldungen: employee_id liefert genau die Meldungen der Person',
+    ofBen.length > 0 && ofBen.length === all.filter((n) => n.employee_id === 2).length && ofBen.every((n) => n.employee_id === 2),
+    ofBen,
+  );
+  const of2025 = (await get('/api/absences/sick-notes?year=2025')).json().sick_notes as typeof all;
+  const of2026 = (await get('/api/absences/sick-notes?year=2026')).json().sick_notes as typeof all;
+  check('Krankmeldungen: Jahresfilter (alle Testdaten liegen 2026)', of2025.length === 0 && of2026.length === all.length, { of2025, of2026: of2026.length });
+
+  // Betriebsruhe einmal für alle Zeilen geladen: days_absent_so_far muss der
+  // Zählung je Zeile mit eigener Abfrage (countAbsenceDays ohne closures)
+  // gleichen. Zwei vergangene Betriebsruhen in zwei Krankmeldungen.
+  const { countAbsenceDays, regionForEmployee } = await import('./service.js');
+  const { todayIso } = await import('../../core/dates.js');
+  const c1 = await post('/api/absences/closures', { name: 'Brückentag', date_from: '2026-06-02', date_to: '2026-06-02' });
+  const c2 = await post('/api/absences/closures', { name: 'Umzug', date_from: '2026-02-02', date_to: '2026-02-03' });
+  const notes = (await get('/api/absences/sick-notes')).json().sick_notes as {
+    id: number;
+    employee_id: number;
+    date_from: string;
+    date_to: string;
+    days_absent_so_far: number;
+  }[];
+  const mismatches = notes.filter(
+    (n) =>
+      n.days_absent_so_far !==
+      countAbsenceDays({ place: regionForEmployee(n.employee_id), dateFrom: n.date_from, dateTo: n.date_to, clipTo: todayIso() }),
+  );
+  check(
+    'Krankmeldungen: Betriebsruhe einmal geladen zählt wie je Zeile',
+    c1.statusCode === 201 && c2.statusCode === 201 && notes.length > 0 && mismatches.length === 0,
+    mismatches,
+  );
+  check(
+    'Krankmeldungen: Betriebsruhe wirkt (01. bis 03.06. mit Brückentag 02.06.: 2 Tage)',
+    notes.find((n) => n.id === s1.id)?.days_absent_so_far === 2,
+    notes.find((n) => n.id === s1.id),
+  );
+  for (const c of [c1, c2]) {
+    await app.inject({ method: 'DELETE', url: `/api/absences/closures/${c.json().closure.id}`, headers: auth });
+  }
+}
+
+// --------------------------------------------- Blättern (Alle Anträge) ---
+// 520 Altanträge direkt in die DB, damit die Obergrenze von 500 je Seite
+// greift. Ohne limit kommt weiterhin alles, ohne total.
+{
+  const insertOld = db.prepare(
+    `INSERT INTO absence_requests (employee_id, type_id, date_from, date_to, days_counted, status)
+     VALUES (?, ?, ?, ?, 1, 'genehmigt')`,
+  );
+  db.transaction(() => {
+    for (let i = 0; i < 520; i++) {
+      const d = new Date(Date.UTC(2019, 0, 1 + i)).toISOString().slice(0, 10);
+      insertOld.run(1 + (i % 3), urlaubType.id, d, d);
+    }
+  })();
+  const ids = (rows: { id: number }[]) => rows.map((r) => r.id).join(',');
+  const stored = (db.prepare('SELECT COUNT(*) AS n FROM absence_requests').get() as { n: number }).n;
+  const full = (await get('/api/absences/requests')).json();
+  const fullRows = full.requests as { id: number }[];
+  check('Ohne limit: alle Anträge, ohne total', fullRows.length === stored && full.total === undefined, { rows: fullRows.length, stored });
+
+  const p1 = (await get('/api/absences/requests?limit=2')).json();
+  const p2 = (await get('/api/absences/requests?limit=2&offset=2')).json();
+  check(
+    'limit/offset: Seiten folgen der Sortierung lückenlos, total über alle Seiten',
+    ids(p1.requests) === ids(fullRows.slice(0, 2)) &&
+      ids(p2.requests) === ids(fullRows.slice(2, 4)) &&
+      p1.total === stored &&
+      p1.offset === 0 &&
+      p2.offset === 2,
+    { p1, p2 },
+  );
+  const capped = (await get('/api/absences/requests?limit=100000')).json();
+  const rest = (await get('/api/absences/requests?limit=500&offset=500')).json();
+  check(
+    'limit höchstens 500, die nächste Seite liefert den Rest',
+    capped.requests.length === 500 &&
+      ids(capped.requests) === ids(fullRows.slice(0, 500)) &&
+      ids(rest.requests) === ids(fullRows.slice(500)),
+    { capped: capped.requests.length, rest: rest.requests.length },
+  );
+
+  const yearAll = (await get('/api/absences/requests?from=2019-01-01&to=2019-12-31')).json().requests as { id: number }[];
+  const yearPage = (await get('/api/absences/requests?from=2019-01-01&to=2019-12-31&limit=100&offset=100')).json();
+  check(
+    'Jahresfilter geblättert: total wie ungeblättert, Seite 2 passt',
+    yearAll.length === 365 && yearPage.total === yearAll.length && ids(yearPage.requests) === ids(yearAll.slice(100, 200)),
+    { all: yearAll.length, total: yearPage.total },
+  );
+
+  // Absprung: Jeder Antrag liegt auf der Seite, die focus_id liefert, auch bei
+  // gleichem Beginn (Dez-Anträge von Anna und Ben, Sortierung über die id).
+  const misplaced: number[] = [];
+  for (let i = 0; i < 40; i++) {
+    const page = (await get(`/api/absences/requests?limit=3&focus_id=${fullRows[i].id}`)).json();
+    if (page.offset !== Math.floor(i / 3) * 3 || !page.requests.some((r: { id: number }) => r.id === fullRows[i].id)) misplaced.push(i);
+  }
+  check('focus_id liefert die Seite des Antrags', misplaced.length === 0, misplaced);
+  const unknownFocus = (await get('/api/absences/requests?limit=5&offset=10&focus_id=999999')).json();
+  check('focus_id ausserhalb der Filter: offset bleibt', unknownFocus.offset === 10 && unknownFocus.requests.length === 5, unknownFocus.offset);
+
+  const badLimit = await get('/api/absences/requests?limit=0');
+  const textLimit = await get('/api/absences/requests?limit=viele');
+  const badOffset = await get('/api/absences/requests?limit=5&offset=-1');
+  check(
+    'Ungültiges limit/offset → 400',
+    badLimit.statusCode === 400 && textLimit.statusCode === 400 && badOffset.statusCode === 400,
+    [badLimit.statusCode, textLimit.statusCode, badOffset.statusCode],
+  );
+}
+
+// ------------------------------------ Audit in derselben Transaktion ---
+// Ein TEMP-Trigger auf derselben Verbindung, über die auch die Routen
+// schreiben, weist jeden Audit-Eintrag ab. Die Anfrage muss scheitern (5xx),
+// und von der fachlichen Änderung darf nichts stehen bleiben.
+{
+  const { storeFile } = await import('../../core/files.js');
+  const { config } = await import('../../config.js');
+  async function withBrokenAudit<T>(fn: () => Promise<T>): Promise<T> {
+    db.exec("CREATE TEMP TRIGGER audit_kaputt BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit kaputt'); END;");
+    try {
+      return await fn();
+    } finally {
+      db.exec('DROP TRIGGER IF EXISTS audit_kaputt');
+    }
+  }
+  const count = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+  const requestRow = (id: number) =>
+    db.prepare('SELECT status, decided_by_user_id, days_counted FROM absence_requests WHERE id = ?').get(id) as {
+      status: string;
+      decided_by_user_id: number | null;
+      days_counted: number;
+    };
+
+  // Antrag genehmigen: Status und Entscheider bleiben, wie sie waren.
+  const open = await post('/api/absences/requests', { employee_id: 2, type_id: urlaubType.id, date_from: '2026-10-19', date_to: '2026-10-20' });
+  const openId = open.json().request?.id as number;
+  const brokenApprove = await withBrokenAudit(() => post(`/api/absences/requests/${openId}/approve`, { override_balance: true }));
+  check(
+    'Audit kaputt: Genehmigung scheitert (5xx), Antrag bleibt beantragt',
+    open.statusCode === 201 &&
+      brokenApprove.statusCode >= 500 &&
+      requestRow(openId).status === 'beantragt' &&
+      requestRow(openId).decided_by_user_id === null,
+    { open: open.json(), status: brokenApprove.statusCode, row: requestRow(openId) },
+  );
+
+  // Betriebsruhe: weder die Zeile noch die Neuberechnung des überlappten
+  // Antrags (2 Tage, mit der Ruhe am 20.10. wären es 1) bleiben stehen.
+  const closuresBefore = count('company_closures');
+  const brokenClosure = await withBrokenAudit(() =>
+    post('/api/absences/closures', { name: 'Audit-Probe', date_from: '2026-10-20', date_to: '2026-10-20' }),
+  );
+  check(
+    'Audit kaputt: Betriebsruhe scheitert (5xx), keine Zeile, Zählung unverändert',
+    brokenClosure.statusCode >= 500 && count('company_closures') === closuresBefore && requestRow(openId).days_counted === 2,
+    { status: brokenClosure.statusCode, row: requestRow(openId) },
+  );
+
+  // Krankmeldung: createRequest auditiert selbst (Savepoint in der Route).
+  // Auch der Antrag darunter darf nicht stehen bleiben.
+  const requestsBefore = count('absence_requests');
+  const sickBefore = count('sick_notes');
+  const brokenSick = await withBrokenAudit(() =>
+    post('/api/absences/sick-notes', { employee_id: 1, date_from: '2026-10-26', date_to: '2026-10-27' }),
+  );
+  check(
+    'Audit kaputt: Krankmeldung scheitert (5xx), weder Antrag noch Krankmeldung gespeichert',
+    brokenSick.statusCode >= 500 && count('absence_requests') === requestsBefore && count('sick_notes') === sickBefore,
+    { status: brokenSick.statusCode },
+  );
+
+  // AU-Bescheinigung ersetzen: Die alte Datei räumt erst der Schritt nach
+  // dem Commit weg. Scheitert das Audit, bleiben Verknüpfung, files-Zeile
+  // UND Blob auf der Platte stehen.
+  const oldCert = storeFile(Buffer.from('AU alt'), 'au-alt.pdf', 'application/pdf');
+  const newCert = storeFile(Buffer.from('AU neu'), 'au-neu.pdf', 'application/pdf');
+  const patchCert = (fileId: number) =>
+    app.inject({ method: 'PATCH', url: `/api/absences/sick-notes/${s1.id}`, headers: auth, payload: { certificate_file_id: fileId } });
+  const certOf = () =>
+    (db.prepare('SELECT certificate_file_id FROM sick_notes WHERE id = ?').get(s1.id) as { certificate_file_id: number | null })
+      .certificate_file_id;
+  const blobOf = (storedName: string) => fs.existsSync(path.join(config.storageDir, storedName));
+  const linked = await patchCert(oldCert.id);
+  const brokenCert = await withBrokenAudit(() => patchCert(newCert.id));
+  check(
+    'Audit kaputt: Bescheinigung ersetzen scheitert (5xx), alte Datei samt Blob bleibt verknüpft',
+    linked.statusCode === 200 &&
+      brokenCert.statusCode >= 500 &&
+      certOf() === oldCert.id &&
+      !!db.prepare('SELECT id FROM files WHERE id = ?').get(oldCert.id) &&
+      blobOf(oldCert.stored_name),
+    { linked: linked.statusCode, status: brokenCert.statusCode, cert: certOf() },
+  );
+
+  // Gegenprobe ohne Trigger: alles gelingt, mit Eintrag und Aufräumen.
+  const healedApprove = await post(`/api/absences/requests/${openId}/approve`, { override_balance: true });
+  const healedCert = await patchCert(newCert.id);
+  const certAudit = db
+    .prepare("SELECT details FROM audit_log WHERE entity = 'sick_note' AND entity_id = ? ORDER BY id DESC LIMIT 1")
+    .get(s1.id) as { details: string } | undefined;
+  check(
+    'Audit heil: Genehmigung und Ersetzen gelingen, alte Datei weg, Eintrag nennt sie',
+    healedApprove.statusCode === 200 &&
+      requestRow(openId).status === 'genehmigt' &&
+      healedCert.statusCode === 200 &&
+      certOf() === newCert.id &&
+      !db.prepare('SELECT id FROM files WHERE id = ?').get(oldCert.id) &&
+      !blobOf(oldCert.stored_name) &&
+      JSON.parse(certAudit?.details ?? '{}').removed_file?.id === oldCert.id,
+    { approve: healedApprove.statusCode, cert: healedCert.statusCode, audit: certAudit },
+  );
+}
+
 await app.close();
 closeDb();
 try {

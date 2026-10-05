@@ -211,4 +211,17 @@ export const coreMigrations: Migration[] = [
       ALTER TABLE users ADD COLUMN credentials_issuer_rights TEXT;
     `,
   },
+  {
+    // Verweise auf Konten. Die Kontoloeschung (admin/userRoutes.ts,
+    // detachUserReferences) setzt jede dieser Spalten per UPDATE ... WHERE
+    // col = ? auf NULL; ohne Index las das jedes Mal das ganze Audit-Log
+    // (gemessen: 12 s Stillstand bei 500 000 Zeilen). Teilindex, weil
+    // Eintraege des Systems keinen Urheber haben. Der Inhalt des Audit-Logs
+    // bleibt unberuehrt, ein Index ist nur ein Suchverzeichnis.
+    name: '006_user_reference_indexes',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id) WHERE user_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by) WHERE uploaded_by IS NOT NULL;
+    `,
+  },
 ];

@@ -37,6 +37,7 @@ export interface DirectoryEmployee {
   email?: string | null;
   phone?: string | null;
   photo_file_id?: number | null;
+  photo_thumb_file_id?: number | null;
   photo_url?: string | null;
   department_name?: string | null;
   team_name?: string | null;

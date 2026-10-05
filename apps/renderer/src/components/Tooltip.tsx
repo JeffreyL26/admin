@@ -129,22 +129,31 @@ export function Tooltip({ content, children, placement = 'top', delay = 150 }: P
     if (empty) hide();
   }, [empty, hide]);
 
-  if (empty) return children;
-
-  const child = React.Children.only(children) as React.ReactElement<AnchorProps> & {
-    ref?: React.Ref<HTMLElement>;
-  };
-  const childProps = child.props;
-  const childRef = child.ref;
-
-  const anchor = React.cloneElement(child, {
-    ref: (node: HTMLElement | null) => {
+  // Stabiler Ref, solange der Ref des Kindes gleich bleibt: Eine neue Funktion
+  // je Rendern ließe React den Ref bei jedem Rendern lösen und neu setzen, und
+  // ein Kind, das daran einen Beobachter hängt (useSeenOnce bei Avataren),
+  // finge jedes Mal von vorn an. Vor dem frühen Return: Hooks immer gleich.
+  const childRef = React.isValidElement(children)
+    ? (children as React.ReactElement & { ref?: React.Ref<HTMLElement> }).ref
+    : undefined;
+  const mergedRef = useCallback(
+    (node: HTMLElement | null) => {
       anchorRef.current = node;
       if (typeof childRef === 'function') childRef(node);
       else if (childRef && typeof childRef === 'object') {
         (childRef as React.MutableRefObject<HTMLElement | null>).current = node;
       }
     },
+    [childRef],
+  );
+
+  if (empty) return children;
+
+  const child = React.Children.only(children) as React.ReactElement<AnchorProps>;
+  const childProps = child.props;
+
+  const anchor = React.cloneElement(child, {
+    ref: mergedRef,
     onMouseEnter: (e: React.MouseEvent) => {
       childProps.onMouseEnter?.(e);
       show();

@@ -14,6 +14,7 @@ process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
 const { firstAdminLogin } = await import('../../test/adminSession.js');
+const { config } = await import('../../config.js');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -562,6 +563,131 @@ check('Meine Entwicklung: keine HR-Notiz zur Trainingsanmeldung', devBody.traini
 
 const devAsAdmin = await app.inject({ method: 'GET', url: '/api/me/development', headers: auth });
 check('Meine Entwicklung: Admin ohne Personalprofil → 403', devAsAdmin.statusCode === 403);
+
+// ============================ Audit in derselben Transaktion ============================
+// Änderung und Audit-Eintrag stehen in EINER Transaktion. Ein TEMP-Trigger auf
+// derselben Verbindung (über sie schreiben auch die Routen) weist jeden
+// Audit-Eintrag ab: Die Anfrage muss mit 5xx scheitern, und von der Änderung
+// darf nichts gespeichert sein. Vorher blieb sie stehen, nur der Eintrag fehlte.
+{
+  const count = (sql: string, ...params: unknown[]) => (db.prepare(sql).get(...params) as { n: number }).n;
+  const progressOf = (id: number) => (db.prepare('SELECT progress FROM goals WHERE id = ?').get(id) as { progress: number }).progress;
+  const insertProbeFile = (name: string) => {
+    fs.writeFileSync(path.join(config.storageDir, name), `Probe ${name}`);
+    return Number(
+      db
+        .prepare(
+          `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
+           VALUES (?, ?, 'text/plain', 10, ?)`,
+        )
+        .run(name, name, `sha-${name}`).lastInsertRowid,
+    );
+  };
+  // Anmeldung mit echtem Zertifikat-Blob: Ein Rollback darf weder Datensatz noch Blob kosten.
+  const registrationId = regRes.json().registration.id as number;
+  const certA = insertProbeFile('audit-probe-zert-a.txt');
+  const certB = insertProbeFile('audit-probe-zert-b.txt');
+  const withCert = await app.inject({
+    method: 'PUT',
+    url: `/api/performance/training-registrations/${registrationId}`,
+    headers: auth,
+    payload: { certificate_file_id: certA },
+  });
+  check('Audit-Probe: Zertifikat hinterlegt', withCert.statusCode === 200, withCert.json());
+  const certOf = () =>
+    (db.prepare('SELECT certificate_file_id AS id FROM training_registrations WHERE id = ?').get(registrationId) as { id: number | null }).id;
+
+  const followUpId = completeRes.json().follow_up.id as number;
+  const goalsBefore = count('SELECT COUNT(*) AS n FROM goals');
+  const objectiveBefore = progressOf(objectiveId);
+  const meetingsBefore = count('SELECT COUNT(*) AS n FROM feedback_meetings');
+  const auditBefore = count('SELECT COUNT(*) AS n FROM audit_log');
+
+  const results: Record<string, number> = {};
+  db.exec("CREATE TEMP TRIGGER audit_kaputt BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit kaputt'); END;");
+  try {
+    // Key Result: Einfügen und Nachführen des Objectives.
+    results.goalCreate = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/performance/goals',
+        headers: auth,
+        payload: { employee_id: anna, title: 'Audit-Probe', kind: 'key_result', parent_goal_id: objectiveId, progress: 0 },
+      })
+    ).statusCode;
+    // Gesprächsabschluss: Statuswechsel und Folgetermin.
+    results.meetingComplete = (
+      await app.inject({
+        method: 'POST',
+        url: `/api/performance/feedback-meetings/${followUpId}/complete`,
+        headers: auth,
+        payload: { held_date: '2026-04-21' },
+      })
+    ).statusCode;
+    results.skillDelete = (await app.inject({ method: 'DELETE', url: `/api/performance/skills/${skillId}`, headers: auth })).statusCode;
+    // Zertifikat ersetzen: Änderung und Entfernen der alten Datei.
+    results.certificateSwap = (
+      await app.inject({
+        method: 'PUT',
+        url: `/api/performance/training-registrations/${registrationId}`,
+        headers: auth,
+        payload: { certificate_file_id: certB },
+      })
+    ).statusCode;
+  } finally {
+    db.exec('DROP TRIGGER IF EXISTS audit_kaputt');
+  }
+  check('Audit kaputt: jede Änderung scheitert mit 5xx', Object.values(results).every((s) => s >= 500), results);
+  check(
+    'Audit kaputt: kein Key Result gespeichert, Objective unverändert',
+    count('SELECT COUNT(*) AS n FROM goals') === goalsBefore && progressOf(objectiveId) === objectiveBefore,
+    { goals: count('SELECT COUNT(*) AS n FROM goals') - goalsBefore, objective: progressOf(objectiveId) },
+  );
+  const followUp = db.prepare('SELECT status, held_date FROM feedback_meetings WHERE id = ?').get(followUpId) as {
+    status: string;
+    held_date: string | null;
+  };
+  check(
+    'Audit kaputt: Gespräch weiter geplant, kein Folgetermin',
+    followUp.status === 'geplant' && followUp.held_date === null && count('SELECT COUNT(*) AS n FROM feedback_meetings') === meetingsBefore,
+    followUp,
+  );
+  check('Audit kaputt: Skill nicht gelöscht', count('SELECT COUNT(*) AS n FROM skills WHERE id = ?', skillId) === 1);
+  check(
+    'Audit kaputt: Zertifikat unverändert, alte Datei samt Blob erhalten',
+    certOf() === certA &&
+      count('SELECT COUNT(*) AS n FROM files WHERE id = ?', certA) === 1 &&
+      fs.existsSync(path.join(config.storageDir, 'audit-probe-zert-a.txt')),
+    { cert: certOf() },
+  );
+  check('Audit kaputt: kein Audit-Eintrag dazugekommen', count('SELECT COUNT(*) AS n FROM audit_log') === auditBefore);
+
+  // Ohne Trigger gelingt dieselbe Änderung; die alte Datei verschwindet erst
+  // jetzt, der Blob nach dem Commit, und der Audit-Eintrag nennt sie.
+  const swapOk = await app.inject({
+    method: 'PUT',
+    url: `/api/performance/training-registrations/${registrationId}`,
+    headers: auth,
+    payload: { certificate_file_id: certB },
+  });
+  const swapAudit = db
+    .prepare(
+      `SELECT details FROM audit_log WHERE action = 'training_registration.updated' AND entity_id = ?
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(registrationId) as { details: string } | undefined;
+  const removedFile = swapAudit ? JSON.parse(swapAudit.details).removed_file : undefined;
+  check(
+    'Zertifikat ersetzen: alte Datei samt Blob weg, Audit nennt sie',
+    swapOk.statusCode === 200 &&
+      certOf() === certB &&
+      count('SELECT COUNT(*) AS n FROM files WHERE id = ?', certA) === 0 &&
+      !fs.existsSync(path.join(config.storageDir, 'audit-probe-zert-a.txt')) &&
+      removedFile?.id === certA &&
+      removedFile?.sha256 === 'sha-audit-probe-zert-a.txt',
+    { status: swapOk.statusCode, details: swapAudit?.details },
+  );
+}
 
 // Audit-Log wurde befüllt
 const auditCount = db

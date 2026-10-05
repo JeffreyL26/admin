@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { getDb } from '../../db/db.js';
+import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { isValidIsoDate } from '../../core/dates.js';
@@ -59,16 +59,20 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/compensation/freelancer-rates', async (req, reply) => {
     const body = parse(rateSchema, req.body);
     assertFreelancer(body.employee_id);
-    const info = getDb()
-      .prepare(
-        `INSERT INTO freelancer_rates (employee_id, description, rate_cents, unit, valid_from)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(body.employee_id, body.description, body.rate_cents, body.unit, body.valid_from);
-    const rate = getDb()
-      .prepare('SELECT * FROM freelancer_rates WHERE id = ?')
-      .get(Number(info.lastInsertRowid));
-    audit(req, 'freelancer_rate.create', 'freelancer_rate', Number(info.lastInsertRowid), body);
+    // Satz und Audit-Eintrag in einem Commit: Ein Absturz dazwischen hinterliesse
+    // sonst eine Änderung ohne Protokoll.
+    const rate = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO freelancer_rates (employee_id, description, rate_cents, unit, valid_from)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(body.employee_id, body.description, body.rate_cents, body.unit, body.valid_from);
+      audit(req, 'freelancer_rate.create', 'freelancer_rate', Number(info.lastInsertRowid), body);
+      return getDb()
+        .prepare('SELECT * FROM freelancer_rates WHERE id = ?')
+        .get(Number(info.lastInsertRowid));
+    });
     reply.status(201);
     return { rate };
   });
@@ -80,12 +84,14 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
       | undefined;
     if (!existing) throw notFound('Honorarsatz nicht gefunden');
     const body = parse(rateSchema.omit({ employee_id: true }), req.body);
-    getDb()
-      .prepare(
-        `UPDATE freelancer_rates SET description = ?, rate_cents = ?, unit = ?, valid_from = ? WHERE id = ?`,
-      )
-      .run(body.description, body.rate_cents, body.unit, body.valid_from, id);
-    audit(req, 'freelancer_rate.update', 'freelancer_rate', id, body);
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE freelancer_rates SET description = ?, rate_cents = ?, unit = ?, valid_from = ? WHERE id = ?`,
+        )
+        .run(body.description, body.rate_cents, body.unit, body.valid_from, id);
+      audit(req, 'freelancer_rate.update', 'freelancer_rate', id, body);
+    });
     return { rate: getDb().prepare('SELECT * FROM freelancer_rates WHERE id = ?').get(id) };
   });
 
@@ -93,8 +99,10 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
     const id = Number((req.params as { id: string }).id);
     const existing = getDb().prepare('SELECT * FROM freelancer_rates WHERE id = ?').get(id);
     if (!existing) throw notFound('Honorarsatz nicht gefunden');
-    getDb().prepare('DELETE FROM freelancer_rates WHERE id = ?').run(id);
-    audit(req, 'freelancer_rate.delete', 'freelancer_rate', id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM freelancer_rates WHERE id = ?').run(id);
+      audit(req, 'freelancer_rate.delete', 'freelancer_rate', id);
+    });
     reply.status(204);
   });
 
@@ -142,30 +150,32 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
     if (body.file_id && !getDb().prepare('SELECT id FROM files WHERE id = ?').get(body.file_id)) {
       throw badRequest('Die hochgeladene Datei wurde nicht gefunden');
     }
-    const info = getDb()
-      .prepare(
-        `INSERT INTO freelancer_invoices
-           (employee_id, invoice_number, invoice_date, period, amount_cents, hours, note, file_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        body.employee_id,
-        body.invoice_number,
-        body.invoice_date,
-        body.period ?? null,
-        body.amount_cents,
-        body.hours ?? null,
-        body.note ?? null,
-        body.file_id ?? null,
-      );
-    const invoice = getDb()
-      .prepare('SELECT * FROM freelancer_invoices WHERE id = ?')
-      .get(Number(info.lastInsertRowid));
-    audit(req, 'freelancer_invoice.create', 'freelancer_invoice', Number(info.lastInsertRowid), {
-      employee_id: body.employee_id,
-      invoice_number: body.invoice_number,
-      amount_cents: body.amount_cents,
-      file_id: body.file_id ?? null,
+    const invoice = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO freelancer_invoices
+             (employee_id, invoice_number, invoice_date, period, amount_cents, hours, note, file_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          body.employee_id,
+          body.invoice_number,
+          body.invoice_date,
+          body.period ?? null,
+          body.amount_cents,
+          body.hours ?? null,
+          body.note ?? null,
+          body.file_id ?? null,
+        );
+      audit(req, 'freelancer_invoice.create', 'freelancer_invoice', Number(info.lastInsertRowid), {
+        employee_id: body.employee_id,
+        invoice_number: body.invoice_number,
+        amount_cents: body.amount_cents,
+        file_id: body.file_id ?? null,
+      });
+      return getDb()
+        .prepare('SELECT * FROM freelancer_invoices WHERE id = ?')
+        .get(Number(info.lastInsertRowid));
     });
     reply.status(201);
     return { invoice };
@@ -197,18 +207,20 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
     if (body.status === 'bezahlt' && !body.paid_date) {
       throw badRequest('Für den Status „bezahlt" ist ein Zahldatum erforderlich');
     }
-    db.prepare('UPDATE freelancer_invoices SET status = ?, paid_date = ? WHERE id = ?').run(
-      body.status,
-      body.status === 'bezahlt' ? body.paid_date : null,
-      id,
-    );
-    audit(req, 'freelancer_invoice.status', 'freelancer_invoice', id, {
-      employee_id: invoice.employee_id,
-      invoice_number: invoice.invoice_number,
-      old_status: invoice.status,
-      new_status: body.status,
-      amount_cents: invoice.amount_cents,
-      paid_date: body.paid_date ?? null,
+    inTransaction(() => {
+      db.prepare('UPDATE freelancer_invoices SET status = ?, paid_date = ? WHERE id = ?').run(
+        body.status,
+        body.status === 'bezahlt' ? body.paid_date : null,
+        id,
+      );
+      audit(req, 'freelancer_invoice.status', 'freelancer_invoice', id, {
+        employee_id: invoice.employee_id,
+        invoice_number: invoice.invoice_number,
+        old_status: invoice.status,
+        new_status: body.status,
+        amount_cents: invoice.amount_cents,
+        paid_date: body.paid_date ?? null,
+      });
     });
     return { invoice: db.prepare('SELECT * FROM freelancer_invoices WHERE id = ?').get(id) };
   });
@@ -222,11 +234,14 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
     if (invoice.status !== 'offen') {
       throw conflict('Nur offene Rechnungen können gelöscht werden');
     }
-    getDb().prepare('DELETE FROM freelancer_invoices WHERE id = ?').run(id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM freelancer_invoices WHERE id = ?').run(id);
+      audit(req, 'freelancer_invoice.delete', 'freelancer_invoice', id);
+    });
     // Beleg mit der Zeile entfernen, sonst bliebe er ueber eine signierte URL
-    // erreichbar (Muster: core/files.ts deleteFileIfUnreferenced).
+    // erreichbar (Muster: core/files.ts deleteFileIfUnreferenced). Erst nach dem
+    // Commit: Der Blob verschwindet von der Platte, das nimmt kein Rollback zurück.
     if (invoice.file_id) deleteFileIfUnreferenced(invoice.file_id);
-    audit(req, 'freelancer_invoice.delete', 'freelancer_invoice', id);
     reply.status(204);
   });
 }

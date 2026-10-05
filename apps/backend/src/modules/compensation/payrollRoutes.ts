@@ -368,12 +368,15 @@ function markExported(req: FastifyRequest, run: PayrollRunRow, format: string): 
     throw conflict('Der Lauf muss vor dem Export geprüft werden');
   }
   if (run.status !== 'exportiert') {
-    getDb().prepare(`UPDATE payroll_runs SET status = 'exportiert' WHERE id = ?`).run(run.id);
-    audit(req, 'payroll_run.export', 'payroll_run', run.id, {
-      month: run.month,
-      format,
-      old_status: run.status,
-      new_status: 'exportiert',
+    // Statuswechsel und Audit-Eintrag in einem Commit.
+    inTransaction(() => {
+      getDb().prepare(`UPDATE payroll_runs SET status = 'exportiert' WHERE id = ?`).run(run.id);
+      audit(req, 'payroll_run.export', 'payroll_run', run.id, {
+        month: run.month,
+        format,
+        old_status: run.status,
+        new_status: 'exportiert',
+      });
     });
   }
 }
@@ -433,12 +436,12 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
           item.unpaid_absence_days,
         );
       }
+      audit(req, 'payroll_run.create', 'payroll_run', id, {
+        month: body.month,
+        item_count: items.length,
+        warning_count: items.reduce((s, i) => s + i.warnings.length, 0),
+      });
       return id;
-    });
-    audit(req, 'payroll_run.create', 'payroll_run', runId, {
-      month: body.month,
-      item_count: items.length,
-      warning_count: items.reduce((s, i) => s + i.warnings.length, 0),
     });
     reply.status(201);
     return { run: getRun(runId), items: getItems(runId).map(itemToJson) };
@@ -463,11 +466,13 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
     if (!allowed[run.status]?.includes(body.status)) {
       throw conflict(`Statuswechsel von „${run.status}" nach „${body.status}" ist nicht möglich`);
     }
-    getDb().prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run(body.status, id);
-    audit(req, 'payroll_run.status', 'payroll_run', id, {
-      month: run.month,
-      old_status: run.status,
-      new_status: body.status,
+    inTransaction(() => {
+      getDb().prepare('UPDATE payroll_runs SET status = ? WHERE id = ?').run(body.status, id);
+      audit(req, 'payroll_run.status', 'payroll_run', id, {
+        month: run.month,
+        old_status: run.status,
+        new_status: body.status,
+      });
     });
     return { run: getRun(id) };
   });
@@ -485,11 +490,13 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
     const itemCount = (
       getDb().prepare('SELECT COUNT(*) AS n FROM payroll_items WHERE run_id = ?').get(id) as { n: number }
     ).n;
-    getDb().prepare('DELETE FROM payroll_runs WHERE id = ?').run(id);
-    audit(req, 'payroll_run.delete', 'payroll_run', id, {
-      month: run.month,
-      status: run.status,
-      item_count: itemCount,
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM payroll_runs WHERE id = ?').run(id);
+      audit(req, 'payroll_run.delete', 'payroll_run', id, {
+        month: run.month,
+        status: run.status,
+        item_count: itemCount,
+      });
     });
     reply.status(204);
   });

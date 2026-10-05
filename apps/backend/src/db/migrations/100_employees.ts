@@ -332,4 +332,33 @@ export const employeesMigrations: Migration[] = [
       ALTER TABLE roles ADD COLUMN can_view_calendar INTEGER NOT NULL DEFAULT 1;
     `,
   },
+  {
+    // Dateiverweise (FILE_REFERENCES in core/files.ts): Jede Signatur und
+    // jede Aufraeumpruefung fragt alle Verweisspalten nach einer Datei-ID ab,
+    // und das DELETE FROM files prueft die Fremdschluessel noch einmal. Ohne
+    // Index las jede dieser Abfragen ihre ganze Tabelle (gemessen: Loeschen
+    // einer Person 4,2 s bei 39 000 Dokumenten). Teilindex, weil die meisten
+    // Zeilen keine Datei tragen; SQLite nutzt ihn fuer col = ?.
+    name: '110_file_reference_indexes',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_employees_photo_file ON employees(photo_file_id) WHERE photo_file_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_contracts_document_file ON contracts(document_file_id) WHERE document_file_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_documents_file ON documents(file_id) WHERE file_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_documents_uploaded_by ON documents(uploaded_by_user_id) WHERE uploaded_by_user_id IS NOT NULL;
+    `,
+  },
+  {
+    // Vorschaubild des Mitarbeiterfotos: quadratisch, beim Hochladen im
+    // Client erzeugt (Kantenlaenge PHOTO_THUMB_EDGE in packages/shared). Listen,
+    // Karten und Avatare zeigen es, das Original bleibt unveraendert in
+    // photo_file_id. NULL heisst: kein Vorschaubild, die Anzeige nimmt das
+    // Original (Bestand von vorher). Verweisspalte wie photo_file_id, also
+    // Eintrag in FILE_REFERENCES (core/files.ts) und Teilindex wie in 110.
+    name: '111_employee_photo_thumbnails',
+    sql: `
+      ALTER TABLE employees ADD COLUMN photo_thumb_file_id INTEGER REFERENCES files(id);
+      CREATE INDEX IF NOT EXISTS idx_employees_photo_thumb_file
+        ON employees(photo_thumb_file_id) WHERE photo_thumb_file_id IS NOT NULL;
+    `,
+  },
 ];

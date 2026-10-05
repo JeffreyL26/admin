@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { getDb } from '../../db/db.js';
+import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, notFound, parse } from '../../core/errors.js';
-import { deleteFileIfUnreferenced } from '../../core/files.js';
+import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
+import { pageOffsetOf, pageRequest } from '../../core/paging.js';
 import { documentBodySchema, documentCategorySchema, documentPatchSchema } from './validation.js';
 
 const listQuerySchema = z.object({
@@ -28,6 +29,16 @@ function ftsQuery(input: string): string {
     .join(' ');
 }
 
+/**
+ * Joins der Dokumentliste. Eigene Konstante, weil die geblätterte Liste mit
+ * denselben Joins zählt: `files` ist ein INNER JOIN und bestimmt mit, was
+ * gelistet wird.
+ */
+const DOC_FROM = `
+  FROM documents d
+  JOIN files f ON f.id = d.file_id
+  LEFT JOIN employees e ON e.id = d.employee_id`;
+
 const DOC_SELECT = `
   SELECT d.*,
          f.original_name, f.mime_type, f.size_bytes,
@@ -39,9 +50,7 @@ const DOC_SELECT = `
          CASE WHEN d.expiry_date IS NOT NULL
               THEN CAST(julianday(d.expiry_date) - julianday(date('now', 'localtime')) AS INTEGER)
          END AS days_until_expiry
-  FROM documents d
-  JOIN files f ON f.id = d.file_id
-  LEFT JOIN employees e ON e.id = d.employee_id
+  ${DOC_FROM}
 `;
 
 function getDocumentOr404(id: number): Record<string, unknown> {
@@ -115,7 +124,37 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     }
     const sql = `${DOC_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY d.created_at DESC, d.id DESC`;
-    return { documents: getDb().prepare(sql).all(...params) };
+    // Ohne limit ungeblättert wie bisher: Die Personalakte listet alle
+    // Dokumente EINER Person samt aller Versionen. Die Ablage blättert; Suche
+    // und Filter wirken dabei serverseitig über alle Seiten.
+    const page = pageRequest(req.query);
+    if (!page) return { documents: getDb().prepare(sql).all(...params) };
+
+    const count = (extra: string[], extraParams: unknown[]) =>
+      (
+        getDb()
+          .prepare(`SELECT COUNT(*) AS n ${DOC_FROM} WHERE ${[...where, ...extra].join(' AND ') || '1'}`)
+          .get([...params, ...extraParams]) as { n: number }
+      ).n;
+    const total = count([], []);
+    let offset = page.offset;
+    if (page.focusId !== null) {
+      const focus = getDb()
+        .prepare(`SELECT d.created_at ${DOC_FROM} WHERE ${[...where, 'd.id = ?'].join(' AND ')}`)
+        .get([...params, page.focusId]) as { created_at: string } | undefined;
+      // Vorgänger in derselben Sortierung (created_at DESC, id DESC) zählen.
+      if (focus) {
+        const before = count(
+          ['(d.created_at > ? OR (d.created_at = ? AND d.id > ?))'],
+          [focus.created_at, focus.created_at, page.focusId],
+        );
+        offset = pageOffsetOf(before, page.limit);
+      }
+    }
+    const documents = getDb()
+      .prepare(`${sql} LIMIT ? OFFSET ?`)
+      .all([...params, page.limit, offset]);
+    return { documents, total, offset };
   });
 
   // Ablaufende Dokumente: expiry_date innerhalb der dokumenteigenen reminder_days
@@ -153,34 +192,39 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       if (!old) throw notFound('Vorgängerversion nicht gefunden');
       version = old.version + 1;
     }
-    const info = db
-      .prepare(
-        `INSERT INTO documents (employee_id, file_id, category, title, note, expiry_date, reminder_days, version, supersedes_id, visibility)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        body.employee_id ?? null,
-        body.file_id,
-        body.category,
-        body.title,
-        body.note ?? null,
-        body.expiry_date ?? null,
-        body.reminder_days,
+    // Dokument, Sichtbarkeit der Kette und Audit-Eintrag in EINER Transaktion:
+    // kein Stand ohne Protokoll.
+    const id = inTransaction(() => {
+      const info = db
+        .prepare(
+          `INSERT INTO documents (employee_id, file_id, category, title, note, expiry_date, reminder_days, version, supersedes_id, visibility)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          body.employee_id ?? null,
+          body.file_id,
+          body.category,
+          body.title,
+          body.note ?? null,
+          body.expiry_date ?? null,
+          body.reminder_days,
+          version,
+          body.supersedes_id ?? null,
+          body.visibility,
+        );
+      const newId = Number(info.lastInsertRowid);
+      // Eine neue Version trägt ihre Sichtbarkeit in die ganze Kette, sonst
+      // bliebe die abgelöste Fassung im Portal sichtbar, während die neue HR-intern ist.
+      const chain = body.supersedes_id ? setChainVisibility(newId, body.visibility) : [newId];
+      audit(req, 'create', 'document', newId, {
+        title: body.title,
+        category: body.category,
+        employee_id: body.employee_id ?? null,
         version,
-        body.supersedes_id ?? null,
-        body.visibility,
-      );
-    const id = Number(info.lastInsertRowid);
-    // Eine neue Version trägt ihre Sichtbarkeit in die ganze Kette — sonst
-    // bliebe die abgelöste Fassung im Portal sichtbar, während die neue HR-intern ist.
-    const chain = body.supersedes_id ? setChainVisibility(id, body.visibility) : [id];
-    audit(req, 'create', 'document', id, {
-      title: body.title,
-      category: body.category,
-      employee_id: body.employee_id ?? null,
-      version,
-      visibility: body.visibility,
-      ...(chain.length > 1 ? { visibility_chain: chain } : {}),
+        visibility: body.visibility,
+        ...(chain.length > 1 ? { visibility_chain: chain } : {}),
+      });
+      return newId;
     });
     reply.status(201);
     return { document: getDocumentOr404(id) };
@@ -197,24 +241,29 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       ['employee_id', 'file_id', 'category', 'title', 'note', 'expiry_date', 'reminder_days', 'visibility'] as const
     ).filter((c) => patch[c] !== undefined);
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
-    getDb()
-      .prepare(`UPDATE documents SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-      .run(...cols.map((c) => patch[c] ?? null), id);
     // Wird die hinterlegte Datei ausgetauscht, verliert die alte ihren letzten
     // Verweis. Ohne diesen Aufruf bliebe sie als Waise im Storage liegen und
     // wäre über eine signierte URL weiter abrufbar — derselbe Befund wie beim
     // Löschen (siehe DELETE unten).
     const oldFileId = existing.file_id;
-    let fileDeleted = false;
-    if (patch.file_id !== undefined && patch.file_id !== oldFileId) {
-      fileDeleted = deleteFileIfUnreferenced(oldFileId);
-    }
-    const chain = patch.visibility !== undefined ? setChainVisibility(id, patch.visibility) : [id];
-    audit(req, 'update', 'document', id, {
-      changed: patch,
-      ...(fileDeleted ? { replaced_file_id: oldFileId, file_deleted: true } : {}),
-      ...(chain.length > 1 ? { visibility_chain: chain } : {}),
+    const replacesFile = patch.file_id !== undefined && patch.file_id !== oldFileId;
+    // Änderung, Entfernen des Dateieintrags und Audit in EINER Transaktion;
+    // den Blob auf der Platte erst nach dem Commit, ihn nimmt kein Rollback
+    // zurück (detachUnreferencedFile/removeDetachedBlob in core/files.ts).
+    const detached = inTransaction(() => {
+      getDb()
+        .prepare(`UPDATE documents SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+        .run(...cols.map((c) => patch[c] ?? null), id);
+      const removed = replacesFile ? detachUnreferencedFile(oldFileId) : null;
+      const chain = patch.visibility !== undefined ? setChainVisibility(id, patch.visibility) : [id];
+      audit(req, 'update', 'document', id, {
+        changed: patch,
+        ...(removed ? { replaced_file_id: oldFileId, file_deleted: true } : {}),
+        ...(chain.length > 1 ? { visibility_chain: chain } : {}),
+      });
+      return removed;
     });
+    removeDetachedBlob(detached);
     return { document: getDocumentOr404(id) };
   });
 
@@ -227,7 +276,8 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
    * nur vorgetäuscht, und in der Auskunft nach Art. 15 fehlte der Bestand.
    * Bitte nicht wieder auf ein reines `DELETE FROM documents` zurückdrehen.
    *
-   * `deleteFileIfUnreferenced` prüft ALLE Spalten, die auf `files(id)` zeigen
+   * `detachUnreferencedFile` (wie `deleteFileIfUnreferenced`, nur mit dem Blob
+   * erst nach dem Commit) prüft ALLE Spalten, die auf `files(id)` zeigen
    * (Liste in core/files.ts) und lässt die Datei stehen, wenn ein anderer
    * Datensatz denselben Blob verknüpft — etwa wenn HR dieselbe hochgeladene
    * Datei zusätzlich als Vertrag hinterlegt hat.
@@ -238,17 +288,23 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       | { title: string; file_id: number }
       | undefined;
     if (!existing) throw notFound('Dokument nicht gefunden');
-    getDb().prepare('DELETE FROM documents WHERE id = ?').run(id);
-    // Reihenfolge zwingend: erst die eigene Zeile löschen, sonst hält die
-    // Referenzprüfung die Datei für weiterhin gebraucht.
-    const fileDeleted = deleteFileIfUnreferenced(existing.file_id);
-    audit(req, 'delete', 'document', id, {
-      title: existing.title,
-      file_id: existing.file_id,
-      // Nachvollziehbar machen, ob der Inhalt wirklich weg ist: `false` heißt,
-      // ein anderer Datensatz verweist noch auf dieselbe Datei.
-      file_deleted: fileDeleted,
+    // Löschen und Audit in EINER Transaktion. Reihenfolge zwingend: erst die
+    // eigene Zeile löschen, sonst hält die Referenzprüfung die Datei für
+    // weiterhin gebraucht.
+    const detached = inTransaction(() => {
+      getDb().prepare('DELETE FROM documents WHERE id = ?').run(id);
+      const removed = detachUnreferencedFile(existing.file_id);
+      audit(req, 'delete', 'document', id, {
+        title: existing.title,
+        file_id: existing.file_id,
+        // Nachvollziehbar machen, ob der Inhalt wirklich weg ist: `false` heißt,
+        // ein anderer Datensatz verweist noch auf dieselbe Datei.
+        file_deleted: removed !== null,
+      });
+      return removed;
     });
+    // Erst nach dem Commit: Den Blob auf der Platte nimmt kein Rollback zurück.
+    removeDetachedBlob(detached);
     reply.status(204);
   });
 }

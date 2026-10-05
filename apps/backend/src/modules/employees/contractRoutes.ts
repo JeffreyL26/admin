@@ -178,13 +178,13 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         .run(employeeId, ...CONTRACT_COLUMNS.map((c) => body[c] ?? null));
       const newId = Number(info.lastInsertRowid);
       if (isCurrent({ valid_to: body.valid_to ?? null }, today)) mirrorToEmployee(employeeId, body);
+      // Audit in derselben Transaktion: kein neuer Vertrag ohne Protokoll.
+      audit(req, 'create', 'contract', newId, {
+        employee_id: employeeId,
+        contract_type: body.contract_type,
+        valid_from: body.valid_from,
+      });
       return newId;
-    });
-
-    audit(req, 'create', 'contract', id, {
-      employee_id: employeeId,
-      contract_type: body.contract_type,
-      valid_from: body.valid_from,
     });
     reply.status(201);
     return { contract: getContract(id) };
@@ -241,11 +241,10 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       if (isCurrent({ valid_to: merged.valid_to ?? null }, today)) {
         mirrorToEmployee(existing.employee_id, merged);
       }
-    });
-
-    audit(req, 'update', 'contract', id, {
-      employee_id: existing.employee_id,
-      changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
+      audit(req, 'update', 'contract', id, {
+        employee_id: existing.employee_id,
+        changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
+      });
     });
     return { contract: getContract(id) };
   });

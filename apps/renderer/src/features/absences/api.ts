@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import type {
   AbsenceBalance,
   AbsenceRequest,
@@ -9,6 +9,7 @@ import type {
   SickNote,
 } from '@ohrganize/shared';
 import { api } from '../../api/client';
+import { LOCALE } from '../../lib/locale';
 
 /** 409-Details des Backends, wenn ein Antrag den Urlaubssaldo überziehen würde. */
 export interface BalanceExceededDetails {
@@ -24,8 +25,8 @@ export interface BalanceExceededDetails {
  */
 export function balanceExceededQuestion(details: BalanceExceededDetails, verb: string): string {
   return (
-    `Restanspruch ${details.remaining.toLocaleString('de-DE')} Tage im Jahr ${details.year}, ` +
-    `beantragt ${details.requested_days.toLocaleString('de-DE')} Tage — trotzdem ${verb}?`
+    `Restanspruch ${details.remaining.toLocaleString(LOCALE)} Tage im Jahr ${details.year}, ` +
+    `beantragt ${details.requested_days.toLocaleString(LOCALE)} Tage. Trotzdem ${verb}?`
   );
 }
 
@@ -62,14 +63,19 @@ export interface RequestFilters {
   to?: string;
 }
 
-export function useAbsenceRequests(filters: RequestFilters) {
+function requestFilterParams(filters: RequestFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.status) params.set('status', filters.status);
   if (filters.type_id) params.set('type_id', String(filters.type_id));
   if (filters.employee_id) params.set('employee_id', String(filters.employee_id));
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
-  const qs = params.toString();
+  return params;
+}
+
+/** Alle Treffer ungeblättert: nur für enge Filter (offene Anträge, eine Person). */
+export function useAbsenceRequests(filters: RequestFilters) {
+  const qs = requestFilterParams(filters).toString();
   return useQuery({
     queryKey: ['absences', 'requests', filters],
     queryFn: () => api.get<{ requests: AbsenceRequest[] }>(`/api/absences/requests${qs ? `?${qs}` : ''}`),
@@ -77,6 +83,36 @@ export function useAbsenceRequests(filters: RequestFilters) {
     // Offene Anträge kommen seit dem Web-Portal auch von Mitarbeitenden herein —
     // die Genehmigungsansicht hält sich deshalb selbst aktuell.
     refetchInterval: filters.status === 'beantragt' ? 30_000 : false,
+  });
+}
+
+/** Eine Seite der Antragsliste samt Treffern über alle Seiten und tatsächlichem Seitenbeginn. */
+export interface AbsenceRequestPage {
+  requests: AbsenceRequest[];
+  total: number;
+  offset: number;
+}
+
+export interface PageParams {
+  limit: number;
+  offset: number;
+  /** Seite liefern, auf der dieser Antrag steht (Absprung aus dem Kalender). */
+  focus_id?: number | null;
+}
+
+/**
+ * „Alle Anträge“: serverseitig geblättert, die Historie kann sechsstellig
+ * sein. Beim Blättern bleibt die alte Seite stehen, bis die neue da ist.
+ */
+export function useAbsenceRequestPage(filters: RequestFilters, page: PageParams) {
+  const params = requestFilterParams(filters);
+  params.set('limit', String(page.limit));
+  params.set('offset', String(page.offset));
+  if (page.focus_id) params.set('focus_id', String(page.focus_id));
+  return useQuery({
+    queryKey: ['absences', 'requests', 'page', filters, page],
+    queryFn: () => api.get<AbsenceRequestPage>(`/api/absences/requests?${params.toString()}`),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -109,14 +145,25 @@ export function useCalendar(year: number, month: number | null, departmentId: nu
   });
 }
 
-export function useSickNotes(childSick: '0' | '1' | null) {
+export interface SickNoteFilters {
+  childSick?: '0' | '1' | null;
+  /** Nur Krankmeldungen, die das Jahr berühren; null = alle Jahre. */
+  year?: number | null;
+  /** Eine Person über alle Jahre (Auswahl der Erstbescheinigung). */
+  employeeId?: number | null;
+}
+
+export function useSickNotes(filters: SickNoteFilters, enabled = true) {
+  const params = new URLSearchParams();
+  if (filters.childSick) params.set('child_sick', filters.childSick);
+  if (filters.year) params.set('year', String(filters.year));
+  if (filters.employeeId) params.set('employee_id', String(filters.employeeId));
+  const qs = params.toString();
   return useQuery({
-    queryKey: ['absences', 'sick-notes', childSick],
-    queryFn: () =>
-      api.get<{ sick_notes: SickNote[] }>(
-        `/api/absences/sick-notes${childSick !== null ? `?child_sick=${childSick}` : ''}`,
-      ),
+    queryKey: ['absences', 'sick-notes', filters],
+    queryFn: () => api.get<{ sick_notes: SickNote[] }>(`/api/absences/sick-notes${qs ? `?${qs}` : ''}`),
     select: (d) => d.sick_notes,
+    enabled,
   });
 }
 

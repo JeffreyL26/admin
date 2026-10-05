@@ -349,6 +349,8 @@ export interface Leader {
   department_name: string | null;
   status: string;
   photo_file_id: number | null;
+  /** Vorschaubild zum Foto; ohne (Bestand von vorher) gilt das Original. */
+  photo_thumb_file_id: number | null;
   /** 1 = Zuständigkeit automatisch aus der Organisation ableiten. */
   auto_scope: number;
   note: string | null;
@@ -423,7 +425,11 @@ export interface TeamMember {
   email: string | null;
   phone: string | null;
   photo_file_id: number | null;
-  /** Kurzlebig signierte URL (core/files.ts) — sofort konsumieren, nicht cachen. */
+  photo_thumb_file_id: number | null;
+  /**
+   * Vorschaubild, sonst Original; befristet signiert und innerhalb eines
+   * Zeitfensters stabil (signPhotoUrl in core/files.ts): bald laden, nicht cachen.
+   */
   photo_url: string | null;
   sources: ScopeSource[];
   /** 1 = die Person ist ihrerseits für diese Führungskraft zuständig. */
@@ -637,6 +643,7 @@ export interface ReportLeaderRow {
   job_title: string | null;
   department_name: string | null;
   photo_file_id: number | null;
+  photo_thumb_file_id: number | null;
   photo_url: string | null;
   /** Aktive Mitarbeitende im Zuständigkeitsbereich. */
   team_size: number;

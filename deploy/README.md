@@ -683,7 +683,7 @@ nicht), bis eine Lizenz eingespielt ist.
 | Meldung im Journal | Ursache | Abhilfe |
 |---|---|---|
 | `OHRGANIZE_HOST ist auf "…" gesetzt … aber OHRGANIZE_CORS_ORIGIN ist leer` | Absicherung: Das Backend wäre aus dem Netz erreichbar, ohne dass die erlaubten Herkünfte feststehen | Origin-Liste setzen — oder `OHRGANIZE_HOST` weglassen, wenn Proxy und Backend auf derselben Maschine laufen |
-| `OHRGANIZE_TOKEN_TTL="…" ist ungültig` | Schreibweise wie `1 Stunde` statt `1h` | Sekundenzahl oder `30m`/`1h`/`8h`/`7d` |
+| `OHRGANIZE_TOKEN_TTL="…" ist ungültig` (ebenso `OHRGANIZE_DESKTOP_TOKEN_TTL`, `OHRGANIZE_SESSION_MAX`, `OHRGANIZE_DESKTOP_SESSION_MAX`) | Schreibweise wie `1 Stunde` statt `1h`, oder kürzer als eine Sekunde (`0`) | Sekundenzahl oder `30m`/`1h`/`8h`/`7d` |
 | `Die Datenbank wurde bereits von einer neueren oHRganize-Version migriert` | Downgrade | Abschnitt 6 |
 | `Die Datenbank … ist verschlüsselt, aber der Schlüssel fehlt` | `data.key` fehlt im Datenverzeichnis (Restore ohne die Datei, von Hand gelöscht). Der Dienst erzeugt für einen vorhandenen Bestand bewusst keinen neuen Schlüssel | `data.key` aus DERSELBEN Sicherung zurückspielen wie die Datenbank (Abschnitt 5) |
 | `… lässt sich mit dem Schlüssel aus … nicht öffnen` | Datenbank und `data.key` stammen aus verschiedenen Ständen, oder die Datei ist beschädigt | Beide aus derselben Sicherung zurückspielen |

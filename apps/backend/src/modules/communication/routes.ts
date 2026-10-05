@@ -224,6 +224,62 @@ const meetingBodySchema = z.object({
   visibility: z.enum(MEETING_VISIBILITIES),
 });
 
+/**
+ * Ergebnisse beendeter Umfragen, je Datenbankverbindung im Prozess gehalten.
+ *
+ * Ohne Index auf survey_responses (seit 503, bewusst) liest die Auswertung
+ * die Antworten ALLER Umfragen zweimal: erst gezaehlt, dann geladen (die
+ * Antworten werden bewusst erst gelesen, wenn die Mindestteilnehmerzahl
+ * erreicht ist). Gemessen 0,4 bis 0,9 s bei 50 000 Antworten, und der Aufwand
+ * waechst mit jeder Umfrage seit Inbetriebnahme. Eine beendete Umfrage
+ * aendert sich nicht mehr: kein Statuswechsel zurueck, keine Teilnahme
+ * (recordParticipation verlangt `laufend`), Fragen und Mindestzahl nur im
+ * Entwurf bearbeitbar, Loeschen nur im Entwurf; der Neuaufbau der Tabelle
+ * behaelt die IDs und damit die Reihenfolge. Gespeichert wird nur, was die
+ * Antwort ohnehin zeigt (Zaehlung und Auswertung), keine Rohantworten. Die
+ * Mindestteilnehmerzahl wird bei jedem Abruf neu geprueft, weil die
+ * Firmenvorgabe sich aendern kann; deshalb merkt sich der Speicher auch die
+ * Zaehlung einer Umfrage UNTER der Mindestzahl (ohne Auswertung): Sonst las
+ * jeder Abruf ihres 403 die ganze Tabelle, und die Auswertung entsteht erst,
+ * wenn eine gesenkte Vorgabe sie freigibt.
+ *
+ * Schluessel ist die Verbindung, damit eine andere Datenbank im selben
+ * Prozess (Tests, closeDb) nie fremde Ergebnisse sieht; die Obergrenze haelt
+ * den Speicher klein.
+ */
+interface FinishedSurveyResults {
+  response_count: number;
+  /** Fehlt, solange die Mindestzahl nie erreicht war (nur gezaehlt). */
+  questions?: unknown[];
+}
+const FINISHED_RESULTS_LIMIT = 20;
+const finishedResultsByDb = new WeakMap<object, Map<number, FinishedSurveyResults>>();
+
+/** Zuletzt benutzt zuerst behalten: Ein Treffer rückt ans Ende der Map. */
+function finishedSurveyResults(surveyId: number): FinishedSurveyResults | undefined {
+  const cache = finishedResultsByDb.get(getDb());
+  const results = cache?.get(surveyId);
+  if (cache && results) {
+    cache.delete(surveyId);
+    cache.set(surveyId, results);
+  }
+  return results;
+}
+
+function rememberFinishedSurveyResults(surveyId: number, results: FinishedSurveyResults): void {
+  const db = getDb();
+  let cache = finishedResultsByDb.get(db);
+  if (!cache) finishedResultsByDb.set(db, (cache = new Map()));
+  // Ersetzt ein Eintrag seinen Vorgänger (Zählung, dann Auswertung), wächst
+  // nichts; sonst fällt der am längsten nicht benutzte (Map hält die
+  // Reihenfolge, finishedSurveyResults rückt Treffer ans Ende).
+  if (!cache.delete(surveyId) && cache.size >= FINISHED_RESULTS_LIMIT) {
+    const leastRecent = cache.keys().next().value;
+    if (leastRecent !== undefined) cache.delete(leastRecent);
+  }
+  cache.set(surveyId, results);
+}
+
 const MEETING_SELECT = `
   SELECT m.*, e.first_name, e.last_name
   FROM meeting_protocols m
@@ -306,8 +362,10 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
         'UPDATE directory_field_visibility SET visible = ? WHERE field_key = ?',
       );
       for (const f of body.fields) stmt.run(f.visible ? 1 : 0, f.field_key);
+      // Im selben Commit wie die Änderung, sonst bliebe sie nach einem Absturz
+      // ohne Protokoll.
+      audit(req, 'update', 'directory_field_visibility', undefined, body.fields);
     });
-    audit(req, 'update', 'directory_field_visibility', undefined, body.fields);
     const rows = getDb()
       .prepare('SELECT field_key, visible FROM directory_field_visibility ORDER BY field_key')
       .all() as { field_key: string; visible: number }[];
@@ -381,9 +439,9 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
         'INSERT INTO announcement_attachments (announcement_id, file_id) VALUES (?, ?)',
       );
       for (const fileId of body.attachment_file_ids ?? []) attach.run(announcementId, fileId);
+      audit(req, 'create', 'announcement', announcementId, { title: body.title });
       return announcementId;
     });
-    audit(req, 'create', 'announcement', id, { title: body.title });
     const row = getDb().prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnouncementRow;
     reply.code(201);
     return { announcement: announcementToJson(row) };
@@ -420,13 +478,13 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
         'INSERT INTO announcement_attachments (announcement_id, file_id) VALUES (?, ?)',
       );
       for (const fileId of body.attachment_file_ids ?? []) attach.run(id, fileId);
+      audit(req, 'update', 'announcement', id, { title: body.title });
     });
     // Entfernte Anhaenge: Datei nur loeschen, wenn sie nirgends mehr haengt
     // (core/files.ts prueft alle Referenztabellen). Erst NACH dem Commit, die
     // Referenzpruefung muss den neuen Stand sehen.
     const kept = new Set(body.attachment_file_ids ?? []);
     for (const fileId of previousFileIds) if (!kept.has(fileId)) deleteFileIfUnreferenced(fileId);
-    audit(req, 'update', 'announcement', id, { title: body.title });
     const row = getDb().prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnouncementRow;
     return { announcement: announcementToJson(row) };
   });
@@ -437,10 +495,13 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     // deleteFileIfUnreferenced weg, sonst blieben sie ueber eine signierte
     // URL abrufbar.
     const fileIds = attachmentFileIds(id);
-    const info = getDb().prepare('DELETE FROM announcements WHERE id = ?').run(id);
-    if (info.changes === 0) throw notFound('Ankündigung nicht gefunden');
+    inTransaction(() => {
+      const info = getDb().prepare('DELETE FROM announcements WHERE id = ?').run(id);
+      if (info.changes === 0) throw notFound('Ankündigung nicht gefunden');
+      audit(req, 'delete', 'announcement', id);
+    });
+    // Die Blobs erst nach dem Commit: Ein Rollback brächte sie nicht zurück.
     for (const fileId of fileIds) deleteFileIfUnreferenced(fileId);
-    audit(req, 'delete', 'announcement', id);
     reply.code(204);
   });
 
@@ -500,9 +561,9 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
           i,
         );
       });
+      audit(req, 'create', 'survey', surveyId, { title: body.title });
       return surveyId;
     });
-    audit(req, 'create', 'survey', id, { title: body.title });
     reply.code(201);
     return { survey: { ...surveyToJson(getSurvey(id)), questions: getQuestions(id).map(questionToJson) } };
   });
@@ -548,8 +609,8 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
           i,
         );
       });
+      audit(req, 'update', 'survey', id, { title: body.title });
     });
-    audit(req, 'update', 'survey', id, { title: body.title });
     return { survey: { ...surveyToJson(getSurvey(id)), questions: getQuestions(id).map(questionToJson) } };
   });
 
@@ -559,8 +620,10 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     if (survey.status !== 'entwurf') {
       throw conflict('Nur Umfragen im Status „Entwurf“ können gelöscht werden');
     }
-    getDb().prepare('DELETE FROM surveys WHERE id = ?').run(id);
-    audit(req, 'delete', 'survey', id, { title: survey.title });
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM surveys WHERE id = ?').run(id);
+      audit(req, 'delete', 'survey', id, { title: survey.title });
+    });
     reply.code(204);
   });
 
@@ -580,11 +643,13 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     // der Tabelle sie jetzt aus der Datei, sofern seit dem letzten Antworten
     // hinzukamen. Vermerkt im selben Commit wie das Ende: Scheitert er, ist
     // die Umfrage trotzdem beendet, und der naechste Start holt ihn nach.
+    // Der Audit-Eintrag gehoert in denselben Commit; der Neuaufbau selbst
+    // bleibt danach, er ist eine eigene Transaktion samt Platte (clearWalSoon).
     const rebuild = inTransaction(() => {
       getDb().prepare('UPDATE surveys SET status = ? WHERE id = ?').run(body.status, id);
+      audit(req, 'status', 'survey', id, { from: survey.status, to: body.status });
       return body.status === 'beendet' && markResponseTableRebuild(getDb());
     });
-    audit(req, 'status', 'survey', id, { from: survey.status, to: body.status });
     if (rebuild) {
       try {
         rebuildResponseTableNow();
@@ -623,13 +688,17 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     const { id } = parse(idParam, req.params);
     const survey = getSurvey(id);
     const minParticipants = survey.min_participants ?? getSetting('surveyMinParticipants');
+    const finished = survey.status === 'beendet' ? finishedSurveyResults(id) : undefined;
     // Gezaehlt werden die Antworten wie bisher, nicht die Teilnahmen: Eine
     // Teilnahme faellt mit dem Personalprofil weg (ON DELETE CASCADE), die
     // anonyme Antwort bleibt. Nur gezaehlt, ohne sie zu laden; gelesen werden
     // die Antworten erst, wenn es Ergebnisse gibt.
-    const responseCount = (
-      getDb().prepare('SELECT COUNT(*) AS n FROM survey_responses WHERE survey_id = ?').get(id) as { n: number }
-    ).n;
+    const responseCount =
+      finished?.response_count ??
+      (getDb().prepare('SELECT COUNT(*) AS n FROM survey_responses WHERE survey_id = ?').get(id) as { n: number }).n;
+    if (survey.status === 'beendet' && !finished) {
+      rememberFinishedSurveyResults(id, { response_count: responseCount });
+    }
     if (responseCount < minParticipants) {
       throw new AppError(
         403,
@@ -641,6 +710,16 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
           missing: minParticipants - responseCount,
         },
       );
+    }
+    if (finished?.questions) {
+      return {
+        results: {
+          survey_id: id,
+          response_count: finished.response_count,
+          min_participants: minParticipants,
+          questions: finished.questions,
+        },
+      };
     }
     const responses = getDb()
       .prepare('SELECT answers FROM survey_responses WHERE survey_id = ?')
@@ -678,6 +757,9 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
       }
       return { ...base, texts: values.filter((v): v is string => typeof v === 'string' && v.trim() !== '') };
     });
+    if (survey.status === 'beendet') {
+      rememberFinishedSurveyResults(id, { response_count: responses.length, questions: results });
+    }
     return {
       results: {
         survey_id: id,
@@ -738,26 +820,29 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     const body = parse(meetingBodySchema, req.body);
     const employee = getDb().prepare('SELECT id FROM employees WHERE id = ?').get(body.employee_id);
     if (!employee) throw badRequest('Mitarbeiter:in nicht gefunden');
-    const info = getDb()
-      .prepare(
-        `INSERT INTO meeting_protocols (employee_id, meeting_date, occasion, participants, content, agreements, follow_up_date, visibility, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        body.employee_id,
-        body.meeting_date,
-        body.occasion,
-        body.participants ?? null,
-        body.content ?? null,
-        body.agreements ?? null,
-        body.follow_up_date ?? null,
-        body.visibility,
-        userId(req),
-      );
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'create', 'meeting_protocol', id, {
-      employee_id: body.employee_id,
-      occasion: body.occasion,
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO meeting_protocols (employee_id, meeting_date, occasion, participants, content, agreements, follow_up_date, visibility, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          body.employee_id,
+          body.meeting_date,
+          body.occasion,
+          body.participants ?? null,
+          body.content ?? null,
+          body.agreements ?? null,
+          body.follow_up_date ?? null,
+          body.visibility,
+          userId(req),
+        );
+      const meetingId = Number(info.lastInsertRowid);
+      audit(req, 'create', 'meeting_protocol', meetingId, {
+        employee_id: body.employee_id,
+        occasion: body.occasion,
+      });
+      return meetingId;
     });
     reply.code(201);
     return { meeting: getDb().prepare(`${MEETING_SELECT} WHERE m.id = ?`).get(id) };
@@ -768,35 +853,39 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
     const existing = getDb().prepare('SELECT id FROM meeting_protocols WHERE id = ?').get(id);
     if (!existing) throw notFound('Gesprächsprotokoll nicht gefunden');
     const body = parse(meetingBodySchema, req.body);
-    getDb()
-      .prepare(
-        `UPDATE meeting_protocols SET employee_id = ?, meeting_date = ?, occasion = ?, participants = ?,
-         content = ?, agreements = ?, follow_up_date = ?, visibility = ?, updated_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(
-        body.employee_id,
-        body.meeting_date,
-        body.occasion,
-        body.participants ?? null,
-        body.content ?? null,
-        body.agreements ?? null,
-        body.follow_up_date ?? null,
-        body.visibility,
-        id,
-      );
-    audit(req, 'update', 'meeting_protocol', id, {
-      employee_id: body.employee_id,
-      occasion: body.occasion,
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE meeting_protocols SET employee_id = ?, meeting_date = ?, occasion = ?, participants = ?,
+           content = ?, agreements = ?, follow_up_date = ?, visibility = ?, updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(
+          body.employee_id,
+          body.meeting_date,
+          body.occasion,
+          body.participants ?? null,
+          body.content ?? null,
+          body.agreements ?? null,
+          body.follow_up_date ?? null,
+          body.visibility,
+          id,
+        );
+      audit(req, 'update', 'meeting_protocol', id, {
+        employee_id: body.employee_id,
+        occasion: body.occasion,
+      });
     });
     return { meeting: getDb().prepare(`${MEETING_SELECT} WHERE m.id = ?`).get(id) };
   });
 
   app.delete('/api/communication/meetings/:id', async (req, reply) => {
     const { id } = parse(idParam, req.params);
-    const info = getDb().prepare('DELETE FROM meeting_protocols WHERE id = ?').run(id);
-    if (info.changes === 0) throw notFound('Gesprächsprotokoll nicht gefunden');
-    audit(req, 'delete', 'meeting_protocol', id);
+    inTransaction(() => {
+      const info = getDb().prepare('DELETE FROM meeting_protocols WHERE id = ?').run(id);
+      if (info.changes === 0) throw notFound('Gesprächsprotokoll nicht gefunden');
+      audit(req, 'delete', 'meeting_protocol', id);
+    });
     reply.code(204);
   });
 };

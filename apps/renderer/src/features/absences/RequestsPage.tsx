@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalendarPlus, Check, Inbox, X } from 'lucide-react';
@@ -14,6 +14,7 @@ import { useFocusRow } from '../../lib/focusRow';
 import { useAuth } from '../../auth/AuthContext';
 import {
   balanceExceededQuestion,
+  useAbsenceRequestPage,
   useAbsenceRequests,
   useAbsenceTypes,
   useBalances,
@@ -21,6 +22,8 @@ import {
 } from './api';
 import { RequestDialog } from './RequestDialog';
 import { Select } from '../../components/Select';
+import { Pagination, usePageState } from '../../components/Pagination';
+import { YearSelect } from './YearSelect';
 
 const STATUS_TONES: Record<AbsenceRequestStatus, BadgeTone> = {
   beantragt: 'yellow',
@@ -127,13 +130,16 @@ function RequestRows({
   requests,
   actions,
   focusId,
+  stale = false,
 }: {
   requests: AbsenceRequest[];
   actions: (r: AbsenceRequest) => React.ReactNode;
   focusId: number | null;
+  /** Alte Seite, während die nächste lädt: gedimmt. */
+  stale?: boolean;
 }) {
   return (
-    <div className="hm-table-wrap">
+    <div className={`hm-table-wrap${stale ? ' hm-table-wrap--stale' : ''}`}>
       <table className="hm-table">
         <thead>
           <tr>
@@ -381,20 +387,72 @@ function OpenRequestsTab({ focusId }: { focusId: number | null }) {
   );
 }
 
+/** Seitengröße der Liste „Alle Anträge“. */
+const REQUEST_PAGE_SIZE = 100;
+
+interface AllRequestsFilters {
+  status: string;
+  typeId: number | null;
+  employeeId: number | null;
+  from: string;
+  to: string;
+}
+
+/** Zeitraum eines ganzen Kalenderjahres; null = alle Jahre (keine Grenzen). */
+function yearRange(year: number | null): Pick<AllRequestsFilters, 'from' | 'to'> {
+  return year === null ? { from: '', to: '' } : { from: `${year}-01-01`, to: `${year}-12-31` };
+}
+
+/** Das Jahr, wenn der Zeitraum genau ein ganzes Kalenderjahr ist, sonst null. */
+function yearOfRange(from: string, to: string): number | null {
+  const y = from.slice(0, 4);
+  return /^\d{4}$/.test(y) && from === `${y}-01-01` && to === `${y}-12-31` ? Number(y) : null;
+}
+
+function defaultRequestFilters(): AllRequestsFilters {
+  return { status: '', typeId: null, employeeId: null, ...yearRange(new Date().getFullYear()) };
+}
+
 function AllRequestsTab({ focusId }: { focusId: number | null }) {
   const { data: types } = useAbsenceTypes();
-  const [status, setStatus] = useState('');
-  const [typeId, setTypeId] = useState<number | null>(null);
-  const [employeeId, setEmployeeId] = useState<number | null>(null);
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
-  const { data: requests, isLoading } = useAbsenceRequests({
-    status: status || undefined,
-    type_id: typeId,
-    employee_id: employeeId,
-    from: from || undefined,
-    to: to || undefined,
-  });
+  // Vorgabe ist das laufende Jahr, die ganze Historie bleibt über „Alle
+  // Jahre“ und das Blättern erreichbar. Ein Absprung auf einen bestimmten
+  // Antrag (aus dem Kalender) beginnt mit allen Jahren, weil dessen Jahr
+  // nicht in der Adresse steht; seine Seite ermittelt der Server (focus_id).
+  const [filters, setFilters] = useState<AllRequestsFilters>(() =>
+    focusId === null ? defaultRequestFilters() : { ...defaultRequestFilters(), ...yearRange(null) },
+  );
+  const paging = usePageState(REQUEST_PAGE_SIZE, focusId);
+  const update = (patch: Partial<AllRequestsFilters>) => {
+    setFilters((f) => ({ ...f, ...patch }));
+    paging.reset();
+  };
+  const { status, typeId, employeeId, from, to } = filters;
+  const { data, isLoading, isPlaceholderData } = useAbsenceRequestPage(
+    {
+      status: status || undefined,
+      type_id: typeId,
+      employee_id: employeeId,
+      from: from || undefined,
+      to: to || undefined,
+    },
+    paging.query,
+  );
+  useEffect(() => {
+    if (data && !isPlaceholderData) {
+      paging.settle({ total: data.total, offset: data.offset, rows: data.requests.length });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, isPlaceholderData]);
+  const requests = data?.requests;
+  const selectedYear = yearOfRange(from, to);
+  const defaults = defaultRequestFilters();
+  const isDefault =
+    status === defaults.status &&
+    typeId === defaults.typeId &&
+    employeeId === defaults.employeeId &&
+    from === defaults.from &&
+    to === defaults.to;
   const { cancel } = useRequestActions();
   const [cancelling, setCancelling] = useState<AbsenceRequest | null>(null);
 
@@ -402,8 +460,15 @@ function AllRequestsTab({ focusId }: { focusId: number | null }) {
     <div className="stack">
       <Card>
         <div className="hm-form-grid">
+          <Field label="Jahr">
+            <YearSelect
+              value={selectedYear}
+              custom={selectedYear === null && (from !== '' || to !== '')}
+              onChange={(y) => update(yearRange(y))}
+            />
+          </Field>
           <Field label="Status">
-            <Select className="hm-select" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <Select className="hm-select" value={status} onChange={(e) => update({ status: e.target.value })}>
               <option value="">Alle</option>
               {Object.entries(ABSENCE_STATUS_LABELS).map(([k, label]) => (
                 <option key={k} value={k}>
@@ -416,7 +481,7 @@ function AllRequestsTab({ focusId }: { focusId: number | null }) {
             <Select
               className="hm-select"
               value={typeId ?? ''}
-              onChange={(e) => setTypeId(e.target.value ? Number(e.target.value) : null)}
+              onChange={(e) => update({ typeId: e.target.value ? Number(e.target.value) : null })}
             >
               <option value="">Alle</option>
               {(types ?? []).map((t) => (
@@ -427,33 +492,57 @@ function AllRequestsTab({ focusId }: { focusId: number | null }) {
             </Select>
           </Field>
           <Field label="Mitarbeiter:in">
-            <EmployeeSelect value={employeeId} onChange={setEmployeeId} emptyLabel="Alle" />
+            <EmployeeSelect value={employeeId} onChange={(id) => update({ employeeId: id })} emptyLabel="Alle" />
           </Field>
           <Field label="Zeitraum von">
-            <input className="hm-input" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <input className="hm-input" type="date" value={from} onChange={(e) => update({ from: e.target.value })} />
           </Field>
           <Field label="Zeitraum bis">
-            <input className="hm-input" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <input className="hm-input" type="date" value={to} onChange={(e) => update({ to: e.target.value })} />
           </Field>
         </div>
+        {!isDefault && (
+          <div className="row" style={{ justifyContent: 'flex-end', marginTop: 14 }}>
+            <button className="hm-btn hm-btn--sm hm-btn--ghost" onClick={() => update(defaultRequestFilters())}>
+              Filter zurücksetzen
+            </button>
+          </div>
+        )}
       </Card>
       <Card flush>
         {isLoading ? (
           <Spinner center />
         ) : !requests || requests.length === 0 ? (
-          <EmptyState title="Keine Anträge gefunden" hint="Passen Sie die Filter an oder erfassen Sie einen neuen Antrag." />
-        ) : (
-          <RequestRows
-            requests={requests}
-            focusId={focusId}
-            actions={(r) =>
-              r.status === 'beantragt' || r.status === 'genehmigt' ? (
-                <button className="hm-btn hm-btn--sm hm-btn--ghost" onClick={() => setCancelling(r)}>
-                  Stornieren
-                </button>
-              ) : null
+          <EmptyState
+            title="Keine Anträge gefunden"
+            hint={
+              from || to
+                ? 'Im gewählten Zeitraum gibt es keine passenden Anträge. Unter „Jahr“ lassen sich andere Jahre oder alle Jahre wählen.'
+                : 'Passen Sie die Filter an oder erfassen Sie einen neuen Antrag.'
             }
           />
+        ) : (
+          <>
+            <RequestRows
+              requests={requests}
+              focusId={focusId}
+              stale={isPlaceholderData}
+              actions={(r) =>
+                r.status === 'beantragt' || r.status === 'genehmigt' ? (
+                  <button className="hm-btn hm-btn--sm hm-btn--ghost" onClick={() => setCancelling(r)}>
+                    Stornieren
+                  </button>
+                ) : null
+              }
+            />
+            <Pagination
+              page={paging.page}
+              pageSize={paging.pageSize}
+              total={data?.total ?? 0}
+              onChange={paging.go}
+              label="Anträge"
+            />
+          </>
         )}
       </Card>
       <ConfirmDialog

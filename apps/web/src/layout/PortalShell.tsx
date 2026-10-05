@@ -4,6 +4,7 @@ import { hasFeature, moduleEnabled, pathAllowedByFeatures, type ModuleKey } from
 import { VARIANT } from '@variant-manifest';
 import { useAuth } from '../auth/AuthContext';
 import { ReadOnlyNotice } from '../components/ReadOnlyNotice';
+import { SessionEndNotice } from '../components/SessionEndNotice';
 import {
   IconCalendar,
   IconClose,
@@ -255,6 +256,7 @@ export function PortalShell() {
 
         {/* Nur im Nur-Lese-Betrieb sichtbar; auf jeder Seite über dem Inhalt. */}
         <ReadOnlyNotice />
+        <SessionEndNotice />
 
         <main className="portal-main">
           <Outlet />

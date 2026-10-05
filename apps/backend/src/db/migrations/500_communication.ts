@@ -244,4 +244,16 @@ export const communicationMigrations: Migration[] = [
       CREATE TABLE ${REBUILD_STATE_TABLE} (key TEXT PRIMARY KEY) WITHOUT ROWID;
     `,
   },
+  {
+    // Anhaenge je Ankuendigung (Portal und Dashboard fragen sie bei jedem
+    // Abruf ab; ohne Index las das alle Anhaenge) und der Dateiverweis
+    // (FILE_REFERENCES in core/files.ts). survey_responses bekommt bewusst
+    // KEINEN Index (seit 503, siehe CLAUDE.md "Zielgruppen der
+    // Kommunikation").
+    name: '505_announcement_attachment_indexes',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_announcement_attachments_announcement ON announcement_attachments(announcement_id);
+      CREATE INDEX IF NOT EXISTS idx_announcement_attachments_file ON announcement_attachments(file_id);
+    `,
+  },
 ];

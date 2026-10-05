@@ -42,7 +42,7 @@ import {
 } from '@ohrganize/shared';
 import { config } from '../config.js';
 import { getDb } from '../db/db.js';
-import { audit } from './audit.js';
+import { auditStandalone } from './audit.js';
 import { addDaysIso, todayIso } from './dates.js';
 import { AppError } from './errors.js';
 import { TRUSTED_LICENSE_KEYS_RAW } from './licenseKeys.js';
@@ -364,6 +364,9 @@ export function licenseHeaderValueFor(role: string): LicenseState {
 export const LICENSE_OPEN_ROUTES: ReadonlySet<string> = new Set([
   '/api/auth/me',
   '/api/auth/password',
+  // Sitzungsverlängerung (core/auth.ts): Ohne sie meldete der Nur-Lese-Betrieb
+  // jede Sitzung nach Ablauf ihres Tokens ab, obwohl Lesen erlaubt bleibt.
+  '/api/auth/refresh',
   '/api/license',
   '/api/files/:id/sign',
   '/api/compensation/certificates/:id/sign',
@@ -515,7 +518,7 @@ export function installLicense(req: FastifyRequest, text: string): LicenseStatus
   expectedLicenseId = payload.license_id;
   invalidateLicenseCaches();
 
-  audit(req, 'license.install', 'license', undefined, {
+  auditStandalone(req, 'license.install', 'license', undefined, {
     license_id: payload.license_id,
     previous_license_id: current?.license_id ?? null,
     customer_id: payload.customer_id,

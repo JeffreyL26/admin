@@ -306,6 +306,28 @@ check('Auth-Pflicht auf Modulrouten', noAuth.statusCode === 401);
   check('Umfrage: Antworten ohne Zeitstempel', columnsOf('survey_responses') === 'answers,id,survey_id', columnsOf('survey_responses'));
   check('Umfrage: Teilnahmen ohne Zeitstempel', columnsOf('survey_participations') === 'employee_id,id,survey_id', columnsOf('survey_participations'));
   check('Umfrage: Antwort-IDs zufällig statt fortlaufend', anonRows.every((r) => (r.id as number) > 1_000_000), anonRows.map((r) => r.id));
+
+  // Beendete Umfragen halten ihre Auswertung im Prozess (routes.ts,
+  // finishedSurveyResults): Sie muss der Auswertung vor dem Ende gleichen,
+  // beim ersten wie beim zweiten Abruf.
+  const ended = await app.inject({
+    method: 'POST',
+    url: `/api/communication/surveys/${surveyId}/status`,
+    headers: auth,
+    payload: { status: 'beendet' },
+  });
+  check('Umfrage: beenden', ended.statusCode === 200 && ended.json().survey.status === 'beendet', ended.json());
+  const afterEnd = [1, 2].map(() =>
+    app.inject({ method: 'GET', url: `/api/communication/surveys/${surveyId}/results`, headers: auth }),
+  );
+  const [firstAfterEnd, secondAfterEnd] = await Promise.all(afterEnd);
+  check(
+    'Umfrage: Auswertung nach dem Ende unverändert, auch beim zweiten Abruf',
+    firstAfterEnd.statusCode === 200 &&
+      JSON.stringify(firstAfterEnd.json()) === JSON.stringify(results.json()) &&
+      JSON.stringify(secondAfterEnd.json()) === JSON.stringify(results.json()),
+    { first: firstAfterEnd.json(), second: secondAfterEnd.json() },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -448,6 +470,69 @@ check('Auth-Pflicht auf Modulrouten', noAuth.statusCode === 401);
     .prepare("SELECT COUNT(*) AS c FROM audit_log WHERE entity IN ('announcement','survey','meeting_protocol','distribution_list')")
     .get() as { c: number };
   check('Audit: fachliche Änderungen protokolliert', auditRows.c >= 6, auditRows);
+}
+
+// Audit in derselben Transaktion: Scheitert der Audit-Eintrag, bleibt auch die
+// fachliche Änderung ungespeichert. Der TEMP-Trigger gilt nur auf dieser
+// Verbindung, also genau der des Servers.
+{
+  const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
+  const created = await app.inject({
+    method: 'POST',
+    url: '/api/communication/surveys',
+    headers: auth,
+    payload: {
+      title: 'Audit-Probe', description: null, audience_type: 'alle', audience_id: null,
+      date_from: '2026-07-01', date_to: '2099-12-31', min_participants: null,
+      questions: [{ kind: 'skala', text: 'Wie geht es?', scale_max: 5 }],
+    },
+  });
+  const probeId = created.json().survey.id as number;
+  const probeQuestion = (created.json().survey.questions as { id: number }[])[0].id;
+  const started = await app.inject({ method: 'POST', url: `/api/communication/surveys/${probeId}/status`, headers: auth, payload: { status: 'laufend' } });
+  // Eine Antwort, damit das Ende einen Neuaufbau vermerken müsste.
+  const answered = await app.inject({
+    method: 'POST',
+    url: `/api/communication/surveys/${probeId}/responses`,
+    headers: auth,
+    payload: { employee_id: 2, answers: [{ question_id: probeQuestion, value: 3 }] },
+  });
+  check('Audit-Probe: Umfrage laufend mit Antwort', created.statusCode === 201 && started.statusCode === 200 && answered.statusCode === 201, answered.json());
+
+  const announcementsBefore = count('SELECT COUNT(*) AS n FROM announcements');
+  const auditBefore = count('SELECT COUNT(*) AS n FROM audit_log');
+  db.exec("CREATE TEMP TRIGGER audit_kaputt BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit kaputt'); END;");
+  try {
+    const brokenAnnouncement = await app.inject({
+      method: 'POST',
+      url: '/api/communication/announcements',
+      headers: auth,
+      payload: { title: 'Audit-Probe', body: 'x', audience_type: 'alle', audience_id: null, publish_at: '2026-07-01', expires_at: null, requires_ack: false },
+    });
+    check(
+      'Audit scheitert: Ankündigung 5xx und nicht angelegt',
+      brokenAnnouncement.statusCode >= 500 && count('SELECT COUNT(*) AS n FROM announcements') === announcementsBefore,
+      brokenAnnouncement.statusCode,
+    );
+    const brokenEnd = await app.inject({ method: 'POST', url: `/api/communication/surveys/${probeId}/status`, headers: auth, payload: { status: 'beendet' } });
+    const status = (db.prepare('SELECT status FROM surveys WHERE id = ?').get(probeId) as { status: string }).status;
+    check(
+      'Audit scheitert: Umfrageende 5xx, Status und Neuaufbau-Vermerk nicht gespeichert',
+      brokenEnd.statusCode >= 500 &&
+        status === 'laufend' &&
+        count("SELECT COUNT(*) AS n FROM _survey_rebuild_state WHERE key = 'pending'") === 0,
+      { status: brokenEnd.statusCode, stored: status },
+    );
+    check('Audit scheitert: kein Audit-Eintrag', count('SELECT COUNT(*) AS n FROM audit_log') === auditBefore);
+  } finally {
+    db.exec('DROP TRIGGER audit_kaputt');
+  }
+  const ended = await app.inject({ method: 'POST', url: `/api/communication/surveys/${probeId}/status`, headers: auth, payload: { status: 'beendet' } });
+  check(
+    'Ohne Trigger: Umfrageende 200, Neuaufbau gelaufen',
+    ended.statusCode === 200 && count('SELECT COUNT(*) AS n FROM _survey_rebuild_state') === 0,
+    ended.json(),
+  );
 }
 
 await app.close();

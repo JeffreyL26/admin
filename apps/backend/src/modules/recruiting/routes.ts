@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { deleteFileIfUnreferenced, signDownloadUrl } from '../../core/files.js';
+import { detachUnreferencedFile, removeDetachedBlob, signDownloadUrl } from '../../core/files.js';
 import { todayIso } from '../../core/dates.js';
 import { assertSeatsAvailable } from '../../core/license.js';
 import { isoDateString } from '../../core/validation.js';
@@ -401,6 +401,13 @@ function interviewToJson(
 // ---------------------------------------------------------------------------
 
 export const recruitingModule: FastifyPluginAsync = async (app) => {
+  // Schreibende Routen legen Änderung, Timeline-Ereignis und Audit-Eintrag in
+  // EINE Transaktion: Ein Absturz zwischen zwei Commits hinterliesse sonst
+  // eine Änderung ohne Protokoll. Von Foto und Lebenslauf geht in der
+  // Transaktion nur der Datensatz (detachUnreferencedFile), den Blob löscht
+  // erst der Weg nach dem Commit (removeDetachedBlob), ein Rollback brächte
+  // ihn nicht zurück.
+
   // ------------------------------------------------------------------ Org-Lookup
   app.get('/api/recruiting/org', async () => {
     const db = getDb();
@@ -500,31 +507,34 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     ) {
       throw badRequest('Das Maximalgehalt darf nicht unter dem Mindestgehalt liegen');
     }
-    const info = getDb()
-      .prepare(
-        `INSERT INTO job_postings
-           (title, employment_type, department_id, team_id, location_id, hiring_manager_id,
-            seats, employment_start, salary_min_cents, salary_max_cents, description, requirements,
-            status, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'entwurf', ?)`,
-      )
-      .run(
-        body.title,
-        body.employment_type,
-        body.department_id ?? null,
-        body.team_id ?? null,
-        body.location_id ?? null,
-        body.hiring_manager_id ?? null,
-        body.seats,
-        body.employment_start ?? null,
-        body.salary_min_cents ?? null,
-        body.salary_max_cents ?? null,
-        body.description ?? null,
-        body.requirements ?? null,
-        userId(req),
-      );
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'create', 'job_posting', id, { title: body.title });
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO job_postings
+             (title, employment_type, department_id, team_id, location_id, hiring_manager_id,
+              seats, employment_start, salary_min_cents, salary_max_cents, description, requirements,
+              status, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'entwurf', ?)`,
+        )
+        .run(
+          body.title,
+          body.employment_type,
+          body.department_id ?? null,
+          body.team_id ?? null,
+          body.location_id ?? null,
+          body.hiring_manager_id ?? null,
+          body.seats,
+          body.employment_start ?? null,
+          body.salary_min_cents ?? null,
+          body.salary_max_cents ?? null,
+          body.description ?? null,
+          body.requirements ?? null,
+          userId(req),
+        );
+      const postingId = Number(info.lastInsertRowid);
+      audit(req, 'create', 'job_posting', postingId, { title: body.title });
+      return postingId;
+    });
     reply.code(201);
     return { posting: postingWithCounts(id) };
   });
@@ -541,30 +551,32 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     ) {
       throw badRequest('Das Maximalgehalt darf nicht unter dem Mindestgehalt liegen');
     }
-    getDb()
-      .prepare(
-        `UPDATE job_postings SET title = ?, employment_type = ?, department_id = ?, team_id = ?,
-           location_id = ?, hiring_manager_id = ?, seats = ?, employment_start = ?,
-           salary_min_cents = ?, salary_max_cents = ?, description = ?, requirements = ?,
-           updated_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(
-        body.title,
-        body.employment_type,
-        body.department_id ?? null,
-        body.team_id ?? null,
-        body.location_id ?? null,
-        body.hiring_manager_id ?? null,
-        body.seats,
-        body.employment_start ?? null,
-        body.salary_min_cents ?? null,
-        body.salary_max_cents ?? null,
-        body.description ?? null,
-        body.requirements ?? null,
-        id,
-      );
-    audit(req, 'update', 'job_posting', id, { title: body.title });
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE job_postings SET title = ?, employment_type = ?, department_id = ?, team_id = ?,
+             location_id = ?, hiring_manager_id = ?, seats = ?, employment_start = ?,
+             salary_min_cents = ?, salary_max_cents = ?, description = ?, requirements = ?,
+             updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(
+          body.title,
+          body.employment_type,
+          body.department_id ?? null,
+          body.team_id ?? null,
+          body.location_id ?? null,
+          body.hiring_manager_id ?? null,
+          body.seats,
+          body.employment_start ?? null,
+          body.salary_min_cents ?? null,
+          body.salary_max_cents ?? null,
+          body.description ?? null,
+          body.requirements ?? null,
+          id,
+        );
+      audit(req, 'update', 'job_posting', id, { title: body.title });
+    });
     return { posting: postingWithCounts(id) };
   });
 
@@ -585,17 +597,19 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     const now = todayIso();
     const publishedAt = body.status === 'veroeffentlicht' ? now : null;
     const closedAt = body.status === 'geschlossen' || body.status === 'besetzt' ? now : null;
-    getDb()
-      .prepare(
-        `UPDATE job_postings
-         SET status = ?,
-             published_at = COALESCE(?, published_at),
-             closed_at = ?,
-             updated_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(body.status, publishedAt, closedAt, id);
-    audit(req, 'status', 'job_posting', id, { from: row.status, to: body.status });
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE job_postings
+           SET status = ?,
+               published_at = COALESCE(?, published_at),
+               closed_at = ?,
+               updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(body.status, publishedAt, closedAt, id);
+      audit(req, 'status', 'job_posting', id, { from: row.status, to: body.status });
+    });
     return { posting: postingWithCounts(id) };
   });
 
@@ -615,8 +629,10 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
         'Zu dieser Stelle existieren Bewerbungen — bitte stattdessen den Status auf „Geschlossen“ setzen',
       );
     }
-    getDb().prepare('DELETE FROM job_postings WHERE id = ?').run(id);
-    audit(req, 'delete', 'job_posting', id, { title: existing.title });
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM job_postings WHERE id = ?').run(id);
+      audit(req, 'delete', 'job_posting', id, { title: existing.title });
+    });
     reply.code(204);
   });
 
@@ -664,8 +680,11 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
 
   app.post('/api/recruiting/candidates', async (req, reply) => {
     const body = parse(candidateBodySchema, req.body);
-    const id = insertCandidate(body);
-    audit(req, 'create', 'candidate', id, { name: `${body.first_name} ${body.last_name}` });
+    const id = inTransaction(() => {
+      const candidateId = insertCandidate(body);
+      audit(req, 'create', 'candidate', candidateId, { name: `${body.first_name} ${body.last_name}` });
+      return candidateId;
+    });
     reply.code(201);
     return { candidate: candidateToJson(getCandidate(id)) };
   });
@@ -678,32 +697,38 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     // schickt das Feld nur, wenn ein Foto gewaehlt wurde; explizites null
     // entfernt es.
     const photoFileId = body.photo_file_id === undefined ? existing.photo_file_id : body.photo_file_id;
-    getDb()
-      .prepare(
-        `UPDATE candidates SET first_name = ?, last_name = ?, email = ?, phone = ?, city = ?,
-           source = ?, headline = ?, linkedin_url = ?, photo_file_id = ?, note = ?, consent_until = ?,
-           updated_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(
-        body.first_name,
-        body.last_name,
-        body.email || null,
-        body.phone ?? null,
-        body.city ?? null,
-        body.source,
-        body.headline ?? null,
-        body.linkedin_url ?? null,
-        photoFileId,
-        body.note ?? null,
-        body.consent_until ?? null,
-        id,
-      );
-    // Ersetztes oder entferntes Foto aufraeumen (nur wenn nirgends mehr verknuepft).
-    if (existing.photo_file_id && existing.photo_file_id !== photoFileId) {
-      deleteFileIfUnreferenced(existing.photo_file_id);
-    }
-    audit(req, 'update', 'candidate', id, { name: `${body.first_name} ${body.last_name}` });
+    const removedPhoto = inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE candidates SET first_name = ?, last_name = ?, email = ?, phone = ?, city = ?,
+             source = ?, headline = ?, linkedin_url = ?, photo_file_id = ?, note = ?, consent_until = ?,
+             updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(
+          body.first_name,
+          body.last_name,
+          body.email || null,
+          body.phone ?? null,
+          body.city ?? null,
+          body.source,
+          body.headline ?? null,
+          body.linkedin_url ?? null,
+          photoFileId,
+          body.note ?? null,
+          body.consent_until ?? null,
+          id,
+        );
+      // Ersetztes oder entferntes Foto aufraeumen (nur wenn nirgends mehr
+      // verknuepft). Hier nur der Datensatz, der Blob folgt nach dem Commit.
+      const detached =
+        existing.photo_file_id && existing.photo_file_id !== photoFileId
+          ? detachUnreferencedFile(existing.photo_file_id)
+          : null;
+      audit(req, 'update', 'candidate', id, { name: `${body.first_name} ${body.last_name}` });
+      return detached;
+    });
+    removeDetachedBlob(removedPhoto);
     return { candidate: candidateToJson(getCandidate(id)) };
   });
 
@@ -734,13 +759,17 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
           .all(id) as { cv_file_id: number }[]
       ).map((r) => r.cv_file_id),
     ].filter((fileId): fileId is number => typeof fileId === 'number');
-    getDb().prepare('DELETE FROM candidates WHERE id = ?').run(id);
-    // Erst NACH dem DELETE: Vorher hielte die Referenzpruefung jede Datei fuer
-    // weiter gebraucht.
-    for (const fileId of new Set(fileIds)) deleteFileIfUnreferenced(fileId);
-    audit(req, 'delete', 'candidate', id, {
-      name: `${candidate.first_name} ${candidate.last_name}`,
+    const removedFiles = inTransaction(() => {
+      getDb().prepare('DELETE FROM candidates WHERE id = ?').run(id);
+      // Erst NACH dem DELETE: Vorher hielte die Referenzpruefung jede Datei fuer
+      // weiter gebraucht. Hier nur die Datensaetze, die Blobs folgen nach dem Commit.
+      const detached = [...new Set(fileIds)].map((fileId) => detachUnreferencedFile(fileId));
+      audit(req, 'delete', 'candidate', id, {
+        name: `${candidate.first_name} ${candidate.last_name}`,
+      });
+      return detached;
     });
+    for (const file of removedFiles) removeDetachedBlob(file);
     reply.code(204);
   });
 
@@ -872,9 +901,9 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
         );
       const applicationId = Number(info.lastInsertRowid);
       logEvent(applicationId, 'eingang', { toStage: stage.id, userId: userId(req) });
+      audit(req, 'create', 'application', applicationId, { posting_id: body.posting_id });
       return applicationId;
     });
-    audit(req, 'create', 'application', result, { posting_id: body.posting_id });
     reply.code(201);
     return { application: applicationRow(result) };
   });
@@ -898,17 +927,23 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     );
     const fields = Object.entries(body).filter(([, v]) => v !== undefined);
     if (fields.length === 0) throw badRequest('Keine Änderungen übergeben');
-    getDb()
-      .prepare(`UPDATE applications SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`)
-      .run(...fields.map(([, v]) => v ?? null), id);
-    // Ersetzter Lebenslauf: alte Datei aufraeumen, sonst bliebe sie signierbar.
-    if (body.cv_file_id !== undefined && existing.cv_file_id && existing.cv_file_id !== body.cv_file_id) {
-      deleteFileIfUnreferenced(existing.cv_file_id);
-    }
-    if (body.rating !== undefined && body.rating !== existing.rating) {
-      logEvent(id, 'bewertung', { body: body.rating ? `${body.rating} von 5` : 'zurückgesetzt', userId: userId(req) });
-    }
-    audit(req, 'update', 'application', id, Object.fromEntries(fields));
+    const removedCv = inTransaction(() => {
+      getDb()
+        .prepare(`UPDATE applications SET ${fields.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`)
+        .run(...fields.map(([, v]) => v ?? null), id);
+      // Ersetzter Lebenslauf: alte Datei aufraeumen, sonst bliebe sie
+      // signierbar. Hier nur der Datensatz, der Blob folgt nach dem Commit.
+      const detached =
+        body.cv_file_id !== undefined && existing.cv_file_id && existing.cv_file_id !== body.cv_file_id
+          ? detachUnreferencedFile(existing.cv_file_id)
+          : null;
+      if (body.rating !== undefined && body.rating !== existing.rating) {
+        logEvent(id, 'bewertung', { body: body.rating ? `${body.rating} von 5` : 'zurückgesetzt', userId: userId(req) });
+      }
+      audit(req, 'update', 'application', id, Object.fromEntries(fields));
+      return detached;
+    });
+    removeDetachedBlob(removedCv);
     return { application: applicationRow(id) };
   });
 
@@ -928,13 +963,15 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
       throw badRequest('Für Einstellung/Absage bitte die entsprechenden Aktionen nutzen');
     }
     if (target.id === appl.stage_id) return { application: applicationRow(id) };
-    getDb()
-      .prepare(
-        "UPDATE applications SET stage_id = ?, stage_changed_at = datetime('now') WHERE id = ?",
-      )
-      .run(target.id, id);
-    logEvent(id, 'stufenwechsel', { fromStage: appl.stage_id, toStage: target.id, userId: userId(req) });
-    audit(req, 'stage', 'application', id, { to: target.name });
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          "UPDATE applications SET stage_id = ?, stage_changed_at = datetime('now') WHERE id = ?",
+        )
+        .run(target.id, id);
+      logEvent(id, 'stufenwechsel', { fromStage: appl.stage_id, toStage: target.id, userId: userId(req) });
+      audit(req, 'stage', 'application', id, { to: target.name });
+    });
     return { application: applicationRow(id) };
   });
 
@@ -959,17 +996,19 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     if (appl.status === 'eingestellt') throw conflict('Eingestellte Bewerbungen können nicht abgelehnt werden');
     const body = parse(z.object({ reason: z.string().min(1, 'Absagegrund fehlt') }), req.body);
     const rejected = stageByCategory('abgelehnt');
-    getDb()
-      .prepare(
-        `UPDATE applications
-         SET status = 'abgelehnt', stage_id = ?, rejection_reason = ?,
-             decided_at = datetime('now'), stage_changed_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(rejected.id, body.reason, id);
-    cancelPlannedInterviews(id);
-    logEvent(id, 'absage', { body: body.reason, fromStage: appl.stage_id, toStage: rejected.id, userId: userId(req) });
-    audit(req, 'reject', 'application', id, { reason: body.reason });
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE applications
+           SET status = 'abgelehnt', stage_id = ?, rejection_reason = ?,
+               decided_at = datetime('now'), stage_changed_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(rejected.id, body.reason, id);
+      cancelPlannedInterviews(id);
+      logEvent(id, 'absage', { body: body.reason, fromStage: appl.stage_id, toStage: rejected.id, userId: userId(req) });
+      audit(req, 'reject', 'application', id, { reason: body.reason });
+    });
     return { application: applicationRow(id) };
   });
 
@@ -981,14 +1020,16 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
       | undefined;
     if (!appl) throw notFound('Bewerbung nicht gefunden');
     if (appl.status === 'eingestellt') throw conflict('Eingestellte Bewerbungen können nicht zurückgezogen werden');
-    getDb()
-      .prepare(
-        "UPDATE applications SET status = 'zurueckgezogen', decided_at = datetime('now') WHERE id = ?",
-      )
-      .run(id);
-    cancelPlannedInterviews(id);
-    logEvent(id, 'status', { body: 'Bewerbung zurückgezogen', userId: userId(req) });
-    audit(req, 'withdraw', 'application', id);
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          "UPDATE applications SET status = 'zurueckgezogen', decided_at = datetime('now') WHERE id = ?",
+        )
+        .run(id);
+      cancelPlannedInterviews(id);
+      logEvent(id, 'status', { body: 'Bewerbung zurückgezogen', userId: userId(req) });
+      audit(req, 'withdraw', 'application', id);
+    });
     return { application: applicationRow(id) };
   });
 
@@ -1143,16 +1184,17 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
           .run(appl.posting_id);
         postingClosed = true;
       }
-      return { employeeId, postingClosed, roleId };
+
+      audit(req, 'create', 'employee', employeeId, {
+        source: 'recruiting',
+        application_id: id,
+        name: `${appl.first_name} ${appl.last_name}`,
+        role_id: roleId,
+      });
+      audit(req, 'hire', 'application', id, { employee_id: employeeId });
+      return { employeeId, postingClosed };
     });
 
-    audit(req, 'create', 'employee', result.employeeId, {
-      source: 'recruiting',
-      application_id: id,
-      name: `${appl.first_name} ${appl.last_name}`,
-      role_id: result.roleId,
-    });
-    audit(req, 'hire', 'application', id, { employee_id: result.employeeId });
     return {
       application: applicationRow(id),
       employee_id: result.employeeId,
@@ -1207,22 +1249,25 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
     if (!appl) throw notFound('Bewerbung nicht gefunden');
     if (appl.status !== 'aktiv') throw conflict('Interviews sind nur für aktive Bewerbungen möglich');
     const body = parse(interviewBodySchema, req.body);
-    const info = getDb()
-      .prepare(
-        `INSERT INTO interviews (application_id, kind, scheduled_at, duration_minutes, location, interviewer_ids)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        id,
-        body.kind,
-        body.scheduled_at,
-        body.duration_minutes ?? null,
-        body.location ?? null,
-        JSON.stringify(body.interviewer_ids ?? []),
-      );
-    const interviewId = Number(info.lastInsertRowid);
-    logEvent(id, 'interview', { body: `Interview geplant (${body.kind}) am ${body.scheduled_at}`, userId: userId(req) });
-    audit(req, 'create', 'interview', interviewId, { application_id: id });
+    const interviewId = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO interviews (application_id, kind, scheduled_at, duration_minutes, location, interviewer_ids)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          body.kind,
+          body.scheduled_at,
+          body.duration_minutes ?? null,
+          body.location ?? null,
+          JSON.stringify(body.interviewer_ids ?? []),
+        );
+      const newId = Number(info.lastInsertRowid);
+      logEvent(id, 'interview', { body: `Interview geplant (${body.kind}) am ${body.scheduled_at}`, userId: userId(req) });
+      audit(req, 'create', 'interview', newId, { application_id: id });
+      return newId;
+    });
     reply.code(201);
     const row = getDb().prepare(`${INTERVIEW_SELECT} WHERE i.id = ?`).get(interviewId) as Record<
       string,
@@ -1246,40 +1291,44 @@ export const recruitingModule: FastifyPluginAsync = async (app) => {
       }),
       req.body,
     );
-    getDb()
-      .prepare(
-        `UPDATE interviews SET kind = ?, scheduled_at = ?, duration_minutes = ?, location = ?,
-           interviewer_ids = ?, status = ?, recommendation = ?, scorecard = ?, feedback = ?
-         WHERE id = ?`,
-      )
-      .run(
-        body.kind,
-        body.scheduled_at,
-        body.duration_minutes ?? null,
-        body.location ?? null,
-        JSON.stringify(body.interviewer_ids ?? []),
-        body.status,
-        body.recommendation ?? null,
-        JSON.stringify(body.scorecard ?? []),
-        body.feedback ?? null,
-        id,
-      );
-    if (body.status === 'stattgefunden' && body.recommendation) {
-      logEvent(existing.application_id, 'interview', {
-        body: `Interview-Feedback: ${body.recommendation}`,
-        userId: userId(req),
-      });
-    }
-    audit(req, 'update', 'interview', id, { status: body.status });
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE interviews SET kind = ?, scheduled_at = ?, duration_minutes = ?, location = ?,
+             interviewer_ids = ?, status = ?, recommendation = ?, scorecard = ?, feedback = ?
+           WHERE id = ?`,
+        )
+        .run(
+          body.kind,
+          body.scheduled_at,
+          body.duration_minutes ?? null,
+          body.location ?? null,
+          JSON.stringify(body.interviewer_ids ?? []),
+          body.status,
+          body.recommendation ?? null,
+          JSON.stringify(body.scorecard ?? []),
+          body.feedback ?? null,
+          id,
+        );
+      if (body.status === 'stattgefunden' && body.recommendation) {
+        logEvent(existing.application_id, 'interview', {
+          body: `Interview-Feedback: ${body.recommendation}`,
+          userId: userId(req),
+        });
+      }
+      audit(req, 'update', 'interview', id, { status: body.status });
+    });
     const row = getDb().prepare(`${INTERVIEW_SELECT} WHERE i.id = ?`).get(id) as Record<string, unknown>;
     return { interview: interviewToJson(row, interviewerNames([row])) };
   });
 
   app.delete('/api/recruiting/interviews/:id', async (req, reply) => {
     const { id } = parse(idParam, req.params);
-    const info = getDb().prepare('DELETE FROM interviews WHERE id = ?').run(id);
-    if (info.changes === 0) throw notFound('Interview nicht gefunden');
-    audit(req, 'delete', 'interview', id);
+    inTransaction(() => {
+      const info = getDb().prepare('DELETE FROM interviews WHERE id = ?').run(id);
+      if (info.changes === 0) throw notFound('Interview nicht gefunden');
+      audit(req, 'delete', 'interview', id);
+    });
     reply.code(204);
   });
 

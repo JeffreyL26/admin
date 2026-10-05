@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { inTransaction } from '../../db/db.js';
 import { parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import {
@@ -42,20 +43,27 @@ export async function employeeChangeRequestRoutes(app: FastifyInstance): Promise
     // verknüpftem Personalprofil darf den Antrag zum EIGENEN Profil nicht
     // genehmigen — auch dann nicht, wenn ihn jemand anderes gestellt hat.
     const istEigenesProfil = req.user.employee_id !== null && req.user.employee_id === row.employee_id;
-    const { request, applied } = decideRequest(id, req.user.id, body, istEigenesProfil);
-    audit(
-      req,
-      body.decision === 'genehmigt' ? 'employee_change_request.approve' : 'employee_change_request.reject',
-      'employee',
-      row.employee_id,
-      {
-        request_id: id,
-        decision_note: body.decision_note ?? null,
-        // Was tatsächlich überschrieben wurde — inklusive des Stands
-        // unmittelbar vor dem Schreiben, nicht des Stands bei Antragstellung.
-        applied,
-      },
-    );
+    // Entscheidung, geschriebene Personalakte und Audit-Eintrag in EINER
+    // Transaktion (die des Service läuft darin als Savepoint): keine
+    // geänderte Akte ohne Protokoll. Die Prüfungen in decideRequest werfen
+    // vor dem ersten Schreiben.
+    const request = inTransaction(() => {
+      const result = decideRequest(id, req.user.id, body, istEigenesProfil);
+      audit(
+        req,
+        body.decision === 'genehmigt' ? 'employee_change_request.approve' : 'employee_change_request.reject',
+        'employee',
+        row.employee_id,
+        {
+          request_id: id,
+          decision_note: body.decision_note ?? null,
+          // Was tatsächlich überschrieben wurde, inklusive des Stands
+          // unmittelbar vor dem Schreiben, nicht des Stands bei Antragstellung.
+          applied: result.applied,
+        },
+      );
+      return result.request;
+    });
     return { request };
   });
 }

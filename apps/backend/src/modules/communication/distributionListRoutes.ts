@@ -190,9 +190,10 @@ export const distributionListRoutes: FastifyPluginAsync = async (app) => {
         .run(body.name, body.description ?? null);
       const listId = Number(info.lastInsertRowid);
       replaceMembers(listId, body.members);
+      // Audit-Eintrag im selben Commit wie der Verteiler.
+      audit(req, 'create', 'distribution_list', listId, { name: body.name, members: body.members.length });
       return listId;
     });
-    audit(req, 'create', 'distribution_list', id, { name: body.name, members: body.members.length });
     reply.code(201);
     return { distribution_list: { ...listToJson(getList(id)), members: membersOf(id) } };
   });
@@ -211,8 +212,8 @@ export const distributionListRoutes: FastifyPluginAsync = async (app) => {
         .prepare('UPDATE distribution_lists SET name = ?, description = ? WHERE id = ?')
         .run(body.name, body.description ?? null, id);
       replaceMembers(id, body.members);
+      audit(req, 'update', 'distribution_list', id, { name: body.name, members: body.members.length });
     });
-    audit(req, 'update', 'distribution_list', id, { name: body.name, members: body.members.length });
     return { distribution_list: { ...listToJson(getList(id)), members: membersOf(id) } };
   });
 
@@ -225,8 +226,10 @@ export const distributionListRoutes: FastifyPluginAsync = async (app) => {
         `Der Verteiler wird noch von ${usage} ${usage === 1 ? 'Ankündigung oder Umfrage' : 'Ankündigungen oder Umfragen'} verwendet. Bitte dort zuerst die Zielgruppe ändern.`,
       );
     }
-    getDb().prepare('DELETE FROM distribution_lists WHERE id = ?').run(id);
-    audit(req, 'delete', 'distribution_list', id, { name: list.name });
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM distribution_lists WHERE id = ?').run(id);
+      audit(req, 'delete', 'distribution_list', id, { name: list.name });
+    });
     reply.code(204);
   });
 };

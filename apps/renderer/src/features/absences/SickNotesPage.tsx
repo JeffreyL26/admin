@@ -14,6 +14,7 @@ import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
 import { DaysCounted } from './DaysCounted';
 import { LOCALE } from '../../lib/locale';
+import { YearSelect } from './YearSelect';
 
 /** Name mit Absprung in die Personalakte; Krankmeldungen ohne Profil-ID (Altbestand) bleiben Text. */
 function personName(note: SickNote) {
@@ -85,7 +86,11 @@ function missedDaysCell(note: SickNote) {
 
 export function SickNotesPage() {
   const [childFilter, setChildFilter] = useState<'' | '0' | '1'>('');
-  const { data: notes, isLoading } = useSickNotes(childFilter === '' ? null : childFilter);
+  // Vorgabe laufendes Jahr: Die Liste aller Jahre ist bei großer Belegschaft
+  // fünfstellig. „Alle Jahre“ zeigt die ganze Historie wie bisher. Fehlende
+  // Bescheinigungen kommen unabhängig davon aus eigener Abfrage über alle Jahre.
+  const [year, setYear] = useState<number | null>(() => new Date().getFullYear());
+  const { data: notes, isLoading } = useSickNotes({ childSick: childFilter === '' ? null : childFilter, year });
   const { data: missing } = useMissingSickNotes();
   const [createOpen, setCreateOpen] = useState(false);
   const [uploadFor, setUploadFor] = useState<SickNote | null>(null);
@@ -118,7 +123,7 @@ export function SickNotesPage() {
             <Card
               title={
                 <span className="row" style={{ gap: 8, color: 'var(--danger)' }}>
-                  <AlertTriangle size={17} /> Entgeltfortzahlung überzogen ({exceeded.size})
+                  <AlertTriangle size={17} /> Entgeltfortzahlung überzogen{year !== null ? ` ${year}` : ''} ({exceeded.size})
                 </span>
               }
             >
@@ -186,18 +191,21 @@ export function SickNotesPage() {
         )}
 
         <Card
-          title="Alle Krankmeldungen"
+          title={year === null ? 'Alle Krankmeldungen' : `Krankmeldungen ${year}`}
           actions={
-            <Select
-              className="hm-select"
-              style={{ width: 170 }}
-              value={childFilter}
-              onChange={(e) => setChildFilter(e.target.value as typeof childFilter)}
-            >
-              <option value="">Alle</option>
-              <option value="0">Nur eigene Erkrankung</option>
-              <option value="1">Nur Kind krank</option>
-            </Select>
+            <>
+              <YearSelect value={year} onChange={setYear} style={{ width: 140 }} aria-label="Jahr" />
+              <Select
+                className="hm-select"
+                style={{ width: 170 }}
+                value={childFilter}
+                onChange={(e) => setChildFilter(e.target.value as typeof childFilter)}
+              >
+                <option value="">Alle</option>
+                <option value="0">Nur eigene Erkrankung</option>
+                <option value="1">Nur Kind krank</option>
+              </Select>
+            </>
           }
           flush
         >
@@ -207,7 +215,11 @@ export function SickNotesPage() {
             <EmptyState
               icon={<Stethoscope size={40} />}
               title="Keine Krankmeldungen"
-              hint="Erfassen Sie eine Krankmeldung über den Button oben rechts."
+              hint={
+                year !== null
+                  ? `Im Jahr ${year} liegen keine Krankmeldungen vor. Andere Jahre oder alle Jahre über die Jahresauswahl.`
+                  : 'Erfassen Sie eine Krankmeldung über den Button oben rechts.'
+              }
             />
           ) : (
             <div className="hm-table-wrap">
@@ -276,8 +288,11 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [followUpOf, setFollowUpOf] = useState<number | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [receivedDate, setReceivedDate] = useState('');
-  const { data: allNotes } = useSickNotes(null);
-  const employeeNotes = (allNotes ?? []).filter((n) => n.employee_id === employeeId);
+  // Erstbescheinigungen nur der gewählten Person (alle Jahre) und nur bei
+  // offenem Dialog: Der Dialog ist immer gemountet und lud früher beim
+  // Seitenaufruf die Krankmeldungen der ganzen Belegschaft aller Jahre.
+  const { data: personNotes } = useSickNotes({ employeeId }, open && employeeId !== null);
+  const employeeNotes = (personNotes ?? []).filter((n) => n.employee_id === employeeId);
   const previousNote = followUpOf === null ? null : (employeeNotes.find((n) => n.id === followUpOf) ?? null);
 
   const reset = () => {

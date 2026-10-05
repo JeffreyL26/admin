@@ -11,7 +11,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import type { MeDocument } from '@ohrganize/shared';
-import { getDb } from '../../db/db.js';
+import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, notFound, parse } from '../../core/errors.js';
 import { isValidIsoDate } from '../../core/dates.js';
@@ -233,29 +233,35 @@ export const meDocumentRoutes: FastifyPluginAsync = async (app) => {
 
       // employee_id kommt IMMER aus dem eigenen Profil, nie aus dem Request;
       // version/reminder_days bleiben auf den Spalten-Defaults, supersedes_id NULL.
-      const info = getDb()
-        .prepare(
-          `INSERT INTO documents (employee_id, file_id, category, title, note, expiry_date,
-                                  source, uploaded_by_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, 'portal', ?)`,
-        )
-        .run(
-          emp.id,
-          file.id,
-          meta.category,
-          meta.title,
-          meta.note ?? null,
-          meta.expiry_date ?? null,
-          req.user.id,
-        );
-      const id = Number(info.lastInsertRowid);
-      audit(req, 'create', 'document', id, {
-        employee_id: emp.id,
-        category: meta.category,
-        title: meta.title,
-        file_id: file.id,
-        source: 'portal',
-        self_service: true,
+      // Metadaten und Audit-Eintrag in EINER Transaktion; scheitert sie, rollt
+      // sie den INSERT zurück, und der catch-Zweig räumt die Datei weg.
+      const stored = file;
+      const id = inTransaction(() => {
+        const info = getDb()
+          .prepare(
+            `INSERT INTO documents (employee_id, file_id, category, title, note, expiry_date,
+                                    source, uploaded_by_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, 'portal', ?)`,
+          )
+          .run(
+            emp.id,
+            stored.id,
+            meta.category,
+            meta.title,
+            meta.note ?? null,
+            meta.expiry_date ?? null,
+            req.user.id,
+          );
+        const newId = Number(info.lastInsertRowid);
+        audit(req, 'create', 'document', newId, {
+          employee_id: emp.id,
+          category: meta.category,
+          title: meta.title,
+          file_id: stored.id,
+          source: 'portal',
+          self_service: true,
+        });
+        return newId;
       });
       reply.status(201);
       return { document: getDb().prepare(`${ME_DOC_SELECT} WHERE d.id = ?`).get(id) as MeDocument };

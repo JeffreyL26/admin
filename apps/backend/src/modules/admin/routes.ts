@@ -4,7 +4,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { isValidIsoDate } from '../../core/dates.js';
-import { deleteFileIfUnreferenced, removeReplacedFile } from '../../core/files.js';
+import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
 import { roleRoutes } from './roleRoutes.js';
 import { adminUserRoutes } from './userRoutes.js';
 
@@ -107,11 +107,14 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     if (!db().prepare('SELECT id FROM files WHERE id = ?').get(body.file_id)) {
       throw notFound('Datei nicht gefunden — bitte zuerst über POST /api/files hochladen');
     }
-    const result = db()
-      .prepare('INSERT INTO hr_templates (file_id, category, title, description) VALUES (?, ?, ?, ?)')
-      .run(body.file_id, body.category, body.title, body.description ?? null);
-    const id = Number(result.lastInsertRowid);
-    audit(req, 'create', 'hr_template', id, { title: body.title, category: body.category });
+    const id = inTransaction(() => {
+      const result = db()
+        .prepare('INSERT INTO hr_templates (file_id, category, title, description) VALUES (?, ?, ?, ?)')
+        .run(body.file_id, body.category, body.title, body.description ?? null);
+      const templateId = Number(result.lastInsertRowid);
+      audit(req, 'create', 'hr_template', templateId, { title: body.title, category: body.category });
+      return templateId;
+    });
     reply.status(201);
     return { template: db().prepare(`${TEMPLATE_SELECT} WHERE t.id = ?`).get(id) };
   });
@@ -130,18 +133,31 @@ export const adminModule: FastifyPluginAsync = async (app) => {
       (c) => patch[c] !== undefined,
     );
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
-    db()
-      .prepare(
-        `UPDATE hr_templates SET ${cols.map((c) => `${c} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`,
-      )
-      .run(...cols.map((c) => patch[c] ?? null), id);
-    // Ersetzte Datei aufraeumen, sofern nirgends sonst verknuepft; der
-    // Audit-Eintrag nennt sie.
-    const removedFile =
-      patch.file_id !== undefined && current.file_id && current.file_id !== patch.file_id
-        ? removeReplacedFile(current.file_id)
-        : null;
-    audit(req, 'update', 'hr_template', id, removedFile ? { changed: patch, removed_file: removedFile } : { changed: patch });
+    const removedFile = inTransaction(() => {
+      db()
+        .prepare(
+          `UPDATE hr_templates SET ${cols.map((c) => `${c} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`,
+        )
+        .run(...cols.map((c) => patch[c] ?? null), id);
+      // Ersetzte Datei aufraeumen, sofern nirgends sonst verknuepft; der
+      // Audit-Eintrag nennt sie. Hier nur der Datensatz, der Blob folgt
+      // nach dem Commit (ein Rollback braucht ihn noch).
+      const detached =
+        patch.file_id !== undefined && current.file_id && current.file_id !== patch.file_id
+          ? detachUnreferencedFile(current.file_id)
+          : null;
+      audit(
+        req,
+        'update',
+        'hr_template',
+        id,
+        detached
+          ? { changed: patch, removed_file: { id: detached.id, sha256: detached.sha256 } }
+          : { changed: patch },
+      );
+      return detached;
+    });
+    removeDetachedBlob(removedFile);
     return { template: db().prepare(`${TEMPLATE_SELECT} WHERE t.id = ?`).get(id) };
   });
 
@@ -151,10 +167,15 @@ export const adminModule: FastifyPluginAsync = async (app) => {
       | { title: string; file_id: number | null }
       | undefined;
     if (!existing) throw notFound('Vorlage nicht gefunden');
-    db().prepare('DELETE FROM hr_templates WHERE id = ?').run(id);
-    // Erst NACH dem DELETE: Vorher hielte die Referenzpruefung die Datei fuer weiter gebraucht.
-    if (existing.file_id) deleteFileIfUnreferenced(existing.file_id);
-    audit(req, 'delete', 'hr_template', id, { title: existing.title });
+    const removedFile = inTransaction(() => {
+      db().prepare('DELETE FROM hr_templates WHERE id = ?').run(id);
+      // Erst NACH dem DELETE: Vorher hielte die Referenzpruefung die Datei fuer weiter gebraucht.
+      const detached = existing.file_id ? detachUnreferencedFile(existing.file_id) : null;
+      audit(req, 'delete', 'hr_template', id, { title: existing.title });
+      return detached;
+    });
+    // Blob erst nach dem Commit (core/files.ts, removeDetachedBlob).
+    removeDetachedBlob(removedFile);
     reply.status(204);
   });
 
@@ -180,11 +201,14 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     const max = db()
       .prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM onboarding_task_templates WHERE kind = ?')
       .get(body.kind) as { m: number };
-    const result = db()
-      .prepare('INSERT INTO onboarding_task_templates (kind, title, sort_order, active) VALUES (?, ?, ?, ?)')
-      .run(body.kind, body.title, body.sort_order ?? max.m + 10, body.active === false ? 0 : 1);
-    const id = Number(result.lastInsertRowid);
-    audit(req, 'create', 'onboarding_task_template', id, { kind: body.kind, title: body.title });
+    const id = inTransaction(() => {
+      const result = db()
+        .prepare('INSERT INTO onboarding_task_templates (kind, title, sort_order, active) VALUES (?, ?, ?, ?)')
+        .run(body.kind, body.title, body.sort_order ?? max.m + 10, body.active === false ? 0 : 1);
+      const templateId = Number(result.lastInsertRowid);
+      audit(req, 'create', 'onboarding_task_template', templateId, { kind: body.kind, title: body.title });
+      return templateId;
+    });
     reply.status(201);
     return { template: db().prepare('SELECT * FROM onboarding_task_templates WHERE id = ?').get(id) };
   });
@@ -207,8 +231,8 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     inTransaction(() => {
       const update = db().prepare('UPDATE onboarding_task_templates SET sort_order = ? WHERE id = ?');
       ids.forEach((id, index) => update.run((index + 1) * 10, id));
+      audit(req, 'reorder', 'onboarding_task_template', undefined, { kind: body.kind, ids });
     });
-    audit(req, 'reorder', 'onboarding_task_template', undefined, { kind: body.kind, ids });
     return {
       templates: db()
         .prepare('SELECT * FROM onboarding_task_templates WHERE kind = ? ORDER BY sort_order, id')
@@ -226,15 +250,17 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     if (patch.title === undefined && patch.sort_order === undefined && patch.active === undefined) {
       throw badRequest('Keine Änderungen übergeben');
     }
-    db()
-      .prepare('UPDATE onboarding_task_templates SET title = ?, sort_order = ?, active = ? WHERE id = ?')
-      .run(
-        patch.title ?? existing.title,
-        patch.sort_order ?? existing.sort_order,
-        patch.active !== undefined ? (patch.active ? 1 : 0) : existing.active,
-        id,
-      );
-    audit(req, 'update', 'onboarding_task_template', id, { changed: patch });
+    inTransaction(() => {
+      db()
+        .prepare('UPDATE onboarding_task_templates SET title = ?, sort_order = ?, active = ? WHERE id = ?')
+        .run(
+          patch.title ?? existing.title,
+          patch.sort_order ?? existing.sort_order,
+          patch.active !== undefined ? (patch.active ? 1 : 0) : existing.active,
+          id,
+        );
+      audit(req, 'update', 'onboarding_task_template', id, { changed: patch });
+    });
     return { template: db().prepare('SELECT * FROM onboarding_task_templates WHERE id = ?').get(id) };
   });
 
@@ -245,8 +271,10 @@ export const adminModule: FastifyPluginAsync = async (app) => {
       | { title: string }
       | undefined;
     if (!existing) throw notFound('Vorlage nicht gefunden');
-    db().prepare('DELETE FROM onboarding_task_templates WHERE id = ?').run(id);
-    audit(req, 'delete', 'onboarding_task_template', id, { title: existing.title });
+    inTransaction(() => {
+      db().prepare('DELETE FROM onboarding_task_templates WHERE id = ?').run(id);
+      audit(req, 'delete', 'onboarding_task_template', id, { title: existing.title });
+    });
     reply.status(204);
   });
 
@@ -311,12 +339,12 @@ export const adminModule: FastifyPluginAsync = async (app) => {
            WHERE kind = ? AND active = 1 ORDER BY sort_order, id`,
         )
         .run(processId, body.kind);
+      audit(req, 'create', 'onboarding_process', processId, {
+        employee_id: body.employee_id,
+        kind: body.kind,
+        target_date: body.target_date ?? null,
+      });
       return processId;
-    });
-    audit(req, 'create', 'onboarding_process', id, {
-      employee_id: body.employee_id,
-      kind: body.kind,
-      target_date: body.target_date ?? null,
     });
     reply.status(201);
     const process = db().prepare(`${PROCESS_SELECT} WHERE p.id = ?`).get(id);
@@ -340,11 +368,14 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     const max = db()
       .prepare('SELECT COALESCE(MAX(sort_order), 0) AS m FROM onboarding_tasks WHERE process_id = ?')
       .get(id) as { m: number };
-    const result = db()
-      .prepare('INSERT INTO onboarding_tasks (process_id, title, sort_order) VALUES (?, ?, ?)')
-      .run(id, body.title, max.m + 10);
-    const taskId = Number(result.lastInsertRowid);
-    audit(req, 'create', 'onboarding_task', taskId, { process_id: id, title: body.title });
+    const taskId = inTransaction(() => {
+      const result = db()
+        .prepare('INSERT INTO onboarding_tasks (process_id, title, sort_order) VALUES (?, ?, ?)')
+        .run(id, body.title, max.m + 10);
+      const newTaskId = Number(result.lastInsertRowid);
+      audit(req, 'create', 'onboarding_task', newTaskId, { process_id: id, title: body.title });
+      return newTaskId;
+    });
     reply.status(201);
     return { task: db().prepare(`${TASK_SELECT} WHERE ot.id = ?`).get(taskId) };
   });
@@ -362,14 +393,16 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     if (task.process_status !== 'laufend') throw conflict('Der Prozess ist bereits abgeschlossen');
     const body = parse(z.object({ done: z.boolean() }), req.body);
     const userId = (req.user as { id?: number } | undefined)?.id ?? null;
-    db()
-      .prepare(
-        `UPDATE onboarding_tasks
-         SET done = ?, done_at = ${body.done ? "datetime('now')" : 'NULL'}, done_by_user_id = ?
-         WHERE id = ?`,
-      )
-      .run(body.done ? 1 : 0, body.done ? userId : null, taskId);
-    audit(req, body.done ? 'check' : 'uncheck', 'onboarding_task', taskId);
+    inTransaction(() => {
+      db()
+        .prepare(
+          `UPDATE onboarding_tasks
+           SET done = ?, done_at = ${body.done ? "datetime('now')" : 'NULL'}, done_by_user_id = ?
+           WHERE id = ?`,
+        )
+        .run(body.done ? 1 : 0, body.done ? userId : null, taskId);
+      audit(req, body.done ? 'check' : 'uncheck', 'onboarding_task', taskId);
+    });
     return { task: db().prepare(`${TASK_SELECT} WHERE ot.id = ?`).get(taskId) };
   });
 
@@ -383,8 +416,10 @@ export const adminModule: FastifyPluginAsync = async (app) => {
       .get(taskId) as { title: string; process_status: string } | undefined;
     if (!task) throw notFound('Aufgabe nicht gefunden');
     if (task.process_status !== 'laufend') throw conflict('Der Prozess ist bereits abgeschlossen');
-    db().prepare('DELETE FROM onboarding_tasks WHERE id = ?').run(taskId);
-    audit(req, 'delete', 'onboarding_task', taskId, { title: task.title });
+    inTransaction(() => {
+      db().prepare('DELETE FROM onboarding_tasks WHERE id = ?').run(taskId);
+      audit(req, 'delete', 'onboarding_task', taskId, { title: task.title });
+    });
     reply.status(204);
   });
 
@@ -402,12 +437,14 @@ export const adminModule: FastifyPluginAsync = async (app) => {
     if (open.n > 0) {
       throw conflict(`Es sind noch ${open.n} Aufgabe(n) offen — bitte zuerst die Checkliste abhaken`);
     }
-    db()
-      .prepare(
-        "UPDATE onboarding_processes SET status = 'abgeschlossen', completed_at = datetime('now') WHERE id = ?",
-      )
-      .run(id);
-    audit(req, 'complete', 'onboarding_process', id);
+    inTransaction(() => {
+      db()
+        .prepare(
+          "UPDATE onboarding_processes SET status = 'abgeschlossen', completed_at = datetime('now') WHERE id = ?",
+        )
+        .run(id);
+      audit(req, 'complete', 'onboarding_process', id);
+    });
     return { process: db().prepare(`${PROCESS_SELECT} WHERE p.id = ?`).get(id) };
   });
 
@@ -420,8 +457,10 @@ export const adminModule: FastifyPluginAsync = async (app) => {
       )
       .get(id) as { kind: string; first_name: string; last_name: string } | undefined;
     if (!existing) throw notFound('Prozess nicht gefunden');
-    db().prepare('DELETE FROM onboarding_processes WHERE id = ?').run(id);
-    audit(req, 'delete', 'onboarding_process', id, existing);
+    inTransaction(() => {
+      db().prepare('DELETE FROM onboarding_processes WHERE id = ?').run(id);
+      audit(req, 'delete', 'onboarding_process', id, existing);
+    });
     reply.status(204);
   });
 };

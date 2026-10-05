@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
-import { deleteFileIfUnreferenced, removeReplacedFile } from '../../core/files.js';
+import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
 import { assertSeatsAvailable } from '../../core/license.js';
 import {
   EMPLOYEE_COLUMNS,
@@ -185,6 +185,30 @@ export function assertTeamMatchesDepartment(employee: {
 }
 
 /**
+ * Das Vorschaubild gehoert zum aktuellen Foto (Migration 111). Ein neues oder
+ * entferntes Foto nimmt das bisherige Vorschaubild mit, sofern der Client
+ * kein neues mitschickt; sonst zeigten Listen und Karten weiter das alte
+ * Bild. Ein Vorschaubild ohne Foto gibt es nicht. Ergaenzt `patch` um
+ * `photo_thumb_file_id: null`, deshalb VOR der Spaltenauswahl aufrufen; beim
+ * PATCH mit dem Bestand.
+ */
+function settlePhotoThumb(
+  patch: { photo_file_id?: number | null; photo_thumb_file_id?: number | null },
+  existing?: Record<string, unknown>,
+): void {
+  const photoChanged =
+    patch.photo_file_id !== undefined && patch.photo_file_id !== (existing?.photo_file_id ?? null);
+  if (photoChanged && patch.photo_thumb_file_id === undefined && existing?.photo_thumb_file_id) {
+    patch.photo_thumb_file_id = null;
+  }
+  const photo = patch.photo_file_id !== undefined ? patch.photo_file_id : existing?.photo_file_id;
+  const thumb = patch.photo_thumb_file_id !== undefined ? patch.photo_thumb_file_id : existing?.photo_thumb_file_id;
+  if (thumb && !photo) {
+    throw badRequest('Ein Vorschaubild ist nur zusammen mit einem Foto möglich.', { field: 'photo_thumb_file_id' });
+  }
+}
+
+/**
  * Alle Dateien, die an einer Person haengen. Die Fachzeilen verschwinden per
  * ON DELETE CASCADE mit dem Profil, die `files`-Zeilen und Blobs aber nicht:
  * Ohne diesen Schritt blieben Foto, Vertraege, Dokumente und Nachweise ueber
@@ -195,6 +219,7 @@ function fileIdsOfEmployee(employeeId: number): number[] {
   const rows = db
     .prepare(
       `SELECT photo_file_id AS file_id FROM employees WHERE id = @id AND photo_file_id IS NOT NULL
+       UNION SELECT photo_thumb_file_id FROM employees WHERE id = @id AND photo_thumb_file_id IS NOT NULL
        UNION SELECT document_file_id FROM contracts WHERE employee_id = @id AND document_file_id IS NOT NULL
        UNION SELECT file_id FROM documents WHERE employee_id = @id
        UNION SELECT s.certificate_file_id FROM sick_notes s
@@ -357,8 +382,8 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
           teamsCleared++;
         }
       }
+      audit(req, 'bulk_update', 'employee', undefined, { ids, set, teams_cleared: teamsCleared });
     });
-    audit(req, 'bulk_update', 'employee', undefined, { ids, set, teams_cleared: teamsCleared });
     return { updated: ids.length, teams_cleared: teamsCleared };
   });
 
@@ -392,6 +417,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/employees', async (req, reply) => {
     const body = parse(employeeBodySchema, req.body);
+    settlePhotoThumb(body);
     assertTypeRules(body);
     // Beim Anlegen kommen beide Datumsfelder frisch aus der Eingabe — hier
     // darf die Reihenfolge-Prüfung immer laufen (sie greift nur, wenn beide
@@ -402,13 +428,17 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     // Platzgrenze der Lizenz (core/license.ts) — nur ein aktives Profil zählt.
     if (body.status === 'aktiv') assertSeatsAvailable(1);
     const cols = EMPLOYEE_COLUMNS.filter((c) => body[c] !== undefined);
-    const info = getDb()
-      .prepare(
-        `INSERT INTO employees (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-      )
-      .run(...cols.map((c) => body[c] ?? null));
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'create', 'employee', id, { name: `${body.first_name} ${body.last_name}` });
+    // Profil und Audit-Eintrag in EINER Transaktion: kein Stand ohne Protokoll.
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO employees (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+        )
+        .run(...cols.map((c) => body[c] ?? null));
+      const newId = Number(info.lastInsertRowid);
+      audit(req, 'create', 'employee', newId, { name: `${body.first_name} ${body.last_name}` });
+      return newId;
+    });
     reply.status(201);
     return { employee: getEmployeeOr404(id) };
   });
@@ -428,6 +458,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       );
     }
     const patch = parse(employeePatchSchema, req.body);
+    settlePhotoThumb(patch, existing);
     const cols = EMPLOYEE_COLUMNS.filter((c) => patch[c] !== undefined);
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
     assertTypeRules({ ...existing, ...patch });
@@ -446,23 +477,34 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     assertPersonnelNumberFree(patch.personnel_number, id);
     // Reaktivierung belegt einen Platz der Lizenz.
     if (existing.status === 'ausgeschieden' && patch.status === 'aktiv') assertSeatsAvailable(1);
-    getDb()
-      .prepare(
-        `UPDATE employees SET ${cols.map((c) => `${c} = ?`).join(', ')},
-         updated_at = datetime('now') WHERE id = ?`,
-      )
-      .run(...cols.map((c) => patch[c] ?? null), id);
-    // Ersetztes oder entferntes Foto aufraeumen, sofern nirgends sonst
-    // verknuepft; der Audit-Eintrag nennt die Datei.
-    const replacedPhoto = (existing as { photo_file_id?: number | null }).photo_file_id;
-    const removedFile =
-      patch.photo_file_id !== undefined && replacedPhoto && replacedPhoto !== patch.photo_file_id
-        ? removeReplacedFile(replacedPhoto)
-        : null;
-    audit(req, 'update', 'employee', id, {
-      changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
-      ...(removedFile ? { removed_file: removedFile } : {}),
+    // Ersetztes oder entferntes Foto samt Vorschaubild aufraeumen, sofern
+    // nirgends sonst verknuepft; der Audit-Eintrag nennt die Dateien.
+    const replacedOf = (column: 'photo_file_id' | 'photo_thumb_file_id') => {
+      const replaced = existing[column] as number | null | undefined;
+      return patch[column] !== undefined && replaced && replaced !== patch[column] ? replaced : null;
+    };
+    const replacedFiles = [replacedOf('photo_file_id'), replacedOf('photo_thumb_file_id')];
+    // Aenderung, Entfernen der Dateieintraege und Audit in EINER Transaktion;
+    // die Blobs auf der Platte erst nach dem Commit, sie nimmt kein Rollback
+    // zurueck (detachUnreferencedFile/removeDetachedBlob in core/files.ts).
+    const detached = inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE employees SET ${cols.map((c) => `${c} = ?`).join(', ')},
+           updated_at = datetime('now') WHERE id = ?`,
+        )
+        .run(...cols.map((c) => patch[c] ?? null), id);
+      const [removedFile, removedThumb] = replacedFiles.map((fileId) =>
+        fileId ? detachUnreferencedFile(fileId) : null,
+      );
+      audit(req, 'update', 'employee', id, {
+        changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
+        ...(removedFile ? { removed_file: { id: removedFile.id, sha256: removedFile.sha256 } } : {}),
+        ...(removedThumb ? { removed_thumb_file: { id: removedThumb.id, sha256: removedThumb.sha256 } } : {}),
+      });
+      return [removedFile, removedThumb];
     });
+    for (const file of detached) removeDetachedBlob(file);
     return { employee: getEmployeeOr404(id) };
   });
 
@@ -477,16 +519,23 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     // welche Dateien dazugehoerten. Alle Fremdschluessel auf employees tragen
     // CASCADE oder SET NULL, ein Constraint-Fehler ist hier nicht mehr moeglich.
     const fileIds = fileIdsOfEmployee(id);
-    getDb().prepare('DELETE FROM employees WHERE id = ?').run(id);
-    // Erst NACH dem DELETE: Vorher hielte die Referenzpruefung jede Datei
-    // fuer weiterhin gebraucht. Eine Datei, die noch anderswo verknuepft ist
-    // (z. B. dieselbe Vorlage bei einer zweiten Person), bleibt stehen.
-    const deletedFiles = fileIds.filter((fileId) => deleteFileIfUnreferenced(fileId));
-    audit(req, 'delete', 'employee', id, {
-      name: `${existing.first_name} ${existing.last_name}`,
-      files_deleted: deletedFiles.length,
-      files_kept: fileIds.length - deletedFiles.length,
+    // Loeschen, Entfernen der Dateieintraege und Audit in EINER Transaktion;
+    // die Blobs auf der Platte erst nach dem Commit, sie nimmt kein Rollback
+    // zurueck (detachUnreferencedFile/removeDetachedBlob in core/files.ts).
+    const detached = inTransaction(() => {
+      getDb().prepare('DELETE FROM employees WHERE id = ?').run(id);
+      // Erst NACH dem DELETE: Vorher hielte die Referenzpruefung jede Datei
+      // fuer weiterhin gebraucht. Eine Datei, die noch anderswo verknuepft ist
+      // (z. B. dieselbe Vorlage bei einer zweiten Person), bleibt stehen.
+      const removed = fileIds.map((fileId) => detachUnreferencedFile(fileId)).filter((f) => f !== null);
+      audit(req, 'delete', 'employee', id, {
+        name: `${existing.first_name} ${existing.last_name}`,
+        files_deleted: removed.length,
+        files_kept: fileIds.length - removed.length,
+      });
+      return removed;
     });
+    for (const file of detached) removeDetachedBlob(file);
     reply.status(204);
   });
 }

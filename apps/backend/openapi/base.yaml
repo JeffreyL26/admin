@@ -47,10 +47,53 @@ paths:
     post:
       summary: Anmeldung (HR-Administration und Mitarbeitenden-Portal)
       security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+                client:
+                  type: string
+                  enum: [desktop, portal]
+                  description: >-
+                    Sitzungsart des Tokens (Vorgabe portal). desktop gilt nur fuer
+                    Konten mit role admin und laeuft OHRGANIZE_DESKTOP_TOKEN_TTL
+                    (Vorgabe 3d), portal OHRGANIZE_TOKEN_TTL (Vorgabe 1h).
       responses:
         "200": { description: "Token und Benutzer { id, email, name, role, employee_id }" }
         "401":
           description: Ungültige Zugangsdaten
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/auth/refresh:
+    post:
+      summary: Sitzung verlängern (neues Token derselben Sitzungsart)
+      description: >-
+        Gleiche Prüfungen wie jede angemeldete Route (Signatur, Ablauf,
+        sessions_valid_from, Konto vorhanden, kein erzwungener Passwortwechsel).
+        Die Sitzungsart desktop bleibt nur erhalten, solange das Konto role admin
+        hat; ein Token ohne Sitzungsart gilt als portal. Auch im
+        Nur-Lese-Betrieb der Lizenz erreichbar. Kein Audit-Eintrag. Der Beginn
+        der Sitzung (Claim auth_time) bleibt erhalten; nach der Höchstdauer
+        (OHRGANIZE_SESSION_MAX, Vorgabe 6h; Desktop
+        OHRGANIZE_DESKTOP_SESSION_MAX, Vorgabe 5d) gibt es kein neues Token
+        mehr, und jedes Token läuft spätestens zum Ende der Sitzung ab
+        (Claim session_end).
+      responses:
+        "200": { description: "{ token }" }
+        "401":
+          description: Token abgelaufen, entwertet, Konto gelöscht oder Höchstdauer der Sitzung erreicht
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: Erzwungener Passwortwechsel steht aus (PASSWORD_CHANGE_REQUIRED)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

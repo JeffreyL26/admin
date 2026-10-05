@@ -5,6 +5,7 @@ import { pathAllowedByFeatures, type AdminArea } from '@ohrganize/shared';
 import { useSidebarSections } from './sidebarConfig';
 import { navItemAllowedByFeatures } from './nav';
 import { LicenseBanner } from './LicenseBanner';
+import { SessionEndBanner } from './SessionEndBanner';
 import { useAuth } from '../auth/AuthContext';
 import { Avatar } from '../components/ui';
 import { CommandPalette } from '../components/CommandPalette';
@@ -144,6 +145,7 @@ export function AppShell() {
         {/* Lizenzhinweise sitzen über dem scrollenden Seitenbereich, damit sie
             auf jeder Seite stehen bleiben (Zustand aus dem Auth-Kontext). */}
         <LicenseBanner />
+        <SessionEndBanner />
         <div className="page">
           {/* Key = Pfad: löst die Einblend-Animation bei jedem Seitenwechsel aus. */}
           <div className="page-enter" key={location.pathname}>

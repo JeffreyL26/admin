@@ -33,7 +33,30 @@ export function formatMoney(
   locale: string = DEFAULT_LOCALE,
   currency: string = DEFAULT_CURRENCY,
 ): string {
-  return (cents / 100).toLocaleString(locale, { style: 'currency', currency });
+  return moneyFormatter(locale, currency).format(cents / 100);
+}
+
+/**
+ * Ein Formatierer je Sprache und Währung. `toLocaleString` mit Optionen baut
+ * bei JEDEM Aufruf einen neuen `Intl.NumberFormat` (gemessen 85 bis 100 µs
+ * statt 2 µs); eine Gehaltsliste mit 2000 Zeilen und sechs Geldspalten
+ * kostete so rund eine Sekunde je Neuzeichnen. Der Cache hält nur
+ * Formatierer, keine Beträge; die Schlüssel kommen aus der Variante
+ * (`localeFor`/`currencyFor`). Die Obergrenze hält ihn trotzdem klein, falls
+ * je ein Aufrufer freie Werte übergibt.
+ */
+const MONEY_FORMATTERS = new Map<string, Intl.NumberFormat>();
+const MONEY_FORMATTER_LIMIT = 16;
+
+function moneyFormatter(locale: string, currency: string): Intl.NumberFormat {
+  const key = `${locale}|${currency}`;
+  let formatter = MONEY_FORMATTERS.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, { style: 'currency', currency });
+    if (MONEY_FORMATTERS.size >= MONEY_FORMATTER_LIMIT) MONEY_FORMATTERS.clear();
+    MONEY_FORMATTERS.set(key, formatter);
+  }
+  return formatter;
 }
 
 /** Kurzform für Euro-Beträge in deutscher Schreibweise. */

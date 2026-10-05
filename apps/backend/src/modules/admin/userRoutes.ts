@@ -51,7 +51,7 @@ import {
   rank,
   type RightsChange,
 } from '../../core/accountRights.js';
-import { storeIssuedPassword } from '../../core/credentials.js';
+import { prepareIssuedPassword, storeIssuedPassword } from '../../core/credentials.js';
 
 const permissionsSchema = z.record(z.enum(PERMISSION_LEVELS)).refine(
   (p) => Object.keys(p).every((k) => (ADMIN_AREAS as readonly string[]).includes(k)),
@@ -213,9 +213,9 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
         .run(body.name, body.description ?? null);
       const roleId = Number(res.lastInsertRowid);
       writePermissions(roleId, body.permissions);
+      audit(req, 'create', 'admin_role', roleId, { name: body.name });
       return roleId;
     });
-    audit(req, 'create', 'admin_role', id, { name: body.name });
     reply.status(201);
     return { admin_role: { ...loadRole(id), permissions: loadPermissions(id) } };
   });
@@ -291,14 +291,15 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
         .prepare('UPDATE admin_roles SET name = ?, description = ? WHERE id = ?')
         .run(body.name, body.description ?? null, id);
       writePermissions(id, body.permissions);
+
+      // Nach der Änderung muss weiterhin jemand die Rechte vergeben können.
+      // In der Transaktion, damit ein Verstoß die Änderung zurückrollt.
+      if (userAdminCount() === 0) {
+        throw conflict('Nach dieser Änderung könnte niemand mehr Rechte vergeben.');
+      }
+
+      audit(req, 'update', 'admin_role', id, { name: body.name, before: role.name });
     });
-
-    // Nach der Änderung muss weiterhin jemand die Rechte vergeben können.
-    if (userAdminCount() === 0) {
-      throw conflict('Nach dieser Änderung könnte niemand mehr Rechte vergeben.');
-    }
-
-    audit(req, 'update', 'admin_role', id, { name: body.name, before: role.name });
     return { admin_role: { ...loadRole(id), permissions: loadPermissions(id) } };
   });
 
@@ -329,8 +330,10 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           'Weisen Sie diesen Konten zuerst eine andere Rolle zu — ohne Rolle hätten sie Vollzugriff.',
       );
     }
-    db().prepare('DELETE FROM admin_roles WHERE id = ?').run(id);
-    audit(req, 'delete', 'admin_role', id, { name: role.name });
+    inTransaction(() => {
+      db().prepare('DELETE FROM admin_roles WHERE id = ?').run(id);
+      audit(req, 'delete', 'admin_role', id, { name: role.name });
+    });
     reply.status(204);
   });
 
@@ -360,36 +363,44 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
     const employeeId = body.employee_id ?? null;
     const adminRoleId = body.admin_role_id ?? null;
 
-    if (body.role === 'mitarbeiter') {
-      // Ein Portal-Konto ohne Personalprofil sieht nichts: Der gesamte
-      // Self-Service (modules/me) hängt an users.employee_id.
-      if (employeeId === null) {
-        throw badRequest('Ein Portal-Konto braucht ein verknüpftes Personalprofil.');
+    // Rechte- und Rollenprüfung. Läuft zweimal: vor dem Hashen, damit eine
+    // abgewiesene Anfrage keinen bcrypt-Lauf im Worker-Pool kostet (den auch
+    // jede Anmeldung braucht), und maßgeblich danach, unmittelbar vor dem
+    // Schreiben: Zwischen dieser zweiten Prüfung und dem Commit liegt kein
+    // await (core/credentials.ts, prepareIssuedPassword).
+    const assertAllowed = () => {
+      if (body.role === 'mitarbeiter') {
+        // Ein Portal-Konto ohne Personalprofil sieht nichts: Der gesamte
+        // Self-Service (modules/me) hängt an users.employee_id.
+        if (employeeId === null) {
+          throw badRequest('Ein Portal-Konto braucht ein verknüpftes Personalprofil.');
+        }
+        if (adminRoleId !== null) {
+          throw badRequest('Admin-Rollen gelten nur für Konten der HR-Administration.');
+        }
       }
-      if (adminRoleId !== null) {
-        throw badRequest('Admin-Rollen gelten nur für Konten der HR-Administration.');
-      }
-    }
 
-    // Eskalationsdeckel (Audit S4): Ein Konto OHNE Rolle hat Vollzugriff
-    // (Migration 002). Wer selbst eingeschränkt ist, darf so ein Konto nicht
-    // anlegen — er bekäme das Erstpasswort in dieser Antwort gleich mit.
-    if (body.role === 'admin' && adminRoleId === null && (req.user.admin_role_id ?? null) !== null) {
-      throw forbidden(
-        'Konten ohne Admin-Rolle haben Vollzugriff. Diese Zuweisung kann nur eine Person mit Vollzugriff vornehmen.',
+      // Eskalationsdeckel (Audit S4): Ein Konto OHNE Rolle hat Vollzugriff
+      // (Migration 002). Wer selbst eingeschränkt ist, darf so ein Konto nicht
+      // anlegen, er bekäme das Erstpasswort in dieser Antwort gleich mit.
+      if (body.role === 'admin' && adminRoleId === null && (req.user.admin_role_id ?? null) !== null) {
+        throw forbidden(
+          'Konten ohne Admin-Rolle haben Vollzugriff. Diese Zuweisung kann nur eine Person mit Vollzugriff vornehmen.',
+        );
+      }
+      if (adminRoleId !== null) loadRole(adminRoleId);
+      // Rechte des neuen Kontos samt Führungsfunktion des Profils: Die anlegende
+      // Person bekommt das Erstpasswort in dieser Antwort.
+      assertWithinOwnRights(
+        req,
+        effectiveRights({ role: body.role, admin_role_id: adminRoleId, employee_id: employeeId }),
+        'Sie können kein Konto mit mehr Rechten anlegen, als Sie selbst haben.',
       );
-    }
-    if (adminRoleId !== null) loadRole(adminRoleId);
-    // Rechte des neuen Kontos samt Führungsfunktion des Profils: Die anlegende
-    // Person bekommt das Erstpasswort in dieser Antwort.
-    assertWithinOwnRights(
-      req,
-      effectiveRights({ role: body.role, admin_role_id: adminRoleId, employee_id: employeeId }),
-      'Sie können kein Konto mit mehr Rechten anlegen, als Sie selbst haben.',
-    );
+    };
 
-    let initialPassword = '';
-    const id = inTransaction(() => {
+    // Adresse und Profil frei? Ebenfalls zweimal: vorab ohne Hash, maßgeblich
+    // in der Transaktion des INSERT.
+    const assertFree = () => {
       // Doppelte Adressen bewusst ohne Rücksicht auf Groß-/Kleinschreibung
       // ablehnen: Die Anlage soll an einer verwechselbaren Adresse scheitern,
       // nicht der spätere Login.
@@ -410,6 +421,16 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           );
         }
       }
+    };
+
+    assertAllowed();
+    assertFree();
+    const issued = await prepareIssuedPassword();
+    assertAllowed();
+
+    let initialPassword = '';
+    const id = inTransaction(() => {
+      assertFree();
       // Kein gültiger Hash bis zur nächsten Zeile; beides in einer Transaktion.
       const res = db()
         .prepare(
@@ -418,17 +439,16 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
         )
         .run(body.email, body.name, body.role, employeeId, adminRoleId);
       const userId = Number(res.lastInsertRowid);
-      initialPassword = storeIssuedPassword(db(), userId, issuerRightsOf(req));
+      initialPassword = storeIssuedPassword(db(), userId, issuerRightsOf(req), issued);
+      // Ohne Passwort und ohne Hash: Das Audit-Log ist für viele Augen sichtbar.
+      audit(req, 'create', 'user', userId, {
+        email: body.email,
+        name: body.name,
+        role: body.role,
+        employee_id: employeeId,
+        admin_role_id: adminRoleId,
+      });
       return userId;
-    });
-
-    // Ohne Passwort und ohne Hash — das Audit-Log ist für viele Augen sichtbar.
-    audit(req, 'create', 'user', id, {
-      email: body.email,
-      name: body.name,
-      role: body.role,
-      employee_id: employeeId,
-      admin_role_id: adminRoleId,
     });
     reply.status(201);
     return { user: loadUser(id), initial_password: initialPassword };
@@ -443,20 +463,31 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post('/api/admin/users/:id/reset-password', async (req) => {
     const id = Number((req.params as { id: string }).id);
-    const target = loadUser(id);
     // Eskalationsdeckel (Audit S4): Wer ein Passwort zurücksetzt, bekommt es in
     // dieser Antwort, das ist eine vollständige Kontoübernahme. Ranghöhere
-    // Konten sind deshalb tabu, auch über die Führungsfunktion.
-    assertWithinOwnRights(
-      req,
-      effectiveRights(target),
-      'Dieses Konto hat mehr Rechte als Sie selbst. Das Passwort kann nur eine entsprechend berechtigte Person zurücksetzen.',
-    );
+    // Konten sind deshalb tabu, auch über die Führungsfunktion. Wie beim
+    // Anlegen zweimal geprüft: vorab, damit ein unbekanntes oder ranghöheres
+    // Konto keinen bcrypt-Lauf kostet, und maßgeblich nach dem Hashen, ohne
+    // await bis zum Schreiben.
+    const checkTarget = () => {
+      const account = loadUser(id);
+      assertWithinOwnRights(
+        req,
+        effectiveRights(account),
+        'Dieses Konto hat mehr Rechte als Sie selbst. Das Passwort kann nur eine entsprechend berechtigte Person zurücksetzen.',
+      );
+      return account;
+    };
+    checkTarget();
+    const issued = await prepareIssuedPassword();
+    const target = checkTarget();
     // Sitzungen entwerten, Wechsel erzwingen, Aussteller festhalten:
-    // core/credentials.ts.
-    const newPassword = storeIssuedPassword(db(), id, issuerRightsOf(req));
-
-    audit(req, 'reset_password', 'user', id, { email: target.email, name: target.name });
+    // core/credentials.ts. Mit dem Audit-Eintrag in einer Transaktion.
+    const newPassword = inTransaction(() => {
+      const password = storeIssuedPassword(db(), id, issuerRightsOf(req), issued);
+      audit(req, 'reset_password', 'user', id, { email: target.email, name: target.name });
+      return password;
+    });
     return { user: loadUser(id), initial_password: newPassword };
   });
 
@@ -493,12 +524,11 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
     inTransaction(() => {
       detachUserReferences(id);
       db().prepare('DELETE FROM users WHERE id = ?').run(id);
-    });
-
-    audit(req, 'delete', 'user', id, {
-      email: target.email,
-      name: target.name,
-      role: target.role,
+      audit(req, 'delete', 'user', id, {
+        email: target.email,
+        name: target.name,
+        role: target.role,
+      });
     });
     reply.status(204);
   });
@@ -589,8 +619,8 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
       'Sie können einem Konto keine Rechte geben, die Sie selbst nicht haben.',
     );
 
-    // ---- Schreiben in EINER Transaktion; die Erreichbarkeitsprüfung rollt
-    // bei Verstoß alles zurück. ----
+    // ---- Schreiben samt Audit-Einträgen in EINER Transaktion; die
+    // Erreichbarkeitsprüfung rollt bei Verstoß alles zurück. ----
     inTransaction(() => {
       if (employeeId !== undefined) {
         db().prepare('UPDATE users SET employee_id = ? WHERE id = ?').run([employeeId, id]);
@@ -604,22 +634,22 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
           );
         }
       }
-    });
 
-    if (employeeId !== undefined) {
-      audit(req, 'update', 'user_employee_link', id, {
-        user: target.name,
-        before: target.employee_id,
-        after: employeeId,
-      });
-    }
-    if (adminRoleId !== undefined) {
-      audit(req, 'update', 'user_admin_role', id, {
-        user: target.name,
-        before: target.admin_role_id,
-        after: adminRoleId,
-      });
-    }
+      if (employeeId !== undefined) {
+        audit(req, 'update', 'user_employee_link', id, {
+          user: target.name,
+          before: target.employee_id,
+          after: employeeId,
+        });
+      }
+      if (adminRoleId !== undefined) {
+        audit(req, 'update', 'user_admin_role', id, {
+          user: target.name,
+          before: target.admin_role_id,
+          after: adminRoleId,
+        });
+      }
+    });
 
     return { user: loadUser(id) };
   });

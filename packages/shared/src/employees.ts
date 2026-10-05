@@ -263,7 +263,14 @@ export interface EmployeeDto extends EmployeeLiteDto {
   personnel_number: string | null;
   email: string | null;
   phone: string | null;
+  /** Foto im Original, unverändert wie hochgeladen. */
   photo_file_id: number | null;
+  /**
+   * Vorschaubild zum Foto (quadratisch, höchstens PHOTO_THUMB_EDGE Pixel),
+   * für Listen, Karten und Avatare. `null`: keins vorhanden (Bestand von
+   * vorher, Bild im Client nicht lesbar), dann zeigt die Anzeige das Original.
+   */
+  photo_thumb_file_id: number | null;
   birth_date: string | null;
   private_street: string | null;
   private_zip: string | null;
@@ -286,6 +293,31 @@ export interface EmployeeDto extends EmployeeLiteDto {
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * Kantenlänge des Vorschaubilds eines Mitarbeiterfotos in Pixeln. Das
+ * Vorschaubild ist ein mittiger quadratischer Ausschnitt: Alle Avatare sind
+ * rund und quadratisch mit `object-fit: cover` (Mitte), zeigen also genau
+ * diesen Ausschnitt. Kleinere Fotos werden nicht hochgerechnet.
+ *
+ * Rechnung (größte Anzeige je Stelle, maximaler Zoom, devicePixelRatio 2):
+ * - Organigramm-Karte, Desktop `.orgc-card__avatar` und Portal (OrgPage.tsx)
+ *   46 px, auf der Zoomfläche bis MAX_ZOOM 2. Desktop zusätzlich App-Zoom
+ *   (Strg+, `app:zoom` in apps/desktop/src/main.ts) bis Stufe 4, also
+ *   Faktor 1,2^4 = 2,07: 46 × 2 × 2,07 × 2 = 382 px. Portal mit Browserzoom
+ *   200 %: 46 × 2 × 2 × 2 = 368 px.
+ * - Außerhalb der Zoomfläche: Bewertungsmaske und Foto-Auswahl 64 px,
+ *   Personalakte und Detailspalte 56 px, Verzeichnis, Mein Team und Report
+ *   48 px; größte davon 64 × 2,07 × 2 = 265 px.
+ * 512 deckt 382 mit Reserve, auch bei Windows-Skalierung 250 % (dpr 2,5:
+ * 46 × 2 × 2,07 × 2,5 = 477). Reicht es nicht mehr (Karte × Flächenzoom ×
+ * devicePixelRatio über 512, also ab etwa dpr 2,7 bei vollem Zoom), nimmt
+ * das Organigramm der Desktop-App für die Karten das Original. Das Portal
+ * bekommt kein Original in der Liste; dort reicht 512 bis zu einem
+ * devicePixelRatio von 5,5 bei Flächenzoom 2 (Browserzoom eingerechnet).
+ * Wer einen Avatar vergrößert, rechnet hier nach.
+ */
+export const PHOTO_THUMB_EDGE = 512;
 
 export interface ContractDto {
   id: number;
@@ -367,7 +399,9 @@ export type OrgChartParentSource = 'manager' | 'team_lead' | 'department_head';
  * Geschäftsführung. Zyklen in `manager_id` trennt der Server auf; der Baum
  * ist also immer zeichenbar. `manager_id` bleibt daneben roh erhalten, damit
  * die Oberfläche gepflegte und abgeleitete Linien unterscheiden kann.
- * `photo_url` ist kurzlebig signiert (core/files.ts): sofort konsumieren.
+ * `photo_url` zeigt auf das Vorschaubild (sonst das Original) und ist
+ * befristet signiert, stabil innerhalb eines Zeitfensters (signPhotoUrl in
+ * core/files.ts, höchstens etwa elf Minuten): bald laden, nicht merken.
  */
 export interface OrgChartPerson {
   id: number;
@@ -389,7 +423,18 @@ export interface OrgChartPerson {
   location_id: number | null;
   location_name: string | null;
   photo_file_id: number | null;
+  photo_thumb_file_id: number | null;
   photo_url: string | null;
+}
+
+/**
+ * GET /api/org/chart/originals: signierte Links auf die Originale je Person
+ * (Schlüssel: Personen-ID), nur für Personen mit Vorschaubild, befristet wie
+ * photo_url. Das Organigramm der HR-Administration holt sie erst bei hohem
+ * Zoom; das Portal erreicht die Route nicht.
+ */
+export interface OrgChartOriginalsResponse {
+  originals: Record<number, string>;
 }
 
 export interface OrgChartResponse {

@@ -12,6 +12,7 @@ process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
 const { firstAdminLogin } = await import('../../test/adminSession.js');
+const { config } = await import('../../config.js');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -380,6 +381,115 @@ let interviewId = 0;
 {
   const del = await app.inject({ method: 'DELETE', url: `/api/recruiting/postings/${postingId}`, headers: auth });
   check('Stelle: Löschen mit Bewerbungen -> 409', del.statusCode === 409);
+}
+
+// ---------------------------------------------------------------------------
+// Audit in derselben Transaktion
+// ---------------------------------------------------------------------------
+// Änderung, Timeline-Ereignis und Audit-Eintrag stehen in EINER Transaktion.
+// Ein TEMP-Trigger auf derselben Verbindung (über sie schreiben auch die
+// Routen) weist jeden Audit-Eintrag ab: Die Anfrage muss mit 5xx scheitern,
+// und von der Änderung darf nichts gespeichert sein. Vorher blieb sie stehen,
+// nur der Eintrag fehlte.
+{
+  const count = (sql: string, ...params: unknown[]) => (db.prepare(sql).get(...params) as { n: number }).n;
+  const insertProbeFile = (name: string) => {
+    fs.writeFileSync(path.join(config.storageDir, name), `Probe ${name}`);
+    return Number(
+      db
+        .prepare(
+          `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
+           VALUES (?, ?, 'text/plain', 10, ?)`,
+        )
+        .run(name, name, `sha-${name}`).lastInsertRowid,
+    );
+  };
+  // Bewerbung mit echtem Foto- und Lebenslauf-Blob: Ein Rollback darf weder
+  // Datensatz noch Blob kosten.
+  const photo = insertProbeFile('audit-probe-foto.txt');
+  const cv = insertProbeFile('audit-probe-cv.txt');
+  const probe = await app.inject({
+    method: 'POST',
+    url: '/api/recruiting/applications',
+    headers: auth,
+    payload: {
+      posting_id: postingId,
+      candidate: { first_name: 'Rita', last_name: 'Probe', source: 'website', photo_file_id: photo },
+      cv_file_id: cv,
+      applied_at: '2026-07-05',
+    },
+  });
+  check('Audit-Probe: Bewerbung angelegt', probe.statusCode === 201, probe.json());
+  const probeId = probe.json().application.id as number;
+  const probeCandidate = probe.json().application.candidate_id as number;
+  const filesKept = () =>
+    count('SELECT COUNT(*) AS n FROM files WHERE id IN (?, ?)', photo, cv) === 2 &&
+    fs.existsSync(path.join(config.storageDir, 'audit-probe-foto.txt')) &&
+    fs.existsSync(path.join(config.storageDir, 'audit-probe-cv.txt'));
+
+  const employeesBefore = count('SELECT COUNT(*) AS n FROM employees');
+  const eventsBefore = count('SELECT COUNT(*) AS n FROM application_events WHERE application_id = ?', probeId);
+  const auditBefore = count('SELECT COUNT(*) AS n FROM audit_log');
+
+  const results: Record<string, number> = {};
+  db.exec("CREATE TEMP TRIGGER audit_kaputt BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit kaputt'); END;");
+  try {
+    // Einstellung: Personalprofil, Fachrolle, Bewerbung, Timeline in einer Transaktion.
+    results.hire = (
+      await app.inject({
+        method: 'POST',
+        url: `/api/recruiting/applications/${probeId}/hire`,
+        headers: auth,
+        payload: {
+          hire_date: '2026-10-01', weekly_hours: 40, annual_leave_days: 30,
+          iban: 'DE02120300000000202051', tax_class: 'I', social_security_number: '12 345678 A 123',
+        },
+      })
+    ).statusCode;
+    // Bewertung: Änderung und Timeline-Ereignis.
+    results.rating = (
+      await app.inject({ method: 'PATCH', url: `/api/recruiting/applications/${probeId}`, headers: auth, payload: { rating: 3 } })
+    ).statusCode;
+    // Löschen samt Foto und Lebenslauf.
+    results.candidateDelete = (
+      await app.inject({ method: 'DELETE', url: `/api/recruiting/candidates/${probeCandidate}`, headers: auth })
+    ).statusCode;
+  } finally {
+    db.exec('DROP TRIGGER IF EXISTS audit_kaputt');
+  }
+  check('Audit kaputt: jede Änderung scheitert mit 5xx', Object.values(results).every((s) => s >= 500), results);
+  const probeRow = db.prepare('SELECT status, rating, converted_employee_id FROM applications WHERE id = ?').get(probeId) as
+    | { status: string; rating: number | null; converted_employee_id: number | null }
+    | undefined;
+  check(
+    'Audit kaputt: keine Einstellung (kein Profil, Bewerbung aktiv)',
+    count('SELECT COUNT(*) AS n FROM employees') === employeesBefore &&
+      probeRow?.status === 'aktiv' &&
+      probeRow.converted_employee_id === null,
+    { employees: count('SELECT COUNT(*) AS n FROM employees') - employeesBefore, probeRow },
+  );
+  check(
+    'Audit kaputt: Bewertung und Timeline unverändert',
+    probeRow?.rating === null &&
+      count('SELECT COUNT(*) AS n FROM application_events WHERE application_id = ?', probeId) === eventsBefore,
+    probeRow,
+  );
+  check(
+    'Audit kaputt: Bewerber:in nicht gelöscht, Foto und Lebenslauf samt Blob erhalten',
+    count('SELECT COUNT(*) AS n FROM candidates WHERE id = ?', probeCandidate) === 1 && filesKept(),
+  );
+  check('Audit kaputt: kein Audit-Eintrag dazugekommen', count('SELECT COUNT(*) AS n FROM audit_log') === auditBefore);
+
+  // Ohne Trigger gelingt das Löschen; Datensätze und Blobs verschwinden erst jetzt.
+  const delOk = await app.inject({ method: 'DELETE', url: `/api/recruiting/candidates/${probeCandidate}`, headers: auth });
+  check(
+    'Bewerber:in löschen: Foto und Lebenslauf samt Blob weg',
+    delOk.statusCode === 204 &&
+      count('SELECT COUNT(*) AS n FROM files WHERE id IN (?, ?)', photo, cv) === 0 &&
+      !fs.existsSync(path.join(config.storageDir, 'audit-probe-foto.txt')) &&
+      !fs.existsSync(path.join(config.storageDir, 'audit-probe-cv.txt')),
+    delOk.statusCode,
+  );
 }
 
 // Audit-Stichprobe

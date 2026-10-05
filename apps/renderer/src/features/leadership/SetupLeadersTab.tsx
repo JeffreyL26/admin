@@ -7,7 +7,7 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
-import { usePhotoUrl } from '../employees/api';
+import { useAvatarPhoto } from '../employees/avatarPhoto';
 import { useGrantLeader, useLeaders, useRevokeLeader, useUpdateLeader } from './api';
 import { SetupScopeModal } from './SetupScopeModal';
 import { SetupEmployeeSelect, SetupNote, errorMessage, personCount } from './SetupShared';
@@ -185,14 +185,15 @@ function LeaderRow({
   onRevoke: () => void;
 }) {
   // Kein photo_url in der Leader-Antwort: usePhotoUrl signiert selbst und
-  // fällt ohne personal:lesen still auf Initialen zurück.
-  const photo = usePhotoUrl(leader.photo_file_id);
+  // fällt ohne personal:lesen still auf Initialen zurück. Erst bei
+  // Sichtbarkeit, damit eine lange Liste nicht je Zeile signiert.
+  const photo = useAvatarPhoto(leader);
   const name = `${leader.first_name} ${leader.last_name}`;
   return (
     <tr>
       <td>
         <div className="row" style={{ gap: 10 }}>
-          <Avatar name={name} size={34} src={photo.data} />
+          <Avatar name={name} size={34} src={photo.src} photoRef={photo.ref} />
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 600 }}>{name}</div>
             <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>

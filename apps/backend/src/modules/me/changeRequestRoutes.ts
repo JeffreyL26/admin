@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { EMPLOYEE_SELF_EDITABLE_FIELDS } from '@ohrganize/shared';
+import { inTransaction } from '../../db/db.js';
 import { parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { requireEmployee } from './lib.js';
@@ -46,14 +47,19 @@ export const meChangeRequestRoutes: FastifyPluginAsync = async (app) => {
   app.post('/api/me/change-requests', async (req, reply) => {
     const emp = requireEmployee(req);
     const body = parse(changeRequestCreateSchema, req.body);
-    const request = createRequest(emp.id, req.user.id, body);
-    // Im Protokoll stehen nur die NAMEN der Felder, nicht die Werte: Der
-    // Antrag selbst enthält sie bereits, und im audit_log stünde die neue
-    // Bankverbindung sonst ein zweites Mal — an einer Stelle, die auch die
-    // Systemverwaltung liest.
-    audit(req, 'me.change_request.create', 'employee', emp.id, {
-      request_id: request.id,
-      fields: request.fields.map((f) => f.field),
+    // Antrag und Audit-Eintrag in EINER Transaktion (der Service schachtelt
+    // seine eigene als Savepoint hinein): kein Antrag ohne Protokoll.
+    const request = inTransaction(() => {
+      const created = createRequest(emp.id, req.user.id, body);
+      // Im Protokoll stehen nur die NAMEN der Felder, nicht die Werte: Der
+      // Antrag selbst enthält sie bereits, und im audit_log stünde die neue
+      // Bankverbindung sonst ein zweites Mal, an einer Stelle, die auch die
+      // Systemverwaltung liest.
+      audit(req, 'me.change_request.create', 'employee', emp.id, {
+        request_id: created.id,
+        fields: created.fields.map((f) => f.field),
+      });
+      return created;
     });
     reply.code(201);
     return { request };
@@ -62,8 +68,11 @@ export const meChangeRequestRoutes: FastifyPluginAsync = async (app) => {
   app.post('/api/me/change-requests/:id/withdraw', async (req) => {
     const emp = requireEmployee(req);
     const id = idParam(req);
-    const request = withdrawRequest(id, emp.id);
-    audit(req, 'me.change_request.withdraw', 'employee', emp.id, { request_id: id });
+    const request = inTransaction(() => {
+      const withdrawn = withdrawRequest(id, emp.id);
+      audit(req, 'me.change_request.withdraw', 'employee', emp.id, { request_id: id });
+      return withdrawn;
+    });
     return { request };
   });
 };

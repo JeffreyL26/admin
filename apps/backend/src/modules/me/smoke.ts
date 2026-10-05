@@ -431,6 +431,10 @@ const orgChart = await empGet('/api/me/org-chart');
 type ChartPerson = { id: number; parent_id: number | null; parent_source: string | null; department_name: string | null };
 const chartPeople = orgChart.json().people as ChartPerson[];
 const anna = chartPeople.find((p) => p.id === 1);
+check(
+  'Portal-Organigramm ohne Link auf das Original (nur Vorschaubild über photo_url)',
+  !hasKeyDeep(orgChart.json(), 'photo_original_url'),
+);
 const ben = chartPeople.find((p) => p.id === 2);
 check(
   'Organigramm: Berichtslinie und eigene Person (Anna berichtet an Ben)',
@@ -1049,6 +1053,73 @@ check(
     !crEigeneListe.json().requests.some((r: { id: number }) => r.id === crBenId),
   crEigeneListe.json().requests.map((r: { id: number; status: string }) => `${r.id}:${r.status}`),
 );
+
+// ------------------------------------------ Audit in derselben Transaktion ---
+// Ein TEMP-Trigger auf derselben Verbindung, über die auch die Routen
+// schreiben, weist jeden Audit-Eintrag ab: Die Anfrage scheitert (5xx), und
+// von der fachlichen Änderung bleibt nichts stehen.
+{
+  async function withBrokenAudit<T>(fn: () => Promise<T>): Promise<T> {
+    db.exec("CREATE TEMP TRIGGER audit_kaputt BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit kaputt'); END;");
+    try {
+      return await fn();
+    } finally {
+      db.exec('DROP TRIGGER IF EXISTS audit_kaputt');
+    }
+  }
+  const countOf = (table: string) => (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+
+  // Änderungsantrag im Portal: Der Service schreibt in seiner eigenen
+  // Transaktion, die Route schachtelt sie mit dem Audit-Eintrag.
+  const requestsBefore = countOf('employee_change_requests');
+  const brokenCreate = await withBrokenAudit(() => empPost('/api/me/change-requests', { fields: { private_city: 'Augsburg' } }));
+  check(
+    'Audit kaputt: Änderungsantrag scheitert (5xx), kein Antrag gespeichert',
+    brokenCreate.statusCode >= 500 && countOf('employee_change_requests') === requestsBefore,
+    { status: brokenCreate.statusCode },
+  );
+
+  // Entscheidung der Personalabteilung: weder die Akte noch der Status
+  // ändern sich.
+  const pending = await empPost('/api/me/change-requests', { fields: { private_city: 'Augsburg' } });
+  const pendingId = pending.json().request?.id as number;
+  const cityOf = () => (db.prepare('SELECT private_city FROM employees WHERE id = 1').get() as { private_city: string | null }).private_city;
+  const cityBefore = cityOf();
+  const decide = () =>
+    app.inject({
+      method: 'POST',
+      url: `/api/employees/change-requests/${pendingId}/decide`,
+      headers: adminAuth,
+      payload: { decision: 'genehmigt' },
+    });
+  const brokenDecide = await withBrokenAudit(decide);
+  const statusOf = () =>
+    (db.prepare('SELECT status FROM employee_change_requests WHERE id = ?').get(pendingId) as { status: string }).status;
+  check(
+    'Audit kaputt: Genehmigung scheitert (5xx), Akte und Antrag unverändert',
+    pending.statusCode === 201 && brokenDecide.statusCode >= 500 && cityOf() === cityBefore && statusOf() === 'beantragt',
+    { status: brokenDecide.statusCode, city: cityOf(), request: statusOf() },
+  );
+  const healedDecide = await decide();
+  check(
+    'Audit heil: Genehmigung gelingt, Akte übernimmt den Wert',
+    healedDecide.statusCode === 200 && cityOf() === 'Augsburg' && statusOf() === 'genehmigt',
+    healedDecide.json(),
+  );
+
+  // Dokument-Upload: Die Datei liegt schon im Storage, wenn die Transaktion
+  // scheitert; der catch-Zweig räumt sie wieder ab.
+  const docsBefore = countOf('documents');
+  const filesBefore = countOf('files');
+  const brokenUpload = await withBrokenAudit(() =>
+    empUpload(multipart({ category: 'sonstiges', title: 'Audit-Probe' }, { name: 'probe.txt', type: 'text/plain', content: 'x' })),
+  );
+  check(
+    'Audit kaputt: Upload scheitert (5xx), kein Dokument, Datei wieder entfernt',
+    brokenUpload.statusCode >= 500 && countOf('documents') === docsBefore && countOf('files') === filesBefore,
+    { status: brokenUpload.statusCode },
+  );
+}
 
 // ------------------------------------------------ Ankuendigungen & Umfragen ---
 // Anna: Abteilung Technik (1), Team Backend (1), Standort Muenchen (1).

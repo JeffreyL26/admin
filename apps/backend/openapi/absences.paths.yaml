@@ -56,15 +56,23 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
   /api/absences/requests:
     get:
-      summary: Abwesenheitsanträge auflisten
+      summary: Abwesenheitsanträge auflisten (sortiert nach date_from und id absteigend; mit limit geblättert)
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [beantragt, genehmigt, abgelehnt, storniert] } }
         - { name: type_id, in: query, schema: { type: integer } }
         - { name: employee_id, in: query, schema: { type: integer } }
         - { name: from, in: query, schema: { type: string, format: date } }
         - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1 }, description: "Seitengröße, höchstens 500 (größere Werte werden gedeckelt). Ohne limit ungeblättert: alle Treffer, ohne total." }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 }, description: Nur mit limit. Anzahl übersprungener Treffer. }
+        - { name: focus_id, in: query, schema: { type: integer }, description: "Nur mit limit. Liefert die Seite, auf der dieser Antrag steht (passt er zu den Filtern); offset der Antwort nennt ihren Beginn." }
       responses:
-        "200": { description: Antragsliste (mit Mitarbeiter- und Art-Daten) }
+        "200": { description: "{ requests: [...] } mit Mitarbeiter- und Art-Daten; mit limit zusätzlich total (Treffer über alle Seiten) und offset (Beginn der gelieferten Seite)" }
+        "400":
+          description: limit, offset oder focus_id keine passende ganze Zahl
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
     post:
       summary: Antrag stellvertretend erfassen (Auto-Genehmigung bei Arten ohne Genehmigungspflicht oder mit approve)
       requestBody:
@@ -173,7 +181,8 @@ paths:
       summary: Krankmeldungen auflisten
       parameters:
         - { name: child_sick, in: query, schema: { type: string, enum: ["0", "1"] } }
-        - { name: year, in: query, schema: { type: integer } }
+        - { name: year, in: query, schema: { type: integer }, description: "Nur Krankmeldungen, die das Jahr berühren; ohne Angabe alle Jahre" }
+        - { name: employee_id, in: query, schema: { type: integer }, description: "Nur Krankmeldungen dieser Person (alle Jahre, sofern year fehlt)" }
       responses:
         "200": { description: Krankmeldungen mit Antrags- und Mitarbeiterdaten }
     post:
