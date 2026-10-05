@@ -17,7 +17,7 @@ paths:
       summary: Mitarbeiter:in anlegen (typabhängige Pflichtfelder serverseitig validiert; photo_file_id = Original, photo_thumb_file_id = Vorschaubild dazu)
       responses:
         "201": { description: Angelegte:r Mitarbeiter:in }
-        "400": { description: Validierungsfehler (u. a. EMPLOYEE_TYPE_RULES, Vorschaubild ohne Foto) }
+        "400": { description: "Validierungsfehler (u. a. EMPLOYEE_TYPE_RULES, Vorschaubild ohne Foto)" }
   /api/employees/export.csv:
     get:
       summary: CSV-Export der Stammdaten (BOM + Semikolon, gleiche Filter wie Liste)
