@@ -16,7 +16,7 @@ paths:
         - { name: location_id, in: query, required: false, schema: { type: integer } }
         - { name: skill, in: query, required: false, schema: { type: string } }
       responses:
-        "200": { description: Verzeichnis-Einträge inkl. Skills mit Level }
+        "200": { description: "Verzeichnis-Einträge inkl. Skills mit Level; photo_url zeigt auf das Vorschaubild (photo_thumb_file_id, sonst photo_file_id) und bleibt innerhalb eines Zehn-Minuten-Fensters gleich" }
   /api/communication/directory/fields:
     get:
       summary: Feld-Sichtbarkeit des Verzeichnisses lesen
@@ -166,7 +166,7 @@ paths:
         "403": { description: Kein verknüpftes oder inaktives Personalprofil }
   /api/me/directory:
     get:
-      summary: Kolleg:innen-Verzeichnis (dieselben Felder und Filter wie das HR-Verzeichnis, Fotos kurzlebig signiert)
+      summary: Kolleg:innen-Verzeichnis (dieselben Felder und Filter wie das HR-Verzeichnis, Fotos als Vorschaubild befristet signiert, URL innerhalb eines Zehn-Minuten-Fensters gleich)
       tags: [Self-Service]
       parameters:
         - { name: search, in: query, required: false, schema: { type: string } }

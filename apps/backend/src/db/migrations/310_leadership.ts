@@ -229,4 +229,16 @@ export const leadershipMigrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_teams_lead ON teams(lead_employee_id);
     `,
   },
+  {
+    name: '312_leadership_rating_indexes',
+    // Bewertungen einer Fuehrungskraft in einem Zeitraum (Mein Team, Report,
+    // Aufschluesselung): Der UNIQUE-Index (leader, employee, category, period)
+    // traegt nur die Fuehrungskraft, also las jede Abfrage alle Bewertungen
+    // seit Beginn. Dazu die Kategorie (Zaehler und Loeschpruefung lasen sonst
+    // je Kategorie den ganzen Bestand).
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_leadership_ratings_leader_period ON leadership_ratings(leader_employee_id, period_key);
+      CREATE INDEX IF NOT EXISTS idx_leadership_ratings_category ON leadership_ratings(category_id);
+    `,
+  },
 ];

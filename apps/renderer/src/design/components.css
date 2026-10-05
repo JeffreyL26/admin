@@ -270,6 +270,47 @@
 .hm-table td.num {
   font-family: var(--font-numeric);
 }
+/* Während die nächste Seite lädt, bleibt die alte sichtbar (keepPreviousData), nur gedimmt. */
+.hm-table-wrap--stale {
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+/* ---------- Seitenumschalter (components/Pagination.tsx) ----------
+   Fußzeile einer flachen Karte unter der Tabelle. Nur Tokens und hm-btn,
+   damit alle vier Themes mitziehen. */
+.hm-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.hm-pagination__info,
+.hm-pagination__pages {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
+}
+.hm-pagination__controls,
+.hm-pagination__pages {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hm-pagination__input {
+  width: 64px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 9px;
+  text-align: center;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-numeric);
+}
 
 /* Link, der wie Fliesstext aussieht (Namen, Abteilungen) und nur beim Ueberfahren unterstreicht. */
 .hm-text-link {

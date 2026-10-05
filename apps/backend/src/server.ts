@@ -14,7 +14,7 @@ import { config, hardenDataPermissions } from './config.js';
 import { migrate } from './db/migrate.js';
 import { AppError, errorHandler, forbidden, unauthorized } from './core/errors.js';
 import { authRoutes, ensureDefaultAdmin, type AuthUser } from './core/auth.js';
-import { encryptDatabaseAtRest, getDb, restartStaleWalIndex } from './db/db.js';
+import { encryptDatabaseAtRest, enlargePageCache, getDb, restartStaleWalIndex } from './db/db.js';
 import { CipherUnavailableError, ConversionVerificationError } from './db/encryption.js';
 import { encryptStoredFiles, fileRoutes } from './core/files.js';
 import { settingsRoutes } from './core/settingsRoutes.js';
@@ -66,6 +66,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       `(${errorText(err)}). Der nächste Start versucht es erneut.`;
   }
   migrate();
+  enlargePageCache();
   // Eine Füllung der -shm, die der vorige Prozess offen liess, nachholen,
   // falls die -shm noch steht (db.ts#restartStaleWalIndex; ob sie steht, hat
   // getDb schon beim Öffnen gemessen, vor den Migrationen).
@@ -193,6 +194,12 @@ export async function buildServer(): Promise<FastifyInstance> {
     await req.jwtVerify();
     // iat vor dem Überschreiben von req.user sichern (Unix-Sekunden).
     const issuedAt = typeof req.user.iat === 'number' ? req.user.iat : null;
+    // Ebenso die Sitzungsart (Desktop/Portal, core/auth.ts): Sie steht nur im
+    // Token; Verlängerung und Passwortwechsel stellen dieselbe Art wieder aus.
+    const session = req.user.session === 'desktop' ? 'desktop' : 'portal';
+    // Und der Beginn der Sitzung (auth_time): Die Verlängerung misst daran die
+    // Höchstdauer (core/auth.ts, sessionMaxOf).
+    const authTime = typeof req.user.auth_time === 'number' ? req.user.auth_time : undefined;
     const row = getDb()
       .prepare(
         `SELECT id, email, name, role, employee_id, admin_role_id, must_change_password,
@@ -213,7 +220,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       throw unauthorized('Die Sitzung wurde beendet. Bitte melden Sie sich erneut an.');
     }
 
-    req.user = { ...account, iat: issuedAt ?? undefined };
+    req.user = { ...account, iat: issuedAt ?? undefined, session, auth_time: authTime };
     // Lizenzzustand auf jeder angemeldeten Antwort — nur der Zustand, keine
     // Vertragsdaten, und für Portal-Konten nur „valid“/„expired“. Beide Clients
     // zeigen daraus Banner ohne eigene Abfrage. Öffentliche Antworten tragen

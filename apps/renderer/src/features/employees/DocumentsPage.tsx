@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, FilePlus2, FolderOpen, Pencil, Plus, Search, Trash2 } from 'lucide-react';
@@ -8,7 +8,7 @@ import { Badge, Card, EmptyState, PageHeader, Spinner } from '../../components/u
 import { ConfirmDialog } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
-import { useDocuments, useExpiringDocuments, type DocumentRow } from './api';
+import { useDocumentPage, useExpiringDocuments, type DocumentRow } from './api';
 import { DocumentUploadModal } from './DocumentUploadModal';
 import { SourceBadge, VisibilityBadge, VisibilityToggle } from './documentVisibility';
 import { DocumentEditModal } from './DocumentEditModal';
@@ -16,6 +16,11 @@ import { expiryBadge } from './EmployeeDetailPage';
 import { Select } from '../../components/Select';
 import { backToState } from '../../lib/backTo';
 import { useFocusRow } from '../../lib/focusRow';
+import { Pagination, usePageState } from '../../components/Pagination';
+import { useDebounced } from '../../components/useDebounced';
+
+/** Seitengröße der Dokumentablage. */
+const DOCUMENT_PAGE_SIZE = 100;
 
 /** Zugeordnete Person als Absprung in die Personalakte; „Zurück“ dort landet wieder bei diesem Dokument. */
 function documentOwner(d: DocumentRow) {
@@ -44,12 +49,37 @@ export function DocumentsPage() {
   const [editing, setEditing] = useState<DocumentRow | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<DocumentRow | null>(null);
 
-  const { data: documents, isLoading } = useDocuments({
-    search: search || undefined,
-    category: category || undefined,
-    source: source || undefined,
-    include_superseded: includeSuperseded,
-  });
+  // Geblättert: Die Ablage lud früher alle Dokumente am Stück. Ein Absprung
+  // zurück aus der Personalakte (?dokument=<id>) landet auf dessen Seite.
+  const paging = usePageState(DOCUMENT_PAGE_SIZE, focusId);
+  const debouncedSearch = useDebounced(search);
+  // Zurück auf Seite 1 erst mit dem entprellten Suchbegriff, der auch in die
+  // Abfrage geht: Je Tastendruck zurückgesetzt, lud die Liste beim Tippen auf
+  // einer späteren Seite sofort Seite 1 des ALTEN Suchbegriffs. Nicht beim
+  // ersten Rendern, sonst ginge der Absprung auf ein Dokument verloren.
+  const lastSearch = useRef(debouncedSearch);
+  useEffect(() => {
+    if (lastSearch.current === debouncedSearch) return;
+    lastSearch.current = debouncedSearch;
+    paging.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedSearch]);
+  const { data, isLoading, isPlaceholderData } = useDocumentPage(
+    {
+      search: debouncedSearch || undefined,
+      category: category || undefined,
+      source: source || undefined,
+      include_superseded: includeSuperseded,
+    },
+    paging.query,
+  );
+  useEffect(() => {
+    if (data && !isPlaceholderData) {
+      paging.settle({ total: data.total, offset: data.offset, rows: data.documents.length });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, isPlaceholderData]);
+  const documents = data?.documents;
   const { data: expiring } = useExpiringDocuments();
 
   const remove = useMutation({
@@ -123,7 +153,10 @@ export function DocumentsPage() {
             className="hm-select"
             style={{ width: 180 }}
             value={category}
-            onChange={(e) => setCategory(e.target.value)}
+            onChange={(e) => {
+              setCategory(e.target.value);
+              paging.reset();
+            }}
           >
             <option value="">Alle Kategorien</option>
             {Object.entries(DOCUMENT_CATEGORY_LABELS).map(([v, l]) => (
@@ -137,7 +170,10 @@ export function DocumentsPage() {
             style={{ width: 170 }}
             value={source}
             aria-label="Herkunft"
-            onChange={(e) => setSource(e.target.value as '' | DocumentSource)}
+            onChange={(e) => {
+              setSource(e.target.value as '' | DocumentSource);
+              paging.reset();
+            }}
           >
             <option value="">Jede Herkunft</option>
             <option value="portal">Aus dem Portal</option>
@@ -147,7 +183,10 @@ export function DocumentsPage() {
             <input
               type="checkbox"
               checked={includeSuperseded}
-              onChange={(e) => setIncludeSuperseded(e.target.checked)}
+              onChange={(e) => {
+                setIncludeSuperseded(e.target.checked);
+                paging.reset();
+              }}
             />
             Abgelöste Versionen anzeigen
           </label>
@@ -168,7 +207,7 @@ export function DocumentsPage() {
             }
           />
         ) : (
-          <div className="hm-table-wrap">
+          <div className={`hm-table-wrap${isPlaceholderData ? ' hm-table-wrap--stale' : ''}`}>
             <table className="hm-table">
               <thead>
                 <tr>
@@ -262,6 +301,15 @@ export function DocumentsPage() {
               </tbody>
             </table>
           </div>
+        )}
+        {!isLoading && (documents?.length ?? 0) > 0 && (
+          <Pagination
+            page={paging.page}
+            pageSize={paging.pageSize}
+            total={data?.total ?? 0}
+            onChange={paging.go}
+            label="Dokumente"
+          />
         )}
       </Card>
 

@@ -72,16 +72,19 @@ export async function roleRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/admin/roles', async (req, reply) => {
     const body = parse(roleBodySchema, req.body);
     assertNameFree(body.name);
-    const result = db()
-      .prepare('INSERT INTO roles (name, description, active, can_view_calendar) VALUES (?, ?, ?, ?)')
-      .run(
-        body.name,
-        body.description ?? null,
-        body.active === false ? 0 : 1,
-        body.can_view_calendar === false ? 0 : 1,
-      );
-    const id = Number(result.lastInsertRowid);
-    audit(req, 'create', 'role', id, { name: body.name, can_view_calendar: body.can_view_calendar !== false });
+    const id = inTransaction(() => {
+      const result = db()
+        .prepare('INSERT INTO roles (name, description, active, can_view_calendar) VALUES (?, ?, ?, ?)')
+        .run(
+          body.name,
+          body.description ?? null,
+          body.active === false ? 0 : 1,
+          body.can_view_calendar === false ? 0 : 1,
+        );
+      const roleId = Number(result.lastInsertRowid);
+      audit(req, 'create', 'role', roleId, { name: body.name, can_view_calendar: body.can_view_calendar !== false });
+      return roleId;
+    });
     reply.status(201);
     return { role: getRoleOr404(id) };
   });
@@ -99,16 +102,18 @@ export async function roleRoutes(app: FastifyInstance): Promise<void> {
       throw badRequest('Keine Änderungen übergeben');
     }
     if (patch.name !== undefined) assertNameFree(patch.name, id);
-    db()
-      .prepare('UPDATE roles SET name = ?, description = ?, active = ?, can_view_calendar = ? WHERE id = ?')
-      .run(
-        patch.name ?? existing.name,
-        patch.description !== undefined ? patch.description : existing.description,
-        patch.active !== undefined ? (patch.active ? 1 : 0) : existing.active,
-        patch.can_view_calendar !== undefined ? (patch.can_view_calendar ? 1 : 0) : existing.can_view_calendar,
-        id,
-      );
-    audit(req, 'update', 'role', id, { changed: patch });
+    inTransaction(() => {
+      db()
+        .prepare('UPDATE roles SET name = ?, description = ?, active = ?, can_view_calendar = ? WHERE id = ?')
+        .run(
+          patch.name ?? existing.name,
+          patch.description !== undefined ? patch.description : existing.description,
+          patch.active !== undefined ? (patch.active ? 1 : 0) : existing.active,
+          patch.can_view_calendar !== undefined ? (patch.can_view_calendar ? 1 : 0) : existing.can_view_calendar,
+          id,
+        );
+      audit(req, 'update', 'role', id, { changed: patch });
+    });
     return { role: getRoleOr404(id) };
   });
 
@@ -123,8 +128,10 @@ export async function roleRoutes(app: FastifyInstance): Promise<void> {
     const members = db()
       .prepare('SELECT COUNT(*) AS n FROM employee_roles WHERE role_id = ?')
       .get(id) as { n: number };
-    db().prepare('DELETE FROM roles WHERE id = ?').run(id);
-    audit(req, 'delete', 'role', id, { name: existing.name, member_count: members.n });
+    inTransaction(() => {
+      db().prepare('DELETE FROM roles WHERE id = ?').run(id);
+      audit(req, 'delete', 'role', id, { name: existing.name, member_count: members.n });
+    });
     reply.status(204);
   });
 
@@ -165,8 +172,8 @@ export async function roleRoutes(app: FastifyInstance): Promise<void> {
       db().prepare('DELETE FROM employee_roles WHERE employee_id = ?').run(employeeId);
       const insert = db().prepare('INSERT INTO employee_roles (employee_id, role_id) VALUES (?, ?)');
       for (const roleId of roleIds) insert.run(employeeId, roleId);
+      audit(req, 'update', 'employee_roles', employeeId, { role_ids: roleIds });
     });
-    audit(req, 'update', 'employee_roles', employeeId, { role_ids: roleIds });
 
     const roles = db()
       .prepare(

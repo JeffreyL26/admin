@@ -19,6 +19,7 @@ import { ConfirmDialog } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useContracts, useDocuments, useEmployee, usePhotoUrl, type DocumentRow, type EmployeeRow } from './api';
+import { avatarFileId } from './avatarPhoto';
 import { SourceBadge, VisibilityBadge, VisibilityToggle } from './documentVisibility';
 import { DocumentEditModal } from './DocumentEditModal';
 import {
@@ -51,7 +52,8 @@ export function EmployeeDetailPage() {
   const setTab = (next: string) =>
     setParams(next === 'stammdaten' ? {} : { tab: next }, { replace: true, state: location.state });
   const backTo = useBackTo();
-  const photo = usePhotoUrl(data?.employee.photo_file_id);
+  // Kopf 56 px: Das Vorschaubild reicht bei jedem Zoom (Rechnung an PHOTO_THUMB_EDGE).
+  const photo = usePhotoUrl(avatarFileId(data?.employee));
 
   if (isLoading || !data) return <Spinner center />;
   const e = data.employee;

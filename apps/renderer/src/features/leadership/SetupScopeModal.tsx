@@ -13,7 +13,7 @@ import {
 import { Avatar, Badge, Field, Spinner } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
-import { usePhotoUrl } from '../employees/api';
+import { useAvatarPhoto } from '../employees/avatarPhoto';
 import { useCreateAssignment, useDeleteAssignment, useLeaderTeam, useLeadershipLookup } from './api';
 import { SourceBadges } from './common';
 import { SetupEmployeeSelect, SetupNote, errorMessage, personCount } from './SetupShared';
@@ -111,8 +111,8 @@ export function SetupScopeModal({
 // ---------------------------------------------------------------------------
 
 function MemberAvatar({ member }: { member: TeamMember }) {
-  const photo = usePhotoUrl(member.photo_file_id, member.photo_url);
-  return <Avatar name={`${member.first_name} ${member.last_name}`} size={30} src={photo.data} />;
+  const photo = useAvatarPhoto(member);
+  return <Avatar name={`${member.first_name} ${member.last_name}`} size={30} src={photo.src} photoRef={photo.ref} />;
 }
 
 function TeamPreview({ team }: { team: TeamMember[] }) {

@@ -15,7 +15,7 @@
  * Filter auf (eine Suche ueber ein verborgenes Feld verriete seinen Inhalt).
  */
 import { getDb } from '../../db/db.js';
-import { signDownloadUrl } from '../../core/files.js';
+import { signPhotoUrl } from '../../core/files.js';
 import { audienceMemberSql } from './audience.js';
 
 export const DIRECTORY_FIELDS = [
@@ -71,7 +71,11 @@ export interface DirectoryEntry {
   email?: string | null;
   phone?: string | null;
   photo_file_id?: number | null;
-  /** Kurzlebig signiert (core/files.ts); die Clients laden sofort. */
+  photo_thumb_file_id?: number | null;
+  /**
+   * Vorschaubild (sonst Original), befristet signiert und innerhalb eines
+   * Zeitfensters stabil (signPhotoUrl in core/files.ts).
+   */
   photo_url?: string | null;
   department_name?: string | null;
   team_name?: string | null;
@@ -87,6 +91,7 @@ interface DirectoryRow {
   email: string | null;
   phone: string | null;
   photo_file_id: number | null;
+  photo_thumb_file_id: number | null;
   department_name: string | null;
   team_name: string | null;
   location_name: string | null;
@@ -145,7 +150,7 @@ export function queryDirectory(filters: DirectoryFilters): {
   const rows = db
     .prepare(
       `SELECT e.id, e.first_name, e.last_name, e.job_title, e.email, e.phone, e.photo_file_id,
-              d.name AS department_name, t.name AS team_name, l.name AS location_name
+              e.photo_thumb_file_id, d.name AS department_name, t.name AS team_name, l.name AS location_name
        FROM employees e
        LEFT JOIN departments d ON d.id = e.department_id
        LEFT JOIN teams t ON t.id = e.team_id
@@ -179,7 +184,8 @@ export function queryDirectory(filters: DirectoryFilters): {
     if (vis.phone) emp.phone = r.phone;
     if (vis.photo) {
       emp.photo_file_id = r.photo_file_id;
-      emp.photo_url = r.photo_file_id ? signDownloadUrl(r.photo_file_id) : null;
+      emp.photo_thumb_file_id = r.photo_thumb_file_id;
+      emp.photo_url = signPhotoUrl(r);
     }
     if (vis.department) emp.department_name = r.department_name;
     if (vis.team) emp.team_name = r.team_name;

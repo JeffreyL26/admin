@@ -51,10 +51,21 @@ export function initialsOf(name: string): string {
     .join('');
 }
 
-export function Avatar({ name, size = 32, src }: { name: string; size?: number; src?: string }) {
+export function Avatar({
+  name,
+  size = 32,
+  src,
+  photoRef,
+}: {
+  name: string;
+  size?: number;
+  src?: string;
+  /** Ref auf den Avatar, z. B. damit useAvatarPhoto das Foto erst bei Sichtbarkeit lädt. */
+  photoRef?: React.Ref<HTMLSpanElement>;
+}) {
   return (
     <Tooltip content={<span className="hm-tooltip__title">{name}</span>}>
-      <span className="hm-avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>
+      <span ref={photoRef} className="hm-avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>
         {src ? <img src={src} alt={name} /> : initialsOf(name)}
       </span>
     </Tooltip>

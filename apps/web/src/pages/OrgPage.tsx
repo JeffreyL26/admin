@@ -31,8 +31,8 @@ import {
   type OrgModel,
   type OrgNode,
 } from '@ohrganize/shared';
-import { API_BASE } from '../api/client';
 import { useMyOrgChart } from '../api/hooks';
+import { usePhotoSrc } from '../lib/photo';
 import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
 import { IconClose } from '../components/icons';
 import {
@@ -836,15 +836,19 @@ function PersonCard({
 }
 
 /**
- * Foto oder Initialen. Das Bild lädt direkt über den signierten Link (60 s
- * gültig, siehe core/files.ts); scheitert der Abruf, bleiben die Initialen.
+ * Foto oder Initialen. Das Bild (Vorschaubild, reicht bis Flächenzoom 2,
+ * Rechnung an PHOTO_THUMB_EDGE) lädt direkt über den signierten Link, erst in
+ * Sichtnähe; scheitert der Abruf, bleiben die Initialen (usePhotoSrc).
  */
 function PersonAvatar({ person, size }: { person: Person; size: number }) {
-  const [failed, setFailed] = useState(false);
-  const src = person.photo_url && !failed ? `${API_BASE}${person.photo_url}` : null;
+  const photo = usePhotoSrc(person.photo_url);
   return (
     <span className="pt-orgc-avatar" style={{ width: size, height: size, fontSize: size * 0.38 }} aria-hidden="true">
-      {src ? <img src={src} alt="" onError={() => setFailed(true)} /> : orgInitials(person)}
+      {photo.src ? (
+        <img src={photo.src} alt="" loading="lazy" decoding="async" onError={photo.onError} />
+      ) : (
+        orgInitials(person)
+      )}
     </span>
   );
 }

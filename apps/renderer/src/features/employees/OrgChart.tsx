@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import {
   EMPLOYEE_TYPE_LABELS,
+  PHOTO_THUMB_EDGE,
   formatDate,
   formatSeniority,
   type OrgChartPerson,
@@ -15,7 +16,8 @@ import {
 import { Badge, Card, EmptyState, Spinner } from '../../components/ui';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
-import { useOrgChart, usePhotoUrl } from './api';
+import { useOrgChart, useOrgChartOriginals, usePhotoUrl } from './api';
+import { avatarFileId, useAvatarPhoto } from './avatarPhoto';
 import { TYPE_TONES } from './EmployeeListPage';
 import {
   ORG_CARD_H as CARD_H,
@@ -64,6 +66,9 @@ const MAX_RESULTS = 8;
 
 const clampZoom = (k: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, k));
 
+/** Kantenlänge des Kartenfotos in CSS-Pixeln, wie `.orgc-card__avatar` (components.css). */
+const CARD_AVATAR_PX = 46;
+
 interface View {
   x: number;
   y: number;
@@ -71,6 +76,45 @@ interface View {
 }
 
 type DepartmentFilter = number | 'none' | null;
+
+/**
+ * Gerätepixel je CSS-Pixel, einschließlich App-Zoom (Strg+ ändert in Chromium
+ * auch devicePixelRatio). Folgt Wechseln: anderer Bildschirm, Zoomstufe.
+ */
+function useDevicePixelRatio(): number {
+  const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
+  useEffect(() => {
+    const query = window.matchMedia(`(resolution: ${dpr}dppx)`);
+    const update = () => setDpr(window.devicePixelRatio || 1);
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, [dpr]);
+  return dpr;
+}
+
+/**
+ * Karten, die gerade (auch teilweise) im Bild sind. Nur gebraucht, wenn das
+ * Vorschaubild für die Kartenfotos nicht reicht: Dann holen genau diese
+ * Karten das Original, nicht jede Karte, die schon einmal sichtbar war.
+ */
+function cardsInView(layout: OrgLayout, view: View, el: HTMLElement | null): Set<number> {
+  const ids = new Set<number>();
+  if (!el) return ids;
+  for (const placed of layout.nodes) {
+    const left = placed.x * view.k + view.x;
+    const top = placed.y * view.k + view.y;
+    const inside =
+      left + CARD_W * view.k > 0 && left < el.clientWidth && top + CARD_H * view.k > 0 && top < el.clientHeight;
+    if (inside) ids.add(placed.node.person.id);
+  }
+  return ids;
+}
+
+function sameIds(a: Set<number>, b: Set<number>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) if (!b.has(id)) return false;
+  return true;
+}
 
 /** Abteilungsfarbe als CSS-Variable auf dem Element; 0 = ohne Abteilung. */
 function toneStyle(tone: number): React.CSSProperties {
@@ -441,6 +485,29 @@ function OrgChartView({
   );
   const hitIds = useMemo(() => new Set(hits.map((p) => p.id)), [hits]);
 
+  // Kartenfoto in Gerätepixeln über der Kantenlänge des Vorschaubilds (etwa
+  // ab devicePixelRatio 2,7 bei vollem Zoom, Rechnung an PHOTO_THUMB_EDGE):
+  // Dann zeigen die Karten im Bild das Original, damit es scharf bleibt.
+  const dpr = useDevicePixelRatio();
+  const needsOriginal = CARD_AVATAR_PX * view.k * dpr > PHOTO_THUMB_EDGE;
+  // Welche Karten im Bild sind, erst wenn die Ansicht kurz stillsteht: Beim
+  // Ziehen und Rad-Zoom liefe sonst je Bewegung ein Durchlauf über alle
+  // Karten, und Karten am Rand bestellten ihr Original an und wieder ab. Ein
+  // unveränderter Satz bleibt dasselbe Objekt (kein Neuzeichnen).
+  const [originalIds, setOriginalIds] = useState<Set<number> | null>(null);
+  useEffect(() => {
+    if (!needsOriginal) {
+      setOriginalIds(null);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const next = cardsInView(layout, view, canvasRef.current);
+      setOriginalIds((prev) => (prev && sameIds(prev, next) ? prev : next));
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [needsOriginal, layout, view]);
+  const { data: originals } = useOrgChartOriginals(needsOriginal);
+
   const legend = useMemo(() => {
     const counts = new Map<number | null, number>();
     for (const p of data.people) counts.set(p.department_id, (counts.get(p.department_id) ?? 0) + 1);
@@ -629,6 +696,7 @@ function OrgChartView({
                     hit={hitIds.has(id)}
                     dim={isDimmed(placed.node.person)}
                     open={expanded.has(id)}
+                    originalPhotoUrl={originalIds?.has(id) ? (originals?.[id] ?? null) : null}
                     onSelect={(pid) => {
                       if (suppressClick.current) {
                         suppressClick.current = false;
@@ -733,6 +801,11 @@ interface OrgCardProps {
   hit: boolean;
   dim: boolean;
   open: boolean;
+  /**
+   * Signierter Link auf das Original, wenn die Karte es zeigen soll (Zoom über
+   * der Grenze des Vorschaubilds, Karte im Bild); sonst null.
+   */
+  originalPhotoUrl: string | null;
   onSelect: (id: number) => void;
   onToggle: (id: number) => void;
   onFocus: (id: number) => void;
@@ -742,10 +815,18 @@ interface OrgCardProps {
 }
 
 const OrgCard = React.memo(function OrgCard({
-  node, x, y, tone, selected, onPath, hit, dim, open, onSelect, onToggle, onFocus, onKeyboardFocus, onHover,
+  node, x, y, tone, selected, onPath, hit, dim, open, originalPhotoUrl, onSelect, onToggle, onFocus, onKeyboardFocus,
+  onHover,
 }: OrgCardProps) {
   const { person } = node;
-  const photo = usePhotoUrl(person.photo_file_id, person.photo_url);
+  const photo = useAvatarPhoto(person);
+  // Über der Grenze des Vorschaubilds das Original nachladen; bis es da ist,
+  // bleibt das Vorschaubild stehen (keine Initialen dazwischen). Der Link kommt
+  // signiert aus GET /api/org/chart/originals: Selbst signiert entstünde je
+  // Karte eine Audit-Zeile.
+  const wantsOriginal = originalPhotoUrl !== null && person.photo_file_id !== avatarFileId(person);
+  const original = usePhotoUrl(wantsOriginal ? person.photo_file_id : null, originalPhotoUrl, photo.seen);
+  const src = (wantsOriginal ? original.data : undefined) ?? photo.src;
   const className = [
     'orgc-card',
     selected && 'is-selected',
@@ -784,8 +865,8 @@ const OrgCard = React.memo(function OrgCard({
     >
       <span className="orgc-card__accent" aria-hidden="true" />
       <div className="orgc-card__body">
-        <span className="hm-avatar orgc-card__avatar" aria-hidden="true">
-          {photo.data ? <img src={photo.data} alt="" /> : initialsOf(person)}
+        <span ref={photo.ref} className="hm-avatar orgc-card__avatar" aria-hidden="true">
+          {src ? <img src={src} alt="" /> : initialsOf(person)}
         </span>
         <div className="orgc-card__text">
           <div className="orgc-card__name">{fullName(person)}</div>
@@ -842,10 +923,15 @@ const OrgCard = React.memo(function OrgCard({
 });
 
 function PersonAvatar({ person, size }: { person: OrgChartPerson; size: number }) {
-  const photo = usePhotoUrl(person.photo_file_id, person.photo_url);
+  const photo = useAvatarPhoto(person);
   return (
-    <span className="hm-avatar" style={{ width: size, height: size, fontSize: size * 0.38 }} aria-hidden="true">
-      {photo.data ? <img src={photo.data} alt="" /> : initialsOf(person)}
+    <span
+      ref={photo.ref}
+      className="hm-avatar"
+      style={{ width: size, height: size, fontSize: size * 0.38 }}
+      aria-hidden="true"
+    >
+      {photo.src ? <img src={photo.src} alt="" /> : initialsOf(person)}
     </span>
   );
 }
@@ -1003,8 +1089,8 @@ function PersonRow({ person, sub, onClick }: { person: OrgChartPerson; sub?: str
 /**
  * Zeichnet die aktuell sichtbaren Karten als eigenständiges SVG nach. Farben
  * werden aus dem aktiven Theme aufgelöst, weil die Datei ohne Stylesheet
- * geöffnet wird. Fotos bleiben außen vor (kurzlebig signierte Links wären in
- * der Datei nach einer Minute tot); an ihrer Stelle stehen die Initialen.
+ * geöffnet wird. Fotos bleiben außen vor (befristet signierte Links wären in
+ * der Datei nach wenigen Minuten tot); an ihrer Stelle stehen die Initialen.
  */
 function buildSvg(layout: OrgLayout, model: OrgModel): string {
   const css = getComputedStyle(document.documentElement);

@@ -33,6 +33,7 @@ import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner } from '../../comp
 import { ConfirmDialog } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { usePhotoUrl } from '../employees/api';
+import { avatarFileId } from '../employees/avatarPhoto';
 import { useLeaderStatus, useSaveRatings, useTeamMemberDetail } from './api';
 import { EMPLOYEE_TYPE_TONES, PeriodSwitcher, SourceBadges } from './common';
 import { ScoreBadge } from './RatingInput';
@@ -62,7 +63,8 @@ export function TeamMemberRatingPage() {
 
   const { data, error, isLoading, isPlaceholderData } = useTeamMemberDetail(employeeId, periodParam);
   const status = useLeaderStatus();
-  const photo = usePhotoUrl(data?.employee.photo_file_id, data?.employee.photo_url);
+  // Vorschaubild reicht für 64 px bei jedem Zoom (Rechnung an PHOTO_THUMB_EDGE).
+  const photo = usePhotoUrl(avatarFileId(data?.employee), data?.employee.photo_url);
   const save = useSaveRatings(employeeId);
 
   // ------------------------------------------------------------ Formular --

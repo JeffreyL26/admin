@@ -47,6 +47,28 @@ export function getDb(): Database.Database {
   return db;
 }
 
+/**
+ * Seitencache der Dienstverbindung in KiB (negativ = Grösse statt
+ * Seitenzahl). Die Vorgabe dieses SQLite-Builds sind 16 MB; jede Seite
+ * ausserhalb muss SQLCipher erneut lesen, entschlüsseln und prüfen, denn der
+ * Cache des Betriebssystems hält nur Chiffrat. Gemessen bei 2000 Personen und
+ * sechs Jahren Historie (167 MB): Portal-Kalender 38 statt 130 ms,
+ * Abrechnungsliste 35 statt 320 ms. 64 MB passen unter MemoryHigh=512M der
+ * Hosting-Unit.
+ */
+const SERVICE_PAGE_CACHE_KIB = 64 * 1024;
+
+/**
+ * Vergrössert den Seitencache, ERST NACH den Migrationen (server.ts): Das
+ * VACUUM nach einer Migration liest jede Seite durch diesen Cache, und seine
+ * Obergrenze (VACUUM_IN_MEMORY_LIMIT_BYTES in migrateDatabase.ts) ist mit
+ * dem kleinen Vorgabecache gerechnet. Klartextseiten liegen ohnehin im
+ * Prozessspeicher, mit dem grösseren Cache nur länger.
+ */
+export function enlargePageCache(): void {
+  getDb().pragma(`cache_size = -${SERVICE_PAGE_CACHE_KIB}`);
+}
+
 export function closeDb(): void {
   if (walRetry) {
     clearTimeout(walRetry);

@@ -73,4 +73,11 @@ export const adminMigrations: Migration[] = [
         ('offboarding', 'Austrittsgespräch führen',                         70);
     `,
   },
+  {
+    // Dateiverweis (FILE_REFERENCES in core/files.ts).
+    name: '701_template_file_index',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_hr_templates_file ON hr_templates(file_id) WHERE file_id IS NOT NULL;
+    `,
+  },
 ];

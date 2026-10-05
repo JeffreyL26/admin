@@ -8,7 +8,10 @@ import {
   CLIENT_VERSION_HEADER,
   LICENSE_ERROR_CODES,
   LICENSE_STATE_HEADER,
+  tokenLifetimeMs,
+  tokenSessionInfo,
   type LicenseState,
+  type TokenState,
 } from '@ohrganize/shared';
 
 declare global {
@@ -51,16 +54,63 @@ export const API_BASE = window.ohrganize?.apiBaseUrl ?? 'http://127.0.0.1:3001';
  */
 const CLIENT_VERSION = window.ohrganize?.appVersion;
 
-let authToken: string | null = localStorage.getItem('ohrganize.token');
+/**
+ * Token der laufenden Sitzung in sessionStorage: Es übersteht das Neuladen
+ * über das Titelleistenmenü und endet mit dem Schließen des Fensters. Solange
+ * die App läuft, verlängert auth/AuthContext.tsx es nach zehn Minuten,
+ * spätestens nach der halben Laufzeit (refreshToken); die lange Laufzeit des Desktop-Tokens im Backend
+ * überbrückt nur den Ruhezustand des Rechners.
+ */
+const TOKEN_KEY = 'ohrganize.token';
+/**
+ * Empfangszeitpunkt des Tokens nach der Uhr DIESES Rechners (ms). Bewusst
+ * nicht das iat aus dem Token: Im Serverbetrieb gehen Arbeitsplatz- und
+ * Serveruhr auseinander, und eine vorgehende Uhr hielte jedes frische Token
+ * für alt und verlängerte im Minutentakt.
+ */
+const TOKEN_AT_KEY = 'ohrganize.token.at';
+
+// Frühere Fassungen hielten das Token in localStorage, wo es das Schließen
+// der App überdauerte. Ein dort liegengebliebenes Token einmal entfernen.
+localStorage.removeItem(TOKEN_KEY);
+
+let authToken: string | null = sessionStorage.getItem(TOKEN_KEY);
+let tokenReceivedAt = Number(sessionStorage.getItem(TOKEN_AT_KEY)) || 0;
 
 export function setToken(token: string | null): void {
   authToken = token;
-  if (token) localStorage.setItem('ohrganize.token', token);
-  else localStorage.removeItem('ohrganize.token');
+  tokenReceivedAt = token ? Date.now() : 0;
+  if (token) {
+    sessionStorage.setItem(TOKEN_KEY, token);
+    sessionStorage.setItem(TOKEN_AT_KEY, String(tokenReceivedAt));
+  } else {
+    sessionStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_AT_KEY);
+  }
 }
 
 export function hasToken(): boolean {
   return authToken !== null;
+}
+
+/** Token für eigene fetch-Aufrufe (Exporte als Datei); null, wenn abgemeldet. */
+export function getToken(): string | null {
+  return authToken;
+}
+
+/** Alter des Tokens seit Empfang in ms (lokale Uhr); null ohne Token. */
+export function tokenAgeMs(): number | null {
+  return authToken === null ? null : Date.now() - tokenReceivedAt;
+}
+
+/** Laufzeit des Tokens laut Server (exp - iat) in ms; null ohne Token oder Felder. */
+export function tokenLifetime(): number | null {
+  return tokenLifetimeMs(authToken);
+}
+
+/** Alter, Laufzeit und Sitzungsende des Tokens für die Sitzungsregeln (packages/shared/src/session.ts). */
+export function tokenState(): TokenState {
+  return { tokenAgeMs: tokenAgeMs(), ...tokenSessionInfo(authToken) };
 }
 
 export class ApiRequestError extends Error {
@@ -107,10 +157,14 @@ function noteLicenseState(state: string | null): void {
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const isForm = body instanceof FormData;
+  // Token beim Absenden festhalten: Ein 401 auf ein inzwischen ersetztes Token
+  // (Verlängerung, Passwortwechsel, neue Anmeldung) beendet nicht die neue
+  // Sitzung.
+  const sentToken = authToken;
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(sentToken ? { Authorization: `Bearer ${sentToken}` } : {}),
       ...(CLIENT_VERSION ? { [CLIENT_VERSION_HEADER]: CLIENT_VERSION } : {}),
       ...(body !== undefined && !isForm ? { 'Content-Type': 'application/json' } : {}),
     },
@@ -121,13 +175,39 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     const err = json?.error ?? { code: 'UNKNOWN', message: `HTTP ${res.status}` };
-    if (res.status === 401 && err.code !== 'UNAUTHORIZED_LOGIN') onUnauthorized?.();
+    // Nur ein 401 auf ein mitgesendetes, noch aktuelles Token beendet die
+    // Sitzung. Ohne Token (etwa ein falsches Passwort auf der Anmeldeseite)
+    // gibt es nichts zu beenden.
+    if (res.status === 401 && sentToken !== null && authToken === sentToken) onUnauthorized?.();
     // Nur-Lese-Betrieb erst jetzt bemerkt (Header nicht lesbar, Zustand seit
     // dem Login gekippt): den Zustand nachziehen, damit das Banner erscheint.
     if (res.status === 403 && err.code === LICENSE_ERROR_CODES.EXPIRED) noteLicenseState('expired');
     throw new ApiRequestError(res.status, err.code, err.message, err.details);
   }
   return json as T;
+}
+
+let refreshing: Promise<void> | null = null;
+
+/**
+ * Sitzung verlängern (POST /api/auth/refresh), höchstens ein Aufruf zugleich.
+ * Die Antwort gilt nur, wenn das Token inzwischen weder ersetzt noch entfernt
+ * wurde: Ein Logout während des Aufrufs bleibt ein Logout. Ein 401 meldet wie
+ * jeder Aufruf über den Unauthorized-Handler ab; Netzfehler werfen, und der
+ * Aufrufer versucht es beim nächsten Anlass erneut.
+ */
+export function refreshToken(): Promise<void> {
+  if (refreshing) return refreshing;
+  const sent = authToken;
+  if (sent === null) return Promise.resolve();
+  refreshing = request<{ token: string }>('POST', '/api/auth/refresh')
+    .then((res) => {
+      if (authToken === sent && res?.token) setToken(res.token);
+    })
+    .finally(() => {
+      refreshing = null;
+    });
+  return refreshing;
 }
 
 export const api = {

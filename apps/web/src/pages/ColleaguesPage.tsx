@@ -5,13 +5,14 @@
  * HR-Verzeichnis (Backend: modules/communication/directoryService.ts): Was
  * die Personalabteilung dort ausblendet, fehlt hier ebenfalls, und ein
  * Filter auf ein ausgeblendetes Feld wird gar nicht erst angeboten. Fotos
- * kommen kurzlebig signiert wie im Organigramm (OrgPage.tsx) und laden
- * direkt ueber `API_BASE`.
+ * kommen befristet signiert wie im Organigramm (OrgPage.tsx) und laden
+ * direkt ueber `API_BASE` (lib/photo.ts).
  */
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { DirectoryEmployee, MeDirectoryResponse } from '@ohrganize/shared';
-import { API_BASE, api } from '../api/client';
+import { api } from '../api/client';
+import { usePhotoSrc } from '../lib/photo';
 import { Card, EmptyState, LoadError, Skeleton } from '../components/ui';
 import { Select } from '../components/Select';
 
@@ -44,16 +45,20 @@ function useColleagues(filters: Filters) {
 }
 
 /**
- * Foto oder Initialen (Muster aus OrgPage.tsx). Der signierte Link gilt nur
- * kurz; scheitert der Abruf, bleiben die Initialen.
+ * Foto oder Initialen (Muster aus OrgPage.tsx): Vorschaubild über den
+ * signierten Link, erst in Sichtnähe geladen; scheitert der Abruf, bleiben
+ * die Initialen (usePhotoSrc).
  */
 function ColleagueAvatar({ person }: { person: DirectoryEmployee }) {
-  const [failed, setFailed] = useState(false);
-  const src = person.photo_url && !failed ? `${API_BASE}${person.photo_url}` : null;
+  const photo = usePhotoSrc(person.photo_url);
   const initials = `${person.first_name[0] ?? ''}${person.last_name[0] ?? ''}`.toUpperCase();
   return (
     <span className="pt-orgc-avatar" style={{ width: 48, height: 48, fontSize: 18 }} aria-hidden="true">
-      {src ? <img src={src} alt="" onError={() => setFailed(true)} /> : initials}
+      {photo.src ? (
+        <img src={photo.src} alt="" loading="lazy" decoding="async" onError={photo.onError} />
+      ) : (
+        initials
+      )}
     </span>
   );
 }

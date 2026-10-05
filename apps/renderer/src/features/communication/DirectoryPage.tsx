@@ -11,31 +11,23 @@ import { Avatar, Badge, EmptyState, PageHeader, Spinner } from '../../components
 import { Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { useDebounced } from '../../components/useDebounced';
-import { usePhotoUrl } from '../employees/api';
+import { useAvatarPhoto, type PersonPhoto } from '../employees/avatarPhoto';
 import { useDirectory, useDirectoryFields, useOrg, useSaveDirectoryFields } from './api';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
 
 /**
  * Eigener Baustein, weil je Karte ein Hook nötig ist. Die vom Server je
- * Antwort mitsignierte photo_url wird EINMAL konsumiert und das Bild im
- * Foto-Cache gehalten (usePhotoUrl, Key = photo_file_id) — die URL selbst ist
- * nur 60 s gültig und no-store, direkt im <img> lud jeder Fokus-Refetch
- * sämtliche Fotos in Originalgröße neu. Nicht clientseitig nachsignieren:
- * Das verlangt personal:lesen, das Verzeichnis aber nur kommunikation:lesen.
- * Schlägt das Laden fehl, fällt der Avatar auf die Initialen zurück.
+ * Antwort mitsignierte photo_url (Vorschaubild, sonst Original) wird EINMAL
+ * konsumiert und das Bild im Foto-Cache gehalten (useAvatarPhoto, Key = die
+ * angezeigte Datei); geladen wird erst, wenn die Karte in Sichtnähe kommt.
+ * Nicht clientseitig nachsignieren: Das verlangt personal:lesen, das
+ * Verzeichnis aber nur kommunikation:lesen. Schlägt das Laden fehl, fällt der
+ * Avatar auf die Initialen zurück.
  */
-function DirectoryAvatar({
-  name,
-  photoFileId,
-  signedUrl,
-}: {
-  name: string;
-  photoFileId: number | null | undefined;
-  signedUrl: string | null | undefined;
-}) {
-  const photo = usePhotoUrl(photoFileId, signedUrl);
-  return <Avatar name={name} size={48} src={photo.data} />;
+function DirectoryAvatar({ name, person }: { name: string; person: PersonPhoto }) {
+  const photo = useAvatarPhoto(person);
+  return <Avatar name={name} size={48} src={photo.src} photoRef={photo.ref} />;
 }
 
 function FieldVisibilityDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -218,7 +210,7 @@ export function DirectoryPage() {
                 >
                   <div className="hm-card__body" style={{ padding: 16 }}>
                     <div className="row" style={{ alignItems: 'flex-start', gap: 12 }}>
-                      <DirectoryAvatar name={name} photoFileId={e.photo_file_id} signedUrl={e.photo_url} />
+                      <DirectoryAvatar name={name} person={e} />
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ fontWeight: 650 }}>{name}</div>
                         {fields?.job_title && (

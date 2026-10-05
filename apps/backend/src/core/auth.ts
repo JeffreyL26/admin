@@ -3,19 +3,28 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { getDb } from '../db/db.js';
+import { getDb, inTransaction } from '../db/db.js';
 import { config } from '../config.js';
 import { AppError, parse, unauthorized, badRequest } from './errors.js';
 import { permissionsFor } from './permissions.js';
-import { audit } from './audit.js';
+import { audit, auditStandalone } from './audit.js';
 import { getSetting } from './settings.js';
 import { licenseForRole } from './license.js';
 import { portalAccessFor } from './portalAccess.js';
 import { nextSessionsValidFrom } from './credentials.js';
+import { comparePassword, hashPassword, setPasswordHashingLogger } from './passwordHashing.js';
 
 // Liegen in credentials.ts (ohne config-Import, damit auch die
 // Betreiberwerkzeuge sie nutzen); hier weiter erreichbar wie bisher.
 export { generateInitialPassword, nextSessionsValidFrom } from './credentials.js';
+
+/**
+ * Sitzungsart eines Tokens. 'desktop' ist die HR-Administration in der
+ * Desktop-App (Laufzeit config.desktopTokenTtl), 'portal' alles andere
+ * (config.tokenTtl). Wirksam wird 'desktop' nur für Konten mit
+ * role = 'admin' (sessionFor).
+ */
+export type SessionKind = 'desktop' | 'portal';
 
 /** Rollen: 'admin' = HR-Administration (Desktop), 'mitarbeiter' = Web-Portal. */
 export interface AuthUser {
@@ -44,6 +53,27 @@ export interface AuthUser {
    * bereits ausgestellte Tokens entwertet.
    */
   iat?: number;
+  /**
+   * Sitzungsart, signiert im Token. Der globale Hook übernimmt sie
+   * unverändert (anders als Rolle und Profil steht sie nicht in users), damit
+   * Verlängerung und Passwortwechsel dieselbe Art wieder ausstellen. Fehlt sie
+   * (Token einer älteren Fassung), gilt 'portal'.
+   */
+  session?: SessionKind;
+  /**
+   * Beginn der Sitzung (Anmeldung oder Passwortwechsel) in Unix-Sekunden,
+   * signiert im Token und bei jeder Verlängerung unverändert übernommen. Ab
+   * hier zählt die Höchstdauer (config.sessionMax, config.desktopSessionMax).
+   * Fehlt er (Token einer älteren Fassung), gilt das iat des Tokens.
+   */
+  auth_time?: number;
+  /**
+   * Ende der Sitzung (auth_time plus Höchstdauer), nur zur Auskunft für die
+   * Clients: Läuft das Token bis dorthin, bringt eine Verlängerung nichts
+   * mehr (packages/shared/src/session.ts). Der Server rechnet es jedes Mal
+   * neu aus auth_time.
+   */
+  session_end?: number;
 }
 
 declare module '@fastify/jwt' {
@@ -76,10 +106,52 @@ declare module 'fastify' {
  */
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('ohrganize-nicht-vergeben', 10);
 
-function signToken(app: FastifyInstance, user: AuthUser): Promise<string> {
-  return Promise.resolve(
-    (app as FastifyInstance & { jwt: { sign: (p: AuthUser) => string } }).jwt.sign(user),
-  );
+/**
+ * Sitzungsart eines neuen Tokens. Die lange Desktop-Laufzeit gibt es nur für
+ * die HR-Administration; ein Portal-Konto, das sich als Desktop ausgibt,
+ * bekommt trotzdem ein Portal-Token. Gefragt wird mit der FRISCHEN Rolle aus
+ * users, damit ein Rollenwechsel spätestens mit der nächsten Verlängerung
+ * auch die Laufzeit kürzt.
+ */
+function sessionFor(requested: SessionKind | undefined, role: string): SessionKind {
+  return requested === 'desktop' && role === 'admin' ? 'desktop' : 'portal';
+}
+
+/** Höchstdauer einer Sitzung dieser Art ab ihrem Beginn (config.ts). */
+function sessionMaxOf(session: SessionKind): number {
+  return session === 'desktop' ? config.desktopSessionMax : config.sessionMax;
+}
+
+/**
+ * Token ausstellen. Die Laufzeit hängt an der Sitzungsart und wird deshalb je
+ * Token mitgegeben (sie ersetzt die Vorgabe aus der Registrierung in
+ * server.ts); die Art steht als Claim `session` im Token. `authTime` ist der
+ * Beginn der Sitzung: Das Token läuft nach seiner Laufzeit ab, spätestens aber
+ * zum Ende der Sitzung (auth_time plus Höchstdauer). So endet jede Sitzung
+ * nach der Höchstdauer, auch wenn das letzte Token kurz davor ausgestellt
+ * wurde.
+ */
+function signToken(app: FastifyInstance, user: AuthUser, session: SessionKind, authTime: number): string {
+  const iat = user.iat ?? Math.floor(Date.now() / 1000);
+  const ttl = session === 'desktop' ? config.desktopTokenTtl : config.tokenTtl;
+  const sessionEnd = authTime + sessionMaxOf(session);
+  const expiresIn = Math.max(1, Math.min(ttl, sessionEnd - iat));
+  return (
+    app as FastifyInstance & { jwt: { sign: (p: AuthUser, o: { expiresIn: number }) => string } }
+  ).jwt.sign({ ...user, iat, session, auth_time: authTime, session_end: sessionEnd }, { expiresIn });
+}
+
+/** Identität für das Token, aus einer users-Zeile (Login, Verlängerung). */
+function identityOf(row: AuthUser): AuthUser {
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    employee_id: row.employee_id ?? null,
+    admin_role_id: row.admin_role_id ?? null,
+    must_change_password: row.must_change_password ?? 0,
+  };
 }
 
 /**
@@ -191,10 +263,17 @@ const MAX_FAILURES_PER_EMAIL = 10;
  * sich alle Arbeitsplätze eine IP, eine knappe Schwelle würde bei ein paar
  * vertippten Passwörtern das ganze Haus aussperren. Die IP-Schranke deckt den
  * Fall "viele verschiedene Konten von einer Quelle" ab — und begrenzt zugleich
- * die DoS-Wirkung: bcryptjs rechnet synchron ~65 ms und blockiert dabei den
- * einzigen Node-Prozess samt Portal und allen Desktop-Arbeitsplätzen.
+ * die DoS-Wirkung: bcrypt rechnet ~65 ms je Versuch, im Worker-Pool
+ * (core/passwordHashing.ts), dessen Warteschlange sonst alle Anmeldungen
+ * aufhielte; im Ersatzbetrieb ohne Worker sogar im einzigen Node-Prozess.
  */
 const MAX_FAILURES_PER_IP = 50;
+/**
+ * Ein Eintrag „in Arbeit“, dessen Anfrage nie aufgeräumt wurde, verfällt nach
+ * dieser Zeit (der Vergleich bricht spätestens nach 15 s in den Ersatzbetrieb
+ * ab, core/passwordHashing.ts).
+ */
+const IN_FLIGHT_STALE_MS = 60_000;
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
@@ -271,13 +350,60 @@ function clearFailuresForAccount(req: FastifyRequest): void {
 }
 
 /**
+ * Zeitpunkt, unter dem ein laufender Versuch vorgemerkt ist (throttleLogin,
+ * throttlePasswordChange). Seit der Vergleich im Worker-Pool läuft, liegt
+ * zwischen Prüfung und Ergebnis ein `await`: Zählte erst das Ergebnis, kämen
+ * beliebig viele GLEICHZEITIGE Versuche an der Schwelle vorbei, bevor der
+ * erste als Fehlversuch zählt (ein Bündel von 100 parallelen Anfragen wären
+ * 100 Rateversuche statt 10). Prüfen und Vormerken geschehen deshalb ohne
+ * `await` dazwischen:
+ * - beim KONTO als Fehlversuch (die Schwelle 10 gilt so auch für parallele
+ *   Versuche; ein Erfolg leert den Zähler, ein Abbruch vor dem Vergleich,
+ *   etwa ein ungültiger Body, nimmt den Vermerk zurück);
+ * - bei der IP nur als „in Arbeit“ (loginsInFlight; zählt gegen dieselbe
+ *   Schwelle, siehe throttleLogin), als Fehlversuch erst mit dem Ergebnis.
+ */
+const pendingAttemptAt = new WeakMap<FastifyRequest, number>();
+
+/** Anmeldungen je IP-Schlüssel, die gerade in Arbeit sind (Zeitstempel). */
+const loginsInFlight = new Map<string, number[]>();
+
+function countInFlight(key: string, now: number): number {
+  const list = loginsInFlight.get(key);
+  if (!list) return 0;
+  const fresh = list.filter((t) => t > now - IN_FLIGHT_STALE_MS);
+  if (fresh.length === 0) loginsInFlight.delete(key);
+  else loginsInFlight.set(key, fresh);
+  return fresh.length;
+}
+
+function releaseInFlight(key: string, at: number): void {
+  const list = loginsInFlight.get(key);
+  if (!list) return;
+  const index = list.indexOf(at);
+  if (index !== -1) list.splice(index, 1);
+  if (list.length === 0) loginsInFlight.delete(key);
+}
+
+/** Einen vorgemerkten Versuch aus der Liste eines Schlüssels entfernen. */
+function withdrawFailure(key: string, at: number): void {
+  const list = loginFailures.get(key);
+  if (!list) return;
+  const index = list.indexOf(at);
+  if (index !== -1) list.splice(index, 1);
+  if (list.length === 0) loginFailures.delete(key);
+}
+
+/**
  * preHandler der Login-Route: läuft VOR dem bcrypt-Vergleich im Handler. Das
- * ist kein Detail — genau dieser Vergleich blockiert den Event-Loop, eine
- * Prüfung danach würde die DoS-Wirkung nicht entschärfen.
+ * ist kein Detail: Genau dieser Vergleich kostet die Rechenzeit (im Worker,
+ * im Ersatzbetrieb im Event-Loop), eine Prüfung danach würde die DoS-Wirkung
+ * nicht entschärfen. Der Versuch wird hier vorgemerkt (pendingAttemptAt).
  */
 async function throttleLogin(req: FastifyRequest): Promise<void> {
   const now = Date.now();
-  for (const [key, limit] of throttleKeys(req)) {
+  const keys = throttleKeys(req);
+  for (const [key, limit] of keys) {
     if (countFailures(key, now) < limit) continue;
     // Nur loggen, nicht auditieren: Ein Audit-Eintrag je abgewiesenem Versuch
     // wäre ein unbegrenzter Schreibpfad für einen Angreifer.
@@ -291,6 +417,41 @@ async function throttleLogin(req: FastifyRequest): Promise<void> {
       'Zu viele fehlgeschlagene Anmeldeversuche. Bitte versuchen Sie es in einigen Minuten erneut.',
     );
   }
+  // Laufende Anmeldungen einer IP zählen gegen ihre Schwelle mit: Fehlversuche
+  // plus laufende Vergleiche bleiben unter MAX_FAILURES_PER_IP. Sonst liefen
+  // in einem Bündel paralleler Anfragen beliebig viele Vergleiche an, bevor der
+  // erste als Fehlversuch zählt (gemessen mit einer reinen Obergrenze von 100
+  // gleichzeitigen: rund 150 Rateversuche je Fenster statt 50). Eine laufende
+  // Anmeldung ist dabei kein Fehlversuch: Sie belegt die Schwelle nur, solange
+  // sie läuft, und ein Erfolg hinterlässt nichts. Hinter einem Firmen-NAT
+  // trifft das erst mehr als 50 GLEICHZEITIG laufende Anmeldungen; bei rund 30
+  // Vergleichen je Sekunde wären das mehr als 50 Klicks binnen zwei Sekunden.
+  // Die Antwort richtet sich danach, was die Schwelle füllt: Überwiegen die
+  // laufenden Anmeldungen, hilft ein neuer Versuch gleich danach; überwiegen
+  // die Fehlversuche, steht die Sperre kurz bevor, und erst das Fenster hilft.
+  const ipKey = `ip:${req.ip}`;
+  const ipFailures = countFailures(ipKey, now);
+  const ipInFlight = countInFlight(ipKey, now);
+  if (ipFailures + ipInFlight >= MAX_FAILURES_PER_IP) {
+    const concurrent = ipInFlight > ipFailures;
+    req.log.warn(
+      { ip: req.ip, failures: ipFailures, inFlight: ipInFlight },
+      concurrent ? 'Anmeldung gesperrt: zu viele gleichzeitige Versuche' : 'Anmeldung gesperrt: zu viele Fehlversuche',
+    );
+    throw new AppError(
+      429,
+      'TOO_MANY_REQUESTS',
+      concurrent
+        ? 'Zu viele gleichzeitige Anmeldeversuche. Bitte versuchen Sie es gleich noch einmal.'
+        : 'Zu viele fehlgeschlagene Anmeldeversuche. Bitte versuchen Sie es in einigen Minuten erneut.',
+    );
+  }
+  const email = normalizedEmail(req.body);
+  if (email) noteFailure(`email:${email}`, MAX_FAILURES_PER_EMAIL, now);
+  const list = loginsInFlight.get(ipKey) ?? [];
+  list.push(now);
+  loginsInFlight.set(ipKey, list);
+  pendingAttemptAt.set(req, now);
 }
 
 /**
@@ -299,7 +460,8 @@ async function throttleLogin(req: FastifyRequest): Promise<void> {
  * der Absender ist also bereits ein konkretes Konto (bzw. dessen abgegriffenes
  * Token, das das Passwort selbst nicht kennt). Ohne Schranke ließe sich das
  * aktuelle Passwort unbegrenzt durchprobieren und der bcrypt-Vergleich als
- * Event-Loop-DoS gegen alle Arbeitsplätze samt Portal missbrauchen.
+ * DoS gegen alle Arbeitsplätze samt Portal missbrauchen (er belegt den
+ * Worker-Pool, den auch jede Anmeldung braucht).
  */
 function pwChangeKey(userId: number): string {
   return `pwchange:${userId}`;
@@ -312,7 +474,14 @@ function pwChangeKey(userId: number): string {
  * Zeitpunkt bereits gelaufen, req.user ist also gesetzt.
  */
 async function throttlePasswordChange(req: FastifyRequest): Promise<void> {
-  if (countFailures(pwChangeKey(req.user.id), Date.now()) < MAX_FAILURES_PER_EMAIL) return;
+  const now = Date.now();
+  const key = pwChangeKey(req.user.id);
+  if (countFailures(key, now) < MAX_FAILURES_PER_EMAIL) {
+    // Vorab als Fehlversuch zählen, wie beim Login (pendingAttemptAt).
+    noteFailure(key, MAX_FAILURES_PER_EMAIL, now);
+    pendingAttemptAt.set(req, now);
+    return;
+  }
   req.log.warn({ userId: req.user.id }, 'Passwortwechsel gesperrt: zu viele Fehlversuche');
   throw new AppError(
     429,
@@ -389,78 +558,100 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (fresh.length === 0) loginFailures.delete(key);
       else loginFailures.set(key, fresh);
     }
+    for (const key of [...loginsInFlight.keys()]) countInFlight(key, now);
   }, CLEANUP_INTERVAL_MS);
   cleanup.unref?.();
   app.addHook('onClose', async () => clearInterval(cleanup));
+  // Ausfall des Worker-Pools (Ersatzbetrieb) ins Journal statt auf stderr.
+  setPasswordHashingLogger(app.log);
 
   app.post(
     '/api/auth/login',
     { config: { public: true }, preHandler: throttleLogin },
     async (req) => {
-      const body = parse(
-        z.object({ email: z.string().email(), password: z.string().min(1) }),
-        req.body,
-      );
-      // Derselbe Wert, den auch throttleKeys()/clearFailuresForAccount() aus
-      // dem rohen Body bilden — Suchschlüssel, Drosselungszähler und die
-      // Einträge in Log und Audit bleiben so deckungsgleich.
-      const email = normalizeEmail(body.email);
-      const row = getDb().prepare('SELECT * FROM users WHERE email = ?').get(email) as
-        | (AuthUser & { password_hash: string; sessions_valid_from: number | null })
-        | undefined;
-
-      // Immer vergleichen — auch gegen den Dummy-Hash, wenn es das Konto nicht
-      // gibt (siehe DUMMY_PASSWORD_HASH: sonst verrät die Antwortzeit, welche
-      // E-Mail-Adressen existieren).
-      const passwordMatches = bcrypt.compareSync(
-        body.password,
-        row?.password_hash ?? DUMMY_PASSWORD_HASH,
-      );
-
-      if (!row || !passwordMatches) {
-        const now = Date.now();
-        for (const [key, limit] of throttleKeys(req)) noteFailure(key, limit, now);
-        req.log.warn({ ip: req.ip, email }, 'Anmeldung fehlgeschlagen');
-        // Audit ohne req.user (core/audit.ts verträgt das) — im Serverbetrieb
-        // ist das die einzige dauerhafte Spur eines Angriffsversuchs.
-        audit(req, 'login_fehlgeschlagen', 'user', row?.id, { email, ip: req.ip });
-        throw unauthorized('E-Mail oder Passwort ist falsch');
+      // Vermerk aus throttleLogin: Die IP-Zählung „in Arbeit“ endet mit der
+      // Anfrage, gleich wie sie ausgeht; ohne Vergleich (ungültiger Body)
+      // war es kein Rateversuch, dann fällt auch der Vermerk beim Konto weg.
+      const attemptAt = pendingAttemptAt.get(req);
+      let compared = false;
+      try {
+        return await login(req, () => {
+          compared = true;
+        });
+      } finally {
+        if (attemptAt !== undefined) {
+          releaseInFlight(`ip:${req.ip}`, attemptAt);
+          const rawEmail = normalizedEmail(req.body);
+          if (!compared && rawEmail) withdrawFailure(`email:${rawEmail}`, attemptAt);
+        }
       }
-
-      clearFailuresForAccount(req);
-      const user: AuthUser = {
-        id: row.id,
-        email: row.email,
-        name: row.name,
-        role: row.role,
-        employee_id: row.employee_id ?? null,
-        admin_role_id: row.admin_role_id ?? null,
-        must_change_password: row.must_change_password ?? 0,
-      };
-      // iat ausdrücklich setzen: liegt sessions_valid_from (z. B. durch ein
-      // administratives Zurücksetzen in derselben Sekunde) in der Zukunft,
-      // wäre ein Token mit der laufenden Sekunde sofort wieder ungültig.
-      const token = await signToken(app, {
-        ...user,
-        iat: issueIat(row.sessions_valid_from),
-      });
-      audit(req, 'login', 'user', row.id, { ip: req.ip });
-      // Die Rechte reisen mit der Antwort, damit die Oberfläche gesperrte
-      // Bereiche gar nicht erst anbietet. Sie sind reine Anzeigehilfe — die
-      // Durchsetzung passiert ausschließlich im Hook (core/permissions.ts).
-      // Der Lizenzzustand reist ebenfalls mit (Banner ohne Zusatzabfrage);
-      // Portal-Konten bekommen nur, ob Änderungen gerade möglich sind.
-      return {
-        token,
-        user,
-        permissions: permissionsFor(user.admin_role_id),
-        license: licenseForRole(user.role),
-        // Portal-Konten: was die Fachrollen im Portal freigeben (Anzeigehilfe;
-        // die Durchsetzung sitzt in den /api/me-Routen).
-        portal: portalAccessFor(user.employee_id),
-      };
     },
   );
+
+  async function login(req: FastifyRequest, onCompared: () => void) {
+    const body = parse(
+      z.object({
+        email: z.string().email(),
+        password: z.string().min(1),
+        // Sitzungsart (sessionFor); ältere Clients schicken nichts und
+        // bekommen wie bisher ein Portal-Token.
+        client: z.enum(['desktop', 'portal']).optional(),
+      }),
+      req.body,
+    );
+    // Derselbe Wert, den auch throttleKeys()/clearFailuresForAccount() aus
+    // dem rohen Body bilden: Suchschlüssel, Drosselungszähler und die
+    // Einträge in Log und Audit bleiben so deckungsgleich.
+    const email = normalizeEmail(body.email);
+    const row = getDb().prepare('SELECT * FROM users WHERE email = ?').get(email) as
+      | (AuthUser & { password_hash: string; sessions_valid_from: number | null })
+      | undefined;
+
+    // Immer vergleichen, auch gegen den Dummy-Hash, wenn es das Konto nicht
+    // gibt (siehe DUMMY_PASSWORD_HASH: sonst verrät die Antwortzeit, welche
+    // E-Mail-Adressen existieren). Gerechnet wird im Worker-Pool, nicht im
+    // Event-Loop (core/passwordHashing.ts).
+    const passwordMatches = await comparePassword(
+      body.password,
+      row?.password_hash ?? DUMMY_PASSWORD_HASH,
+    );
+    onCompared();
+
+    if (!row || !passwordMatches) {
+      // Beim Konto zählt der Fehlversuch schon seit throttleLogin
+      // (pendingAttemptAt), bei der IP erst jetzt, mit dem Ergebnis.
+      noteFailure(`ip:${req.ip}`, MAX_FAILURES_PER_IP, Date.now());
+      req.log.warn({ ip: req.ip, email }, 'Anmeldung fehlgeschlagen');
+      // Audit ohne req.user (core/audit.ts verträgt das); im Serverbetrieb
+      // ist das die einzige dauerhafte Spur eines Angriffsversuchs.
+      auditStandalone(req, 'login_fehlgeschlagen', 'user', row?.id, { email, ip: req.ip });
+      throw unauthorized('E-Mail oder Passwort ist falsch');
+    }
+
+    clearFailuresForAccount(req);
+    const user = identityOf(row);
+    // iat ausdrücklich setzen: liegt sessions_valid_from (z. B. durch ein
+    // administratives Zurücksetzen in derselben Sekunde) in der Zukunft,
+    // wäre ein Token mit der laufenden Sekunde sofort wieder ungültig.
+    // Die Anmeldung beginnt die Sitzung (auth_time).
+    const iat = issueIat(row.sessions_valid_from);
+    const token = signToken(app, { ...user, iat }, sessionFor(body.client, row.role), iat);
+    auditStandalone(req, 'login', 'user', row.id, { ip: req.ip });
+    // Die Rechte reisen mit der Antwort, damit die Oberfläche gesperrte
+    // Bereiche gar nicht erst anbietet. Sie sind reine Anzeigehilfe, die
+    // Durchsetzung passiert ausschließlich im Hook (core/permissions.ts).
+    // Der Lizenzzustand reist ebenfalls mit (Banner ohne Zusatzabfrage);
+    // Portal-Konten bekommen nur, ob Änderungen gerade möglich sind.
+    return {
+      token,
+      user,
+      permissions: permissionsFor(user.admin_role_id),
+      license: licenseForRole(user.role),
+      // Portal-Konten: was die Fachrollen im Portal freigeben (Anzeigehilfe;
+      // die Durchsetzung sitzt in den /api/me-Routen).
+      portal: portalAccessFor(user.employee_id),
+    };
+  }
 
   app.get('/api/auth/me', async (req) => ({
     user: req.user,
@@ -469,42 +660,91 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     portal: portalAccessFor(req.user.employee_id),
   }));
 
+  /**
+   * Sitzung verlängern: neues Token derselben Sitzungsart, ausgestellt aus der
+   * frischen users-Zeile wie beim Login. Der globale Hook hat vorher alles
+   * geprüft, was eine Sitzung beendet: Signatur, Ablauf, iat nicht vor
+   * sessions_valid_from, Konto vorhanden, kein erzwungener Passwortwechsel
+   * (die Route steht bewusst nicht in PASSWORD_CHANGE_ROUTES). Passwortwechsel,
+   * administratives Zurücksetzen und Löschen des Kontos beenden damit auch
+   * jede verlängerte Sitzung. Im Nur-Lese-Betrieb bleibt die Route offen
+   * (LICENSE_OPEN_ROUTES), sonst würde der Ablauf der Lizenz alle abmelden.
+   *
+   * Höchstdauer: Der Beginn der Sitzung (auth_time) reist unverändert mit;
+   * ist die Höchstdauer der (frisch bestimmten) Sitzungsart um, gibt es kein
+   * neues Token mehr (401), und das letzte läuft spätestens dann ab
+   * (signToken). Ohne die Grenze hielte ein abgegriffenes Token die Sitzung
+   * beliebig lange offen.
+   *
+   * Kein Audit-Eintrag: Die Desktop-App verlängert nach zehn Minuten, das
+   * Portal bei Aktivität alle paar Minuten. Das wären Dutzende Zeilen je
+   * Sitzung und Tag ohne Aussage, und das Audit-Log der Systemverwaltung
+   * würde unlesbar. Die Anmeldung bleibt protokolliert.
+   */
+  app.post('/api/auth/refresh', async (req) => {
+    const row = getDb()
+      .prepare(
+        `SELECT id, email, name, role, employee_id, admin_role_id, must_change_password,
+                sessions_valid_from
+           FROM users WHERE id = ?`,
+      )
+      .get(req.user.id) as (AuthUser & { sessions_valid_from: number | null }) | undefined;
+    if (!row) throw unauthorized('Nicht angemeldet oder Sitzung abgelaufen');
+    const session = sessionFor(req.user.session, row.role);
+    const iat = issueIat(row.sessions_valid_from);
+    // Tokens einer älteren Fassung tragen keinen Beginn; dann zählt ihr iat.
+    const authTime = req.user.auth_time ?? req.user.iat ?? iat;
+    if (iat >= authTime + sessionMaxOf(session)) {
+      throw unauthorized('Die Anmeldung ist abgelaufen. Bitte melden Sie sich erneut an.');
+    }
+    return { token: signToken(app, { ...identityOf(row), iat }, session, authTime) };
+  });
+
   app.put('/api/auth/password', { preHandler: throttlePasswordChange }, async (req) => {
-    const body = parse(
-      // Regeln bewusst nicht im Schema — siehe assertPasswordAcceptable.
-      z.object({ currentPassword: z.string(), newPassword: z.string() }),
-      req.body,
-    );
+    let body: { currentPassword: string; newPassword: string };
+    try {
+      body = parse(
+        // Regeln bewusst nicht im Schema, siehe assertPasswordAcceptable.
+        z.object({ currentPassword: z.string(), newPassword: z.string() }),
+        req.body,
+      );
+    } catch (err) {
+      // Ungültiger Body: kein Rateversuch, den Vermerk zurücknehmen.
+      const attemptAt = pendingAttemptAt.get(req);
+      if (attemptAt !== undefined) withdrawFailure(pwChangeKey(req.user.id), attemptAt);
+      throw err;
+    }
     const db = getDb();
     const row = db.prepare('SELECT email, password_hash FROM users WHERE id = ?').get(req.user.id) as
       | { email: string; password_hash: string }
       | undefined;
     // Auch hier gegen den Dummy-Hash vergleichen, damit ein zwischenzeitlich
-    // gelöschtes Konto nicht an der Antwortzeit erkennbar ist. Asynchrone
-    // bcrypt-API: compareSync würde die volle Rechenzeit (~65 ms) am Stück im
-    // einzigen Node-Prozess verbringen — bcryptjs zerlegt die Arbeit asynchron
-    // in Event-Loop-Häppchen, dazwischen kommen andere Requests zum Zug.
-    const currentMatches = await bcrypt.compare(
+    // gelöschtes Konto nicht an der Antwortzeit erkennbar ist. Vergleich und
+    // Hash laufen im Worker-Pool (core/passwordHashing.ts). Die asynchrone API
+    // von bcryptjs hülfe nicht: Sie gibt erst nach 100 ms Rechenzeit ab, ein
+    // Vergleich (~65 ms) blockierte den Prozess also auch dort am Stück.
+    const currentMatches = await comparePassword(
       body.currentPassword,
       row?.password_hash ?? DUMMY_PASSWORD_HASH,
     );
     if (!row || !currentMatches) {
       // Nur der falsche aktuelle Passwort-Versuch zählt — Verstöße gegen die
       // Passwortregeln weiter unten sperrten sonst legitime Nutzer aus, die
-      // mehrfach an der Richtlinie scheitern.
-      noteFailure(pwChangeKey(req.user.id), MAX_FAILURES_PER_EMAIL, Date.now());
+      // mehrfach an der Richtlinie scheitern. Gezählt ist er schon seit
+      // throttlePasswordChange (pendingAttemptAt); ein richtiges aktuelles
+      // Passwort leert den Zähler unten wieder.
       req.log.warn({ userId: req.user.id }, 'Passwortwechsel fehlgeschlagen');
       // Wie beim Login: im Serverbetrieb die einzige dauerhafte Spur, wenn
       // jemand mit einem abgegriffenen Token das Passwort durchprobiert.
-      audit(req, 'passwortwechsel_fehlgeschlagen', 'user', req.user.id, { ip: req.ip });
+      auditStandalone(req, 'passwortwechsel_fehlgeschlagen', 'user', req.user.id, { ip: req.ip });
       throw badRequest('Das aktuelle Passwort ist falsch');
     }
     loginFailures.delete(pwChangeKey(req.user.id));
     assertPasswordAcceptable(body.newPassword, row.email);
-    if (await bcrypt.compare(body.newPassword, row.password_hash)) {
+    if (await comparePassword(body.newPassword, row.password_hash)) {
       throw badRequest('Das neue Passwort muss sich vom bisherigen unterscheiden');
     }
-    const newHash = await bcrypt.hash(body.newPassword, 10);
+    const newHash = await hashPassword(body.newPassword, 10);
 
     // sessions_valid_from in Unix-SEKUNDEN (gleiche Einheit wie das JWT-Feld
     // iat). Alle älteren Tokens gelten damit ab sofort als ungültig — ein
@@ -520,17 +760,20 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     // dazwischen laufen und würde hier kommentarlos überschrieben — der
     // Wechselzwang wäre ausgehebelt. Das UPDATE greift deshalb nur, wenn die
     // Zeile noch genau den Hash trägt, gegen den oben verglichen wurde.
-    const info = db
-      .prepare(
-        'UPDATE users SET password_hash = ?, must_change_password = 0, sessions_valid_from = ? WHERE id = ? AND password_hash = ?',
-      )
-      .run(newHash, validFrom, req.user.id, row.password_hash);
-    if (info.changes === 0) {
-      // Die Zeile hat sich zwischenzeitlich geändert — das eben geprüfte
-      // "aktuelle Passwort" ist damit nicht mehr das aktuelle.
-      throw badRequest('Das aktuelle Passwort ist falsch');
-    }
-    audit(req, 'passwort_geaendert', 'user', req.user.id);
+    // Wechsel und Audit-Eintrag in EINER Transaktion (kein await darin).
+    inTransaction(() => {
+      const info = db
+        .prepare(
+          'UPDATE users SET password_hash = ?, must_change_password = 0, sessions_valid_from = ? WHERE id = ? AND password_hash = ?',
+        )
+        .run(newHash, validFrom, req.user.id, row.password_hash);
+      if (info.changes === 0) {
+        // Die Zeile hat sich zwischenzeitlich geändert: Das eben geprüfte
+        // "aktuelle Passwort" ist damit nicht mehr das aktuelle.
+        throw badRequest('Das aktuelle Passwort ist falsch');
+      }
+      audit(req, 'passwort_geaendert', 'user', req.user.id);
+    });
 
     // Frisches Token mitliefern: Das alte ist durch sessions_valid_from soeben
     // entwertet worden. Clients, die es übernehmen, bleiben angemeldet; alle
@@ -547,6 +790,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       must_change_password: 0,
       iat: validFrom,
     };
-    return { ok: true, token: await signToken(app, user) };
+    // Dieselbe Sitzungsart wie das vorgelegte Token, samt ihrer Laufzeit. Wer
+    // das aktuelle Passwort kennt, hat sich neu angemeldet: Die Sitzung
+    // beginnt hier (auth_time).
+    return { ok: true, token: signToken(app, user, sessionFor(req.user.session, req.user.role), validFrom) };
   });
 }

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * Backend-Bundles je Variante: server.cjs (Embedding in der Desktop-App),
- * cli.cjs (Serverbetrieb), backup.cjs (Sicherung) und die Betreiberwerkzeuge
- * unter src/scripts/ (sobald vorhanden).
+ * cli.cjs (Serverbetrieb), password-worker.cjs (bcrypt im Worker-Thread, von
+ * beiden gelesen), backup.cjs (Sicherung) und die Betreiberwerkzeuge unter
+ * src/scripts/ (sobald vorhanden).
  *
  * Die Variante kommt aus OHRGANIZE_VARIANT (Vorgabe: default aus dem
  * Register) und wird ueber die esbuild-Aliasse @variant / @variant-manifest
@@ -43,6 +44,9 @@ for (const f of [wiring, manifest]) {
 const ENTRIES = [
   ['src/server.ts', 'dist/server.cjs'],
   ['src/index.ts', 'dist/cli.cjs'],
+  // Passwort-Worker (core/passwordHashing.ts): liegt neben server.cjs und
+  // cli.cjs und wird von dort gelesen. Nur bcryptjs, kein Variantencode.
+  ['src/core/passwordWorker.ts', 'dist/password-worker.cjs'],
   ['src/scripts/backup.ts', 'dist/backup.cjs'],
   ['src/scripts/status.ts', 'dist/status.cjs'],
   ['src/scripts/admin-reset.ts', 'dist/admin-reset.cjs'],
@@ -64,7 +68,12 @@ for (const [entry, out] of ENTRIES) {
     legalComments: 'none',
     sourcemap: 'external',
     logLevel: 'warning',
-    define: { 'process.env.OHRGANIZE_LICENSE_PUBLIC_KEY': 'undefined' },
+    define: {
+      'process.env.OHRGANIZE_LICENSE_PUBLIC_KEY': 'undefined',
+      // Gebündelter Betrieb: core/audit.ts meldet einen Aufruf ausserhalb
+      // einer Transaktion im Log, statt zu werfen (Begründung dort).
+      'process.env.OHRGANIZE_BUNDLED': '"1"',
+    },
     alias: { '@variant': wiring, '@variant-manifest': manifest },
   });
 }

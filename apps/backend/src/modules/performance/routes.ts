@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, notFound, conflict } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { removeReplacedFile } from '../../core/files.js';
+import { detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
 import { todayIso, addDaysIso } from '../../core/dates.js';
 import { isoDateString } from '../../core/validation.js';
 import {
@@ -385,6 +385,11 @@ function reviewerSuggestions(employeeId: number): ReviewerSuggestion[] {
 // ---------------------------------------------------------------------------
 
 export const performanceModule: FastifyPluginAsync = async (app) => {
+  // Schreibende Routen legen Änderung und Audit-Eintrag in EINE Transaktion:
+  // Ein Absturz zwischen zwei Commits hinterliesse sonst eine Änderung ohne
+  // Protokoll. Den Blob einer entfernten Datei löscht erst der Weg nach dem
+  // Commit (removeDetachedBlob), ein Rollback brächte ihn nicht zurück.
+
   // ======================= Ziele & OKR =======================
 
   app.get('/api/performance/goals', async (req) => {
@@ -457,9 +462,10 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
         );
       const id = Number(info.lastInsertRowid);
       if (body.kind === 'key_result') recomputeObjectiveProgress(body.parent_goal_id!);
-      return getGoal(id);
+      const created = getGoal(id);
+      audit(req, 'goal.created', 'goal', created.id, { title: created.title, kind: created.kind });
+      return created;
     });
-    audit(req, 'goal.created', 'goal', goal.id, { title: goal.title, kind: goal.kind });
     reply.code(201);
     return { goal };
   });
@@ -489,9 +495,9 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
           id,
         );
       if (existing.parent_goal_id) recomputeObjectiveProgress(existing.parent_goal_id);
+      audit(req, 'goal.updated', 'goal', id, body);
       return getGoal(id);
     });
-    audit(req, 'goal.updated', 'goal', id, body);
     return { goal };
   });
 
@@ -517,10 +523,10 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
           id,
         );
       if (existing.parent_goal_id) recomputeObjectiveProgress(existing.parent_goal_id);
+      audit(req, 'goal.progress_updated', 'goal', id, { progress: body.progress });
       return getGoal(id);
     });
     const parent = goal.parent_goal_id ? getGoal(goal.parent_goal_id) : null;
-    audit(req, 'goal.progress_updated', 'goal', id, { progress: body.progress });
     return { goal, parent };
   });
 
@@ -530,8 +536,8 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     inTransaction(() => {
       getDb().prepare('DELETE FROM goals WHERE id = ?').run(id);
       if (goal.parent_goal_id) recomputeObjectiveProgress(goal.parent_goal_id);
+      audit(req, 'goal.deleted', 'goal', id, { title: goal.title });
     });
-    audit(req, 'goal.deleted', 'goal', id, { title: goal.title });
     reply.code(204);
   });
 
@@ -547,14 +553,17 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
   app.post('/api/performance/review-cycles', async (req, reply) => {
     const body = parse(cycleCreateSchema, req.body);
     if (body.period_to < body.period_from) throw badRequest('Zeitraum-Ende liegt vor dem Beginn');
-    const info = getDb()
-      .prepare(
-        `INSERT INTO review_cycles (name, kind, period_from, period_to, status)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(body.name, body.kind, body.period_from, body.period_to, body.status);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'review_cycle.created', 'review_cycle', id, { name: body.name });
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO review_cycles (name, kind, period_from, period_to, status)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(body.name, body.kind, body.period_from, body.period_to, body.status);
+      const cycleId = Number(info.lastInsertRowid);
+      audit(req, 'review_cycle.created', 'review_cycle', cycleId, { name: body.name });
+      return cycleId;
+    });
     reply.code(201);
     return { cycle: getRowOrThrow('review_cycles', id, 'Zyklus nicht gefunden') };
   });
@@ -565,20 +574,24 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     const body = parse(cycleCreateSchema.partial(), req.body);
     const merged = { ...existing, ...body } as Record<string, string>;
     if (merged.period_to < merged.period_from) throw badRequest('Zeitraum-Ende liegt vor dem Beginn');
-    getDb()
-      .prepare(
-        'UPDATE review_cycles SET name = ?, kind = ?, period_from = ?, period_to = ?, status = ? WHERE id = ?',
-      )
-      .run(merged.name, merged.kind, merged.period_from, merged.period_to, merged.status, id);
-    audit(req, 'review_cycle.updated', 'review_cycle', id, body);
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          'UPDATE review_cycles SET name = ?, kind = ?, period_from = ?, period_to = ?, status = ? WHERE id = ?',
+        )
+        .run(merged.name, merged.kind, merged.period_from, merged.period_to, merged.status, id);
+      audit(req, 'review_cycle.updated', 'review_cycle', id, body);
+    });
     return { cycle: getRowOrThrow('review_cycles', id, 'Zyklus nicht gefunden') };
   });
 
   app.delete('/api/performance/review-cycles/:id', async (req, reply) => {
     const id = idParam(req);
     getRowOrThrow('review_cycles', id, 'Zyklus nicht gefunden');
-    getDb().prepare('DELETE FROM review_cycles WHERE id = ?').run(id);
-    audit(req, 'review_cycle.deleted', 'review_cycle', id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM review_cycles WHERE id = ?').run(id);
+      audit(req, 'review_cycle.deleted', 'review_cycle', id);
+    });
     reply.code(204);
   });
 
@@ -627,11 +640,14 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
   app.post('/api/performance/review-templates', async (req, reply) => {
     const body = parse(templateSchema, req.body);
     const criteria = resolveCriteria(body.criteria);
-    const info = getDb()
-      .prepare('INSERT INTO review_templates (name, criteria) VALUES (?, ?)')
-      .run(body.name, JSON.stringify(criteria));
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'review_template.created', 'review_template', id, { name: body.name });
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare('INSERT INTO review_templates (name, criteria) VALUES (?, ?)')
+        .run(body.name, JSON.stringify(criteria));
+      const templateId = Number(info.lastInsertRowid);
+      audit(req, 'review_template.created', 'review_template', templateId, { name: body.name });
+      return templateId;
+    });
     reply.code(201);
     return { template: { id, name: body.name, criteria } };
   });
@@ -641,10 +657,12 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     getRowOrThrow('review_templates', id, 'Bogen nicht gefunden');
     const body = parse(templateSchema, req.body);
     const criteria = resolveCriteria(body.criteria);
-    getDb()
-      .prepare('UPDATE review_templates SET name = ?, criteria = ? WHERE id = ?')
-      .run(body.name, JSON.stringify(criteria), id);
-    audit(req, 'review_template.updated', 'review_template', id, { name: body.name });
+    inTransaction(() => {
+      getDb()
+        .prepare('UPDATE review_templates SET name = ?, criteria = ? WHERE id = ?')
+        .run(body.name, JSON.stringify(criteria), id);
+      audit(req, 'review_template.updated', 'review_template', id, { name: body.name });
+    });
     return { template: { id, name: body.name, criteria } };
   });
 
@@ -655,8 +673,10 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       .prepare('SELECT COUNT(*) AS n FROM reviews WHERE template_id = ?')
       .get(id) as { n: number };
     if (used.n > 0) throw conflict('Der Bogen wird bereits in Beurteilungen verwendet');
-    getDb().prepare('DELETE FROM review_templates WHERE id = ?').run(id);
-    audit(req, 'review_template.deleted', 'review_template', id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM review_templates WHERE id = ?').run(id);
+      audit(req, 'review_template.deleted', 'review_template', id);
+    });
     reply.code(204);
   });
 
@@ -737,14 +757,17 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       )
       .get(body.cycle_id, body.employee_id, body.kind, body.reviewer_employee_id ?? null);
     if (dup) throw conflict('Für diese Kombination existiert bereits eine Beurteilung');
-    const info = getDb()
-      .prepare(
-        `INSERT INTO reviews (cycle_id, employee_id, template_id, reviewer_employee_id, kind)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(body.cycle_id, body.employee_id, body.template_id, body.reviewer_employee_id ?? null, body.kind);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'review.created', 'review', id, body);
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO reviews (cycle_id, employee_id, template_id, reviewer_employee_id, kind)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(body.cycle_id, body.employee_id, body.template_id, body.reviewer_employee_id ?? null, body.kind);
+      const reviewId = Number(info.lastInsertRowid);
+      audit(req, 'review.created', 'review', reviewId, body);
+      return reviewId;
+    });
     reply.code(201);
     return { review: reviewToApi(getRowOrThrow('reviews', id, 'Beurteilung nicht gefunden')) };
   });
@@ -763,10 +786,12 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     );
     const scores = body.scores ?? [];
     validateScores(scores, parseTemplateCriteria(template));
-    getDb()
-      .prepare(`UPDATE reviews SET scores = ?, summary = ?, status = 'in_bearbeitung' WHERE id = ?`)
-      .run(JSON.stringify(scores), body.summary ?? null, id);
-    audit(req, 'review.saved', 'review', id);
+    inTransaction(() => {
+      getDb()
+        .prepare(`UPDATE reviews SET scores = ?, summary = ?, status = 'in_bearbeitung' WHERE id = ?`)
+        .run(JSON.stringify(scores), body.summary ?? null, id);
+      audit(req, 'review.saved', 'review', id);
+    });
     return { review: reviewToApi(getRowOrThrow('reviews', id, 'Beurteilung nicht gefunden')) };
   });
 
@@ -788,21 +813,25 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       throw badRequest(`Es fehlen Bewertungen für: ${missing.map((c) => c.label).join(', ')}`);
     }
     const percent = percentOf(scores, criteria);
-    getDb()
-      .prepare(
-        `UPDATE reviews SET status = 'abgeschlossen', overall_percent = ?, completed_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(percent, id);
-    audit(req, 'review.completed', 'review', id, { overall_percent: percent });
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE reviews SET status = 'abgeschlossen', overall_percent = ?, completed_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(percent, id);
+      audit(req, 'review.completed', 'review', id, { overall_percent: percent });
+    });
     return { review: reviewToApi(getRowOrThrow('reviews', id, 'Beurteilung nicht gefunden')) };
   });
 
   app.delete('/api/performance/reviews/:id', async (req, reply) => {
     const id = idParam(req);
     getRowOrThrow('reviews', id, 'Beurteilung nicht gefunden');
-    getDb().prepare('DELETE FROM reviews WHERE id = ?').run(id);
-    audit(req, 'review.deleted', 'review', id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM reviews WHERE id = ?').run(id);
+      audit(req, 'review.deleted', 'review', id);
+    });
     reply.code(204);
   });
 
@@ -945,11 +974,14 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     const body = parse(skillSchema, req.body);
     const dup = getDb().prepare('SELECT id FROM skills WHERE name = ?').get(body.name);
     if (dup) throw conflict('Ein Skill mit diesem Namen existiert bereits');
-    const info = getDb()
-      .prepare('INSERT INTO skills (name, category) VALUES (?, ?)')
-      .run(body.name, body.category ?? null);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'skill.created', 'skill', id, { name: body.name });
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare('INSERT INTO skills (name, category) VALUES (?, ?)')
+        .run(body.name, body.category ?? null);
+      const skillId = Number(info.lastInsertRowid);
+      audit(req, 'skill.created', 'skill', skillId, { name: body.name });
+      return skillId;
+    });
     reply.code(201);
     return { skill: getRowOrThrow('skills', id, 'Skill nicht gefunden') };
   });
@@ -961,18 +993,22 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     const merged = { ...existing, ...body } as Record<string, unknown>;
     const dup = getDb().prepare('SELECT id FROM skills WHERE name = ? AND id != ?').get(merged.name, id);
     if (dup) throw conflict('Ein Skill mit diesem Namen existiert bereits');
-    getDb()
-      .prepare('UPDATE skills SET name = ?, category = ? WHERE id = ?')
-      .run(merged.name, merged.category ?? null, id);
-    audit(req, 'skill.updated', 'skill', id, body);
+    inTransaction(() => {
+      getDb()
+        .prepare('UPDATE skills SET name = ?, category = ? WHERE id = ?')
+        .run(merged.name, merged.category ?? null, id);
+      audit(req, 'skill.updated', 'skill', id, body);
+    });
     return { skill: getRowOrThrow('skills', id, 'Skill nicht gefunden') };
   });
 
   app.delete('/api/performance/skills/:id', async (req, reply) => {
     const id = idParam(req);
     getRowOrThrow('skills', id, 'Skill nicht gefunden');
-    getDb().prepare('DELETE FROM skills WHERE id = ?').run(id);
-    audit(req, 'skill.deleted', 'skill', id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM skills WHERE id = ?').run(id);
+      audit(req, 'skill.deleted', 'skill', id);
+    });
     reply.code(204);
   });
 
@@ -981,14 +1017,16 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     const body = parse(employeeSkillSchema, req.body);
     ensureEmployeeExists(body.employee_id);
     getRowOrThrow('skills', body.skill_id, 'Skill nicht gefunden');
-    getDb()
-      .prepare(
-        `INSERT INTO employee_skills (employee_id, skill_id, level, assessed_at)
-         VALUES (?, ?, ?, ?)
-         ON CONFLICT(employee_id, skill_id) DO UPDATE SET level = excluded.level, assessed_at = excluded.assessed_at`,
-      )
-      .run(body.employee_id, body.skill_id, body.level, body.assessed_at ?? todayIso());
-    audit(req, 'employee_skill.set', 'employee', body.employee_id, body);
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `INSERT INTO employee_skills (employee_id, skill_id, level, assessed_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(employee_id, skill_id) DO UPDATE SET level = excluded.level, assessed_at = excluded.assessed_at`,
+        )
+        .run(body.employee_id, body.skill_id, body.level, body.assessed_at ?? todayIso());
+      audit(req, 'employee_skill.set', 'employee', body.employee_id, body);
+    });
     const entry = getDb()
       .prepare('SELECT * FROM employee_skills WHERE employee_id = ? AND skill_id = ?')
       .get(body.employee_id, body.skill_id);
@@ -1003,11 +1041,13 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       }),
       req.params,
     );
-    const info = getDb()
-      .prepare('DELETE FROM employee_skills WHERE employee_id = ? AND skill_id = ?')
-      .run(p.employeeId, p.skillId);
-    if (info.changes === 0) throw notFound('Skill-Zuordnung nicht gefunden');
-    audit(req, 'employee_skill.removed', 'employee', p.employeeId, { skill_id: p.skillId });
+    inTransaction(() => {
+      const info = getDb()
+        .prepare('DELETE FROM employee_skills WHERE employee_id = ? AND skill_id = ?')
+        .run(p.employeeId, p.skillId);
+      if (info.changes === 0) throw notFound('Skill-Zuordnung nicht gefunden');
+      audit(req, 'employee_skill.removed', 'employee', p.employeeId, { skill_id: p.skillId });
+    });
     reply.code(204);
   });
 
@@ -1033,11 +1073,14 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       .prepare('SELECT id FROM role_skill_profiles WHERE role_name = ? AND skill_id = ?')
       .get(body.role_name, body.skill_id);
     if (dup) throw conflict('Für diese Rolle ist der Skill bereits im Soll-Profil');
-    const info = getDb()
-      .prepare('INSERT INTO role_skill_profiles (role_name, skill_id, required_level) VALUES (?, ?, ?)')
-      .run(body.role_name, body.skill_id, body.required_level);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'role_skill_profile.created', 'role_skill_profile', id, body);
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare('INSERT INTO role_skill_profiles (role_name, skill_id, required_level) VALUES (?, ?, ?)')
+        .run(body.role_name, body.skill_id, body.required_level);
+      const profileId = Number(info.lastInsertRowid);
+      audit(req, 'role_skill_profile.created', 'role_skill_profile', profileId, body);
+      return profileId;
+    });
     reply.code(201);
     return { profile: getRowOrThrow('role_skill_profiles', id, 'Soll-Profil nicht gefunden') };
   });
@@ -1046,16 +1089,20 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     const id = idParam(req);
     getRowOrThrow('role_skill_profiles', id, 'Soll-Profil nicht gefunden');
     const body = parse(z.object({ required_level: z.number().int().min(1).max(5) }), req.body);
-    getDb().prepare('UPDATE role_skill_profiles SET required_level = ? WHERE id = ?').run(body.required_level, id);
-    audit(req, 'role_skill_profile.updated', 'role_skill_profile', id, body);
+    inTransaction(() => {
+      getDb().prepare('UPDATE role_skill_profiles SET required_level = ? WHERE id = ?').run(body.required_level, id);
+      audit(req, 'role_skill_profile.updated', 'role_skill_profile', id, body);
+    });
     return { profile: getRowOrThrow('role_skill_profiles', id, 'Soll-Profil nicht gefunden') };
   });
 
   app.delete('/api/performance/role-skill-profiles/:id', async (req, reply) => {
     const id = idParam(req);
     getRowOrThrow('role_skill_profiles', id, 'Soll-Profil nicht gefunden');
-    getDb().prepare('DELETE FROM role_skill_profiles WHERE id = ?').run(id);
-    audit(req, 'role_skill_profile.deleted', 'role_skill_profile', id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM role_skill_profiles WHERE id = ?').run(id);
+      audit(req, 'role_skill_profile.deleted', 'role_skill_profile', id);
+    });
     reply.code(204);
   });
 
@@ -1124,22 +1171,25 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
 
   app.post('/api/performance/trainings', async (req, reply) => {
     const body = parse(trainingSchema, req.body);
-    const info = getDb()
-      .prepare(
-        `INSERT INTO trainings (title, provider, kind, cost_cents, mandatory, repeat_interval_months, description)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        body.title,
-        body.provider ?? null,
-        body.kind,
-        body.cost_cents ?? null,
-        body.mandatory ? 1 : 0,
-        body.repeat_interval_months ?? null,
-        body.description ?? null,
-      );
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'training.created', 'training', id, { title: body.title });
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO trainings (title, provider, kind, cost_cents, mandatory, repeat_interval_months, description)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          body.title,
+          body.provider ?? null,
+          body.kind,
+          body.cost_cents ?? null,
+          body.mandatory ? 1 : 0,
+          body.repeat_interval_months ?? null,
+          body.description ?? null,
+        );
+      const trainingId = Number(info.lastInsertRowid);
+      audit(req, 'training.created', 'training', trainingId, { title: body.title });
+      return trainingId;
+    });
     reply.code(201);
     return { training: getRowOrThrow('trainings', id, 'Training nicht gefunden') };
   });
@@ -1153,30 +1203,34 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       ...body,
       mandatory: body.mandatory === undefined ? existing.mandatory : body.mandatory ? 1 : 0,
     } as Record<string, unknown>;
-    getDb()
-      .prepare(
-        `UPDATE trainings SET title = ?, provider = ?, kind = ?, cost_cents = ?, mandatory = ?,
-           repeat_interval_months = ?, description = ? WHERE id = ?`,
-      )
-      .run(
-        merged.title,
-        merged.provider ?? null,
-        merged.kind,
-        merged.cost_cents ?? null,
-        merged.mandatory,
-        merged.repeat_interval_months ?? null,
-        merged.description ?? null,
-        id,
-      );
-    audit(req, 'training.updated', 'training', id, body);
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE trainings SET title = ?, provider = ?, kind = ?, cost_cents = ?, mandatory = ?,
+             repeat_interval_months = ?, description = ? WHERE id = ?`,
+        )
+        .run(
+          merged.title,
+          merged.provider ?? null,
+          merged.kind,
+          merged.cost_cents ?? null,
+          merged.mandatory,
+          merged.repeat_interval_months ?? null,
+          merged.description ?? null,
+          id,
+        );
+      audit(req, 'training.updated', 'training', id, body);
+    });
     return { training: getRowOrThrow('trainings', id, 'Training nicht gefunden') };
   });
 
   app.delete('/api/performance/trainings/:id', async (req, reply) => {
     const id = idParam(req);
     getRowOrThrow('trainings', id, 'Training nicht gefunden');
-    getDb().prepare('DELETE FROM trainings WHERE id = ?').run(id);
-    audit(req, 'training.deleted', 'training', id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM trainings WHERE id = ?').run(id);
+      audit(req, 'training.deleted', 'training', id);
+    });
     reply.code(204);
   });
 
@@ -1204,14 +1258,17 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       )
       .get(body.training_id, body.employee_id);
     if (dup) throw conflict('Es besteht bereits eine aktive Anmeldung für dieses Training');
-    const info = getDb()
-      .prepare(
-        `INSERT INTO training_registrations (training_id, employee_id, date, note)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .run(body.training_id, body.employee_id, body.date ?? null, body.note ?? null);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'training_registration.created', 'training_registration', id, body);
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO training_registrations (training_id, employee_id, date, note)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(body.training_id, body.employee_id, body.date ?? null, body.note ?? null);
+      const registrationId = Number(info.lastInsertRowid);
+      audit(req, 'training_registration.created', 'training_registration', registrationId, body);
+      return registrationId;
+    });
     reply.code(201);
     return { registration: getRowOrThrow('training_registrations', id, 'Anmeldung nicht gefunden') };
   });
@@ -1226,27 +1283,38 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     if (body.certificate_file_id) {
       getRowOrThrow('files', Number(body.certificate_file_id), 'Zertifikatsdatei nicht gefunden');
     }
-    getDb()
-      .prepare(
-        `UPDATE training_registrations SET status = ?, date = ?, completed_at = ?,
-           certificate_file_id = ?, note = ? WHERE id = ?`,
-      )
-      .run(
-        merged.status,
-        merged.date ?? null,
-        merged.completed_at ?? null,
-        merged.certificate_file_id ?? null,
-        merged.note ?? null,
-        id,
-      );
-    // Ersetztes oder entferntes Zertifikat aufraeumen, sofern nirgends sonst
-    // verknuepft; der Audit-Eintrag nennt die Datei.
     const replacedCertificate = existing.certificate_file_id as number | null | undefined;
-    const removedFile =
-      replacedCertificate && replacedCertificate !== (merged.certificate_file_id ?? null)
-        ? removeReplacedFile(replacedCertificate)
-        : null;
-    audit(req, 'training_registration.updated', 'training_registration', id, removedFile ? { ...body, removed_file: removedFile } : body);
+    const removedFile = inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE training_registrations SET status = ?, date = ?, completed_at = ?,
+             certificate_file_id = ?, note = ? WHERE id = ?`,
+        )
+        .run(
+          merged.status,
+          merged.date ?? null,
+          merged.completed_at ?? null,
+          merged.certificate_file_id ?? null,
+          merged.note ?? null,
+          id,
+        );
+      // Ersetztes oder entferntes Zertifikat aufraeumen, sofern nirgends sonst
+      // verknuepft; der Audit-Eintrag nennt die Datei. Hier nur der Datensatz,
+      // der Blob folgt nach dem Commit (ein Rollback braucht ihn noch).
+      const detached =
+        replacedCertificate && replacedCertificate !== (merged.certificate_file_id ?? null)
+          ? detachUnreferencedFile(replacedCertificate)
+          : null;
+      audit(
+        req,
+        'training_registration.updated',
+        'training_registration',
+        id,
+        detached ? { ...body, removed_file: { id: detached.id, sha256: detached.sha256 } } : body,
+      );
+      return detached;
+    });
+    removeDetachedBlob(removedFile);
     return { registration: getRowOrThrow('training_registrations', id, 'Anmeldung nicht gefunden') };
   });
 
@@ -1298,14 +1366,17 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
   app.post('/api/performance/feedback-meetings', async (req, reply) => {
     const body = parse(meetingCreateSchema, req.body);
     ensureEmployeeExists(body.employee_id);
-    const info = getDb()
-      .prepare(
-        `INSERT INTO feedback_meetings (employee_id, kind, scheduled_date, notes, recurrence_months)
-         VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(body.employee_id, body.kind, body.scheduled_date, body.notes ?? null, body.recurrence_months ?? null);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'feedback_meeting.created', 'feedback_meeting', id, body);
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO feedback_meetings (employee_id, kind, scheduled_date, notes, recurrence_months)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(body.employee_id, body.kind, body.scheduled_date, body.notes ?? null, body.recurrence_months ?? null);
+      const meetingId = Number(info.lastInsertRowid);
+      audit(req, 'feedback_meeting.created', 'feedback_meeting', meetingId, body);
+      return meetingId;
+    });
     reply.code(201);
     return { meeting: getRowOrThrow('feedback_meetings', id, 'Gespräch nicht gefunden') };
   });
@@ -1318,13 +1389,15 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       throw badRequest('Bitte den Abschluss-Endpunkt verwenden (legt Folgetermine an)');
     }
     const merged = { ...existing, ...body } as Record<string, unknown>;
-    getDb()
-      .prepare(
-        `UPDATE feedback_meetings SET kind = ?, scheduled_date = ?, notes = ?,
-           recurrence_months = ?, status = ? WHERE id = ?`,
-      )
-      .run(merged.kind, merged.scheduled_date, merged.notes ?? null, merged.recurrence_months ?? null, merged.status, id);
-    audit(req, 'feedback_meeting.updated', 'feedback_meeting', id, body);
+    inTransaction(() => {
+      getDb()
+        .prepare(
+          `UPDATE feedback_meetings SET kind = ?, scheduled_date = ?, notes = ?,
+             recurrence_months = ?, status = ? WHERE id = ?`,
+        )
+        .run(merged.kind, merged.scheduled_date, merged.notes ?? null, merged.recurrence_months ?? null, merged.status, id);
+      audit(req, 'feedback_meeting.updated', 'feedback_meeting', id, body);
+    });
     return { meeting: getRowOrThrow('feedback_meetings', id, 'Gespräch nicht gefunden') };
   });
 
@@ -1347,23 +1420,26 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
       getDb()
         .prepare(`UPDATE feedback_meetings SET status = 'stattgefunden', held_date = ?, notes = ? WHERE id = ?`)
         .run(heldDate, body.notes !== undefined ? (body.notes ?? null) : existing.notes, id);
-      if (!existing.recurrence_months) return null;
-      const info = getDb()
-        .prepare(
-          `INSERT INTO feedback_meetings (employee_id, kind, scheduled_date, recurrence_months)
-           VALUES (?, ?, ?, ?)`,
-        )
-        .run(
-          existing.employee_id,
-          existing.kind,
-          addMonthsIso(heldDate, existing.recurrence_months),
-          existing.recurrence_months,
-        );
-      return Number(info.lastInsertRowid);
-    });
-    audit(req, 'feedback_meeting.completed', 'feedback_meeting', id, {
-      held_date: heldDate,
-      follow_up_id: followUpId,
+      let nextId: number | null = null;
+      if (existing.recurrence_months) {
+        const info = getDb()
+          .prepare(
+            `INSERT INTO feedback_meetings (employee_id, kind, scheduled_date, recurrence_months)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            existing.employee_id,
+            existing.kind,
+            addMonthsIso(heldDate, existing.recurrence_months),
+            existing.recurrence_months,
+          );
+        nextId = Number(info.lastInsertRowid);
+      }
+      audit(req, 'feedback_meeting.completed', 'feedback_meeting', id, {
+        held_date: heldDate,
+        follow_up_id: nextId,
+      });
+      return nextId;
     });
     return {
       meeting: getRowOrThrow('feedback_meetings', id, 'Gespräch nicht gefunden'),
@@ -1374,8 +1450,10 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
   app.delete('/api/performance/feedback-meetings/:id', async (req, reply) => {
     const id = idParam(req);
     getRowOrThrow('feedback_meetings', id, 'Gespräch nicht gefunden');
-    getDb().prepare('DELETE FROM feedback_meetings WHERE id = ?').run(id);
-    audit(req, 'feedback_meeting.deleted', 'feedback_meeting', id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM feedback_meetings WHERE id = ?').run(id);
+      audit(req, 'feedback_meeting.deleted', 'feedback_meeting', id);
+    });
     reply.code(204);
   });
 
@@ -1384,11 +1462,14 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     getRowOrThrow('feedback_meetings', meetingId, 'Gespräch nicht gefunden');
     const body = parse(actionCreateSchema, req.body);
     if (body.owner_employee_id) ensureEmployeeExists(body.owner_employee_id);
-    const info = getDb()
-      .prepare('INSERT INTO feedback_actions (meeting_id, title, due_date, owner_employee_id) VALUES (?, ?, ?, ?)')
-      .run(meetingId, body.title, body.due_date ?? null, body.owner_employee_id ?? null);
-    const id = Number(info.lastInsertRowid);
-    audit(req, 'feedback_action.created', 'feedback_action', id, { title: body.title });
+    const id = inTransaction(() => {
+      const info = getDb()
+        .prepare('INSERT INTO feedback_actions (meeting_id, title, due_date, owner_employee_id) VALUES (?, ?, ?, ?)')
+        .run(meetingId, body.title, body.due_date ?? null, body.owner_employee_id ?? null);
+      const actionId = Number(info.lastInsertRowid);
+      audit(req, 'feedback_action.created', 'feedback_action', actionId, { title: body.title });
+      return actionId;
+    });
     reply.code(201);
     return { action: getRowOrThrow('feedback_actions', id, 'Maßnahme nicht gefunden') };
   });
@@ -1398,18 +1479,22 @@ export const performanceModule: FastifyPluginAsync = async (app) => {
     const existing = getRowOrThrow<Record<string, unknown>>('feedback_actions', id, 'Maßnahme nicht gefunden');
     const body = parse(actionUpdateSchema, req.body);
     const merged = { ...existing, ...body } as Record<string, unknown>;
-    getDb()
-      .prepare('UPDATE feedback_actions SET title = ?, due_date = ?, owner_employee_id = ?, status = ? WHERE id = ?')
-      .run(merged.title, merged.due_date ?? null, merged.owner_employee_id ?? null, merged.status, id);
-    audit(req, 'feedback_action.updated', 'feedback_action', id, body);
+    inTransaction(() => {
+      getDb()
+        .prepare('UPDATE feedback_actions SET title = ?, due_date = ?, owner_employee_id = ?, status = ? WHERE id = ?')
+        .run(merged.title, merged.due_date ?? null, merged.owner_employee_id ?? null, merged.status, id);
+      audit(req, 'feedback_action.updated', 'feedback_action', id, body);
+    });
     return { action: getRowOrThrow('feedback_actions', id, 'Maßnahme nicht gefunden') };
   });
 
   app.delete('/api/performance/feedback-actions/:id', async (req, reply) => {
     const id = idParam(req);
     getRowOrThrow('feedback_actions', id, 'Maßnahme nicht gefunden');
-    getDb().prepare('DELETE FROM feedback_actions WHERE id = ?').run(id);
-    audit(req, 'feedback_action.deleted', 'feedback_action', id);
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM feedback_actions WHERE id = ?').run(id);
+      audit(req, 'feedback_action.deleted', 'feedback_action', id);
+    });
     reply.code(204);
   });
 

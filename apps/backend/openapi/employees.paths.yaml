@@ -14,10 +14,10 @@ paths:
       responses:
         "200": { description: "{ employees: [...] }" }
     post:
-      summary: Mitarbeiter:in anlegen (typabhängige Pflichtfelder serverseitig validiert)
+      summary: Mitarbeiter:in anlegen (typabhängige Pflichtfelder serverseitig validiert; photo_file_id = Original, photo_thumb_file_id = Vorschaubild dazu)
       responses:
         "201": { description: Angelegte:r Mitarbeiter:in }
-        "400": { description: Validierungsfehler (u. a. EMPLOYEE_TYPE_RULES) }
+        "400": { description: Validierungsfehler (u. a. EMPLOYEE_TYPE_RULES, Vorschaubild ohne Foto) }
   /api/employees/export.csv:
     get:
       summary: CSV-Export der Stammdaten (BOM + Semikolon, gleiche Filter wie Liste)
@@ -66,11 +66,12 @@ paths:
         "200": { description: "{ employee, reporting_line }" }
         "404": { description: Nicht gefunden }
     patch:
-      summary: Stammdaten teilweise ändern (Typregeln gelten für den gemergten Stand)
+      summary: "Stammdaten teilweise ändern (Typregeln gelten für den gemergten Stand). Ein neues oder entferntes photo_file_id ohne photo_thumb_file_id setzt das Vorschaubild auf null; ersetzte Foto- und Vorschaudateien werden aufgeräumt (Audit: removed_file, removed_thumb_file)"
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
         "200": { description: Aktualisierte:r Mitarbeiter:in }
+        "400": { description: Validierungsfehler (u. a. Vorschaubild ohne Foto) }
     delete:
       summary: "Mitarbeiter:in endgültig löschen: Verträge, Dokumente, Abwesenheiten, Gehaltsdaten und Bewertungen fallen per CASCADE, nicht mehr referenzierte Dateien werden aus dem Storage entfernt"
       parameters:
@@ -109,7 +110,12 @@ paths:
     get:
       summary: Personen-Organigramm (aktive Mitarbeitende mit Berichtslinie aus Vorgesetzten-, Team- oder Abteilungsleitung, Fotos signiert)
       responses:
-        "200": { description: "{ people: [...], departments: [...] }" }
+        "200": { description: "{ people: [...], departments: [...] }; photo_url zeigt auf das Vorschaubild (photo_thumb_file_id, sonst photo_file_id) und bleibt innerhalb eines Zehn-Minuten-Fensters gleich" }
+  /api/org/chart/originals:
+    get:
+      summary: "Signierte Links auf die Original-Fotos des Organigramms (nur Personen mit Vorschaubild), für hohen Zoom; befristet wie photo_url, ohne Audit-Zeile"
+      responses:
+        "200": { description: "{ originals: { <personen-id>: url } }" }
   /api/departments:
     get:
       summary: Abteilungen auflisten
@@ -194,8 +200,11 @@ paths:
         - { name: employee_id, in: query, schema: { type: integer } }
         - { name: source, in: query, schema: { type: string, enum: [hr, portal] }, description: Herkunft (HR-Upload oder aus dem Portal) }
         - { name: include_superseded, in: query, schema: { type: boolean } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1 }, description: "Seitengröße, höchstens 500 (größere Werte werden gedeckelt). Ohne limit ungeblättert: alle Treffer, ohne total." }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 }, description: Nur mit limit. Anzahl übersprungener Treffer. }
+        - { name: focus_id, in: query, schema: { type: integer }, description: "Nur mit limit. Liefert die Seite, auf der dieses Dokument steht (passt es zu den Filtern); offset der Antwort nennt ihren Beginn." }
       responses:
-        "200": { description: "{ documents: [...] }" }
+        "200": { description: "{ documents: [...] } sortiert nach created_at und id absteigend; mit limit zusätzlich total (Treffer über alle Seiten) und offset (Beginn der gelieferten Seite)" }
     post:
       summary: Dokument-Metadaten anlegen (Datei zuvor über POST /api/files hochladen; Versionierung via supersedes_id; visibility portal|hr — hr bleibt im Portal unsichtbar)
       responses:

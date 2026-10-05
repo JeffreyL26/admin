@@ -137,4 +137,13 @@ export const recruitingMigrations: Migration[] = [
       CREATE INDEX idx_interviews_scheduled ON interviews(scheduled_at);
     `,
   },
+  {
+    // Dateiverweise (FILE_REFERENCES in core/files.ts): Signatur und
+    // Aufraeumpruefung fragen jede Verweisspalte nach einer Datei-ID ab.
+    name: '601_recruiting_file_indexes',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_candidates_photo_file ON candidates(photo_file_id) WHERE photo_file_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_applications_cv_file ON applications(cv_file_id) WHERE cv_file_id IS NOT NULL;
+    `,
+  },
 ];

@@ -1,5 +1,5 @@
 import { todayIsoLocal } from '@ohrganize/shared';
-import { API_BASE } from '../../api/client';
+import { API_BASE, getToken } from '../../api/client';
 import type { BadgeTone } from '../../components/ui';
 
 /** '1.234,56' | '1234,56' | '1234.56' → Integer-Cent (null bei ungültig). */
@@ -31,7 +31,7 @@ export function currentMonth(): string {
 
 /** Datei-Download eines auth-pflichtigen GET-Endpunkts (Exporte). */
 export async function downloadAuthenticated(path: string, filename: string): Promise<void> {
-  const token = localStorage.getItem('ohrganize.token');
+  const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

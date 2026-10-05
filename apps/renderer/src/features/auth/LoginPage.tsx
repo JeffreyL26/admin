@@ -5,7 +5,7 @@ import { ApiRequestError } from '../../api/client';
 import logo from '../../assets/logo-full.png';
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, notice } = useAuth();
   const [email, setEmail] = useState('admin@ohrganize.de');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +36,13 @@ export function LoginPage() {
         </div>
         <h1 className="login__title">Willkommen zurück!</h1>
         <p className="login__subtitle">Melden Sie sich mit Ihrem HR-Administrationskonto an.</p>
+        {/* Ende der Sitzung nach ihrer Höchstdauer (auth/AuthContext.tsx); bei
+            einem Anmeldefehler zählt nur noch der. */}
+        {notice && !error && (
+          <div className="hm-notice" role="status" style={{ marginBottom: 14 }}>
+            {notice}
+          </div>
+        )}
         <Field label="E-Mail-Adresse" required>
           <input
             className="hm-input"

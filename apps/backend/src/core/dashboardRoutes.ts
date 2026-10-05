@@ -129,14 +129,18 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         )
         .all([today, today]);
 
+      // `date_to >= ?` filtert nichts weg (date_to liegt nie vor date_from,
+      // die Routen weisen das ab), gibt dem Planer aber die Grenze für den
+      // Index (status, date_to); ohne sie las er alle genehmigten Anträge
+      // seit Inbetriebnahme (Migration 205_absence_query_indexes).
       absenceDaysByMonth = db
         .prepare(
           `SELECT substr(date_from, 1, 7) AS month, ROUND(SUM(days_counted), 1) AS days
            FROM absence_requests
-           WHERE status = 'genehmigt' AND date_from >= ? AND date_from <= ?
+           WHERE status = 'genehmigt' AND date_from >= ? AND date_from <= ? AND date_to >= ?
            GROUP BY substr(date_from, 1, 7) ORDER BY month`,
         )
-        .all([yearStart, `${today.slice(0, 4)}-12-31`]);
+        .all([yearStart, `${today.slice(0, 4)}-12-31`, yearStart]);
     }
 
     // --- Vergütung ----------------------------------------------------------

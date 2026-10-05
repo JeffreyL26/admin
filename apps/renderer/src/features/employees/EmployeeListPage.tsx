@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowDownAZ, ArrowUpAZ, Columns3, Download, Plus, Search, UserCog, Users } from 'lucide-react';
 import {
@@ -9,6 +9,7 @@ import {
   SENIORITY_FORMAT_LABELS,
   formatDate,
   formatSeniority,
+  type EmployeeColumnDef,
   type EmployeeSortField,
   type EmployeeStatus,
   type EmployeeType,
@@ -82,17 +83,141 @@ function loadView(): ViewConfig {
   }
 }
 
+function cellContent(e: EmployeeRow, columnId: string, seniorityFormat: SeniorityFormat): React.ReactNode {
+  switch (columnId) {
+    case 'name':
+      return (
+        <div className="row">
+          <Avatar name={`${e.first_name} ${e.last_name}`} size={30} />
+          <span style={{ fontWeight: 600 }}>
+            {e.first_name} {e.last_name}
+          </span>
+        </div>
+      );
+    case 'personnel_number':
+      return e.personnel_number ? (
+        <span style={{ fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-numeric)' }}>{e.personnel_number}</span>
+      ) : (
+        <span style={{ color: 'var(--text-muted)' }}>—</span>
+      );
+    case 'employee_type':
+      return <Badge tone={TYPE_TONES[e.employee_type]}>{EMPLOYEE_TYPE_LABELS[e.employee_type]}</Badge>;
+    case 'department':
+      return (
+        <>
+          <div>{e.department_name ?? '—'}</div>
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{e.team_name ?? ''}</div>
+        </>
+      );
+    case 'job_title':
+      return e.job_title ?? '—';
+    case 'hire_date':
+      return formatDate(e.hire_date);
+    case 'seniority':
+      return formatSeniority(e.hire_date, seniorityFormat);
+    case 'location':
+      return e.location_name ?? '—';
+    case 'status':
+      return (
+        <Badge tone={e.status === 'aktiv' ? 'green' : 'neutral'}>{EMPLOYEE_STATUS_LABELS[e.status]}</Badge>
+      );
+    case 'email':
+      return e.email ?? '—';
+    case 'phone':
+      return e.phone ?? '—';
+    case 'manager':
+      return e.manager_name ?? '—';
+    case 'weekly_hours':
+      return e.weekly_hours != null ? `${e.weekly_hours} h` : '—';
+    case 'annual_leave_days':
+      return e.annual_leave_days != null ? `${e.annual_leave_days} Tage` : '—';
+    case 'exit_date':
+      return formatDate(e.exit_date);
+    default:
+      return null;
+  }
+}
+
+/**
+ * Eine Tabellenzeile. `memo`, weil die Seite auch aus Gründen neu rendert, die
+ * eine Zeile nicht betreffen (Häkchen einer anderen Zeile, Spaltenmenü,
+ * Export), und jede Zeile einen Avatar samt Tooltip trägt; bei mehreren
+ * hundert Personen bremste das die Bedienung. Wirkt nur mit stabilen Props:
+ * Zeilenobjekte kommen unverändert aus dem Query-Cache, die Spaltenliste aus
+ * useMemo, die Callbacks aus useCallback, die Auswahl als boolean je Zeile.
+ */
+const EmployeeTableRow = React.memo(function EmployeeTableRow({
+  employee: e,
+  columns,
+  seniorityFormat,
+  checked,
+  onToggle,
+  onOpen,
+}: {
+  employee: EmployeeRow;
+  columns: EmployeeColumnDef[];
+  seniorityFormat: SeniorityFormat;
+  checked: boolean;
+  onToggle: (id: number) => void;
+  onOpen: (id: number) => void;
+}) {
+  return (
+    <tr className="clickable" onClick={() => onOpen(e.id)}>
+      <td onClick={(ev) => ev.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={() => onToggle(e.id)}
+          aria-label={`${e.first_name} ${e.last_name} auswählen`}
+        />
+      </td>
+      {columns.map((c) => (
+        <td key={c.id}>{cellContent(e, c.id, seniorityFormat)}</td>
+      ))}
+    </tr>
+  );
+});
+
+/**
+ * Suchfeld mit eigenem Eingabe-State. Ein Tastendruck rendert nur dieses
+ * Feld; lag der State in der Seite, zeichnete jeder Anschlag die ganze
+ * Tabelle neu, obwohl sich die Treffer erst mit der Serverantwort ändern.
+ * Nach oben geht nur der entprellte Wert (und damit in Filter und Query-Key):
+ * Ohne Tipppause ginge pro Tastenanschlag ein LIKE-Scan an das synchrone
+ * Backend und blockierte dort alle anderen Arbeitsplätze mit.
+ * `onSearch` muss stabil sein, sonst feuert der Effekt ohne neue Eingabe.
+ */
+const EmployeeSearchField = React.memo(function EmployeeSearchField({
+  onSearch,
+}: {
+  onSearch: (search: string) => void;
+}) {
+  const [searchInput, setSearchInput] = useState(EMPTY_FILTERS.search);
+  const debouncedSearch = useDebounced(searchInput);
+
+  useEffect(() => {
+    onSearch(debouncedSearch);
+  }, [debouncedSearch, onSearch]);
+
+  return (
+    <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 200 }}>
+      <Search size={15} style={{ position: 'absolute', left: 11, top: 11, color: 'var(--text-muted)' }} />
+      <input
+        className="hm-input"
+        style={{ paddingLeft: 34 }}
+        placeholder="Suchen (Name, E-Mail, Ort, IBAN, …)"
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
+      />
+    </div>
+  );
+});
+
 export function EmployeeListPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFilters] = useState<EmployeeFilters>(EMPTY_FILTERS);
-  // Das Suchfeld tippt in lokalen State; erst der debouncte Wert wandert in
-  // die Filter (und damit in den Query-Key). Ohne Tipppause ginge pro
-  // Tastenanschlag ein LIKE-Scan an das synchrone Backend und blockierte dort
-  // alle anderen Arbeitsplätze mit.
-  const [searchInput, setSearchInput] = useState(EMPTY_FILTERS.search);
-  const debouncedSearch = useDebounced(searchInput);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -122,12 +247,14 @@ export function EmployeeListPage() {
     setSelected(new Set());
   };
 
-  useEffect(() => {
-    setFilters((f) => (f.search === debouncedSearch ? f : { ...f, search: debouncedSearch }));
-    // Auswahl wie bei jedem anderen Filterwechsel verwerfen — sie bezöge sich
+  // Kommt aus EmployeeSearchField, je entprelltem Suchbegriff einmal. Stabil
+  // (nur Setter), sonst feuerte der Effekt dort bei jedem Render der Seite.
+  const applySearch = useCallback((search: string) => {
+    setFilters((f) => (f.search === search ? f : { ...f, search }));
+    // Auswahl wie bei jedem anderen Filterwechsel verwerfen: Sie bezöge sich
     // sonst auf Zeilen, die gar nicht mehr sichtbar sind.
     setSelected((s) => (s.size ? new Set<number>() : s));
-  }, [debouncedSearch]);
+  }, []);
 
   useEffect(() => {
     // keepPreviousData zeigt während des Fetch noch die ALTEN Zeilen — dort
@@ -168,14 +295,18 @@ export function EmployeeListPage() {
     else setSelected(new Set((employees ?? []).map((e) => e.id)));
   };
 
-  const toggle = (id: number) => {
+  // Beide Callbacks gehen an jede EmployeeTableRow und müssen deshalb stabil
+  // sein, sonst rendert memo dort trotzdem alle Zeilen neu.
+  const toggle = useCallback((id: number) => {
     setSelected((s) => {
       const next = new Set(s);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
+
+  const openEmployee = useCallback((id: number) => navigate(`/personal/mitarbeitende/${id}`), [navigate]);
 
   const exportCsv = async () => {
     setExporting(true);
@@ -214,61 +345,6 @@ export function EmployeeListPage() {
       .map((f) => f.label);
   }, [filters]);
 
-  function cell(e: EmployeeRow, columnId: string): React.ReactNode {
-    switch (columnId) {
-      case 'name':
-        return (
-          <div className="row">
-            <Avatar name={`${e.first_name} ${e.last_name}`} size={30} />
-            <span style={{ fontWeight: 600 }}>
-              {e.first_name} {e.last_name}
-            </span>
-          </div>
-        );
-      case 'personnel_number':
-        return e.personnel_number ? (
-          <span style={{ fontVariantNumeric: 'tabular-nums', fontFamily: 'var(--font-numeric)' }}>{e.personnel_number}</span>
-        ) : (
-          <span style={{ color: 'var(--text-muted)' }}>—</span>
-        );
-      case 'employee_type':
-        return <Badge tone={TYPE_TONES[e.employee_type]}>{EMPLOYEE_TYPE_LABELS[e.employee_type]}</Badge>;
-      case 'department':
-        return (
-          <>
-            <div>{e.department_name ?? '—'}</div>
-            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{e.team_name ?? ''}</div>
-          </>
-        );
-      case 'job_title':
-        return e.job_title ?? '—';
-      case 'hire_date':
-        return formatDate(e.hire_date);
-      case 'seniority':
-        return formatSeniority(e.hire_date, view.seniorityFormat);
-      case 'location':
-        return e.location_name ?? '—';
-      case 'status':
-        return (
-          <Badge tone={e.status === 'aktiv' ? 'green' : 'neutral'}>{EMPLOYEE_STATUS_LABELS[e.status]}</Badge>
-        );
-      case 'email':
-        return e.email ?? '—';
-      case 'phone':
-        return e.phone ?? '—';
-      case 'manager':
-        return e.manager_name ?? '—';
-      case 'weekly_hours':
-        return e.weekly_hours != null ? `${e.weekly_hours} h` : '—';
-      case 'annual_leave_days':
-        return e.annual_leave_days != null ? `${e.annual_leave_days} Tage` : '—';
-      case 'exit_date':
-        return formatDate(e.exit_date);
-      default:
-        return null;
-    }
-  }
-
   return (
     <>
       <PageHeader
@@ -293,16 +369,7 @@ export function EmployeeListPage() {
 
       <Card flush style={{ marginBottom: 16 }}>
         <div className="row row--wrap" style={{ padding: 14 }}>
-          <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 200 }}>
-            <Search size={15} style={{ position: 'absolute', left: 11, top: 11, color: 'var(--text-muted)' }} />
-            <input
-              className="hm-input"
-              style={{ paddingLeft: 34 }}
-              placeholder="Suchen (Name, E-Mail, Ort, IBAN, …)"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-            />
-          </div>
+          <EmployeeSearchField onSearch={applySearch} />
 
           <MultiSelect
             allLabel="Alle Status"
@@ -444,9 +511,8 @@ export function EmployeeListPage() {
                     {EMPLOYEE_LIST_COLUMNS.map((c) => {
                       const on = c.fixed || view.columns.includes(c.id);
                       return (
-                        <Tooltip content={c.fixed ? <><span className="hm-tooltip__title">Immer sichtbar</span><span className="hm-tooltip__line">Ohne Name und Personalnummer wäre keine Zeile zuzuordnen</span></> : null}>
+                        <Tooltip key={c.id} content={c.fixed ? <><span className="hm-tooltip__title">Immer sichtbar</span><span className="hm-tooltip__line">Ohne Name und Personalnummer wäre keine Zeile zuzuordnen</span></> : null}>
                           <label
-                            key={c.id}
                             className={`hm-multi__option${on ? ' hm-multi__option--on' : ''}`}
                             style={c.fixed ? { opacity: 0.65, cursor: 'default' } : undefined}
                           >
@@ -533,19 +599,15 @@ export function EmployeeListPage() {
               </thead>
               <tbody>
                 {employees!.map((e) => (
-                  <tr key={e.id} className="clickable" onClick={() => navigate(`/personal/mitarbeitende/${e.id}`)}>
-                    <td onClick={(ev) => ev.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selected.has(e.id)}
-                        onChange={() => toggle(e.id)}
-                        aria-label={`${e.first_name} ${e.last_name} auswählen`}
-                      />
-                    </td>
-                    {visible.map((c) => (
-                      <td key={c.id}>{cell(e, c.id)}</td>
-                    ))}
-                  </tr>
+                  <EmployeeTableRow
+                    key={e.id}
+                    employee={e}
+                    columns={visible}
+                    seniorityFormat={view.seniorityFormat}
+                    checked={selected.has(e.id)}
+                    onToggle={toggle}
+                    onOpen={openEmployee}
+                  />
                 ))}
               </tbody>
             </table>

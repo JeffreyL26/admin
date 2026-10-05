@@ -212,21 +212,57 @@ if (!boundToLoopbackOnly && corsOrigins.length === 0) {
 // Variable und würde den eigenen Renderer aussperren.
 const corsOrigin: boolean | string[] = corsOrigins.length > 0 ? corsOrigins : true;
 
-// Token-Laufzeit. Frühere 12h waren im reinen Einzelplatzbetrieb vertretbar;
-// im Serverbetrieb ist ein abgegriffenes Token einen halben Arbeitstag gültig.
-// Über OHRGANIZE_TOKEN_TTL anpassbar (Format wie bei @fastify/jwt: "30m", "8h",
-// "7d" oder eine Sekundenzahl).
+// Token-Laufzeiten in Sekunden, je Sitzungsart (core/auth.ts, sessionFor).
+//
+// Portal (OHRGANIZE_TOKEN_TTL, Vorgabe 1h): Frühere 12h waren im reinen
+// Einzelplatzbetrieb vertretbar; im Serverbetrieb ist ein abgegriffenes Token
+// einen halben Arbeitstag gültig. Das Portal verlängert nur bei Aktivität,
+// die Laufzeit begrenzt also auch serverseitig die Sitzung nach Leerlauf.
+//
+// Desktop (OHRGANIZE_DESKTOP_TOKEN_TTL, Vorgabe 3d): Die App verlängert nach
+// zehn Minuten, solange sie läuft, und hält das Token nur bis zum Schließen
+// (sessionStorage). Die Laufzeit zählt also nur, während der Rechner schläft
+// (Mittag, Nacht, Wochenende); drei Tage überbrücken ein Wochenende.
+//
+// Beide Clients lesen die Laufzeit aus dem Token (exp - iat) und verlängern
+// bei kurzer Laufzeit spätestens nach der halben (packages/shared/src/
+// session.ts); eine Untergrenze braucht es hier deshalb nicht.
+//
+// Format: Sekundenzahl oder "30m", "1h", "8h", "7d". Fail closed statt still
+// zu ignorieren: @fastify/jwt verstand einen unbekannten Wert und auch "0" als
+// Token ganz OHNE Ablauf und eine nackte Zahl als Millisekunden. Deshalb wird
+// hier selbst in Sekunden umgerechnet und als Zahl weitergegeben.
 const TOKEN_TTL_PATTERN = /^(\d+|\d+(?:\.\d+)?\s*(?:s|m|h|d))$/i;
-const tokenTtlRaw = (process.env.OHRGANIZE_TOKEN_TTL ?? '').trim();
-if (tokenTtlRaw && !TOKEN_TTL_PATTERN.test(tokenTtlRaw)) {
-  // Fail closed statt still zu ignorieren: Ein von @fastify/jwt nicht
-  // verstandener Wert führt zu Tokens ganz OHNE Ablauf.
-  throw new Error(
-    `OHRGANIZE_TOKEN_TTL="${tokenTtlRaw}" ist ungültig. Erlaubt sind eine Sekundenzahl ` +
-      'oder Angaben wie "30m", "1h", "8h", "7d".',
-  );
+const TTL_UNIT_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+
+function readTokenTtl(name: string, fallback: string): number {
+  const raw = (process.env[name] ?? '').trim() || fallback;
+  const match = TOKEN_TTL_PATTERN.test(raw) ? /^([\d.]+)\s*([smhd]?)$/i.exec(raw) : null;
+  const seconds = match ? Math.floor(Number(match[1]) * TTL_UNIT_SECONDS[(match[2] || 's').toLowerCase()]) : 0;
+  if (!(seconds >= 1)) {
+    throw new Error(
+      `${name}="${raw}" ist ungültig. Erlaubt sind eine Sekundenzahl ` +
+        'oder Angaben wie "30m", "1h", "8h", "7d" (mindestens eine Sekunde).',
+    );
+  }
+  return seconds;
 }
-const tokenTtl = tokenTtlRaw || '1h';
+
+const tokenTtl = readTokenTtl('OHRGANIZE_TOKEN_TTL', '1h');
+const desktopTokenTtl = readTokenTtl('OHRGANIZE_DESKTOP_TOKEN_TTL', '3d');
+
+// Höchstdauer einer Sitzung ab der Anmeldung, je Sitzungsart (core/auth.ts,
+// Claim auth_time). Die Verlängerung (POST /api/auth/refresh) stellt danach
+// kein Token mehr aus, und jedes Token läuft spätestens zu diesem Zeitpunkt
+// ab. Ohne die Grenze hielte ein abgegriffenes Token eine Sitzung beliebig
+// lange offen, solange es jemand verlängert; die Abmeldung des Portals nach
+// Leerlauf geschieht nur im Browser. Portal 6h: ein Arbeitstag am Stück. Desktop
+// 5d: Die App bleibt bis zum Schließen angemeldet, auch über ein Wochenende
+// mit schlafendem Rechner; nach fünf Tagen ist eine neue Anmeldung fällig.
+// Gleiches Format wie die Laufzeiten; ein Wert unter der Laufzeit kürzt auch
+// sie.
+const sessionMax = readTokenTtl('OHRGANIZE_SESSION_MAX', '6h');
+const desktopSessionMax = readTokenTtl('OHRGANIZE_DESKTOP_SESSION_MAX', '5d');
 
 /**
  * Optionales Initialpasswort für den Standard-Admin (nur bei der allerersten
@@ -275,7 +311,14 @@ export const config = {
   port: Number(process.env.OHRGANIZE_PORT ?? 3001),
   corsOrigin,
   secret: loadOrCreateSecret(),
+  /** Laufzeit von Portal-Tokens in Sekunden (OHRGANIZE_TOKEN_TTL). */
   tokenTtl,
+  /** Laufzeit von Desktop-Tokens in Sekunden (OHRGANIZE_DESKTOP_TOKEN_TTL). */
+  desktopTokenTtl,
+  /** Höchstdauer einer Portal-Sitzung ab Anmeldung in Sekunden (OHRGANIZE_SESSION_MAX). */
+  sessionMax,
+  /** Höchstdauer einer Desktop-Sitzung ab Anmeldung in Sekunden (OHRGANIZE_DESKTOP_SESSION_MAX). */
+  desktopSessionMax,
   initialAdminPassword,
   quietInitialPassword,
   startupWarnings,

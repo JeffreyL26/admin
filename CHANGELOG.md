@@ -12,6 +12,104 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Leistung (05.10.2026)
+Ergebnis einer Performance-Pruefung mit synthetischem Bestand (2000 Personen,
+sechs Jahre Historie, verschluesselt wie im Betrieb). Zurueckgestellt und in
+`docs/offene-punkte.md` vermerkt: PERF-1 (Backend der Desktop-App im
+Electron-Hauptprozess) und PERF-2 (Saldo-Uebersicht, Abrechnungslaeufe,
+Gehaltsuebersicht).
+- **Audit in derselben Transaktion:** Jede fachliche Aenderung und ihr
+  Audit-Eintrag werden gemeinsam geschrieben (rund 160 Stellen in allen
+  Modulen). Vorher zwei Commits: Stuerzte der Prozess dazwischen ab, blieb die
+  Aenderung ohne Protokolleintrag. Ein Commit spart zudem einen fsync je
+  Aenderung. Dateien werden erst nach dem Commit von der Platte entfernt
+  (`detachUnreferencedFile`/`removeDetachedBlob`). Mehrere Schreibschritte
+  einer Route (Timeline, Interviews, Versionskette, Einstellungen) laufen
+  jetzt ebenfalls zusammen. `audit()` wirft ausserhalb einer Transaktion,
+  Eintraege ohne fachliche Aenderung (Anmeldung, Fehlversuch, Signatur,
+  Lizenzdatei) laufen ueber `auditStandalone()`, und
+  `auditTransactionCheck.ts` in `npm test` prueft jede Stelle statisch. Im
+  Betrieb (gebuendelt) schreibt ein solcher Aufruf den Eintrag trotzdem und
+  meldet den Fehler im Log.
+- **Behoben:** Beim Aendern einer Admin-Rolle lief die Pruefung "mindestens
+  ein Konto mit Benutzerverwaltung" erst nach dem Speichern; ein 409 liess
+  die Aenderung trotzdem stehen.
+- **Mitarbeiterliste:** Ein Tastendruck im Suchfeld zeichnet die Tabelle nicht
+  mehr neu (vorher jede Zeile je Taste); die Ergebnisse aktualisieren sich wie
+  bisher nach der Entprellung.
+- **Indizes** (Migrationen 006, 110, 205, 312, 331, 402, 505, 601, 701):
+  Kalender, Dashboard und Portal-Kalender lesen nicht mehr alle genehmigten
+  Antraege seit Inbetriebnahme (`(status, date_to)` statt des reinen
+  Statusindex; Portal-Kalender 6,5 statt 33 ms ohne Verschluesselung). Alle
+  Dateiverweise (Signatur, Aufraeumen; Person loeschen 25 statt 856 ms) und
+  Kontoverweise (Konto loeschen dauerte 12 s bei 500 000 Audit-Zeilen) haben
+  einen Teilindex, ebenso Fuehrungsbewertungen je Zeitraum und Kategorie,
+  Anhaenge je Ankuendigung und Massnahmen je Gespraech. Es wird nichts
+  geloescht oder gefiltert.
+- **Seitencache** der Dienstverbindung 64 MB statt 16 MB, gesetzt nach den
+  Migrationen (Portal-Kalender 38 statt 130 ms, Abrechnungsliste 35 statt
+  320 ms bei verschluesselter Datenbank).
+- **Listen:** "Alle Antraege" und die Dokumentablage laden in Seiten zu 100
+  (vorher 109 MB bzw. 20 MB am Stueck; jetzt 3 bis 45 ms je Seite). Antraege
+  und Krankmeldungen zeigen als Vorgabe das laufende Jahr, "Alle Jahre" bleibt
+  waehlbar; die ganze Historie ist ueber die Seiten erreichbar. Der Sprung aus
+  dem Kalender oeffnet die Seite des Antrags. Die Karte "Entgeltfortzahlung
+  ueberzogen" folgt dem gewaehlten Jahr. Der Krankmeldungsdialog laedt nur die
+  Krankmeldungen der gewaehlten Person; Zaehlung der Krankmeldungen und
+  Bonusliste ohne Abfragen je Zeile; die Befehlspalette laedt nur fuenf
+  Dokumenttreffer.
+- **Sitzungen:** Die Desktop-App bleibt bis zum Schliessen oder Logout
+  angemeldet (Token in sessionStorage, Verlaengerung nach 10 Minuten ueber
+  das neue `POST /api/auth/refresh`, Laufzeit `OHRGANIZE_DESKTOP_TOKEN_TTL`,
+  Vorgabe 3 Tage, zaehlt nur bei schlafendem Rechner). Das Portal bleibt bei
+  Aktivitaet angemeldet und meldet nach 60 Minuten ohne Eingabe mit Hinweis
+  ab. Beide Clients lesen die Laufzeit aus dem Token und verlaengern
+  spaetestens nach der halben; eine kurz eingestellte Laufzeit meldet also
+  niemanden mehr nach wenigen Minuten ab. Jede Sitzung endet nach einer
+  Hoechstdauer ab der Anmeldung (`OHRGANIZE_SESSION_MAX`, Vorgabe 6 Stunden
+  im Portal; `OHRGANIZE_DESKTOP_SESSION_MAX`, Vorgabe 5 Tage am Desktop),
+  danach mit Hinweis auf der Anmeldeseite, im Portal in allen offenen Tabs.
+  Zehn Minuten vorher kuendigt ein Banner das Ende samt Uhrzeit an, damit
+  offene Eingaben gespeichert werden koennen. Ein abgegriffenes Token laesst
+  sich so nicht beliebig lange verlaengern. Nach dem Update ist am Desktop einmal eine neue Anmeldung noetig; nach
+  einem Neustart der App ebenfalls (vorher ueberlebte das Token ihn bis zu
+  einer Stunde).
+- **`OHRGANIZE_TOKEN_TTL`:** Eine nackte Zahl gilt jetzt als Sekunden (vorher
+  las @fastify/jwt sie als Millisekunden), `0` verhindert den Start (vorher
+  Tokens ohne Ablauf).
+- **Anmeldung blockiert den Prozess nicht mehr:** bcrypt rechnet in einem
+  Worker-Pool (`dist/password-worker.cjs`, liegt neben `server.cjs`/`cli.cjs`,
+  Rueckfall synchron). Die Drosselung zaehlt laufende Versuche je Konto
+  vorab, sonst kaemen parallele Fehlversuche an der Schwelle vorbei. Je IP
+  zaehlen Fehlversuche erst mit dem Ergebnis, laufende Anmeldungen aber gegen
+  dieselbe Schwelle (50): Auch ein paralleles Buendel rechnet hoechstens 50
+  Vergleiche, und 50 gleichzeitige Anmeldungen hinter einem Firmen-NAT
+  gelingen alle. Abgewiesene Kontoanlagen und Passwort-Ruecksetzungen
+  (unbekanntes Konto, hoeherer Rang) kosten keinen bcrypt-Lauf mehr.
+- **Mitarbeiterfotos:** Vorschaubild beim Hochladen (512 px, WebP), das
+  Original bleibt fuer die Schaerfe beim Vergroessern. Listen und Karten laden
+  nur sichtbare Fotos, Fotolinks in Listen bleiben 10 Minuten gleich, ein
+  Refetch laedt keine Fotos neu (vorher bei 2000 Handyfotos Gigabytes je
+  Seitenaufruf). Ein abgelaufener Link laedt nur die Liste neu, die ihn
+  geliefert hat. Das Organigramm bestimmt die Karten fuer Originalfotos erst,
+  wenn die Ansicht kurz stillsteht, und holt deren Links erst dann ueber
+  `GET /api/org/chart/originals` (vorher eine Audit-Zeile je Karte bei hohem
+  Zoom).
+- **Fuehrung:** Report, Teamansicht und "Mein Team" loesen Zustaendigkeiten je
+  Anfrage nur einmal auf (Teamansicht der Geschaeftsfuehrung bei 1000
+  Personen 72 statt 2916 Abfragen); Antworten unveraendert.
+- **Umfragen:** Die Auswertung einer beendeten Umfrage haelt der Prozess, statt
+  bei jedem Abruf alle Antworten aller Umfragen zweimal zu lesen; bei einer
+  beendeten Umfrage unter der Mindestteilnahme die Zahl der Antworten. Es
+  bleiben die zuletzt benutzten 20.
+- **Abwesenheitskalender (Desktop):** Die Tageszellen tragen ihren Tooltip nur
+  noch an Tagen mit Inhalt (Feiertag, Betriebsruhe, Konflikt) statt leer an
+  jeder Zelle. Die Tooltips der Abwesenheitsbalken (Art, Status, Zeitraum,
+  Tage) und der Jahreskacheln bleiben unveraendert.
+- **Geldbetraege:** `formatMoney` haelt einen Formatierer je Sprache und
+  Waehrung (vorher bei jedem Aufruf neu, eine Gehaltsliste mit 2000 Zeilen
+  kostete rund eine Sekunde je Neuzeichnen).
+
 ### Nachbesserungen zur Verschluesselung (05.10.2026)
 - **Windows-Update:** `update-server.ps1` wartet auf das Ende eines NEUEN
   Sicherungslaufs und bricht ab, wenn dessen Ergebnis nicht 0 ist, noch

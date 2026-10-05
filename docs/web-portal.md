@@ -47,6 +47,41 @@ ausschließlich in der Desktop-App und entscheidet dort über die Anträge.
   erreichbares Portal, nicht erst nach Ablauf der Token-Laufzeit (Vorgabe
   **1 Stunde**, `tokenTtl` in `apps/backend/src/config.ts`, überschreibbar mit
   `OHRGANIZE_TOKEN_TTL`).
+- **Gleitende Sitzung, Abmeldung nach Inaktivität:** Das Portal meldet sich
+  mit `client: 'portal'` an und verlängert per `POST /api/auth/refresh`,
+  sobald seit Empfang des Tokens eine Eingabe kam (Zeiger, Tastatur, Rad,
+  Berührung; Abfragen im Hintergrund zählen nicht) und das Token älter als
+  5 Minuten ist (bei kürzerer Laufzeit spätestens nach der halben; die
+  Laufzeit liest der Client aus `exp - iat` des Tokens). Nach 60 Minuten
+  ohne Eingabe in allen Tabs meldet es ab und zeigt auf der Anmeldeseite
+  einen Hinweis; serverseitig endet die Sitzung bei der Vorgabe spätestens
+  rund 65 Minuten nach der letzten Eingabe, weil ohne Eingabe niemand
+  verlängert. Die Regeln beider Clients stehen in
+  `packages/shared/src/session.ts`, geprüft von
+  `apps/backend/src/test/sessionPolicyTest.ts`. Token, Empfangszeit und letzte Aktivität
+  liegen in localStorage (`ohrganize.portal.token`,
+  `ohrganize.portal.token.at`, `ohrganize.portal.activity`) und gelten damit
+  für alle Tabs; ein Logout in einem Tab meldet alle ab. Die Desktop-App
+  meldet sich mit `client: 'desktop'` an (nur Admin-Konten, Laufzeit
+  `OHRGANIZE_DESKTOP_TOKEN_TTL`, Vorgabe 3 Tage), verlängert nach 10 Minuten
+  und hält das Token in sessionStorage, also bis zum Schließen. Die
+  Verlängerung schreibt bewusst keinen Audit-Eintrag; Anmeldung und
+  Fehlversuche bleiben protokolliert.
+- **Höchstdauer der Sitzung:** Jede Sitzung endet eine feste Zeit nach der
+  Anmeldung (`OHRGANIZE_SESSION_MAX`, Vorgabe 6 Stunden; Desktop
+  `OHRGANIZE_DESKTOP_SESSION_MAX`, Vorgabe 5 Tage), auch bei ununterbrochener
+  Aktivität. Der Beginn reist als Claim `auth_time` im Token mit; die
+  Verlängerung gibt danach kein Token mehr, und jedes Token läuft spätestens
+  am Ende ab. Die Clients erkennen am Claim `session_end`, dass eine
+  Verlängerung nichts mehr bringt, und melden nach dem Ablauf mit Hinweis ab.
+  Den Grund einer Abmeldung mit Hinweis (Leerlauf oder Sitzungsende) schreibt
+  der abmeldende Tab nach `ohrganize.portal.logout-reason`, bevor er das Token
+  entfernt; die übrigen Tabs zeigen denselben Hinweis. Die Anmeldung löscht
+  ihn. Zehn Minuten vor dem Ende nennt ein Hinweis über dem Seiteninhalt die
+  Uhrzeit (`components/SessionEndNotice.tsx`), damit offene Eingaben noch
+  gespeichert werden.
+  Grund: Die Abmeldung nach Leerlauf geschieht nur im Browser; ohne die Grenze
+  hielte ein abgegriffenes Token die Sitzung beliebig lange offen.
 - Die Self-Service-Routen begrenzen Zeitspannen auf zwei Jahre
   (`MAX_SPAN_DAYS` in `modules/me/routes.ts`) — Schutz der synchronen
   Tageszählung vor absurden Spannen; längere Abwesenheiten erfasst die HR.

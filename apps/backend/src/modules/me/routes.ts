@@ -181,13 +181,16 @@ export const meModule: FastifyPluginAsync = async (app) => {
         `Nur offene Anträge können zurückgezogen werden (Status: ${row.status}). Wenden Sie sich sonst bitte an die Personalabteilung.`,
       );
     }
-    db()
-      .prepare(
-        `UPDATE absence_requests SET status = 'storniert', decided_by_user_id = ?, decided_at = datetime('now')
-         WHERE id = ?`,
-      )
-      .run(req.user.id, id);
-    audit(req, 'cancel', 'absence_request', id, { self_service: true });
+    // Rückzug und Audit-Eintrag in EINER Transaktion: kein Stand ohne Protokoll.
+    inTransaction(() => {
+      db()
+        .prepare(
+          `UPDATE absence_requests SET status = 'storniert', decided_by_user_id = ?, decided_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(req.user.id, id);
+      audit(req, 'cancel', 'absence_request', id, { self_service: true });
+    });
     return { request: db().prepare(`${MY_REQUEST_SELECT} WHERE r.id = ?`).get(id) };
   });
 
@@ -282,15 +285,17 @@ export const meModule: FastifyPluginAsync = async (app) => {
         )
         // Ausstellungspflicht am 3. Kalendertag der Erkrankung.
         .run(requestId, addDaysIso(body.date_from, 2), body.child_sick ? 1 : 0, previous?.id ?? null);
-      return { id: Number(result.lastInsertRowid), followUpOfId: previous?.id ?? null };
-    });
-    audit(req, 'create', 'sick_note', sickNoteId.id, {
-      employee_id: emp.id,
-      date_from: body.date_from,
-      date_to: body.date_to,
-      child_sick: !!body.child_sick,
-      self_service: true,
-      ...(sickNoteId.followUpOfId !== null ? { follow_up_of_id: sickNoteId.followUpOfId } : {}),
+      const id = Number(result.lastInsertRowid);
+      // Audit in derselben Transaktion wie Antrag und Krankmeldung.
+      audit(req, 'create', 'sick_note', id, {
+        employee_id: emp.id,
+        date_from: body.date_from,
+        date_to: body.date_to,
+        child_sick: !!body.child_sick,
+        self_service: true,
+        ...(previous ? { follow_up_of_id: previous.id } : {}),
+      });
+      return { id };
     });
     reply.status(201);
     return { sick_note: db().prepare(`${MY_SICK_SELECT} WHERE s.id = ?`).get(sickNoteId.id) };

@@ -16,7 +16,9 @@ import { uploadFile } from '../../api/client';
 import { Field } from '../../components/ui';
 import { PhotoPicker } from '../../components/FilePicker';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
+import { createPhotoThumbnail } from '../../lib/photoThumbnail';
 import { useDepartments, useLocations, usePhotoUrl, useTeams, type EmployeeRow } from './api';
+import { avatarFileId } from './avatarPhoto';
 import { Select } from '../../components/Select';
 
 /** Formularzustand: Zahlen als String (Eingabe), Konvertierung erst beim Submit. */
@@ -52,6 +54,8 @@ export interface EmployeeFormState {
   weekly_hours: string;
   annual_leave_days: string;
   photo_file_id: number | null;
+  /** Vorschaubild zum Foto, entsteht beim Hochladen (createPhotoThumbnail). */
+  photo_thumb_file_id: number | null;
 }
 
 export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
@@ -86,6 +90,7 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
   weekly_hours: '',
   annual_leave_days: '',
   photo_file_id: null,
+  photo_thumb_file_id: null,
 };
 
 export function employeeToForm(e: EmployeeRow): EmployeeFormState {
@@ -122,6 +127,7 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
     annual_leave_days:
       e.annual_leave_days !== null && e.annual_leave_days !== undefined ? String(e.annual_leave_days) : '',
     photo_file_id: e.photo_file_id,
+    photo_thumb_file_id: e.photo_thumb_file_id ?? null,
   };
 }
 
@@ -178,6 +184,7 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     weekly_hours: num(f.weekly_hours),
     annual_leave_days: num(f.annual_leave_days),
     photo_file_id: f.photo_file_id,
+    photo_thumb_file_id: f.photo_thumb_file_id,
   };
 }
 
@@ -202,7 +209,8 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
   const [uploading, setUploading] = React.useState(false);
   // Hinterlegtes Foto anzeigen: gleicher Cache wie Personalakte und
   // Verzeichnis (usePhotoUrl haelt das Bild je Datei, nicht die kurzlebige URL).
-  const photo = usePhotoUrl(form.photo_file_id);
+  // Die Vorschau ist 64 px gross, das Vorschaubild reicht (PHOTO_THUMB_EDGE).
+  const photo = usePhotoUrl(avatarFileId(form));
   return (
     <div className="hm-form-grid">
       <Field label="Vorname" required>
@@ -219,14 +227,23 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
           name={`${form.first_name} ${form.last_name}`.trim() || 'Neu'}
           previewUrl={form.photo_file_id ? photo.data : undefined}
           busy={uploading}
-          // Setzt photo_file_id auf null; der PATCH nimmt null an und loest die
-          // Verknuepfung, die Datei selbst bleibt bis zum Aufraeumen im Storage.
-          onRemove={form.photo_file_id ? () => set({ photo_file_id: null }) : undefined}
+          // Setzt Foto und Vorschaubild auf null; der PATCH loest beide und
+          // raeumt die Dateien ab, sofern nirgends sonst verknuepft.
+          onRemove={form.photo_file_id ? () => set({ photo_file_id: null, photo_thumb_file_id: null }) : undefined}
           onPick={async (file) => {
             setUploading(true);
             try {
+              // Original unveraendert hochladen, daneben ein Vorschaubild fuer
+              // Listen und Karten. Das Vorschaubild entsteht parallel zum
+              // Upload, hochgeladen wird es erst nach dem Original (sonst
+              // bliebe bei einem gescheiterten Original ein loses Vorschaubild).
+              // Ohne Vorschaubild (Format nicht lesbar, Upload gescheitert)
+              // zeigt die Anzeige das Original.
+              const thumbnail = createPhotoThumbnail(file);
               const res = await uploadFile(file);
-              set({ photo_file_id: res.file.id });
+              const thumbFile = await thumbnail;
+              const thumb = thumbFile ? await uploadFile(thumbFile).catch(() => null) : null;
+              set({ photo_file_id: res.file.id, photo_thumb_file_id: thumb?.file.id ?? null });
             } finally {
               setUploading(false);
             }

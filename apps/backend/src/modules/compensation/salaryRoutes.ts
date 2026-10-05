@@ -139,15 +139,23 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
     }
     const body = parse(componentSchema, req.body);
     const oldAmount = currentAmountCents(id, body.kind, body.valid_from);
-    const component = inTransaction(() =>
-      insertSalaryComponent(id, body.kind, body.amount_cents, body.valid_from, body.note ?? null),
-    );
-    audit(req, 'salary_component.create', 'compensation_employee', id, {
-      kind: body.kind,
-      old_amount_cents: oldAmount,
-      new_amount_cents: body.amount_cents,
-      valid_from: body.valid_from,
-      reason: body.note ?? null,
+    // Komponente und Audit-Eintrag in einem Commit.
+    const component = inTransaction(() => {
+      const created = insertSalaryComponent(
+        id,
+        body.kind,
+        body.amount_cents,
+        body.valid_from,
+        body.note ?? null,
+      );
+      audit(req, 'salary_component.create', 'compensation_employee', id, {
+        kind: body.kind,
+        old_amount_cents: oldAmount,
+        new_amount_cents: body.amount_cents,
+        valid_from: body.valid_from,
+        reason: body.note ?? null,
+      });
+      return created;
     });
     reply.status(201);
     return { component };
@@ -203,30 +211,32 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
     // sich mit der Historie ueberschneidet, scheiterte sonst erst beim
     // Entscheid, und die zweite Person saehe einen Antrag, der nie anwendbar war.
     assertNoComponentOverlap(body.employee_id, body.kind, body.effective_date);
-    const info = getDb()
-      .prepare(
-        `INSERT INTO salary_change_requests
-           (employee_id, kind, new_amount_cents, effective_date, reason, requested_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        body.employee_id,
-        body.kind,
-        body.new_amount_cents,
-        body.effective_date,
-        body.reason,
-        req.user.id,
-      );
-    const request = getDb()
-      .prepare('SELECT * FROM salary_change_requests WHERE id = ?')
-      .get(Number(info.lastInsertRowid));
-    audit(req, 'salary_change_request.create', 'compensation_employee', body.employee_id, {
-      request_id: Number(info.lastInsertRowid),
-      kind: body.kind,
-      old_amount_cents: currentAmountCents(body.employee_id, body.kind, body.effective_date),
-      new_amount_cents: body.new_amount_cents,
-      effective_date: body.effective_date,
-      reason: body.reason,
+    const request = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO salary_change_requests
+             (employee_id, kind, new_amount_cents, effective_date, reason, requested_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          body.employee_id,
+          body.kind,
+          body.new_amount_cents,
+          body.effective_date,
+          body.reason,
+          req.user.id,
+        );
+      audit(req, 'salary_change_request.create', 'compensation_employee', body.employee_id, {
+        request_id: Number(info.lastInsertRowid),
+        kind: body.kind,
+        old_amount_cents: currentAmountCents(body.employee_id, body.kind, body.effective_date),
+        new_amount_cents: body.new_amount_cents,
+        effective_date: body.effective_date,
+        reason: body.reason,
+      });
+      return getDb()
+        .prepare('SELECT * FROM salary_change_requests WHERE id = ?')
+        .get(Number(info.lastInsertRowid));
     });
     reply.status(201);
     return { request };
@@ -285,24 +295,26 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
          SET status = ?, decided_by_user_id = ?, decided_at = datetime('now'), decision_note = ?
          WHERE id = ?`,
       ).run(body.decision, req.user.id, body.decision_note ?? null, id);
+      // Im selben Commit wie Entscheid und Komponente: Eine Gehaltsänderung
+      // ohne Protokoll darf es auch nach einem Absturz nicht geben.
+      audit(
+        req,
+        body.decision === 'genehmigt'
+          ? 'salary_change_request.approve'
+          : 'salary_change_request.reject',
+        'compensation_employee',
+        request.employee_id,
+        {
+          request_id: id,
+          kind: request.kind,
+          old_amount_cents: oldAmount,
+          new_amount_cents: request.new_amount_cents,
+          effective_date: request.effective_date,
+          reason: request.reason,
+          decision_note: body.decision_note ?? null,
+        },
+      );
     });
-    audit(
-      req,
-      body.decision === 'genehmigt'
-        ? 'salary_change_request.approve'
-        : 'salary_change_request.reject',
-      'compensation_employee',
-      request.employee_id,
-      {
-        request_id: id,
-        kind: request.kind,
-        old_amount_cents: oldAmount,
-        new_amount_cents: request.new_amount_cents,
-        effective_date: request.effective_date,
-        reason: request.reason,
-        decision_note: body.decision_note ?? null,
-      },
-    );
     const updated = db.prepare('SELECT * FROM salary_change_requests WHERE id = ?').get(id);
     return { request: updated };
   });

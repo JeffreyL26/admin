@@ -12,6 +12,7 @@ process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
 const { firstAdminLogin } = await import('../../test/adminSession.js');
+const { config } = await import('../../config.js');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -203,6 +204,148 @@ check(
 );
 await del(`/api/admin/roles/${roleId}`);
 await del(`/api/admin/roles/${roleNoCal.json().role.id}`);
+
+// ---------- Audit in derselben Transaktion ----------
+// Jede Änderung schreibt ihren Audit-Eintrag in derselben Transaktion wie die
+// Änderung selbst. Ein Trigger, der jeden Audit-Eintrag abweist, muss die
+// Anfrage deshalb scheitern lassen, OHNE dass die Änderung gespeichert ist
+// (früher blieb sie stehen, nur der Eintrag fehlte). TEMP: Der Trigger gilt
+// nur auf dieser Verbindung, über die auch die Routen schreiben. Solange er
+// aktiv ist, läuft keine Route, die bewusst nur auditiert (Anmeldung).
+{
+  const auditCount = () => (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n;
+  const breakAudit = () =>
+    db.exec("CREATE TEMP TRIGGER audit_kaputt BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit kaputt'); END;");
+  const repairAudit = () => db.exec('DROP TRIGGER IF EXISTS audit_kaputt');
+  const failed = (res: { statusCode: number }) => res.statusCode >= 500;
+
+  // Vorlage mit echtem Blob: Ein Rollback darf weder Datensatz noch Blob kosten.
+  const blobA = path.join(config.storageDir, 'audit-probe-a.txt');
+  fs.writeFileSync(blobA, 'Probe A');
+  const fileA = Number(
+    db
+      .prepare(
+        `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
+         VALUES ('probe-a.txt', 'audit-probe-a.txt', 'text/plain', 7, 'sha-probe-a')`,
+      )
+      .run().lastInsertRowid,
+  );
+  const fileB = Number(
+    db
+      .prepare(
+        `INSERT INTO files (original_name, stored_name, mime_type, size_bytes, sha256)
+         VALUES ('probe-b.txt', 'audit-probe-b.txt', 'text/plain', 7, 'sha-probe-b')`,
+      )
+      .run().lastInsertRowid,
+  );
+  const probeTpl = (await post('/api/admin/templates', { file_id: fileA, category: 'formular', title: 'Audit-Probe' })).json()
+    .template.id as number;
+  const probeRole = (await post('/api/admin/roles', { name: 'Audit-Probe' })).json().role.id as number;
+  const probeAdminRole = (
+    await post('/api/admin/admin-roles', { name: 'Audit-Probe', permissions: { personal: 'lesen' } })
+  ).json().admin_role.id as number;
+  const emptyAdminRole = (
+    await post('/api/admin/admin-roles', { name: 'Audit-Probe leer', permissions: { personal: 'lesen' } })
+  ).json().admin_role.id as number;
+  const probeUser = await post('/api/admin/users', {
+    email: 'audit.probe@example.org',
+    name: 'Audit Probe',
+    role: 'admin',
+    admin_role_id: probeAdminRole,
+  });
+  check('Audit-Probe: Konto angelegt', probeUser.statusCode === 201, probeUser.json());
+  const probeUserId = probeUser.json().user.id as number;
+  const userRow = () =>
+    db.prepare('SELECT admin_role_id, password_hash FROM users WHERE id = ?').get(probeUserId) as
+      | { admin_role_id: number | null; password_hash: string }
+      | undefined;
+  const userBefore = userRow();
+  const processCount = () => (db.prepare('SELECT COUNT(*) AS n FROM onboarding_processes').get() as { n: number }).n;
+  const processesBefore = processCount();
+  const auditBefore = auditCount();
+
+  const results: Record<string, number> = {};
+  breakAudit();
+  try {
+    results.rolePatch = (await patch(`/api/admin/roles/${probeRole}`, { name: 'Audit-Probe neu' })).statusCode;
+    results.employeeRoles = (await put('/api/admin/employees/1/roles', { role_ids: [probeRole] })).statusCode;
+    results.tplSwap = (await patch(`/api/admin/templates/${probeTpl}`, { file_id: fileB })).statusCode;
+    results.tplDelete = (await del(`/api/admin/templates/${probeTpl}`)).statusCode;
+    results.processCreate = (await post('/api/admin/onboarding', { employee_id: 1, kind: 'offboarding' })).statusCode;
+    results.adminRolePatch = (
+      await patch(`/api/admin/admin-roles/${probeAdminRole}`, { name: 'Audit-Probe neu', permissions: { personal: 'bearbeiten' } })
+    ).statusCode;
+    results.adminRoleDelete = (await del(`/api/admin/admin-roles/${emptyAdminRole}`)).statusCode;
+    results.userPatch = (await patch(`/api/admin/users/${probeUserId}`, { admin_role_id: null })).statusCode;
+    results.userReset = (await post(`/api/admin/users/${probeUserId}/reset-password`)).statusCode;
+    results.userCreate = (
+      await post('/api/admin/users', { email: 'audit.neu@example.org', name: 'Audit Neu', role: 'admin', admin_role_id: probeAdminRole })
+    ).statusCode;
+    results.userDelete = (await del(`/api/admin/users/${probeUserId}`)).statusCode;
+  } finally {
+    repairAudit();
+  }
+  check('Audit kaputt: jede Änderung scheitert mit 5xx', Object.values(results).every((s) => failed({ statusCode: s })), results);
+  check('Audit kaputt: kein Audit-Eintrag dazugekommen', auditCount() === auditBefore, auditCount() - auditBefore);
+
+  const roleNow = db.prepare('SELECT name FROM roles WHERE id = ?').get(probeRole) as { name: string } | undefined;
+  check('Audit kaputt: Fachrolle unverändert', roleNow?.name === 'Audit-Probe', roleNow);
+  const assigned = db.prepare('SELECT COUNT(*) AS n FROM employee_roles WHERE employee_id = 1 AND role_id = ?').get(probeRole) as {
+    n: number;
+  };
+  check('Audit kaputt: Rollenzuweisung nicht gespeichert', assigned.n === 0, assigned);
+  const tplNow = db.prepare('SELECT file_id FROM hr_templates WHERE id = ?').get(probeTpl) as { file_id: number } | undefined;
+  check('Audit kaputt: Vorlage steht noch mit ihrer Datei', tplNow?.file_id === fileA, tplNow);
+  check(
+    'Audit kaputt: Datensatz und Blob der Vorlagendatei sind noch da',
+    !!db.prepare('SELECT id FROM files WHERE id = ?').get(fileA) && fs.existsSync(blobA),
+  );
+  check('Audit kaputt: kein Prozess angelegt', processCount() === processesBefore, processCount());
+  const adminRoleNow = db.prepare('SELECT name FROM admin_roles WHERE id = ?').get(probeAdminRole) as { name: string } | undefined;
+  const levelNow = db
+    .prepare("SELECT level FROM admin_role_permissions WHERE role_id = ? AND area = 'personal'")
+    .get(probeAdminRole) as { level: string } | undefined;
+  check(
+    'Audit kaputt: Admin-Rolle samt Rechten unverändert',
+    adminRoleNow?.name === 'Audit-Probe' && levelNow?.level === 'lesen',
+    { adminRoleNow, levelNow },
+  );
+  check('Audit kaputt: leere Admin-Rolle nicht gelöscht', !!db.prepare('SELECT id FROM admin_roles WHERE id = ?').get(emptyAdminRole));
+  const userAfter = userRow();
+  check(
+    'Audit kaputt: Konto weder geändert, zurückgesetzt noch gelöscht',
+    !!userAfter && userAfter.admin_role_id === probeAdminRole && userAfter.password_hash === userBefore?.password_hash,
+    userAfter,
+  );
+  check(
+    'Audit kaputt: kein Konto angelegt',
+    !db.prepare('SELECT id FROM users WHERE email = ?').get('audit.neu@example.org'),
+  );
+
+  // Ohne Trigger gelingt dasselbe, und der Eintrag nennt weiterhin die
+  // entfernte Datei; ihr Blob verschwindet erst nach dem Commit.
+  const swapped = await patch(`/api/admin/templates/${probeTpl}`, { file_id: fileB });
+  const swapAudit = db
+    .prepare("SELECT details FROM audit_log WHERE entity = 'hr_template' AND entity_id = ? AND action = 'update' ORDER BY id DESC")
+    .get(probeTpl) as { details: string } | undefined;
+  check(
+    'Audit heil: Datei tauschen, Eintrag nennt die entfernte Datei',
+    swapped.statusCode === 200 &&
+      swapAudit?.details === JSON.stringify({ changed: { file_id: fileB }, removed_file: { id: fileA, sha256: 'sha-probe-a' } }),
+    swapAudit,
+  );
+  check(
+    'Audit heil: Datensatz und Blob der ersetzten Datei entfernt',
+    !db.prepare('SELECT id FROM files WHERE id = ?').get(fileA) && !fs.existsSync(blobA),
+  );
+  const deleted = await del(`/api/admin/users/${probeUserId}`);
+  check(
+    'Audit heil: Konto löschen mit Eintrag',
+    deleted.statusCode === 204 &&
+      !!db.prepare("SELECT id FROM audit_log WHERE entity = 'user' AND entity_id = ? AND action = 'delete'").get(probeUserId),
+    deleted.statusCode,
+  );
+}
 
 await app.close();
 closeDb();

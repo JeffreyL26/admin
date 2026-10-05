@@ -21,6 +21,7 @@ import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import type Database from 'better-sqlite3';
 import { ADMIN_AREAS, PERMISSION_LEVELS, type AdminPermissions, type PermissionLevel } from '@ohrganize/shared';
+import { hashPassword } from './passwordHashing.js';
 
 /**
  * Zeitpunkt, ab dem neu ausgestellte Tokens gelten sollen (Unix-SEKUNDEN).
@@ -52,6 +53,27 @@ export function generateInitialPassword(): string {
   return crypto.randomBytes(12).toString('base64url');
 }
 
+/** Erstpasswort samt Hash, vorab erzeugt (prepareIssuedPassword). */
+export interface PreparedPassword {
+  password: string;
+  hash: string;
+}
+
+/**
+ * Erstpasswort erzeugen und im Worker-Pool hashen (core/passwordHashing.ts),
+ * ohne den Event-Loop für ~65 ms zu blockieren. Für Routen: VOR den
+ * maßgeblichen Prüfungen aufrufen und das Ergebnis an storeIssuedPassword
+ * geben. So liegt zwischen Rechteprüfung und Schreiben kein await, und beides
+ * bleibt wie bisher ein ununterbrochener Ablauf (auch innerhalb einer
+ * Transaktion). Billige Vorprüfungen davor sind erwünscht: Eine abgewiesene
+ * Anfrage soll keinen bcrypt-Lauf im gemeinsamen Worker-Pool kosten; gelten
+ * muss aber die Wiederholung nach dem await.
+ */
+export async function prepareIssuedPassword(): Promise<PreparedPassword> {
+  const password = generateInitialPassword();
+  return { password, hash: await hashPassword(password, 10) };
+}
+
 /**
  * Neues Passwort für ein bestehendes Konto erzeugen und speichern: Wechsel
  * beim nächsten Login erzwingen, alle laufenden Sitzungen entwerten (wer ein
@@ -60,18 +82,23 @@ export function generateInitialPassword(): string {
  * Konto ohne Admin-Rolle oder der Betreiber, der ohnehin die Datenbank in der
  * Hand hat. Liefert das Passwort im Klartext, genau einmal; es darf weder ins
  * Audit-Log noch in ein Log.
+ *
+ * `prepared` kommt aus prepareIssuedPassword (Routen); ohne ihn wird synchron
+ * gehasht (Betreiberwerkzeuge, die keinen Event-Loop mit anderen teilen).
  */
 export function storeIssuedPassword(
   db: Database.Database,
   userId: number,
   issuerRights: AdminPermissions | null,
+  prepared?: PreparedPassword,
 ): string {
-  const password = generateInitialPassword();
+  const password = prepared?.password ?? generateInitialPassword();
+  const hash = prepared?.hash ?? bcrypt.hashSync(password, 10);
   db.prepare(
     `UPDATE users SET password_hash = ?, must_change_password = 1, sessions_valid_from = ?,
        credentials_issuer_rights = ? WHERE id = ?`,
   ).run([
-    bcrypt.hashSync(password, 10),
+    hash,
     nextSessionsValidFrom(),
     issuerRights === null ? null : JSON.stringify(issuerRights),
     userId,

@@ -230,4 +230,18 @@ export const performanceMigrations: Migration[] = [
       DROP TABLE IF EXISTS career_levels;
     `,
   },
+  {
+    // Fremdschluessel ohne Index: Massnahmen je Gespraech (GET
+    // /api/me/development, Gespraechsdetail; las sonst alle Massnahmen),
+    // Beurteilungen je Person (ON DELETE CASCADE bzw. SET NULL beim Loeschen
+    // eines Profils; vorhanden war nur (cycle_id, employee_id)) und das
+    // Trainingszertifikat (FILE_REFERENCES in core/files.ts).
+    name: '331_performance_reference_indexes',
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_feedback_actions_meeting ON feedback_actions(meeting_id);
+      CREATE INDEX IF NOT EXISTS idx_reviews_employee ON reviews(employee_id);
+      CREATE INDEX IF NOT EXISTS idx_reviews_reviewer ON reviews(reviewer_employee_id) WHERE reviewer_employee_id IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_training_registrations_certificate_file ON training_registrations(certificate_file_id) WHERE certificate_file_id IS NOT NULL;
+    `,
+  },
 ];

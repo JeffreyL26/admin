@@ -48,7 +48,7 @@ function HarmonyBackdrop() {
 }
 
 export function LoginPage() {
-  const { user, loading, login } = useAuth();
+  const { user, loading, login, notice } = useAuth();
   const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -93,6 +93,13 @@ export function LoginPage() {
               Die Zugangsdaten sollten Sie von Ihrer Personalabteilung erhalten haben.
             </p>
           </div>
+          {/* Abmeldung nach Inaktivität (auth/AuthContext.tsx); bei einem
+              Anmeldefehler zählt nur noch der. */}
+          {notice && !error && (
+            <p className="pt-alert pt-alert--info" role="status">
+              {notice}
+            </p>
+          )}
           <Field label="E-Mail-Adresse" required>
             <input
               className="pt-input"

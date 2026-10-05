@@ -251,6 +251,64 @@ check(
   auditEntries,
 );
 
+// Audit in derselben Transaktion: Scheitert der Audit-Eintrag, bleibt auch
+// die fachliche Änderung ungespeichert. Der TEMP-Trigger gilt nur auf dieser
+// Verbindung, also genau der des Servers.
+const atomicRequest = await app.inject({
+  method: 'POST',
+  url: '/api/compensation/change-requests',
+  headers: auth,
+  payload: { employee_id: e1, kind: 'grundgehalt', new_amount_cents: 560000, effective_date: '2099-01-01', reason: 'Audit-Probe' },
+});
+check('Zweiter Änderungsantrag → 201', atomicRequest.statusCode === 201, atomicRequest.json());
+const atomicRequestId = atomicRequest.json().request.id as number;
+const countRows = (sql: string, ...params: unknown[]) => (db.prepare(sql).get(...params) as { n: number }).n;
+const componentsBefore = countRows('SELECT COUNT(*) AS n FROM salary_components WHERE employee_id = ?', e1);
+const bonusesBefore = countRows('SELECT COUNT(*) AS n FROM bonuses');
+const auditBefore = countRows('SELECT COUNT(*) AS n FROM audit_log');
+db.exec("CREATE TEMP TRIGGER audit_kaputt BEFORE INSERT ON audit_log BEGIN SELECT RAISE(ABORT, 'audit kaputt'); END;");
+try {
+  const brokenDecide = await app.inject({
+    method: 'POST',
+    url: `/api/compensation/change-requests/${atomicRequestId}/decide`,
+    headers: auth2,
+    payload: { decision: 'genehmigt' },
+  });
+  const storedStatus = (
+    db.prepare('SELECT status FROM salary_change_requests WHERE id = ?').get(atomicRequestId) as { status: string }
+  ).status;
+  check(
+    'Audit scheitert: Genehmigung 5xx, weder Entscheid noch Gehaltskomponente gespeichert',
+    brokenDecide.statusCode >= 500 &&
+      storedStatus === 'beantragt' &&
+      countRows('SELECT COUNT(*) AS n FROM salary_components WHERE employee_id = ?', e1) === componentsBefore,
+    { status: brokenDecide.statusCode, storedStatus },
+  );
+  const brokenBonus = await app.inject({
+    method: 'POST',
+    url: '/api/compensation/bonuses',
+    headers: auth,
+    payload: { employee_id: e1, kind: 'einmalzahlung', title: 'Audit-Probe', amount_cents: 1000, payout_month: month },
+  });
+  check(
+    'Audit scheitert: Bonus 5xx und nicht angelegt',
+    brokenBonus.statusCode >= 500 && countRows('SELECT COUNT(*) AS n FROM bonuses') === bonusesBefore,
+    brokenBonus.statusCode,
+  );
+  check('Audit scheitert: kein Audit-Eintrag', countRows('SELECT COUNT(*) AS n FROM audit_log') === auditBefore);
+} finally {
+  db.exec('DROP TRIGGER audit_kaputt');
+}
+// Ohne Trigger geht derselbe Entscheid durch; abgelehnt, damit die folgenden
+// Prüfungen keinen offenen Antrag und keine weitere Komponente sehen.
+const atomicReject = await app.inject({
+  method: 'POST',
+  url: `/api/compensation/change-requests/${atomicRequestId}/decide`,
+  headers: auth2,
+  payload: { decision: 'abgelehnt', decision_note: 'Nur Probe' },
+});
+check('Ohne Trigger: Entscheid → 200', atomicReject.statusCode === 200, atomicReject.json());
+
 // ---------------- Boni ----------------
 
 const badBonus = await app.inject({
@@ -281,6 +339,23 @@ if (goalId) {
     'Serverseitige Berechnung: 100.000 × 60 % = 60.000 Cent',
     goalBonus.json().bonus.payout_cents === 60000 && goalBonus.json().bonus.goal?.progress === 60,
     goalBonus.json(),
+  );
+  // Die Liste liest das Ziel per JOIN statt je Zeile: gleiche Form und
+  // gleicher Betrag wie beim Anlegen, keine Hilfsspalten in der Antwort.
+  const created = goalBonus.json().bonus as Record<string, unknown>;
+  const listed = (
+    await app.inject({ method: 'GET', url: `/api/compensation/bonuses?employee_id=${e1}`, headers: auth })
+  ).json().bonuses as Record<string, unknown>[];
+  const listedGoalBonus = listed.find((b) => b.id === created.id);
+  const { payout_cents: _payout, goal: _goal, ...createdColumns } = created;
+  check(
+    'Bonusliste: Ziel und Betrag wie beim Anlegen, Felder in derselben Form',
+    !!listedGoalBonus &&
+      listedGoalBonus.payout_cents === 60000 &&
+      JSON.stringify(listedGoalBonus.goal) === JSON.stringify(created.goal) &&
+      Object.keys(listedGoalBonus).join() ===
+        [...Object.keys(createdColumns), 'first_name', 'last_name', 'payout_cents', 'goal'].join(),
+    listedGoalBonus,
   );
 } else {
   console.log('~ Zielkopplungs-Checks übersprungen (goals-Fremdschema abweichend)');

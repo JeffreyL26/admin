@@ -18,7 +18,7 @@ import {
 } from '@ohrganize/shared';
 import { Avatar, Badge, type BadgeTone } from '../../components/ui';
 import { Tooltip } from '../../components/Tooltip';
-import { usePhotoUrl } from '../employees/api';
+import { useAvatarPhoto } from '../employees/avatarPhoto';
 import { RatingValue } from './RatingInput';
 
 /** Gemeinsame Bausteine der Seiten des Moduls Führung & Bewertung. */
@@ -125,8 +125,11 @@ export const EMPLOYEE_TYPE_TONES: Record<EmployeeType, BadgeTone> = {
 function TeamAvatar({ member, size }: { member: TeamMember; size: number }) {
   // Signierte URL aus der Antwort direkt konsumieren (siehe usePhotoUrl):
   // Führungskräfte haben nicht zwingend das Recht, selbst zu signieren.
-  const photo = usePhotoUrl(member.photo_file_id, member.photo_url);
-  return <Avatar name={`${member.first_name} ${member.last_name}`} size={size} src={photo.data} />;
+  // Vorschaubild, geladen erst bei Sichtbarkeit (useAvatarPhoto).
+  const photo = useAvatarPhoto(member);
+  return (
+    <Avatar name={`${member.first_name} ${member.last_name}`} size={size} src={photo.src} photoRef={photo.ref} />
+  );
 }
 
 /**

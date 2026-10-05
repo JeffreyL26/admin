@@ -115,6 +115,9 @@ if (!skipBuild) {
 const inputs = {
   cli: path.join(root, 'apps/backend/dist/cli.cjs'),
   backup: path.join(root, 'apps/backend/dist/backup.cjs'),
+  // bcrypt im Worker-Thread; cli.cjs liest die Datei aus seinem Verzeichnis.
+  // Ohne sie rechnet der Dienst im Hauptprozess (Ersatzbetrieb), deshalb Pflicht.
+  passwordWorker: path.join(root, 'apps/backend/dist/password-worker.cjs'),
   // Betreiberwerkzeuge (Phase 7). Sie wandern mit, sobald der Build sie
   // erzeugt; ein aelterer Stand ohne sie bleibt baubar.
   tools: ['status.cjs', 'admin-reset.cjs', 'migrate-check.cjs']
@@ -132,7 +135,7 @@ const inputs = {
     path.join(root, d),
   ),
 };
-for (const p of [inputs.cli, inputs.backup, path.join(inputs.webDist, 'index.html'), inputs.deploy, ...inputs.docs]) {
+for (const p of [inputs.cli, inputs.backup, inputs.passwordWorker, path.join(inputs.webDist, 'index.html'), inputs.deploy, ...inputs.docs]) {
   if (!fs.existsSync(p)) fail(`${path.relative(root, p)} fehlt${skipBuild ? ' (--no-build ohne vorherigen Build?)' : ''}.`);
 }
 
@@ -328,6 +331,7 @@ for (const bundle of [inputs.cli, inputs.backup, ...inputs.tools]) {
 
 addFile('apps/backend/dist/cli.cjs', inputs.cli);
 addFile('apps/backend/dist/backup.cjs', inputs.backup);
+addFile('apps/backend/dist/password-worker.cjs', inputs.passwordWorker);
 for (const tool of inputs.tools) addFile(`apps/backend/dist/${path.basename(tool)}`, tool);
 addFile('apps/backend/package.json', path.join(root, 'apps/backend/package.json'), { text: true });
 addTree('apps/web/dist', inputs.webDist);
@@ -386,6 +390,8 @@ Inhalt:
 
   apps/backend/dist/cli.cjs      Backend, Diensteinstieg (node apps/backend/dist/cli.cjs)
   apps/backend/dist/backup.cjs   Sicherungsskript (wird von Timer bzw. geplanter Aufgabe aufgerufen)
+  apps/backend/dist/password-worker.cjs
+                                 Passwortpruefung im eigenen Thread (liest cli.cjs, nicht einzeln starten)
 ${inputs.tools.length ? `  apps/backend/dist/*.cjs        Betreiberwerkzeuge: ${inputs.tools.map((t) => path.basename(t)).join(', ')}\n` : ''}  apps/backend/package.json      Versionsangabe des Backends (nur zur Information)
   apps/web/dist/                 Mitarbeitenden-Portal, statisch - wird in das Web-Verzeichnis
                                  des Reverse-Proxys kopiert
@@ -527,7 +533,7 @@ fs.writeFileSync(`${outFile}.sha256`, `${sha256}  ${path.basename(outFile)}\n`);
 // Sourcemaps bleiben beim Anbieter (nicht im Archiv, sie machten den Quelltext
 // lesbar), aber neben dem Archiv: Eine Fehlerposition aus einem Kundenlog
 // (cli.cjs:Zeile:Spalte) lässt sich damit auf diesen exakten Build abbilden.
-for (const src of [inputs.cli, inputs.backup, ...inputs.tools]) {
+for (const src of [inputs.cli, inputs.backup, inputs.passwordWorker, ...inputs.tools]) {
   const map = `${src}.map`;
   if (fs.existsSync(map)) fs.copyFileSync(map, path.join(outDir, `${baseName}.${path.basename(src)}.map`));
 }

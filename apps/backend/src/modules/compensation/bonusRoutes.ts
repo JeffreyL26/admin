@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { getDb } from '../../db/db.js';
+import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
-import { getEmployee, goalById, goalPayoutCents, goalsForEmployee, type GoalRow } from './lib.js';
+import { getEmployee, goalById, goalPayoutCents, goalsForEmployee, tableExists, type GoalRow } from './lib.js';
 
 const bonusSchema = z
   .object({
@@ -52,12 +52,17 @@ interface BonusRow {
  * Bonus + serverseitig berechneter Auszahlungsbetrag. Bei Zielkopplung:
  * payout_cents = target_amount_cents × goals.progress/100 (Ziel via LEFT-
  * JOIN-Semantik — fehlt das Ziel oder die Tabelle, gilt progress 0).
+ * `preloadedGoal`: von der Liste bereits mitgelesenes Ziel (null = keins);
+ * ohne Angabe wird es hier nachgeschlagen (Einzelzugriffe).
  */
-function withPayout(bonus: BonusRow): BonusRow & {
+function withPayout<T extends BonusRow>(
+  bonus: T,
+  preloadedGoal?: GoalRow | null,
+): T & {
   payout_cents: number;
   goal: GoalRow | null;
 } {
-  const goal = bonus.goal_id ? goalById(bonus.goal_id) : null;
+  const goal = preloadedGoal !== undefined ? preloadedGoal : bonus.goal_id ? goalById(bonus.goal_id) : null;
   const payout = bonus.goal_id
     ? bonus.amount_cents ?? goalPayoutCents(bonus.target_amount_cents ?? 0, goal)
     : bonus.amount_cents ?? 0;
@@ -101,15 +106,55 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
       params.push(Number(employee_id));
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    // Das Ziel kommt per LEFT JOIN gleich mit, statt je zielgekoppeltem Bonus
+    // goalById samt tableExists abzufragen (zwei Abfragen je Zeile). Fehlt das
+    // Ziel, liefert der Join NULL wie goalById. tableExists bleibt EINMAL je
+    // Request: Der Kontrakt mit dem Leistungs-Modul (lib.ts) verlangt, dass die
+    // Kopplung auch ohne goals-Tabelle funktioniert, und ohne sie scheiterte
+    // der Join. Heute laufen alle Migrationen in jeder Variante, die Prüfung
+    // ist also nur noch eine Absicherung.
+    const withGoals = tableExists('goals');
     const rows = getDb()
       .prepare(
-        `SELECT b.*, e.first_name, e.last_name FROM bonuses b
+        `SELECT b.*, e.first_name, e.last_name${
+          withGoals
+            ? `,
+                g.id AS goal_ref_id, g.employee_id AS goal_ref_employee_id, g.title AS goal_ref_title,
+                g.progress AS goal_ref_progress, g.status AS goal_ref_status`
+            : ''
+        }
+         FROM bonuses b
          JOIN employees e ON e.id = b.employee_id
+         ${withGoals ? 'LEFT JOIN goals g ON g.id = b.goal_id' : ''}
          ${where}
          ORDER BY b.payout_month DESC, b.id DESC`,
       )
-      .all(...params) as (BonusRow & { first_name: string; last_name: string })[];
-    return { bonuses: rows.map((b) => withPayout(b)) };
+      .all(...params) as (BonusRow & {
+      first_name: string;
+      last_name: string;
+      goal_ref_id?: number | null;
+      goal_ref_employee_id?: number;
+      goal_ref_title?: string;
+      goal_ref_progress?: number;
+      goal_ref_status?: string;
+    })[];
+    return {
+      bonuses: rows.map(
+        ({ goal_ref_id, goal_ref_employee_id, goal_ref_title, goal_ref_progress, goal_ref_status, ...bonus }) =>
+          withPayout(
+            bonus,
+            goal_ref_id === null || goal_ref_id === undefined
+              ? null
+              : {
+                  id: goal_ref_id,
+                  employee_id: goal_ref_employee_id!,
+                  title: goal_ref_title!,
+                  progress: goal_ref_progress!,
+                  status: goal_ref_status!,
+                },
+          ),
+      ),
+    };
   });
 
   // Ziele einer Mitarbeiter:in für die Zielkopplung (liest die goals-Tabelle
@@ -133,32 +178,36 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
         throw badRequest('Das Ziel gehört nicht zu der gewählten Mitarbeiter:in');
       }
     }
-    const info = getDb()
-      .prepare(
-        `INSERT INTO bonuses (employee_id, kind, title, amount_cents, target_amount_cents, goal_id, payout_month, note)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        body.employee_id,
-        body.kind,
-        body.title,
-        body.goal_id ? null : body.amount_cents ?? null,
-        body.target_amount_cents ?? null,
-        body.goal_id ?? null,
-        body.payout_month,
-        body.note ?? null,
-      );
-    const bonus = getDb()
-      .prepare('SELECT * FROM bonuses WHERE id = ?')
-      .get(Number(info.lastInsertRowid)) as BonusRow;
-    audit(req, 'bonus.create', 'bonus', bonus.id, {
-      employee_id: body.employee_id,
-      kind: body.kind,
-      title: body.title,
-      amount_cents: bonus.amount_cents,
-      target_amount_cents: bonus.target_amount_cents,
-      goal_id: bonus.goal_id,
-      payout_month: bonus.payout_month,
+    // Bonus und Audit-Eintrag in einem Commit.
+    const bonus = inTransaction(() => {
+      const info = getDb()
+        .prepare(
+          `INSERT INTO bonuses (employee_id, kind, title, amount_cents, target_amount_cents, goal_id, payout_month, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          body.employee_id,
+          body.kind,
+          body.title,
+          body.goal_id ? null : body.amount_cents ?? null,
+          body.target_amount_cents ?? null,
+          body.goal_id ?? null,
+          body.payout_month,
+          body.note ?? null,
+        );
+      const created = getDb()
+        .prepare('SELECT * FROM bonuses WHERE id = ?')
+        .get(Number(info.lastInsertRowid)) as BonusRow;
+      audit(req, 'bonus.create', 'bonus', created.id, {
+        employee_id: body.employee_id,
+        kind: body.kind,
+        title: body.title,
+        amount_cents: created.amount_cents,
+        target_amount_cents: created.target_amount_cents,
+        goal_id: created.goal_id,
+        payout_month: created.payout_month,
+      });
+      return created;
     });
     reply.status(201);
     return { bonus: withPayout(bonus) };
@@ -187,17 +236,19 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
         snapshotPayoutCents(bonus) ??
         goalPayoutCents(bonus.target_amount_cents ?? 0, goalById(bonus.goal_id));
     }
-    db.prepare('UPDATE bonuses SET status = ?, amount_cents = ? WHERE id = ?').run(
-      body.status,
-      frozenAmount,
-      id,
-    );
-    audit(req, `bonus.${body.status === 'freigegeben' ? 'approve' : 'payout'}`, 'bonus', id, {
-      employee_id: bonus.employee_id,
-      title: bonus.title,
-      old_status: bonus.status,
-      new_status: body.status,
-      payout_cents: frozenAmount ?? goalPayoutCents(bonus.target_amount_cents ?? 0, bonus.goal_id ? goalById(bonus.goal_id) : null),
+    inTransaction(() => {
+      db.prepare('UPDATE bonuses SET status = ?, amount_cents = ? WHERE id = ?').run(
+        body.status,
+        frozenAmount,
+        id,
+      );
+      audit(req, `bonus.${body.status === 'freigegeben' ? 'approve' : 'payout'}`, 'bonus', id, {
+        employee_id: bonus.employee_id,
+        title: bonus.title,
+        old_status: bonus.status,
+        new_status: body.status,
+        payout_cents: frozenAmount ?? goalPayoutCents(bonus.target_amount_cents ?? 0, bonus.goal_id ? goalById(bonus.goal_id) : null),
+      });
     });
     const updated = db.prepare('SELECT * FROM bonuses WHERE id = ?').get(id) as BonusRow;
     return { bonus: withPayout(updated) };
@@ -212,10 +263,12 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
     if (bonus.status !== 'geplant') {
       throw conflict('Nur geplante Boni können gelöscht werden');
     }
-    getDb().prepare('DELETE FROM bonuses WHERE id = ?').run(id);
-    audit(req, 'bonus.delete', 'bonus', id, {
-      employee_id: bonus.employee_id,
-      title: bonus.title,
+    inTransaction(() => {
+      getDb().prepare('DELETE FROM bonuses WHERE id = ?').run(id);
+      audit(req, 'bonus.delete', 'bonus', id, {
+        employee_id: bonus.employee_id,
+        title: bonus.title,
+      });
     });
     reply.status(204);
   });

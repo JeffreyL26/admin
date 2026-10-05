@@ -13,7 +13,7 @@ import {
 import { useAuth } from '../../auth/AuthContext';
 import { Avatar, Badge, EmptyState, PageHeader, Spinner, StatCard } from '../../components/ui';
 import { Tooltip } from '../../components/Tooltip';
-import { usePhotoUrl } from '../employees/api';
+import { useAvatarPhoto } from '../employees/avatarPhoto';
 import { useLeadershipReport } from './api';
 import { ReportBreakdown } from './ReportBreakdown';
 import { DistributionBar, PeriodSwitcher } from './common';
@@ -248,9 +248,10 @@ function ScaleLegend({ scale }: { scale: RatingScaleKey }) {
 }
 
 function LeaderAvatar({ row, size }: { row: ReportLeaderRow; size: number }) {
-  // Signierte URL aus der Antwort direkt konsumieren (siehe usePhotoUrl).
-  const photo = usePhotoUrl(row.photo_file_id, row.photo_url);
-  return <Avatar name={fullName(row)} size={size} src={photo.data} />;
+  // Signierte URL aus der Antwort direkt konsumieren (siehe usePhotoUrl);
+  // Vorschaubild, geladen erst bei Sichtbarkeit.
+  const photo = useAvatarPhoto(row);
+  return <Avatar name={fullName(row)} size={size} src={photo.src} photoRef={photo.ref} />;
 }
 
 /**

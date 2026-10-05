@@ -8,6 +8,7 @@ import {
   type CountryCode,
 } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
+import { inTransaction } from '../db/db.js';
 import { badRequest, parse } from './errors.js';
 import { getAllSettings, setSetting } from './settings.js';
 import { holidaysForYear } from './holidays.js';
@@ -48,10 +49,13 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       }),
       req.body,
     );
-    for (const [key, value] of Object.entries(body)) {
-      if (value !== undefined) setSetting(key, value);
-    }
-    audit(req, 'update', 'settings', undefined, body);
+    // Alle Werte samt Audit-Eintrag in EINER Transaktion.
+    inTransaction(() => {
+      for (const [key, value] of Object.entries(body)) {
+        if (value !== undefined) setSetting(key, value);
+      }
+      audit(req, 'update', 'settings', undefined, body);
+    });
     return { settings: getAllSettings() };
   });
 

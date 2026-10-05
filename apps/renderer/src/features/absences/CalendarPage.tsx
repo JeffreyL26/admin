@@ -602,35 +602,42 @@ function EmployeeRow({
             if (holidayName) notes.push(`Feiertag: ${holidayName}`);
             if (closure) notes.push('Betriebsruhe');
             if (conflict) notes.push('Konflikt: über 50 % des Teams abwesend');
+            const cell = (
+              <div
+                key={d}
+                className={
+                  'hm-cal__cell' +
+                  (closure
+                    ? ' hm-cal__cell--closure'
+                    : holidayName
+                      ? ' hm-cal__cell--holiday'
+                      : weekend
+                        ? ' hm-cal__cell--weekend'
+                        : '') +
+                  (conflict ? ' hm-cal__cell--conflict' : '')
+                }
+              />
+            );
+            // Den Tooltip nur um Zellen mit Inhalt legen: Er führt auch leer
+            // seine Hooks aus, und das Raster hat Personen mal Tage Zellen
+            // (bei 2000 Personen rund 62 000 je Monat). Ohne Inhalt rendert er
+            // das Kind ohnehin unverändert, das DOM bleibt dasselbe.
+            if (notes.length === 0) return cell;
             return (
               <Tooltip
                 key={d}
                 content={
-                  notes.length > 0 ? (
-                    <>
-                      <span className="hm-tooltip__title">{formatDate(d)}</span>
-                      {notes.map((n) => (
-                        <span key={n} className="hm-tooltip__line">
-                          {n}
-                        </span>
-                      ))}
-                    </>
-                  ) : null
+                  <>
+                    <span className="hm-tooltip__title">{formatDate(d)}</span>
+                    {notes.map((n) => (
+                      <span key={n} className="hm-tooltip__line">
+                        {n}
+                      </span>
+                    ))}
+                  </>
                 }
               >
-                <div
-                  className={
-                    'hm-cal__cell' +
-                    (closure
-                      ? ' hm-cal__cell--closure'
-                      : holidayName
-                        ? ' hm-cal__cell--holiday'
-                        : weekend
-                          ? ' hm-cal__cell--weekend'
-                          : '') +
-                    (conflict ? ' hm-cal__cell--conflict' : '')
-                  }
-                />
+                {cell}
               </Tooltip>
             );
           })}
