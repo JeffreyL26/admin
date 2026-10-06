@@ -300,6 +300,7 @@ function CyclesTab() {
                       <Select
                         className="hm-select"
                         value={c.status}
+                        menuOnly
                         onChange={(e) => statusMutation.mutate({ id: c.id, status: e.target.value as ReviewCycleStatus })}
                         style={{ width: 160 }}
                       >

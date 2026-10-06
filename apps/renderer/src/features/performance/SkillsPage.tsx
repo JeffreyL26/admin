@@ -616,6 +616,7 @@ function ProfilesTab() {
                             <Select
                               className="hm-select"
                               value={p.required_level}
+                              menuOnly
                               onChange={(e) => levelMutation.mutate({ id: p.id, required_level: Number(e.target.value) })}
                             >
                               {[1, 2, 3, 4, 5].map((l) => (

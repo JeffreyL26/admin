@@ -796,6 +796,7 @@ export function ApplicationDrawer({
                   className="hm-select"
                   style={{ maxWidth: 220 }}
                   value={app.stage_id}
+                  menuOnly
                   onChange={(e) => moveStage.mutate(Number(e.target.value))}
                 >
                   {activeStages.map((s) => (
