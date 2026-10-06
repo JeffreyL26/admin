@@ -9,9 +9,9 @@ import { IS_ELECTRON } from '../api/client';
 import { Modal } from '../components/Modal';
 import logo from '../assets/logo.png';
 import { Tooltip } from '../components/Tooltip';
+import { openDocs } from '../lib/docs';
 
 const isMac = window.ohrganize?.platform === 'darwin';
-const DOCS_URL = 'https://www.ohrganize.com/docs';
 
 /**
  * Eigene, zur UI passende Titelleiste — ersetzt das native Windows-Menü.
@@ -50,10 +50,7 @@ export function TitleBar() {
     zoom: (d: number) => window.ohrganize?.app?.zoom(d),
     fullscreen: () => window.ohrganize?.app?.toggleFullscreen(),
     devtools: () => window.ohrganize?.app?.toggleDevTools(),
-    docs: () =>
-      window.ohrganize?.app?.openExternal
-        ? window.ohrganize.app.openExternal(DOCS_URL)
-        : window.open(DOCS_URL, '_blank'),
+    docs: openDocs,
   };
 
   const run = (fn: () => void) => () => {

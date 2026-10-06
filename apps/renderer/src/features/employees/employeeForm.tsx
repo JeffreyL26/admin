@@ -226,6 +226,8 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
         <PhotoPicker
           imageOnly
           name={`${form.first_name} ${form.last_name}`.trim() || 'Neu'}
+          // Solange kein Name da ist, steht ein "O" (wie oHRganize) statt des "N" von "Neu".
+          placeholderInitials={`${form.first_name}${form.last_name}`.trim() ? undefined : 'O'}
           previewUrl={form.photo_file_id ? photo.data : undefined}
           busy={uploading}
           // Setzt Foto und Vorschaubild auf null; der PATCH loest beide und

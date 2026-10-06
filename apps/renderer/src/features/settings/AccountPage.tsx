@@ -3,6 +3,13 @@ import { ArrowDown, ArrowUp, Check, RotateCcw } from 'lucide-react';
 import { Card, Field, PageHeader } from '../../components/ui';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
+import { useSetupContext } from '../setup/SetupProvider';
+import { setupActions } from '../setup/store';
+import { t } from '../setup/copy';
+import { t as tourT, type CopyKey as TourCopyKey } from '../tours/copy';
+import { TOURS } from '../tours/registry';
+import { tourActions, useTourState } from '../tours/store';
+import { useNavigate } from 'react-router-dom';
 import { applyTheme, getTheme, THEMES, type ThemeName } from '../../design/theme';
 import { NAV_SECTIONS } from '../../layout/nav';
 import { SIDEBAR_DEFAULT_ORDER, resetSidebarOrder, saveSidebarOrder, useSidebarOrder } from '../../layout/sidebarConfig';
@@ -29,10 +36,72 @@ export function AccountPage() {
       <PageHeader title="Konto" subtitle="Passwort, Darstellung und Seitenleiste dieses Kontos." />
       <div className="stack" style={{ maxWidth: 760 }}>
         <PasswordCard />
+        <AssistantCard />
         <ThemeCard />
         <SidebarCard />
       </div>
     </>
+  );
+}
+
+/**
+ * Einrichtungs-Assistent und Seiten-Einführungen in EINER Karte: erst der
+ * Assistent (nur für Konten, denen er Schritte bietet), darunter die Rundgänge
+ * mit Stand und "Erneut starten".
+ */
+function AssistantCard() {
+  const { eligible, progress } = useSetupContext();
+  const { can } = useAuth();
+  const { tours } = useTourState();
+  const navigate = useNavigate();
+  const available = TOURS.filter((x) => can(x.area));
+  if (!eligible && available.length === 0) return null;
+  return (
+    <Card title={t('settings.reopen.title')}>
+      <div className="stack" style={{ gap: 18 }}>
+        {eligible && (
+          <div className="row" style={{ justifyContent: 'space-between', gap: 16 }}>
+            <span style={{ color: 'var(--text-secondary)' }}>{t('settings.reopen.text')}</span>
+            <button
+              type="button"
+              className="hm-btn hm-btn--secondary"
+              onClick={() => setupActions.reopen(progress.next)}
+            >
+              {t('settings.reopen.button')}
+            </button>
+          </div>
+        )}
+        {available.length > 0 && (
+          <div className="stack" style={{ gap: 8 }}>
+            <div>
+              <strong>{tourT('konto.title')}</strong>
+              <p style={{ margin: '2px 0 0', color: 'var(--text-secondary)' }}>{tourT('konto.text')}</p>
+            </div>
+            {available.map((x) => {
+              const state = tours[x.id]?.status ?? 'new';
+              return (
+                <div key={x.id} className="row" style={{ justifyContent: 'space-between', gap: 16 }}>
+                  <span>
+                    {tourT(`${x.id}.title` as TourCopyKey)}{' '}
+                    <span style={{ color: 'var(--text-muted)' }}>{tourT(`konto.state.${state}` as TourCopyKey)}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="hm-btn hm-btn--secondary"
+                    onClick={() => {
+                      tourActions.start(x.id);
+                      navigate(x.path);
+                    }}
+                  >
+                    {tourT('konto.restart')}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

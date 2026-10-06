@@ -104,6 +104,25 @@
   --sidebar-width: 264px;
   --topbar-height: 60px;
   --titlebar-height: 40px;
+
+  /* Seiten-Einfuehrungen (features/tours): die Farben der Leiste der Website, in
+     allen Themes gleich (Markenfarben, nicht Teil der Theme-Rampe). */
+  --tour-1: #0864c6;
+  --tour-1-on: #ffffff;
+  --tour-2: #0a8f78;
+  --tour-2-on: #ffffff;
+  --tour-3: #7a55e0;
+  --tour-3-on: #ffffff;
+  --tour-4: #e0910d;
+  --tour-4-on: #2a1a00;
+  --tour-5: #d6407a;
+  --tour-5-on: #ffffff;
+  --tour-6: #5f6b80;
+  --tour-6-on: #ffffff;
+  --tour-7: #1f9a46;
+  --tour-7-on: #ffffff;
+  --tour-8: #c4501a;
+  --tour-8-on: #ffffff;
 }
 
 /* ===========================================================================

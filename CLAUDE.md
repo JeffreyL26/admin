@@ -449,6 +449,28 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Navigationsabschnitt „Leistung & Führung“, Rechtebereiche bleiben getrennt.
   Deep-Links: `/leistung/beurteilungen?tab=conduct&employee=<id>`,
   `/leistung/feedback?employee=<id>`. Hintergrund: docs/entscheidungen.md.
+- **Einrichtungs-Assistent** (`apps/renderer/src/features/setup/`). Sieben
+  Schritte in Datenreihenfolge; **der Fortschritt kommt aus den Daten**
+  (`GET /api/setup/status` in `core/setupRoutes.ts`, Rechte je Block im
+  Handler wie beim Dashboard, gesperrte Bloecke FEHLEN statt 0 zu sein),
+  die Rechnung steht DOM-frei in `packages/shared/src/setup.ts`
+  (`deriveSetupProgress`, Test `src/test/setupSmoke.ts`). Auf dem Geraet liegt
+  nur Pause, Ausblenden und "Abwesenheit bestaetigt"
+  (`ohrganize.setup.<Installation>.<user.id>`, `store.ts`; die Installation kommt als Hash aus dem Status, sonst erbte Konto 1 nach einem Datenbank-Reset den alten Stand). **Alle Texte stehen in
+  `features/setup/copy.ts`** (Schluessel wie im abgestimmten Textartefakt,
+  `t()` fuellt Platzhalter); neue Schritte tragen sich in `SETUP_STEPS`
+  (shared), `STEP_COMPONENTS` (`steps.tsx`) und `copy.ts` ein. Die Schritte
+  rufen die bestehenden Endpunkte und Dialoge der Fachseiten (kein eigener
+  Schreibweg) und invalidieren deren Query-Keys. Zwei Regeln: Das
+  Erstpasswort bleibt im `InitialPasswordDialog`, nie im Store; Abwesenheitsart
+  der Kategorie `krankheit` laesst der Schritt unangetastet.
+- **Seiten-Einfuehrungen** (`apps/renderer/src/features/tours/`): Mini-Onboardings je
+  Seite, Start beim ersten Besuch (`TourLayer`, Stand `ohrganize.tours.<Installation>.<user.id>`,
+  gebunden wie der Assistent). Texte NUR in `tours/copy.ts`, Segmentfarben als `--tour-N` in `design/tokens.css`, Schritte in `registry.ts`
+  (`target`/`altTarget` = `data-tour` im DOM, `event` = was die Seite per `tourEvent()`
+  meldet). Eine neue Einfuehrung braucht: Eintrag in `TOURS`, Texte
+  `<id>.step<N>.title|text|todo`, `data-tour`-Attribute und `tourEvent`-Aufrufe an der
+  Seite. Ueberspringen ruft `announceSkip()` (gruene Meldung mit Link zur Dokumentation).
 - **Desktop-Embedding:** `desktop/src/main.ts` ruft `startServer(0)` aus dem
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.ohrganize.apiBaseUrl`.

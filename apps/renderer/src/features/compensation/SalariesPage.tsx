@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, History, Plus, Receipt, ScrollText, Wallet, X } from 'lucide-react';
@@ -18,6 +18,7 @@ import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
 import { useBackTo } from '../../lib/backTo';
+import { tourEvent } from '../tours/events';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { parseEuroInput, STATUS_TONES } from './lib';
 import { Select } from '../../components/Select';
@@ -225,6 +226,7 @@ function ComponentDialog({
       }),
     onSuccess: () => {
       toast.success('Gehaltskomponente wurde angelegt');
+      tourEvent('gehaelter.component-saved');
       queryClient.invalidateQueries({ queryKey: ['compensation'] });
       setAmount('');
       setNote('');
@@ -254,7 +256,7 @@ function ComponentDialog({
         </>
       }
     >
-      <div className="hm-form-grid">
+      <div className="hm-form-grid" data-tour="gehaelter-component-form">
         <Field label="Art" required>
           <Select className="hm-select" value={kind} onChange={(e) => setKind(e.target.value)}>
             {SALARY_COMPONENT_KINDS.map((k) => (
@@ -276,7 +278,7 @@ function ComponentDialog({
             placeholder="z. B. 350,00"
           />
         </Field>
-        <Field label="Gültig ab" required hint="Eine offene Vorgängerzeile gleicher Art wird automatisch geschlossen">
+        <Field label="Gültig ab" required hint="Ein gültiger Vorgängereintrag gleicher Art wird automatisch geschlossen">
           <input
             type="date"
             className="hm-input"
@@ -369,19 +371,24 @@ function PendingRequests() {
                           <>
                             <span className="hm-tooltip__title">Vier-Augen-Prinzip</span>
                             <span className="hm-tooltip__line">
-                              Eigener Antrag · Genehmigung durch eine andere Person der HR-Administration
+                              Muss von einer anderen berechtigten Person genehmigt werden.
                             </span>
                           </>
                         ) : null
                       }
                     >
-                      <button
-                        className="hm-btn hm-btn--primary hm-btn--sm"
-                        disabled={isOwnRequest(r)}
-                        onClick={() => setDecideFor({ request: r, decision: 'genehmigt' })}
-                      >
-                        <Check size={14} /> Genehmigen
-                      </button>
+                      {/* Ein gesperrter Knopf nimmt keine Mausereignisse an: Der Tooltip
+                          haengt deshalb an der Huelle, der Knopf selbst ist dann "durchlaessig". */}
+                      <span style={{ display: 'inline-flex' }}>
+                        <button
+                          className="hm-btn hm-btn--primary hm-btn--sm"
+                          disabled={isOwnRequest(r)}
+                          style={isOwnRequest(r) ? { pointerEvents: 'none' } : undefined}
+                          onClick={() => setDecideFor({ request: r, decision: 'genehmigt' })}
+                        >
+                          <Check size={14} /> Genehmigen
+                        </button>
+                      </span>
                     </Tooltip>
                     <button
                       className="hm-btn hm-btn--danger hm-btn--sm"
@@ -456,71 +463,76 @@ function DecidedRequests() {
   });
 
   return (
-    <Card
-      flush
-      title={
-        <Tabs
-          size="sm"
-          ariaLabel="Entschiedene Anträge"
-          tabs={[
-            { key: 'genehmigt', label: 'Genehmigte Anträge' },
-            { key: 'abgelehnt', label: 'Abgelehnte Anträge' },
-          ]}
-          active={status}
-          onChange={(k) => setStatus(k as 'genehmigt' | 'abgelehnt')}
-        />
-      }
-    >
-      {isLoading ? (
-        <Spinner center />
-      ) : (data ?? []).length === 0 ? (
-        <EmptyState
-          title={status === 'genehmigt' ? 'Keine genehmigten Anträge' : 'Keine abgelehnten Anträge'}
-          hint="Entschiedene Änderungsanträge bleiben hier nachvollziehbar."
-        />
-      ) : (
-        <div className="hm-table-wrap">
-          <table className="hm-table">
-            <thead>
-              <tr>
-                <th>Mitarbeiter:in</th>
-                <th>Art</th>
-                <th className="num">Betrag</th>
-                <th>Wirksam ab</th>
-                <th>Begründung</th>
-                <th>Beantragt von</th>
-                <th>Entschieden</th>
-                <th>Anmerkung</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data ?? []).map((r) => (
-                <tr key={r.id}>
-                  <td style={{ fontWeight: 600 }}>
-                    {r.last_name}, {r.first_name}
-                  </td>
-                  <td>{kindLabel(r.kind)}</td>
-                  <td className="num">{formatEuro(r.new_amount_cents)}</td>
-                  <td>{formatDate(r.effective_date)}</td>
-                  <td style={{ maxWidth: 240, color: 'var(--text-muted)' }}>{r.reason}</td>
-                  <td>{r.requested_by_name ?? '—'}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>
-                    <Badge tone={STATUS_TONES[r.status] ?? 'neutral'}>
-                      {r.status === 'genehmigt' ? 'Genehmigt' : 'Abgelehnt'}
-                    </Badge>
-                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
-                      {r.decided_by_name ?? '—'}
-                      {r.decided_at ? ` · ${formatDate(r.decided_at.slice(0, 10))}` : ''}
-                    </div>
-                  </td>
-                  <td style={{ maxWidth: 240, color: 'var(--text-muted)' }}>{r.decision_note ?? '—'}</td>
+    <div data-tour="gehaelter-decided">
+      <Card
+        flush
+        title={
+          <Tabs
+            size="sm"
+            ariaLabel="Entschiedene Anträge"
+            tabs={[
+              { key: 'genehmigt', label: 'Genehmigte Anträge' },
+              { key: 'abgelehnt', label: 'Abgelehnte Anträge' },
+            ]}
+            active={status}
+            onChange={(k) => {
+              setStatus(k as 'genehmigt' | 'abgelehnt');
+              tourEvent('gehaelter.decided-viewed');
+            }}
+          />
+        }
+      >
+        {isLoading ? (
+          <Spinner center />
+        ) : (data ?? []).length === 0 ? (
+          <EmptyState
+            title={status === 'genehmigt' ? 'Keine genehmigten Anträge' : 'Keine abgelehnten Anträge'}
+            hint="Entschiedene Änderungsanträge bleiben hier nachvollziehbar."
+          />
+        ) : (
+          <div className="hm-table-wrap">
+            <table className="hm-table">
+              <thead>
+                <tr>
+                  <th>Mitarbeiter:in</th>
+                  <th>Art</th>
+                  <th className="num">Betrag</th>
+                  <th>Wirksam ab</th>
+                  <th>Begründung</th>
+                  <th>Beantragt von</th>
+                  <th>Entschieden</th>
+                  <th>Anmerkung</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </Card>
+              </thead>
+              <tbody>
+                {(data ?? []).map((r) => (
+                  <tr key={r.id}>
+                    <td style={{ fontWeight: 600 }}>
+                      {r.last_name}, {r.first_name}
+                    </td>
+                    <td>{kindLabel(r.kind)}</td>
+                    <td className="num">{formatEuro(r.new_amount_cents)}</td>
+                    <td>{formatDate(r.effective_date)}</td>
+                    <td style={{ maxWidth: 240, color: 'var(--text-muted)' }}>{r.reason}</td>
+                    <td>{r.requested_by_name ?? '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <Badge tone={STATUS_TONES[r.status] ?? 'neutral'}>
+                        {r.status === 'genehmigt' ? 'Genehmigt' : 'Abgelehnt'}
+                      </Badge>
+                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: 2 }}>
+                        {r.decided_by_name ?? '—'}
+                        {r.decided_at ? ` · ${formatDate(r.decided_at.slice(0, 10))}` : ''}
+                      </div>
+                    </td>
+                    <td style={{ maxWidth: 240, color: 'var(--text-muted)' }}>{r.decision_note ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -535,6 +547,11 @@ function EmployeeDetail({
 }) {
   const [componentDialog, setComponentDialog] = useState(false);
   const [requestDialog, setRequestDialog] = useState(false);
+
+  // Einfuehrung: Eine Person zu oeffnen ist der erste Schritt.
+  useEffect(() => {
+    tourEvent('gehaelter.person-opened');
+  }, []);
 
   const salaryQuery = useQuery({
     queryKey: ['compensation', 'salary', employeeId],
@@ -608,13 +625,27 @@ function EmployeeDetail({
         subtitle={`${typeLabel} · Monatsbrutto ${formatEuro(salary.monthly_gross_cents)}`}
         actions={
           <>
-            <button className="hm-btn hm-btn--secondary" onClick={onBack}>
+            <button className="hm-btn hm-btn--secondary" onClick={onBack} data-tour="gehaelter-back">
               <ArrowLeft size={16} /> {backLabel}
             </button>
-            <button className="hm-btn hm-btn--secondary" onClick={() => setComponentDialog(true)}>
+            <button
+              className="hm-btn hm-btn--secondary"
+              data-tour="gehaelter-component-btn"
+              onClick={() => {
+                setComponentDialog(true);
+                tourEvent('gehaelter.component-dialog');
+              }}
+            >
               <Plus size={16} /> Komponente
             </button>
-            <button className="hm-btn hm-btn--primary" onClick={() => setRequestDialog(true)}>
+            <button
+              className="hm-btn hm-btn--primary"
+              data-tour="gehaelter-request-btn"
+              onClick={() => {
+                setRequestDialog(true);
+                tourEvent('gehaelter.request-dialog');
+              }}
+            >
               Änderungsanfrage dokumentieren
             </button>
           </>
@@ -779,60 +810,69 @@ export function SalariesPage() {
         title="Gehälter"
         subtitle="Aktuelle Vergütung aller Mitarbeitenden mit Änderungs-Workflow"
         actions={
-          <button className="hm-btn hm-btn--primary" onClick={() => setRequestDialog(true)}>
+          <button
+            className="hm-btn hm-btn--primary"
+            data-tour="gehaelter-request-btn"
+            onClick={() => {
+              setRequestDialog(true);
+              tourEvent('gehaelter.request-dialog');
+            }}
+          >
             <Plus size={16} /> Änderungsanfrage dokumentieren
           </button>
         }
       />
       <div className="stack">
         <PendingRequests />
-        <Card title="Übersicht" flush>
-          {isLoading ? (
-            <Spinner center />
-          ) : (data ?? []).length === 0 ? (
-            <EmptyState
-              icon={<Wallet size={40} />}
-              title="Keine Mitarbeitenden vorhanden"
-              hint="Legen Sie zunächst Mitarbeitende im Personal-Modul an."
-            />
-          ) : (
-            <div className="hm-table-wrap">
-              <table className="hm-table">
-                <thead>
-                  <tr>
-                    <th>Mitarbeiter:in</th>
-                    <th>Beschäftigung</th>
-                    <th>Position</th>
-                    <th className="num">Monatsbrutto</th>
-                    <th className="num">Komponenten</th>
-                    <th>Letzte Änderung</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(data ?? []).map((r) => (
-                    <tr key={r.employee_id} className="clickable" onClick={() => setSelected(r.employee_id)}>
-                      <td style={{ fontWeight: 600 }}>
-                        {r.last_name}, {r.first_name}{' '}
-                        {r.status !== 'aktiv' && <Badge tone="neutral">ausgeschieden</Badge>}
-                      </td>
-                      <td>
-                        <Badge tone="blue">
-                          {EMPLOYEE_TYPE_LABELS[r.employee_type as EmployeeType] ?? r.employee_type}
-                        </Badge>
-                      </td>
-                      <td>{r.job_title ?? '—'}</td>
-                      <td className="num" style={{ fontWeight: 600 }}>
-                        {formatEuro(r.monthly_gross_cents)}
-                      </td>
-                      <td className="num">{r.component_count}</td>
-                      <td>{r.last_change ? formatDate(r.last_change) : '—'}</td>
+        <div data-tour="gehaelter-overview">
+          <Card title="Übersicht" flush>
+            {isLoading ? (
+              <Spinner center />
+            ) : (data ?? []).length === 0 ? (
+              <EmptyState
+                icon={<Wallet size={40} />}
+                title="Keine Mitarbeitenden vorhanden"
+                hint="Legen Sie zunächst Mitarbeitende im Personal-Modul an."
+              />
+            ) : (
+              <div className="hm-table-wrap">
+                <table className="hm-table">
+                  <thead>
+                    <tr>
+                      <th>Mitarbeiter:in</th>
+                      <th>Beschäftigung</th>
+                      <th>Position</th>
+                      <th className="num">Monatsbrutto</th>
+                      <th className="num">Komponenten</th>
+                      <th>Letzte Änderung</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+                  </thead>
+                  <tbody>
+                    {(data ?? []).map((r) => (
+                      <tr key={r.employee_id} className="clickable" onClick={() => setSelected(r.employee_id)}>
+                        <td style={{ fontWeight: 600 }}>
+                          {r.last_name}, {r.first_name}{' '}
+                          {r.status !== 'aktiv' && <Badge tone="neutral">ausgeschieden</Badge>}
+                        </td>
+                        <td>
+                          <Badge tone="blue">
+                            {EMPLOYEE_TYPE_LABELS[r.employee_type as EmployeeType] ?? r.employee_type}
+                          </Badge>
+                        </td>
+                        <td>{r.job_title ?? '—'}</td>
+                        <td className="num" style={{ fontWeight: 600 }}>
+                          {formatEuro(r.monthly_gross_cents)}
+                        </td>
+                        <td className="num">{r.component_count}</td>
+                        <td>{r.last_change ? formatDate(r.last_change) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        </div>
         <DecidedRequests />
       </div>
       <ChangeRequestDialog open={requestDialog} onClose={() => setRequestDialog(false)} />

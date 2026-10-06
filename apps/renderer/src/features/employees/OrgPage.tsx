@@ -5,7 +5,7 @@ import {
   Building2, Check, Download, MapPin, Maximize2, Network, Pencil, Plus, Trash2,
   Users, X, ZoomIn, ZoomOut,
 } from 'lucide-react';
-import { COUNTRY_LABELS, regionLabel, regionsFor, type OrgTreeNode } from '@ohrganize/shared';
+import { COUNTRY_LABELS, nameInitials, regionLabel, regionsFor, type OrgTreeNode } from '@ohrganize/shared';
 import { COUNTRY, DEFAULT_REGION, REGION_TERM } from '../../lib/locale';
 import { api } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
@@ -771,15 +771,7 @@ function DepartmentChart() {
   const connected = (a: LaidOutNode, b: LaidOutNode) =>
     hoverId !== null && (a.node.id === hoverId || b.node.id === hoverId);
 
-  const initials = (name: string | null) =>
-    name
-      ? name
-          .split(/\s+/)
-          .filter(Boolean)
-          .slice(0, 2)
-          .map((p) => p[0]?.toUpperCase())
-          .join('')
-      : '?';
+  const initials = (name: string | null) => (name ? nameInitials(name) : '?');
 
   const exportSvg = () => {
     const svg = svgRef.current;

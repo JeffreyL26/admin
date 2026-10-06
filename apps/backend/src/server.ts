@@ -20,6 +20,7 @@ import { encryptStoredFiles, fileRoutes } from './core/files.js';
 import { settingsRoutes } from './core/settingsRoutes.js';
 import { lookupRoutes } from './core/lookupRoutes.js';
 import { dashboardRoutes } from './core/dashboardRoutes.js';
+import { setupRoutes } from './core/setupRoutes.js';
 import { assertRouteAllowed, permissionsFor } from './core/permissions.js';
 import { APP_VERSION, assertClientSupported } from './core/version.js';
 import {
@@ -295,6 +296,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(settingsRoutes);
   await app.register(lookupRoutes);
   await app.register(dashboardRoutes);
+  await app.register(setupRoutes);
   await registerModules(app);
 
   return app;

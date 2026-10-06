@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { hasFeature, moduleEnabled, pathAllowedByFeatures, type ModuleKey } from '@ohrganize/shared';
+import { hasFeature, moduleEnabled, nameInitials, pathAllowedByFeatures, type ModuleKey } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { useAuth } from '../auth/AuthContext';
 import { ReadOnlyNotice } from '../components/ReadOnlyNotice';
@@ -99,14 +99,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
-    .join('');
-}
+const initials = nameInitials;
 
 function Wordmark() {
   return (

@@ -3549,3 +3549,62 @@ button.lead-star:disabled {
   flex: none;
   margin-top: -6px;
 }
+
+/* ---------- Hinweiskasten (components/HintBox.tsx) ---------- */
+.hm-hint {
+  position: relative;
+  grid-column: 1 / -1;
+  margin: 10px 0 4px;
+  padding: 14px 16px 12px 18px;
+  border: 1.5px solid var(--brand-primary);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand-primary) 7%, var(--bg-surface));
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  /* Lichthof und weiches Glühen, ruhend (kein Pulsieren). */
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--brand-primary) 14%, transparent),
+    0 0 16px color-mix(in srgb, var(--brand-primary) 32%, transparent);
+}
+.hm-hint__bulb {
+  position: absolute;
+  left: -12px;
+  top: -14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-primary);
+  color: #fff;
+  /* Ring in der Farbe des Untergrunds löst die Birne vom Rand. */
+  box-shadow: 0 0 0 3px var(--bg-surface);
+}
+.hm-hint__body > p {
+  margin: 0;
+}
+.hm-hint__body > p + p {
+  margin-top: 8px;
+}
+
+/* Gruene Meldung (Toast mit option green): Hinweise zum in Ruhe lesen */
+.hm-toast--green {
+  background: var(--success-bg);
+  color: var(--text-primary);
+  border: 1.5px solid var(--success);
+}
+.hm-toast--green .hm-toast__icon {
+  color: var(--success);
+}
+.hm-toast__link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

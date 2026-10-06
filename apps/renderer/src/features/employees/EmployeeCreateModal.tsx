@@ -21,7 +21,19 @@ const STEPS = [
   { key: 'finance', label: '3. Finanzen & Steuer' },
 ] as const;
 
-export function EmployeeCreateModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * `onCreated` ersetzt den Sprung in die neue Personalakte: Der Einrichtungs-
+ * Assistent legt mehrere Personen hintereinander an und bleibt dabei im Dialog.
+ */
+export function EmployeeCreateModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated?: (employee: EmployeeRow) => void;
+}) {
   const toast = useToast();
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -38,7 +50,8 @@ export function EmployeeCreateModal({ open, onClose }: { open: boolean; onClose:
       setForm(EMPTY_EMPLOYEE_FORM);
       setStep(0);
       onClose();
-      navigate(`/personal/mitarbeitende/${res.employee.id}`);
+      if (onCreated) onCreated(res.employee);
+      else navigate(`/personal/mitarbeitende/${res.employee.id}`);
     },
     onError: (e: Error) => toast.error(e.message),
   });

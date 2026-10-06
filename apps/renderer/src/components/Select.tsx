@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 
 /**
  * Auswahlfeld in App-Optik, Ersatz für das native <select>.
@@ -30,6 +31,8 @@ interface Option {
   value: string;
   label: string;
   disabled: boolean;
+  /** Erklaert einen gesperrten Eintrag (Tooltip), per data-hint am <option>. */
+  hint?: string;
 }
 
 interface Props {
@@ -67,12 +70,18 @@ function collectOptions(children: React.ReactNode, into: Option[] = []): Option[
   React.Children.forEach(children, (child) => {
     if (!React.isValidElement(child)) return;
     if (child.type === 'option') {
-      const props = child.props as { value?: string | number; disabled?: boolean; children?: React.ReactNode };
+      const props = child.props as {
+        value?: string | number;
+        disabled?: boolean;
+        children?: React.ReactNode;
+        'data-hint'?: string;
+      };
       const label = textOf(props.children).replace(/\s+/g, ' ').trim();
       into.push({
         value: props.value !== undefined ? String(props.value) : label,
         label,
         disabled: Boolean(props.disabled),
+        hint: props['data-hint'],
       });
       return;
     }
@@ -348,7 +357,8 @@ export function Select({
             }}
             onKeyDown={onListKey}
           >
-            {options.map((option, i) => (
+            {options.map((option, i) => {
+              const row = (
               <div
                 key={`${option.value}-${i}`}
                 id={`${listId}-${i}`}
@@ -368,7 +378,15 @@ export function Select({
                 <span className="hm-select-option__label">{option.label || ' '}</span>
                 {i === selectedIndex && <Check size={14} className="hm-select-option__check" aria-hidden="true" />}
               </div>
-            ))}
+              );
+              return option.hint ? (
+                <Tooltip key={`${option.value}-${i}`} content={<div className="hm-tooltip__line">{option.hint}</div>}>
+                  {row}
+                </Tooltip>
+              ) : (
+                row
+              );
+            })}
           </div>,
           document.body,
         )}
