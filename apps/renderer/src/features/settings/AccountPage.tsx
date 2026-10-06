@@ -7,7 +7,7 @@ import { useSetupContext } from '../setup/SetupProvider';
 import { setupActions } from '../setup/store';
 import { t } from '../setup/copy';
 import { t as tourT, type CopyKey as TourCopyKey } from '../tours/copy';
-import { TOURS } from '../tours/registry';
+import { TOURS, visibleStepCount } from '../tours/registry';
 import { tourActions, useTourState } from '../tours/store';
 import { useNavigate } from 'react-router-dom';
 import { applyTheme, getTheme, THEMES, type ThemeName } from '../../design/theme';
@@ -54,7 +54,7 @@ function AssistantCard() {
   const { can } = useAuth();
   const { tours } = useTourState();
   const navigate = useNavigate();
-  const available = TOURS.filter((x) => can(x.area));
+  const available = TOURS.filter((x) => visibleStepCount(x, can) > 0);
   if (!eligible && available.length === 0) return null;
   return (
     <Card title={t('settings.reopen.title')}>

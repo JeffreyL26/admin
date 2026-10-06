@@ -108,11 +108,11 @@ export const COPY = {
   'stellen.step3.text':
     'Neue Stellen starten als Entwurf. Von dort geht es über veröffentlicht, pausiert und besetzt bis geschlossen. Angeboten wird nur, was zum aktuellen Stand passt.',
   'stellen.step3.todo': 'Öffnen Sie die Auswahl. Ändern müssen Sie nichts.',
-  'stellen.step3.alt': 'Legen Sie zuerst eine Stelle an.',
+  'stellen.step3.alt': 'Keine Stelle in der Liste. Legen Sie eine an oder wählen Sie den Filter Alle Status.',
   'stellen.step4.title': 'Die Stelle im Detail',
   'stellen.step4.text': 'Die Karte zeigt aktive, gesamte und eingestellte Bewerbungen auf einen Blick.',
   'stellen.step4.todo': 'Öffnen Sie die Stelle.',
-  'stellen.step4.alt': 'Legen Sie zuerst eine Stelle an.',
+  'stellen.step4.alt': 'Keine Stelle in der Liste. Legen Sie eine an oder wählen Sie den Filter Alle Status.',
   'stellen.step5.title': 'Bewerbungen je Stufe',
   'stellen.step5.text': 'Hier sehen Sie, in welcher Stufe der Pipeline wie viele Bewerbungen stehen.',
   'stellen.step5.todo': 'Schließen Sie die Ansicht.',

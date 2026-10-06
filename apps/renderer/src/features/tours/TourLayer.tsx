@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRightLeft, Check, X } from 'lucide-react';
-import type { AdminArea } from '@ohrganize/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { Tooltip } from '../../components/Tooltip';
 import { t, type CopyKey } from './copy';
@@ -143,29 +142,29 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), h
  */
 export function TourLayer() {
   const { pathname, search } = useLocation();
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const { tours, bound } = useTourState();
   const navigate = useNavigate();
   const tour = tourAt(pathname);
   const state = tour ? tours[tour.id] : undefined;
-  // Jeder Schritt ist eine Schreibaktion: Konten, die nur lesen duerfen, bekommen keine Einfuehrung.
-  const canEdit = useCallback((area: AdminArea) => can(area, 'bearbeiten'), [can]);
-  const total = tour ? visibleStepCount(tour, canEdit) : 0;
+  // Welches Recht gebraucht wird, steht je Einfuehrung (`minRight`): Reine Leserechte genuegen
+  // nur dort, wo die Schritte nichts anlegen.
+  const total = tour ? visibleStepCount(tour, can) : 0;
   const entryPath = tour?.path ?? '';
 
   // Sichtbare Schrittzahl je Einfuehrung fuer dieses Konto (vor dem Start, vor Ereignissen).
   useEffect(() => {
-    for (const x of TOURS) tourActions.setLimit(x.id, visibleStepCount(x, canEdit));
-  }, [canEdit, bound]);
+    for (const x of TOURS) tourActions.setLimit(x.id, visibleStepCount(x, can));
+  }, [can, bound, user?.id]);
 
   // Erster Besuch: starten, aber nur auf der Einstiegsseite. Erst, wenn der Stand
   // dieser Installation geladen ist. Auf einer weiteren Seite laeuft ein Stand nur weiter.
   useEffect(() => {
-    if (tour && bound && !state && pathname.startsWith(entryPath) && canEdit(tour.area)) {
+    if (tour && bound && !state && pathname.startsWith(entryPath) && total > 0) {
       tourActions.start(tour.id);
       tour.initial?.(search).forEach(tourActions.event);
     }
-  }, [tour, bound, state, canEdit, search, pathname, entryPath]);
+  }, [tour, bound, state, total, search, pathname, entryPath]);
 
   // Seitenwechsel: Gehoert der naechste Schritt zu einer anderen Seite als der gerade
   // erledigte und man steht noch dort, wechselt die Ansicht nach kurzer Pause (Meldung
@@ -233,7 +232,9 @@ export function TourLayer() {
     }
   }, [tour, state]);
 
-  const active = tour && state?.status === 'active' && total > 0 ? { tour, state } : null;
+  // Ohne sichtbaren Schritt (Recht entzogen, alle sichtbaren erledigt) bleibt die Leiste weg;
+  // der Stand bleibt "laeuft" und geht weiter, sobald die Rechte zurueck sind.
+  const active = tour && state?.status === 'active' && state.done.length < total ? { tour, state } : null;
   const nextIndex = active ? active.tour.steps.findIndex((_, i) => !active.state.done.includes(i)) : -1;
   const nextStep = active && nextIndex >= 0 && nextIndex < total ? active.tour.steps[nextIndex] : undefined;
   const nextPage = active && nextStep ? stepPage(active.tour, nextStep) : undefined;

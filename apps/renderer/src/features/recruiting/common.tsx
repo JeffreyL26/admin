@@ -107,6 +107,7 @@ function InterviewerPicker({
       <Select
         className="hm-select"
         value=""
+        menuOnly
         onChange={(e) => e.target.value && onChange([...value, Number(e.target.value)])}
       >
         <option value="">— Interviewer:in hinzufügen —</option>

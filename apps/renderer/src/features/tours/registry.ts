@@ -44,6 +44,11 @@ export interface TourDef {
   path: string;
   /** Bereich, den das Konto zum Oeffnen der Seite braucht. */
   area: AdminArea;
+  /**
+   * Recht, das das Konto im Bereich braucht. Vorgabe `bearbeiten`, weil die
+   * meisten Schritte etwas anlegen; reine Rundgaenge zum Ansehen setzen `lesen`.
+   */
+  minRight?: 'lesen' | 'bearbeiten';
   /** Nur Einfuehrungen ueber mehrere Seiten; pages[0] ist die Einstiegsseite (= path/area). */
   pages?: TourPage[];
   steps: TourStepDef[];
@@ -64,6 +69,7 @@ export const TOURS: TourDef[] = [
     id: 'gehaelter',
     path: '/verguetung/gehaelter',
     area: 'verguetung',
+    minRight: 'lesen',
     initial: (search) => (new URLSearchParams(search).get('person') ? ['gehaelter.person-opened'] : []),
     steps: [
       { event: 'gehaelter.person-opened', target: 'gehaelter-overview' },
@@ -146,9 +152,10 @@ export function stepPage(tour: TourDef, step: TourStepDef): TourPage {
  * Ein Praefix, kein Filter: Seiten mit moeglicherweise fehlendem Recht stehen am
  * Ende, damit `done` ein zusammenhaengender Anfang bleibt.
  */
-export function visibleStepCount(tour: TourDef, can: (area: AdminArea) => boolean): number {
+export function visibleStepCount(tour: TourDef, can: (area: AdminArea, needed?: 'lesen' | 'bearbeiten') => boolean): number {
+  const needed = tour.minRight ?? 'bearbeiten';
   let n = 0;
-  while (n < tour.steps.length && can(stepPage(tour, tour.steps[n]).area)) n++;
+  while (n < tour.steps.length && can(stepPage(tour, tour.steps[n]).area, needed)) n++;
   return n;
 }
 

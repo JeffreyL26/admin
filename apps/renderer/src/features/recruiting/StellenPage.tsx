@@ -339,7 +339,7 @@ export function StellenPage() {
       </div>
 
       <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-<Select
+        <Select
           className="hm-select"
           style={{ maxWidth: 220 }}
           data-tour="stellen-filter"
