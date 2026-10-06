@@ -26,6 +26,12 @@ export interface TourStepDef {
   placement?: 'above';
   /** `bottom`: Ist das Ziel gross und liegt im Dialog, sitzt die Blase unten rechts statt oben rechts. */
   anchor?: 'bottom';
+  /**
+   * Meldet die Seite dieses Ereignis, obwohl davor liegende Schritte noch offen sind
+   * (optionale Eingaben uebersprungen), gelten sie mit als erledigt. Nur fuer
+   * Schritte, deren Aktion die davor liegenden voraussetzt oder umfasst.
+   */
+  catchUp?: boolean;
   /** Schluessel in `TourDef.pages`; Vorgabe: erste Seite. */
   page?: string;
   /** Wechselhinweis (`<Tour>.step<N>.enter`) beim automatischen Seitenwechsel auf diesen Schritt. */
@@ -46,6 +52,11 @@ export interface TourDef {
    * wurde direkt in einer Unteransicht geoeffnet). Bekommt den Suchteil der URL.
    */
   initial?: (search: string) => string[];
+}
+
+/** Mehrseitige Einfuehrung: Einstiegsseite (`path`, `area`) kommt aus `pages[0]`, nicht doppelt. */
+function multiPage(def: Omit<TourDef, 'path' | 'area'> & { pages: TourPage[] }): TourDef {
+  return { ...def, path: def.pages[0]!.path, area: def.pages[0]!.area };
 }
 
 export const TOURS: TourDef[] = [
@@ -70,8 +81,8 @@ export const TOURS: TourDef[] = [
       { event: 'ankuendigungen.editor-dialog', target: 'ankuendigungen-create-btn' },
       { event: 'ankuendigungen.content-entered', target: 'ankuendigungen-title', altTarget: 'ankuendigungen-create-btn' },
       { event: 'ankuendigungen.schedule-set', target: 'ankuendigungen-publish', altTarget: 'ankuendigungen-create-btn' },
-      { event: 'ankuendigungen.ack-checked', target: 'ankuendigungen-ack', altTarget: 'ankuendigungen-create-btn' },
-      { event: 'ankuendigungen.saved', target: 'ankuendigungen-form', altTarget: 'ankuendigungen-create-btn', placement: 'above', anchor: 'bottom' },
+      { event: 'ankuendigungen.ack-checked', target: 'ankuendigungen-ack', altTarget: 'ankuendigungen-create-btn', catchUp: true },
+      { event: 'ankuendigungen.saved', target: 'ankuendigungen-form', altTarget: 'ankuendigungen-create-btn', placement: 'above', anchor: 'bottom', catchUp: true },
       { event: 'ankuendigungen.detail-opened', target: 'ankuendigungen-row', altTarget: 'ankuendigungen-create-btn' },
       { event: 'ankuendigungen.detail-closed', target: 'ankuendigungen-status' },
     ],
@@ -89,10 +100,8 @@ export const TOURS: TourDef[] = [
       { event: 'stellen.filter-used', target: 'stellen-filter' },
     ],
   },
-  {
+  multiPage({
     id: 'rollen-rechte',
-    path: '/verwaltung/rollen',
-    area: 'verwaltung',
     pages: [
       { key: 'rollen', path: '/verwaltung/rollen', area: 'verwaltung' },
       { key: 'benutzer', path: '/verwaltung/benutzer', area: 'benutzer' },
@@ -100,7 +109,7 @@ export const TOURS: TourDef[] = [
     steps: [
       { event: 'rollen-rechte.role-dialog', target: 'rollen-create-btn' },
       { event: 'rollen-rechte.role-saved', target: 'rollen-form', altTarget: 'rollen-create-btn', placement: 'above' },
-      { event: 'rollen-rechte.members-dialog', target: 'rollen-members-btn' },
+      { event: 'rollen-rechte.members-dialog', target: 'rollen-members-btn', altTarget: 'rollen-create-btn' },
       {
         event: 'rollen-rechte.members-saved',
         target: 'rollen-members-list',
@@ -118,7 +127,7 @@ export const TOURS: TourDef[] = [
         altTarget: 'rechte-tab-konten',
       },
     ],
-  },
+  }),
 ];
 
 /** Die Einfuehrung, zu deren Seiten `pathname` gehoert (Einstiegsseite oder weitere). */

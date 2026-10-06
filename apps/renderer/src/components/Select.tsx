@@ -49,6 +49,10 @@ interface Props {
   'aria-label'?: string;
   'aria-labelledby'?: string;
   'aria-invalid'?: React.AriaAttributes['aria-invalid'];
+  /** Fuer Seiten-Einfuehrungen: Ziel am Ausloeser (`data-tour`). */
+  'data-tour'?: string;
+  /** Die Liste ging auf (nicht bei Pfeiltasten, die den Wert aendern). */
+  onOpen?: () => void;
   /** Mindestbreite der Liste; ohne Angabe so breit wie das Feld. */
   menuMinWidth?: number;
 }
@@ -103,6 +107,7 @@ export function Select({
   required,
   autoFocus,
   menuMinWidth,
+  onOpen,
   ...aria
 }: Props) {
   const options = useMemo(() => collectOptions(children), [children]);
@@ -184,6 +189,7 @@ export function Select({
     if (disabled || options.length === 0) return;
     setActive(selected && !selected.disabled ? selectedIndex : step(-1, 1));
     setOpen(true);
+    onOpen?.();
   };
   const closeMenu = (refocus = true) => {
     setOpen(false);
@@ -332,6 +338,7 @@ export function Select({
         aria-label={aria['aria-label']}
         aria-labelledby={aria['aria-labelledby']}
         aria-invalid={aria['aria-invalid']}
+        data-tour={aria['data-tour']}
         onClick={() => (open ? closeMenu() : openMenu())}
         onKeyDown={onButtonKey}
       >

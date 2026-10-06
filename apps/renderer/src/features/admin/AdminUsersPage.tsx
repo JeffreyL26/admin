@@ -158,7 +158,7 @@ function AccountsTab() {
           <button
             className="hm-btn hm-btn--primary"
             style={{ flex: 'none' }}
-            data-tour="rechte-account-create-btn"
+            data-tour={accounts ? 'rechte-account-create-btn' : undefined}
             onClick={() => setCreating(true)}
           >
             <Plus size={15} /> Konto anlegen
@@ -241,19 +241,12 @@ function AccountsTab() {
                         <span style={{ color: 'var(--text-muted)' }}>Self-Service</span>
                       ) : (
                         <Tooltip content={self ? <><span className="hm-tooltip__title">Eigene Rolle</span><span className="hm-tooltip__line">Nur eine andere Person mit Benutzerverwaltung ändert sie</span></> : null}>
-                          <span
-                            style={{ display: 'inline-block' }}
-                            data-tour={tourTarget ? 'rechte-assign-select' : undefined}
-                            onClickCapture={() => tourEvent('rollen-rechte.assign-opened')}
-                            onKeyDownCapture={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
-                                tourEvent('rollen-rechte.assign-opened');
-                              }
-                            }}
-                          >
+                          <span style={{ display: 'inline-block' }}>
                           <Select
                             className="hm-select"
                             style={{ width: 210 }}
+                            data-tour={tourTarget ? 'rechte-assign-select' : undefined}
+                            onOpen={() => tourEvent('rollen-rechte.assign-opened')}
                             value={a.admin_role_id ?? ''}
                             disabled={self || assign.isPending}
                             onChange={(e) =>

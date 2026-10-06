@@ -65,6 +65,7 @@ export const COPY = {
   'rollen-rechte.step3.text':
     'Eine Person kann mehrere Rollen haben. Ihr Personalprofil bleibt dabei unverändert.',
   'rollen-rechte.step3.todo': 'Öffnen Sie die Mitglieder der neuen Rolle.',
+  'rollen-rechte.step3.alt': 'Keine aktive Rolle vorhanden. Legen Sie eine an, dann geht es hier weiter.',
   'rollen-rechte.step4.title': 'Mitglieder wählen',
   'rollen-rechte.step4.text':
     'Wählen Sie eine Person aus. Solange keine Abwesenheitsart die Rolle verlangt, ändert sich für niemanden etwas. Zurücknehmen geht jederzeit.',
@@ -133,7 +134,7 @@ export const COPY = {
   'ankuendigungen.step3.title': 'Wer sieht sie, und ab wann?',
   'ankuendigungen.step3.text':
     'Wählen Sie die Zielgruppe und den Zeitraum. Liegt der Beginn in der Zukunft, bleibt die Ankündigung geplant und ist noch für niemanden sichtbar. Für den Anfang empfehlen wir das.',
-  'ankuendigungen.step3.todo': 'Wählen Sie ein Datum.',
+  'ankuendigungen.step3.todo': 'Wählen Sie ein Datum in der Zukunft.',
   'ankuendigungen.step3.alt': 'Hier geht es mit der Ankündigung weiter.',
   'ankuendigungen.step4.title': 'Lesebestätigung',
   'ankuendigungen.step4.text':
@@ -141,7 +142,8 @@ export const COPY = {
   'ankuendigungen.step4.todo': 'Haken Sie die Option an.',
   'ankuendigungen.step4.alt': 'Hier geht es mit der Ankündigung weiter.',
   'ankuendigungen.step5.title': 'Anlegen',
-  'ankuendigungen.step5.text': 'Mit dem Speichern entsteht die Ankündigung. Bearbeiten und Löschen bleiben jederzeit möglich.',
+  'ankuendigungen.step5.text':
+    'Mit dem Speichern entsteht die Ankündigung. Steht der Beginn auf heute, ist sie sofort für die Zielgruppe sichtbar. Bearbeiten und Löschen bleiben jederzeit möglich.',
   'ankuendigungen.step5.todo': 'Legen Sie die Ankündigung an.',
   'ankuendigungen.step5.alt': 'Hier geht es mit der Ankündigung weiter.',
   'ankuendigungen.step6.title': 'Die Übersicht',

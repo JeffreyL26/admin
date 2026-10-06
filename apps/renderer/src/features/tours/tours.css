@@ -115,51 +115,6 @@ body:has(.hm-setup-launcher):has(.hm-tour-bar) .hm-toast-stack {
   background: var(--bg-tint-2, var(--bg-tint-1));
 }
 
-/* Schmales Fenster: Die Leiste nimmt die Breite, Segmente und Titel schrumpfen mit. */
-@media (max-width: 720px) {
-  .hm-tour-bar {
-    left: 12px;
-    right: 12px;
-  }
-  body:not(:has(.hm-setup-launcher)) .hm-tour-bar {
-    bottom: 12px;
-  }
-  .hm-tour-bar__segs {
-    flex: 1 1 60px;
-    min-width: 0;
-  }
-  .hm-tour-bar__segs i {
-    flex: 1 1 0;
-    width: auto;
-    min-width: 6px;
-  }
-  .hm-tour-bar__label {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .hm-tour-bar__goto {
-    flex: none;
-  }
-  /* Mit "Weiter bei"-Knopf bekommen die Segmente den Platz des Titels. */
-  .hm-tour-bar:has(.hm-tour-bar__goto) .hm-tour-bar__label {
-    display: none;
-  }
-  .hm-tour-notice {
-    right: 12px;
-  }
-  body:not(:has(.hm-setup-launcher)) .hm-tour-notice {
-    bottom: 64px;
-  }
-  body:not(:has(.hm-setup-launcher)):has(.hm-tour-bar) .hm-toast-stack {
-    bottom: 64px;
-  }
-  body:not(:has(.hm-setup-launcher)):has(.hm-tour-notice) .hm-toast-stack {
-    bottom: 176px;
-  }
-}
-
 /* ---------- Wechselhinweis ---------- */
 .hm-tour-notice {
   position: fixed;
@@ -345,6 +300,51 @@ body:has(.hm-setup-launcher):has(.hm-tour-notice) .hm-toast-stack {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* Schmales Fenster: Die Leiste nimmt die Breite, Segmente und Titel schrumpfen mit. */
+@media (max-width: 720px) {
+  .hm-tour-bar {
+    left: 12px;
+    right: 12px;
+  }
+  body:not(:has(.hm-setup-launcher)) .hm-tour-bar {
+    bottom: 12px;
+  }
+  .hm-tour-bar__segs {
+    flex: 1 1 60px;
+    min-width: 0;
+  }
+  .hm-tour-bar__segs i {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 6px;
+  }
+  .hm-tour-bar__label {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .hm-tour-bar__goto {
+    flex: none;
+  }
+  /* Mit "Weiter bei"-Knopf bekommen die Segmente den Platz des Titels. */
+  .hm-tour-bar:has(.hm-tour-bar__goto) .hm-tour-bar__label {
+    display: none;
+  }
+  .hm-tour-notice {
+    right: 12px;
+  }
+  body:not(:has(.hm-setup-launcher)) .hm-tour-notice {
+    bottom: 64px;
+  }
+  body:not(:has(.hm-setup-launcher)):has(.hm-tour-bar) .hm-toast-stack {
+    bottom: 64px;
+  }
+  body:not(:has(.hm-setup-launcher)):has(.hm-tour-notice) .hm-toast-stack {
+    bottom: 176px;
   }
 }
 

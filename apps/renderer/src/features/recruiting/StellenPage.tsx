@@ -17,6 +17,7 @@ import { POSTING_STATUS_TONES, StageChip, parseEuroInput, centsToInput } from '.
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
 import { tourEvent } from '../tours/events';
+import { maxId } from '../tours/maxId';
 
 interface Draft {
   title: string;
@@ -305,7 +306,7 @@ export function StellenPage() {
 
   const all = postings ?? [];
   // Ziel der Einfuehrung "Stellen": die zuletzt angelegte Stelle (hoechste id).
-  const newestId = all.reduce<number | null>((m, p) => (m === null || p.id > m ? p.id : m), null);
+  const newestId = maxId(all);
   const openCount = all.filter((p) => p.status === 'veroeffentlicht' || p.status === 'pausiert').length;
   const totalSeats = all.filter((p) => p.status === 'veroeffentlicht' || p.status === 'pausiert').reduce((s, p) => s + p.seats, 0);
   const totalApplications = all.reduce((s, p) => s + (p.active_count ?? 0), 0);
@@ -338,10 +339,10 @@ export function StellenPage() {
       </div>
 
       <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-<span style={{ display: 'inline-block' }} data-tour="stellen-filter">
-                <Select
+<Select
           className="hm-select"
           style={{ maxWidth: 220 }}
+          data-tour="stellen-filter"
           value={statusFilter}
           onChange={(e) => {
             setStatusFilter(e.target.value);
@@ -353,7 +354,6 @@ export function StellenPage() {
             <option key={s} value={s}>{JOB_POSTING_STATUS_LABELS[s]}</option>
           ))}
         </Select>
-        </span>
       </div>
 
       {isLoading ? (
@@ -400,26 +400,19 @@ export function StellenPage() {
                     </div>
                   </div>
                   <div className="row" style={{ gap: 4, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-                    <span
-                      style={{ display: 'inline-block' }}
+                    <Select
+                      className="hm-select"
+                      style={{ maxWidth: 160 }}
                       data-tour={p.id === newestId ? 'stellen-status' : undefined}
-                      onClickCapture={() => tourEvent('stellen.status-opened')}
-                      onKeyDownCapture={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') tourEvent('stellen.status-opened');
-                      }}
+                      onOpen={() => tourEvent('stellen.status-opened')}
+                      value=""
+                      onChange={(e) => e.target.value && setStatus.mutate({ id: p.id, status: e.target.value as JobPostingStatus })}
                     >
-                      <Select
-                        className="hm-select"
-                        style={{ maxWidth: 160 }}
-                        value=""
-                        onChange={(e) => e.target.value && setStatus.mutate({ id: p.id, status: e.target.value as JobPostingStatus })}
-                      >
-                        <option value="">Status ändern …</option>
-                        {(JOB_POSTING_TRANSITIONS[p.status] ?? []).map((s) => (
-                          <option key={s} value={s}>{JOB_POSTING_STATUS_LABELS[s]}</option>
-                        ))}
-                      </Select>
-                    </span>
+                      <option value="">Status ändern …</option>
+                      {(JOB_POSTING_TRANSITIONS[p.status] ?? []).map((s) => (
+                        <option key={s} value={s}>{JOB_POSTING_STATUS_LABELS[s]}</option>
+                      ))}
+                    </Select>
                     <Tooltip content={<span className="hm-tooltip__title">Bearbeiten</span>}>
                       <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" onClick={() => openEdit(p)}>
                         <Pencil size={15} />

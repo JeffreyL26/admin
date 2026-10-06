@@ -9,6 +9,7 @@ import { Tooltip } from '../../components/Tooltip';
 import { useEmployees, type EmployeeLite } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
 import { tourEvent } from '../tours/events';
+import { maxId } from '../tours/maxId';
 
 const ROLES_KEY = ['admin', 'roles'];
 
@@ -70,7 +71,8 @@ export function RolesPage() {
   const { data: roles, isLoading } = useRoles();
 
   // Ziel der Einfuehrung "Rollen & Rechte": die zuletzt angelegte Rolle.
-  const newestRoleId = roles?.reduce<number | null>((m, r) => (m === null || r.id > m ? r.id : m), null) ?? null;
+  // Inaktive Rollen haben einen gesperrten Mitglieder-Knopf und taugen nicht als Ziel.
+  const newestRoleId = maxId(roles, (r) => r.active === 1);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ROLES_KEY });
 

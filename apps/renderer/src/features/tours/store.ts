@@ -60,6 +60,8 @@ export function bindToursKey(key: string | null): void {
   if (key === activeKey) return;
   activeKey = key;
   tours = key === null ? {} : load(key);
+  // Das Limit gehoert zum Konto: bis TourLayer es neu setzt, gilt keins.
+  for (const id of Object.keys(limits)) delete limits[id];
   snapshot = { tours, bound: key !== null };
   window.dispatchEvent(new Event(EVENT));
 }
@@ -74,6 +76,11 @@ export const tourActions = {
   /** Anzahl der Schritte, die dieses Konto sehen kann (registry.ts#visibleStepCount). */
   setLimit: (id: string, n: number) => {
     limits[id] = n;
+    // Sank das Limit unter den Stand (Recht entzogen), ist die Einfuehrung damit abgeschlossen.
+    const cur = tours[id];
+    if (cur && cur.status === 'active' && n > 0 && cur.done.length >= n) {
+      commit({ ...tours, [id]: { status: 'done', done: cur.done.slice(0, n), total: n } });
+    }
   },
   start: (id: string) => commit({ ...tours, [id]: { status: 'active', done: [] } }),
   /** Beendet ohne Abschluss. Zeigt die Meldung zur Dokumentation. */
@@ -92,10 +99,14 @@ export const tourActions = {
     for (const tour of TOURS) {
       const cur = next[tour.id];
       if (!cur || cur.status !== 'active') continue;
-      const index = cur.done.length;
-      if (index >= (limits[tour.id] ?? tour.steps.length) || tour.steps[index]?.event !== name) continue;
-      const done = [...cur.done, index];
       const total = limits[tour.id] ?? tour.steps.length;
+      const index = cur.done.length;
+      if (index >= total) continue;
+      // Der Schritt, der dran ist, zaehlt immer; ein spaeterer nur, wenn er `catchUp` traegt.
+      let hit = tour.steps[index]?.event === name ? index : -1;
+      if (hit < 0) hit = tour.steps.findIndex((s, i) => i > index && i < total && s.catchUp === true && s.event === name);
+      if (hit < 0) continue;
+      const done = Array.from({ length: hit + 1 }, (_, i) => i);
       next = {
         ...next,
         [tour.id]: done.length >= total ? { status: 'done', done, total } : { status: 'active', done },

@@ -29,6 +29,7 @@ import { ConfirmDialog, Modal } from "../../components/Modal";
 import { useToast } from "../../components/Toast";
 import { Tooltip } from "../../components/Tooltip";
 import { tourEvent } from "../tours/events";
+import { maxId } from "../tours/maxId";
 import {
   AudienceSelect,
   audienceLabel,
@@ -211,7 +212,7 @@ function AnnouncementEditor({
             value={form.title}
             onChange={(e) => {
               setForm((f) => ({ ...f, title: e.target.value }));
-              if (e.target.value.trim() && form.body.trim()) tourEvent("ankuendigungen.content-entered");
+              if (editId === null && e.target.value.trim() && form.body.trim()) tourEvent("ankuendigungen.content-entered");
             }}
             placeholder="z. B. Sommerfest am 14. August"
           />
@@ -223,7 +224,7 @@ function AnnouncementEditor({
             value={form.body}
             onChange={(e) => {
               setForm((f) => ({ ...f, body: e.target.value }));
-              if (e.target.value.trim() && form.title.trim()) tourEvent("ankuendigungen.content-entered");
+              if (editId === null && e.target.value.trim() && form.title.trim()) tourEvent("ankuendigungen.content-entered");
             }}
           />
         </Field>
@@ -239,7 +240,8 @@ function AnnouncementEditor({
             value={form.publish_at}
             onChange={(e) => {
               setForm((f) => ({ ...f, publish_at: e.target.value }));
-              tourEvent("ankuendigungen.schedule-set");
+              // Zaehlt nur ein kuenftiger Beginn: Nur der haelt die Ankuendigung auf "geplant".
+              if (editId === null && e.target.value > todayIsoLocal()) tourEvent("ankuendigungen.schedule-set");
             }}
           />
         </Field>
@@ -263,7 +265,7 @@ function AnnouncementEditor({
               checked={form.requires_ack}
               onChange={(e) => {
                 setForm((f) => ({ ...f, requires_ack: e.target.checked }));
-                if (e.target.checked) tourEvent("ankuendigungen.ack-checked");
+                if (editId === null && e.target.checked) tourEvent("ankuendigungen.ack-checked");
               }}
             />
             Mitarbeitende müssen den Erhalt bestätigen
@@ -468,10 +470,7 @@ export function AnnouncementsPage() {
   const [detailId, setDetailId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Announcement | null>(null);
   // Ziel der Einfuehrung "Ankuendigungen": die zuletzt angelegte (hoechste id).
-  const newestId = (announcements ?? []).reduce<number | null>(
-    (m, a) => (m === null || a.id > m ? a.id : m),
-    null,
-  );
+  const newestId = maxId(announcements);
 
   // Deep-Link ?id= (Dashboard-Widget, Befehlspalette): Detail oeffnen und den
   // Parameter verbrauchen, damit Schliessen ihn nicht wieder aufreisst.

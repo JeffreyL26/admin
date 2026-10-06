@@ -1,6 +1,7 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRightLeft, Check, X } from 'lucide-react';
+import type { AdminArea } from '@ohrganize/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { Tooltip } from '../../components/Tooltip';
 import { t, type CopyKey } from './copy';
@@ -50,13 +51,14 @@ const sameFound = (a: Found | null, b: Found | null) =>
  */
 function useTarget(names: (string | undefined)[]): Found | null {
   const [found, setFound] = useState<Found | null>(null);
-  // Zeitpunkt des letzten Rollens (0: noch nicht): Hoechstens alle 1,5 s, sonst ruckelt es.
-  const scrolled = useRef(0);
+  // Gerollt wird einmal pro Erscheinen (und nach einer Groessenaenderung des Fensters):
+  // Wer danach selbst scrollt, wird nicht zurueckgeholt.
+  const scrolled = useRef(false);
   const key = names.join('|');
 
   useEffect(() => {
     // Neuer Schritt: alter Treffer weg, Rollen wieder erlaubt.
-    scrolled.current = 0;
+    scrolled.current = false;
     setFound(null);
     const find = (): Found | null => {
       if (document.querySelector('.hm-setup__panel')) return null;
@@ -73,8 +75,8 @@ function useTarget(names: (string | undefined)[]): Found | null {
           const r = el.getBoundingClientRect();
           if (r.width <= 0 || r.height <= 0) continue;
           // Hinter der Leiste zaehlt wie ausserhalb des Fensters (im Dialog liegt sie unter dem Overlay).
-          if ((r.top < 0 || r.bottom > (modal ? window.innerHeight : zone)) && Date.now() - scrolled.current > 1500) {
-            scrolled.current = Date.now();
+          if ((r.top < 0 || r.bottom > (modal ? window.innerHeight : zone)) && !scrolled.current) {
+            scrolled.current = true;
             el.scrollIntoView({ block: 'center', behavior: 'smooth' });
           }
           const m = modal?.getBoundingClientRect();
@@ -94,7 +96,7 @@ function useTarget(names: (string | undefined)[]): Found | null {
     const tick = () => {
       if (document.hidden) return;
       const next = find();
-      if (!next) scrolled.current = 0;
+      if (!next) scrolled.current = false;
       setFound((prev) => (sameFound(prev, next) ? prev : next));
     };
     let raf = 0;
@@ -110,7 +112,11 @@ function useTarget(names: (string | undefined)[]): Found | null {
     const observer = new MutationObserver(schedule);
     observer.observe(document.body, { childList: true, subtree: true });
     const iv = window.setInterval(tick, 1000);
-    window.addEventListener('resize', schedule);
+    const onResize = () => {
+      scrolled.current = false;
+      schedule();
+    };
+    window.addEventListener('resize', onResize);
     window.addEventListener('scroll', schedule, true);
     // Wieder sichtbar: sofort neu messen, nicht erst mit dem naechsten Takt.
     document.addEventListener('visibilitychange', schedule);
@@ -118,7 +124,7 @@ function useTarget(names: (string | undefined)[]): Found | null {
       observer.disconnect();
       window.clearInterval(iv);
       if (raf) cancelAnimationFrame(raf);
-      window.removeEventListener('resize', schedule);
+      window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', schedule, true);
       document.removeEventListener('visibilitychange', schedule);
     };
@@ -142,22 +148,24 @@ export function TourLayer() {
   const navigate = useNavigate();
   const tour = tourAt(pathname);
   const state = tour ? tours[tour.id] : undefined;
-  const total = tour ? visibleStepCount(tour, can) : 0;
-  const entryPath = tour ? (tour.pages?.[0]?.path ?? tour.path) : '';
+  // Jeder Schritt ist eine Schreibaktion: Konten, die nur lesen duerfen, bekommen keine Einfuehrung.
+  const canEdit = useCallback((area: AdminArea) => can(area, 'bearbeiten'), [can]);
+  const total = tour ? visibleStepCount(tour, canEdit) : 0;
+  const entryPath = tour?.path ?? '';
 
   // Sichtbare Schrittzahl je Einfuehrung fuer dieses Konto (vor dem Start, vor Ereignissen).
   useEffect(() => {
-    for (const x of TOURS) tourActions.setLimit(x.id, visibleStepCount(x, can));
-  }, [can]);
+    for (const x of TOURS) tourActions.setLimit(x.id, visibleStepCount(x, canEdit));
+  }, [canEdit, bound]);
 
   // Erster Besuch: starten, aber nur auf der Einstiegsseite. Erst, wenn der Stand
   // dieser Installation geladen ist. Auf einer weiteren Seite laeuft ein Stand nur weiter.
   useEffect(() => {
-    if (tour && bound && !state && pathname.startsWith(entryPath) && can(tour.area)) {
+    if (tour && bound && !state && pathname.startsWith(entryPath) && canEdit(tour.area)) {
       tourActions.start(tour.id);
       tour.initial?.(search).forEach(tourActions.event);
     }
-  }, [tour, bound, state, can, search, pathname, entryPath]);
+  }, [tour, bound, state, canEdit, search, pathname, entryPath]);
 
   // Seitenwechsel: Gehoert der naechste Schritt zu einer anderen Seite als der gerade
   // erledigte und man steht noch dort, wechselt die Ansicht nach kurzer Pause (Meldung
@@ -225,11 +233,24 @@ export function TourLayer() {
     }
   }, [tour, state]);
 
-  const active = tour && state?.status === 'active' ? { tour, state } : null;
+  const active = tour && state?.status === 'active' && total > 0 ? { tour, state } : null;
   const nextIndex = active ? active.tour.steps.findIndex((_, i) => !active.state.done.includes(i)) : -1;
   const nextStep = active && nextIndex >= 0 && nextIndex < total ? active.tour.steps[nextIndex] : undefined;
   const nextPage = active && nextStep ? stepPage(active.tour, nextStep) : undefined;
   const onPage = !!nextPage && pathname.startsWith(nextPage.path);
+
+  // Der Wechselhinweis gilt nur fuer den Schritt, auf den automatisch gewechselt wurde, und
+  // nur bis man die Seite verlaesst oder der Schritt vorbei ist: Kein zweites Mal beim Zurueckkehren.
+  const wasOnPage = useRef(false);
+  useEffect(() => {
+    if (enterFor && (!active || active.tour.id !== enterFor.id || nextIndex !== enterFor.index)) {
+      setEnterFor(null);
+    } else if (enterFor && wasOnPage.current && !onPage) {
+      setEnterFor(null);
+    }
+    wasOnPage.current = onPage;
+  }, [enterFor, active, nextIndex, onPage]);
+
   return (
     <>
       {active && (
