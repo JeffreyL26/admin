@@ -59,7 +59,6 @@ export function useLeaderStatus() {
   return useQuery({
     queryKey: [...LEADERSHIP_KEY, 'me', 'status'],
     queryFn: () => api.get<LeaderStatus>('/api/leadership/me/status'),
-    staleTime: 60_000,
     meta: { silentError: true },
   });
 }
@@ -67,9 +66,8 @@ export function useLeaderStatus() {
 /**
  * Darf das Konto Gesprächsprotokolle unter „Mein Team“ lesen
  * (`protocols_readable`, Selbstschutz beim Lesen)? Eigener Beobachter auf
- * derselben Abfrage, aber mit kurzem Frische-Fenster: Beim Öffnen der Protokolle
- * oder der Teamseite holt er den Stand neu, damit eine gerade geänderte Rolle
- * sofort gilt und nicht erst nach einer Minute. `'error'`, wenn der Status
+ * derselben Abfrage: Beim Öffnen der Protokolle oder der Teamseite gilt der
+ * Stand vom Server, damit eine gerade geänderte Rolle sofort wirkt. `'error'`, wenn der Status
  * nicht zu ermitteln ist: Die Oberfläche sagt das, statt endlos zu laden.
  * `'not_leader'`, wenn die Freischaltung inzwischen entzogen oder das Profil
  * nicht mehr aktiv ist: Dann ist nicht der Selbstschutz der Grund.
@@ -78,9 +76,6 @@ export function useProtocolsReadable(): boolean | 'not_leader' | 'error' | undef
   const status = useQuery({
     queryKey: [...LEADERSHIP_KEY, 'me', 'status'],
     queryFn: () => api.get<LeaderStatus>('/api/leadership/me/status'),
-    // Kurz statt 0: fängt Rollenänderungen beim nächsten Öffnen ab, ohne bei
-    // jedem Fensterwechsel den ganzen Führungsstatus (samt Bereich) zu rechnen.
-    staleTime: 5_000,
     meta: { silentError: true },
   });
   if (status.data) return status.data.is_leader ? status.data.protocols_readable : 'not_leader';
@@ -283,7 +278,6 @@ export function useLeadershipLookup() {
   return useQuery({
     queryKey: [...LEADERSHIP_KEY, 'lookup'],
     queryFn: () => api.get<LeadershipLookup>('/api/leadership/lookup'),
-    staleTime: 30_000,
   });
 }
 

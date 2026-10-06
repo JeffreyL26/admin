@@ -258,13 +258,18 @@ serverseitig erzeugtem Erstpasswort (siehe `docs/inbetriebnahme.md`).
   `HarmonyBackdrop` in `pages/LoginPage.tsx`; respektiert
   `prefers-reduced-motion`).
 
-## Deployment hinter eigener Domain
+## Deployment unter `<kunde>.ohrganize.com`
+
+Die Portal-Adresse ist immer `<kunde>.ohrganize.com`, auch bei einem Server
+beim Kunden. Eine eigene Domain ist eine Sonderanfertigung auf ausdrücklichen
+Kundenwunsch. Im Referenzaufbau unten steht `musterfirma.ohrganize.com` als
+Beispielname.
 
 Das Backend bleibt API-only; ein Reverse-Proxy liefert das statische
 Portal-Build aus und reicht `/api/*` durch. Referenzaufbau (eine Maschine):
 
 ```
-Browser ── https://portal.firma.de ──> nginx/Caddy
+Browser ── https://musterfirma.ohrganize.com ──> nginx/Caddy
                     ├── /api/*  → http://127.0.0.1:3001   (oHRganize Backend)
                     └── /*      → apps/web/dist            (SPA-Fallback auf index.html)
 ```
@@ -286,12 +291,12 @@ Kundeninstanz stehen in `../deploy/README.md`, Abschnitt 9.
    - `OHRGANIZE_PORT=3001`
    - `OHRGANIZE_HOST` nur setzen, wenn Proxy und Backend nicht auf derselben
      Maschine laufen (Standard bleibt bewusst `127.0.0.1`).
-   - `OHRGANIZE_CORS_ORIGIN=https://portal.firma.de` — Pflicht, sobald das Portal
+   - `OHRGANIZE_CORS_ORIGIN=https://musterfirma.ohrganize.com`: Pflicht, sobald das Portal
      NICHT same-origin über den Proxy läuft; same-origin braucht kein CORS.
 3. Caddy-Beispiel:
 
    ```
-   portal.firma.de {
+   musterfirma.ohrganize.com {
      handle /api/* {
        reverse_proxy 127.0.0.1:3001
      }
@@ -326,8 +331,8 @@ Kundeninstanz stehen in `../deploy/README.md`, Abschnitt 9.
 
    | Quelle | Wofür |
    |---|---|
-   | `OHRGANIZE_API_BASE=https://portal.firma.de` | skriptierter Rollout, Verknüpfung, MDM |
-   | `%APPDATA%\oHRganize\config.json` → `{ "apiBaseUrl": "https://portal.firma.de" }` | IT-Konfiguration je Installation |
+   | `OHRGANIZE_API_BASE=https://musterfirma.ohrganize.com` | skriptierter Rollout, Verknüpfung, MDM |
+   | `%APPDATA%\oHRganize\config.json` → `{ "apiBaseUrl": "https://musterfirma.ohrganize.com" }` | IT-Konfiguration je Installation |
 
    Ohne Konfiguration bleibt alles wie bisher: eingebettetes Backend mit
    lokaler Datenbank in `%APPDATA%\oHRganize\data` (Einzelplatz-Betrieb).
@@ -341,7 +346,7 @@ Kundeninstanz stehen in `../deploy/README.md`, Abschnitt 9.
    Browserkern der Desktop-App jede Anfrage:
 
    ```
-   OHRGANIZE_CORS_ORIGIN=https://portal.firma.de,ohrganize://app
+   OHRGANIZE_CORS_ORIGIN=https://musterfirma.ohrganize.com,ohrganize://app
    ```
 
    **Nicht mehr `null` eintragen.** Das früher hier dokumentierte Rezept

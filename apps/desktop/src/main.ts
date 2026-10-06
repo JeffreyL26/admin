@@ -183,7 +183,7 @@ function registerAppProtocol(): void {
 // konfiguriert, startet die App KEIN eigenes Backend, sondern arbeitet auf
 // demselben Server wie das Mitarbeitenden-Portal — beide Clients sehen damit
 // dieselben Daten. Zwei Quellen, Umgebungsvariable schlägt Datei:
-//   OHRGANIZE_API_BASE=https://portal.firma.de        (skriptierter Rollout)
+//   OHRGANIZE_API_BASE=https://musterfirma.ohrganize.com        (skriptierter Rollout)
 //   %APPDATA%\oHRganize\config.json → { "apiBaseUrl": "…" }  (IT-Konfiguration)
 // Ohne Konfiguration bleibt es beim eingebetteten Backend mit lokaler
 // Datenbank — der Einzelplatz-Betrieb ändert sich dadurch nicht.
@@ -305,7 +305,7 @@ function normalizeApiBase(raw: string): string {
   try {
     url = new URL(raw);
   } catch {
-    throw new StartupError(`"${raw}" ist keine gültige Backend-Adresse (erwartet z. B. https://portal.firma.de).`);
+    throw new StartupError(`"${raw}" ist keine gültige Backend-Adresse (erwartet z. B. https://musterfirma.ohrganize.com).`);
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new StartupError(`"${raw}" muss mit http:// oder https:// beginnen.`);
@@ -324,7 +324,7 @@ function normalizeApiBase(raw: string): string {
         `Über diese Verbindung laufen Anmeldedaten, Zugangstoken und Personaldaten. ` +
         `Im Netzbetrieb ist deshalb https:// vorgeschrieben; http:// bleibt allein ` +
         `lokalen Testadressen (localhost, 127.0.0.1, ::1) vorbehalten.\n\n` +
-        `Bitte tragen Sie die Adresse mit https:// ein (z. B. https://portal.firma.de) — in\n` +
+        `Bitte tragen Sie die Adresse mit https:// ein (z. B. https://musterfirma.ohrganize.com), in\n` +
         `${configFilePath()}\nbzw. in der Umgebungsvariable OHRGANIZE_API_BASE.`,
     );
   }

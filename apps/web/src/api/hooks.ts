@@ -181,7 +181,7 @@ export function useMyFreelancer() {
 /**
  * Bewusst KEIN langes staleTime: Die Foto-Links in der Antwort sind nur 60
  * Sekunden gültig (core/files.ts); ein gecachter Stand zeigte nach einer
- * Minute leere Bilder. Der 15-Sekunden-Standard des QueryClients passt.
+ * Minute leere Bilder. Es gilt der Standard des QueryClients (500 ms).
  */
 export function useMyOrgChart() {
   return useQuery({
@@ -195,9 +195,6 @@ export function useMyOrgTree() {
   return useQuery({
     queryKey: ['me', 'org-tree'],
     queryFn: () => api.get<{ tree: OrgTreeNode[]; unassigned_count: number }>('/api/me/org-tree'),
-    // Die Aufbauorganisation ändert sich selten — länger frisch halten als der
-    // 15-Sekunden-Standard des QueryClients.
-    staleTime: 5 * 60_000,
   });
 }
 
@@ -290,7 +287,8 @@ export function useDocumentDownload() {
  * gelesen: Das Portal wird getrennt ausgeliefert und kann vor dem Backend
  * aktualisiert sein — dann böte eine einkompilierte Liste Felder an, die der
  * POST mit 400 ablehnt. Die Auswahl ändert sich nur mit einer neuen
- * Backend-Version, deshalb lange frisch halten.
+ * Backend-Version, deshalb lange frisch halten. Das sind keine Daten, die ein
+ * anderer Arbeitsplatz ändern kann.
  */
 export function useChangeRequestFields() {
   return useQuery({
@@ -298,6 +296,7 @@ export function useChangeRequestFields() {
     queryFn: () =>
       api.get<{ fields: EmployeeSelfEditableField[] }>('/api/me/change-request-fields'),
     select: (d) => d.fields,
+    // sync-ausnahme: Feldliste der Backend-Version, keine Personendaten.
     staleTime: 5 * 60_000,
   });
 }

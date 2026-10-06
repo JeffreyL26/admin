@@ -16,3 +16,6 @@ deploy/Caddyfile  text eol=lf
 # Die PowerShell-Skripte der Windows-Einrichtung bleiben bei CRLF — sie laufen
 # ausschließlich dort.
 deploy/windows/*.ps1 text eol=crlf
+
+# Hook-Skripte laufen auch unter Windows in der Git-Bash
+.githooks/* text eol=lf

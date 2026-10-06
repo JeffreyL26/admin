@@ -34,6 +34,9 @@
   .\deploy\windows\setup-server.ps1 -Archive 'C:\Temp\ohrganize-server-1.0.0.zip' `
       -Domain 'kunde.ohrganize.com' -AcmeEmail 'it@kunde.de'
 
+  Die Domain ist immer <kunde>.ohrganize.com. Ein anderer Name (-EigeneDomain)
+  ist eine Sonderanfertigung auf ausdruecklichen Kundenwunsch.
+
 .EXAMPLE
   # Spaeter: nur eine Lizenzdatei nachlegen (kein Neustart noetig)
   .\deploy\windows\setup-server.ps1 -LicenseFile 'C:\Temp\lizenz-kunde.ohrganize' -OnlyLicense
@@ -47,6 +50,7 @@ param(
   [string]$Archive,
   [string]$Domain,
   [string]$AcmeEmail,
+  [switch]$EigeneDomain,
   [string]$InstallDir  = 'C:\Program Files\oHRganize',
   [string]$DataRoot    = 'C:\ProgramData\oHRganize',
   [string]$CaddyDir    = 'C:\ProgramData\Caddy',
@@ -193,6 +197,9 @@ foreach ($p in @('Archive', 'Domain', 'AcmeEmail')) {
   if ((Get-Variable -Name $p -ValueOnly) -in @($null, '')) { Fail "-$p fehlt. Beispiel im Kopf des Skripts." }
 }
 if ($Domain -notmatch '^[a-z0-9.-]+\.[a-z]{2,}$') { Fail "-Domain '$Domain' sieht nicht nach einem Hostnamen aus (klein, ohne https://, ohne Pfad)." }
+# Prinzip: Die Portal-Adresse ist <kunde>.ohrganize.com, auch auf einem Server beim Kunden.
+# Eine andere Domain ist eine Sonderanfertigung auf ausdruecklichen Kundenwunsch (-EigeneDomain).
+if ($Domain -notmatch '^[a-z0-9-]+\.ohrganize\.com$' -and -not $EigeneDomain) { Fail "-Domain '$Domain' ist nicht <kunde>.ohrganize.com. Die Portal-Adresse ist immer eine Subdomain von ohrganize.com. Nur auf ausdruecklichen Kundenwunsch (Sonderanfertigung) mit -EigeneDomain umgehen." }
 if ($AcmeEmail -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') { Fail "-AcmeEmail '$AcmeEmail' ist keine E-Mail-Adresse." }
 if (-not (Test-Path -LiteralPath $Archive)) { Fail "Archiv nicht gefunden: $Archive" }
 

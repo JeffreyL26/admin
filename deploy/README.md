@@ -32,7 +32,7 @@ Für den Mehrkunden-Betrieb (Abschnitt 9) kommen dazu:
 
 | Platzhalter | Bedeutung |
 |---|---|
-| `portal.firma.de` | Domain, unter der Portal und API erreichbar sind |
+| `musterfirma.ohrganize.com` | Domain, unter der Portal und API erreichbar sind |
 | `it@firma.de` | Postfach für Let's-Encrypt-Meldungen (nur Caddy) |
 | `/srv/ohrganize-web` | Zielverzeichnis des Portal-Builds |
 
@@ -173,7 +173,7 @@ editor /etc/nginx/conf.d/ohrganize.conf        # Domain ersetzen
 # Schlüsselpaar, und jeder HR-Arbeitsplatz verweigert danach den Start.
 # --deploy-hook: nginx lädt das erneuerte Zertifikat sonst erst beim nächsten
 # Reload (Abschnitt 9.3 erklärt es ausführlicher).
-certbot certonly --reuse-key --webroot -w /var/www/certbot -d portal.firma.de \
+certbot certonly --reuse-key --webroot -w /var/www/certbot -d musterfirma.ohrganize.com \
   --deploy-hook 'systemctl reload nginx'
 
 nginx -t && systemctl reload nginx
@@ -621,7 +621,7 @@ komplette Personalakte im Klartext.
 curl -sS --max-time 5 http://<server-ip>:3001/api/health
 
 # Sicherheitskopfzeilen am Proxy
-curl -sSI https://portal.firma.de | grep -iE 'strict-transport|content-security|x-content-type|referrer'
+curl -sSI https://musterfirma.ohrganize.com | grep -iE 'strict-transport|content-security|x-content-type|referrer'
 
 # Rechte im Datenverzeichnis
 ls -ld /var/lib/ohrganize /var/lib/ohrganize/storage      # erwartet: drwx------
@@ -705,7 +705,7 @@ nicht), bis eine Lizenz eingespielt ist.
 | `Die Systemuhr steht vor einem Datum, das diese Installation bereits gesehen hat` | Uhr zurückgestellt (NTP, VM-Snapshot) | Zeitquelle prüfen; der Dienst läuft weiter, es ist nur eine Warnung |
 | Portal zeigt bei `/kalender` einen 404 | SPA-Fallback fehlt im Proxy | `try_files … /index.html` prüfen |
 | Portal meldet CORS-Fehler | API läuft nicht same-origin | `OHRGANIZE_CORS_ORIGIN` auf die Portal-Domain setzen (der Wert `null` ist nicht zulässig und wird ignoriert) |
-| Desktop-App kommt nicht über den Login hinaus, Portal geht | `ohrganize://app` fehlt in `OHRGANIZE_CORS_ORIGIN` | Eintrag ergänzen: `OHRGANIZE_CORS_ORIGIN=https://portal.firma.de,ohrganize://app`. Die App lädt ihre Oberfläche über ein eigenes Schema und sendet diese Herkunft; ohne den Eintrag bricht der Browserkern jede Anfrage ab. Im Serverlog ist nichts Auffälliges zu sehen — es sieht nach einem Netzwerkproblem aus. |
+| Desktop-App kommt nicht über den Login hinaus, Portal geht | `ohrganize://app` fehlt in `OHRGANIZE_CORS_ORIGIN` | Eintrag ergänzen: `OHRGANIZE_CORS_ORIGIN=https://musterfirma.ohrganize.com,ohrganize://app`. Die App lädt ihre Oberfläche über ein eigenes Schema und sendet diese Herkunft; ohne den Eintrag bricht der Browserkern jede Anfrage ab. Im Serverlog ist nichts Auffälliges zu sehen, es sieht nach einem Netzwerkproblem aus. |
 
 ## 9. Mehrere Kunden auf einem Server (`<kunde>.ohrganize.com`)
 
@@ -945,7 +945,7 @@ gekündigte Namen.
 
 Die Datei kann neben `nginx.conf` aus Abschnitt 3 liegen (alle Zonen- und
 Formatnamen tragen den Zusatz `_wc`), falls parallel ein Kunde auf einer
-eigenen Domain betrieben wird. **Für Caddy ist der Mehrkunden-Betrieb nicht
+Sonderdomain (ausdrücklicher Kundenwunsch) betrieben wird. **Für Caddy ist der Mehrkunden-Betrieb nicht
 vorbereitet** — `deploy/Caddyfile` bleibt die Einzelkunden-Variante.
 
 ### 9.5 Kunden anlegen

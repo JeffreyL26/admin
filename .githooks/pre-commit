@@ -1,0 +1,4 @@
+#!/bin/sh
+# Pre-commit: keine neuen en-/em-dashes (CLAUDE.md, Unverhandelbare Prinzipien).
+# Aktiviert durch `npm install` (scripts/install-hooks.mjs setzt core.hooksPath).
+exec node scripts/check-dashes.mjs --staged

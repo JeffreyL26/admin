@@ -11,12 +11,12 @@ abzuarbeiten — jeder Punkt schließt eine Lücke, die vorher offen ist.
 
 ```bash
 # Linux
-curl -sS https://portal.firma.de/api/health
+curl -sS https://musterfirma.ohrganize.com/api/health
 ```
 
 ```powershell
 # Windows
-Invoke-RestMethod https://portal.firma.de/api/health
+Invoke-RestMethod https://musterfirma.ohrganize.com/api/health
 ```
 
 Erwartete Antwort — fünf Felder, `version` ist die installierte Ausgabe,
@@ -88,8 +88,8 @@ nicht; die Zeile ist veraltet.
 Die HR-Administration meldet sich über die **Desktop-App** an, nicht über das
 Portal (das Portal ist ausschließlich der Self-Service für Mitarbeitende).
 Die App muss dafür auf den Server zeigen — entweder über die Umgebungsvariable
-`OHRGANIZE_API_BASE=https://portal.firma.de` oder über
-`%APPDATA%\oHRganize\config.json` mit `{ "apiBaseUrl": "https://portal.firma.de" }`
+`OHRGANIZE_API_BASE=https://musterfirma.ohrganize.com` oder über
+`%APPDATA%\oHRganize\config.json` mit `{ "apiBaseUrl": "https://musterfirma.ohrganize.com" }`
 (Einzelheiten in [`web-portal.md`](web-portal.md)). Sobald der Verkehr das
 Firmennetz verlässt, gehört in dieselbe Datei auch `serverKeyPins` — der
 festgenagelte Schlüssel des Servers, siehe
@@ -101,7 +101,7 @@ Ohne installierte App lässt sich der Zugang auch direkt prüfen:
 
 ```bash
 # Linux
-curl -sS -X POST https://portal.firma.de/api/auth/login \
+curl -sS -X POST https://musterfirma.ohrganize.com/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"admin@ohrganize.de","password":"<Initialpasswort>"}'
 ```
@@ -109,7 +109,7 @@ curl -sS -X POST https://portal.firma.de/api/auth/login \
 ```powershell
 # Windows
 $body = @{ email = 'admin@ohrganize.de'; password = '<Initialpasswort>' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri 'https://portal.firma.de/api/auth/login' `
+Invoke-RestMethod -Method Post -Uri 'https://musterfirma.ohrganize.com/api/auth/login' `
   -ContentType 'application/json' -Body $body
 ```
 
@@ -400,7 +400,7 @@ ebenfalls nur auf angemeldeten Antworten:
 
 ```bash
 # Linux — erwartet: "state":"trial" (vorher) bzw. "state":"valid" (nachher)
-curl -sS -X POST https://portal.firma.de/api/auth/login \
+curl -sS -X POST https://musterfirma.ohrganize.com/api/auth/login \
      -H 'Content-Type: application/json' \
      -d '{"email":"<eigene-adresse>","password":"<eigenes-passwort>"}' | grep -o '"state":"[a-z]*"'
 ```
@@ -408,7 +408,7 @@ curl -sS -X POST https://portal.firma.de/api/auth/login \
 ```powershell
 # Windows
 $body = @{ email = '<eigene-adresse>'; password = '<eigenes-passwort>' } | ConvertTo-Json
-(Invoke-RestMethod -Method Post -Uri 'https://portal.firma.de/api/auth/login' -ContentType 'application/json' -Body $body).license.state
+(Invoke-RestMethod -Method Post -Uri 'https://musterfirma.ohrganize.com/api/auth/login' -ContentType 'application/json' -Body $body).license.state
 ```
 
 Die Datei liegt danach als `lizenz.ohrganize` im Datenverzeichnis und wird von
@@ -482,14 +482,14 @@ Get-ChildItem 'C:\ProgramData\oHRganize\backups' | Sort-Object LastWriteTime -De
 curl -sS --max-time 5 http://<server-ip>:3001/api/health
 
 # HTTPS, Kopfzeilen, Weiterleitung
-curl -sSI http://portal.firma.de | head -1          # 301 auf https
-curl -sSI https://portal.firma.de | grep -iE 'strict-transport|content-security|x-content-type|referrer'
+curl -sSI http://musterfirma.ohrganize.com | head -1          # 301 auf https
+curl -sSI https://musterfirma.ohrganize.com | grep -iE 'strict-transport|content-security|x-content-type|referrer'
 
 # Ohne Anmeldung kommt nichts heraus (erwartet: 401)
-curl -sS -o /dev/null -w '%{http_code}\n' https://portal.firma.de/api/employees
+curl -sS -o /dev/null -w '%{http_code}\n' https://musterfirma.ohrganize.com/api/employees
 
 # Falsches Passwort wird protokolliert (erwartet: eine Warnzeile)
-curl -sS -X POST https://portal.firma.de/api/auth/login \
+curl -sS -X POST https://musterfirma.ohrganize.com/api/auth/login \
   -H 'Content-Type: application/json' -d '{"email":"admin@ohrganize.de","password":"falsch"}'
 journalctl -u ohrganize-backend -n 20 --no-pager | grep -i login
 
@@ -514,20 +514,20 @@ try {
 
 # Weiterleitung auf HTTPS (erwartet: 301)
 try {
-  Invoke-WebRequest 'http://portal.firma.de' -MaximumRedirection 0 -UseBasicParsing | Out-Null
+  Invoke-WebRequest 'http://musterfirma.ohrganize.com' -MaximumRedirection 0 -UseBasicParsing | Out-Null
   'unerwartet: keine Weiterleitung'
 } catch {
   $_.Exception.Response.StatusCode.value__
 }
 
 # Sicherheitskopfzeilen (erwartet: 200, danach die vier Kopfzeilen)
-$r = Invoke-WebRequest 'https://portal.firma.de' -UseBasicParsing
+$r = Invoke-WebRequest 'https://musterfirma.ohrganize.com' -UseBasicParsing
 $r.Headers.GetEnumerator() |
   Where-Object { $_.Key -match 'Strict-Transport|Content-Security|X-Content-Type|Referrer' }
 
 # Ohne Anmeldung kommt nichts heraus (erwartet: 401)
 try {
-  Invoke-WebRequest 'https://portal.firma.de/api/employees' -UseBasicParsing | Out-Null
+  Invoke-WebRequest 'https://musterfirma.ohrganize.com/api/employees' -UseBasicParsing | Out-Null
   'FEHLER: Antwort ohne Anmeldung'
 } catch {
   $_.Exception.Response.StatusCode.value__
@@ -535,7 +535,7 @@ try {
 
 # Zu alte Desktop-App wird abgewiesen (erwartet: 426)
 try {
-  Invoke-WebRequest 'https://portal.firma.de/api/employees' -UseBasicParsing `
+  Invoke-WebRequest 'https://musterfirma.ohrganize.com/api/employees' -UseBasicParsing `
     -Headers @{ 'x-ohrganize-client-version' = '0.0.1' } | Out-Null
   'FEHLER: alte Client-Version nicht abgewiesen'
 } catch {
@@ -545,7 +545,7 @@ try {
 # Falsches Passwort wird protokolliert (erwartet: 401, danach eine Warnzeile)
 $body = @{ email = 'admin@ohrganize.de'; password = 'falsch' } | ConvertTo-Json
 try {
-  Invoke-RestMethod -Method Post -Uri 'https://portal.firma.de/api/auth/login' `
+  Invoke-RestMethod -Method Post -Uri 'https://musterfirma.ohrganize.com/api/auth/login' `
     -ContentType 'application/json' -Body $body | Out-Null
 } catch {
   $_.Exception.Response.StatusCode.value__
@@ -563,7 +563,7 @@ icacls 'C:\ProgramData\oHRganize\data\storage'
 > unterschiedlich aussehen kann: Meldet der `catch`-Zweig statt `301` einen
 > Text über zu viele Weiterleitungen, liegt keine `Response` bei — dann ist die
 > Weiterleitung im Browser (Adresszeile springt auf `https://`) oder mit
-> `curl -sSI http://portal.firma.de` von einem beliebigen anderen Rechner zu
+> `curl -sSI http://musterfirma.ohrganize.com` von einem beliebigen anderen Rechner zu
 > prüfen.
 
 - [ ] Punkte 1 bis 11 abgehakt (Punkt 9 nur, wenn die Führungsfunktion

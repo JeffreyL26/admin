@@ -163,7 +163,7 @@ function readCorsOrigins(): string[] {
   // Whitelist, darf faktisch jede fremde Seite mit Anmeldedaten des Portals
   // auf die API zugreifen; die Liste wäre so durchlässig wie `origin: true`.
   // Das früher in docs/web-portal.md dokumentierte Rezept
-  // "https://portal.firma.de,null" ist genau dieser Fall.
+  // "https://musterfirma.ohrganize.com,null" ist genau dieser Fall.
   const cleaned = raw.filter((o) => o.toLowerCase() !== 'null');
   if (cleaned.length < raw.length) {
     startupWarnings.push(
@@ -191,7 +191,7 @@ if (!boundToLoopbackOnly && corsOrigins.length === 0) {
       `OHRGANIZE_HOST ist auf "${host}" gesetzt — das Backend wäre damit über das Netz erreichbar,`,
       'aber OHRGANIZE_CORS_ORIGIN ist leer. Ohne Origin-Liste würde CORS jede fremde Herkunft',
       'zulassen. Bitte die erlaubten Herkünfte kommasepariert setzen, z. B.:',
-      '  OHRGANIZE_CORS_ORIGIN=https://portal.firma.de,ohrganize://app',
+      '  OHRGANIZE_CORS_ORIGIN=https://musterfirma.ohrganize.com,ohrganize://app',
       'Die Desktop-App gehört mit in die Liste: Sie sendet die Herkunft "ohrganize://app".',
       'Fehlt der Eintrag, kommt aus der HR-Administration keine einzige Anfrage durch.',
       'Der Wert "null" ist nicht zulässig (er erlaubt faktisch jede Herkunft).',

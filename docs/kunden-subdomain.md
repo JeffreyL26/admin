@@ -10,8 +10,13 @@ unbemerkt** kann, und wo die Grenze dieser Absicherung liegt.
 
 Der Mehrkundenbetrieb **auf dem Server des Anbieters** (`deploy/README.md`,
 Abschnitt 9, Wildcard-Zertifikat, `ohrganize-provision.sh`) ist ein anderer
-Fall: Dort terminiert der Anbieter TLS ohnehin selbst. Und wer den Server
-unter einer eigenen Domain betreibt, braucht von hier gar nichts.
+Fall: Dort terminiert der Anbieter TLS ohnehin selbst.
+
+**Die Portal-Adresse ist immer `<kunde>.ohrganize.com`**, egal ob der Server
+beim Anbieter oder beim Kunden steht. Eine eigene Domain des Kunden ist
+keine Betriebsart, sondern eine Sonderanfertigung auf ausdrücklichen
+Kundenwunsch (Umbau extra, Abschnitt 10); das Produkt wird nicht dafür
+entworfen.
 
 ## 1. DNS: nur ein Eintrag, nicht proxied
 
@@ -173,8 +178,9 @@ des falschen Schlüssels ab (Abschnitt 6). Das ist dieselbe Vertrauensklasse
 wie die Auslieferung der Software selbst: Wer das Programm liefert, das auf
 der Personalakte läuft, könnte es auch manipulieren — der Schutz dagegen ist
 Nachvollziehbarkeit und Vertrag, keine Technik, die den Anbieter aussperrt.
-Wer diese Vertrauensklasse nicht will, betreibt den Server unter der
-eigenen Domain; alles Übrige bleibt gleich.
+Wer diese Vertrauensklasse nicht will, muss eine Sonderanfertigung mit
+eigener Domain ausdrücklich anfordern (Abschnitt 10); alles Übrige bleibt
+gleich.
 
 ## 9. Let's-Encrypt-Laufzeiten werden kürzer
 
@@ -188,3 +194,10 @@ Das Pinning (Abschnitt 6) ist davon nicht betroffen, **solange** der
 Schlüssel gleich bleibt — also mit `reuse_private_keys` (Caddy) bzw.
 `--reuse-key` (certbot). Ohne die jeweilige Einstellung kämen die
 Aussperrungen mit den kürzeren Laufzeiten nur schneller.
+
+## 10. Eigene Domain: nur auf ausdrücklichen Kundenwunsch
+
+Standard und Prinzip ist `<kunde>.ohrganize.com`. Wünscht ein Kunde ausdrücklich
+eine eigene Domain, ist das ein Umbau extra für diesen Kunden (Einzelabsprache,
+Tools wie `setup-server.ps1 -EigeneDomain`, eigener Proxy-Block). Entwurf,
+Standarddokumentation und Prüfungen gehen weiter von der Subdomain aus.

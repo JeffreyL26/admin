@@ -187,7 +187,6 @@ function useRatingCategories() {
     queryKey: ['performance', 'rating-categories'],
     queryFn: () => api.get<{ categories: ReviewCategoryOption[] }>('/api/performance/rating-categories'),
     select: (d) => d.categories,
-    staleTime: 60_000,
   });
 }
 

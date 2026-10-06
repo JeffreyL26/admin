@@ -4,6 +4,49 @@ HR-Verwaltungssoftware für den deutschsprachigen Markt. Desktop-App (Electron) 
 HR-Administrator:innen und Mitarbeitenden-Web-Portal (Self-Service) auf demselben
 client-agnostischen Backend.
 
+## Unverhandelbare Prinzipien
+
+Jede Änderung (von Menschen, Claude oder anderen LLMs) wird gegen diese drei
+Regeln geprüft, bevor sie fertig ist. Sie stehen nicht zur Diskussion; wer
+von einer abweichen will, fragt vorher den Anbieter.
+`scripts/check-principles.mjs` (Teil von `npm test`) prüft, was sich
+statisch prüfen lässt.
+
+1. **Keine en- oder em-dashes (U+2013, U+2014) in neuem Text** (UI, Doku,
+   Kommentare, Skriptausgaben, Commit-Texte). Bestehende Stellen bleiben und
+   werden nicht aufgeräumt. Erzwungen von `scripts/check-dashes.mjs`, das nur
+   NEU hinzugekommene Zeilen prüft: der Git-Hook `.githooks/pre-commit`
+   (`--staged`; `npm install` aktiviert ihn über `core.hooksPath`) und
+   `npm test` (`--base HEAD`). Vor jedem Commit von Hand:
+   `node scripts/check-dashes.mjs --base HEAD`. Kein Kommentar-Opt-out;
+   erlaubte Ausnahmen (Leerwert, Datumsspanne, Auswahlfeld-Klammer) stehen im
+   Kopf des Skripts. Statt des Strichs: Doppelpunkt, Komma, Klammer oder zwei
+   Sätze.
+2. **Die Portal-Adresse ist immer `<kunde>.ohrganize.com`**, egal ob der
+   Server beim Anbieter oder beim Kunden steht. Alles andere (eigene Domain)
+   muss der Kunde ausdrücklich anfordern und ist ein Umbau extra für ihn;
+   Produkt, Skripte, Doku und Beispiele werden mit der Subdomain entworfen,
+   nie mit einer anderen. Beispieldomain in Doku und Konfiguration ist
+   `musterfirma.ohrganize.com`, nie `portal.firma.de`.
+   `setup-server.ps1` lehnt andere Domains ohne `-EigeneDomain` ab
+   (docs/kunden-subdomain.md).
+3. **Die Daten sind synchron.** Legt jemand auf Gerät A etwas an
+   (Mitarbeiter, Antrag, Rolle, Abteilung), sieht es ein anderer auf Gerät B
+   ohne Neustart der Software: nach Neuladen oder einem Menüwechsel hin und
+   zurück, im Hintergrund wirkt er wie Neuladen. Dafür stehen im QueryClient
+   beider Clients (`renderer/src/App.tsx`, `web/src/App.tsx`)
+   `refetchOnWindowFocus`, `refetchOnReconnect` und `staleTime` 500 ms;
+   die Begründung steht im Kommentar dort. Kein Dauer-Polling als Ersatz.
+   **Eine Abfrage mit eigenem `staleTime` oder abgeschaltetem Neuladen ist
+   eine Ausnahme** und braucht direkt darüber einen Kommentar
+   `// sync-ausnahme: <Grund>`; sonst scheitert `npm test`. Zulässig nur
+   für Daten, die kein anderer Arbeitsplatz ändern kann (Variante des Builds,
+   unveränderliche Bildinhalte je Datei-ID, signierte Links, Feldlisten der
+   Backend-Version). Auswahllisten, Konfiguration und Zuständigkeiten
+   gehören nicht dazu. Zwischengespeichertes im Backend (Prozess, Modul)
+   gilt dasselbe: nie über den Moment hinaus, in dem ein anderer Client es
+   ändern kann.
+
 ## Architektur
 
 ```
@@ -11,7 +54,7 @@ apps/backend    Fastify 5 + better-sqlite3, REST-API, eingebettet ODER standalon
 apps/renderer   React 18 + Vite, lädt im Prod-Betrieb über file:// (daher HashRouter)
 apps/desktop    Electron: Main-Prozess startet das Backend-Bundle in-process
 apps/web        Mitarbeitenden-Portal: React 18 + Vite, BrowserRouter, Port 5174
-                (Details + Deploy hinter eigener Domain: docs/web-portal.md)
+                (Details + Deploy unter <kunde>.ohrganize.com: docs/web-portal.md)
 packages/shared Gemeinsame TS-Typen/Konstanten (kein Laufzeit-Code mit Abhängigkeiten)
 packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-face-CSS), kein Code
 ```

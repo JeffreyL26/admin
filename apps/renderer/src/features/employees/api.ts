@@ -230,7 +230,8 @@ export function useOrgChartOriginals(enabled: boolean) {
     queryFn: () => api.get<OrgChartOriginalsResponse>('/api/org/chart/originals'),
     select: (d) => d.originals,
     enabled,
-    // Die Links gelten bis zum Ende ihres Zehn-Minuten-Fensters, mindestens
+    // sync-ausnahme: Signierte Foto-Links, keine Stammdaten. Die Links gelten
+    // bis zum Ende ihres Zehn-Minuten-Fensters, mindestens
     // eine Minute; abgelaufene holt refreshListLinks gezielt. Ohne diese Frist
     // lüde jeder Fensterwechsel die ganze Liste (bei 2000 Fotos rund 230 KB) neu.
     staleTime: 5 * 60_000,
@@ -433,6 +434,8 @@ export function usePhotoUrl(fileId: number | null | undefined, signedUrl?: strin
       return URL.createObjectURL(await res.blob());
     },
     enabled: !!fileId && load,
+    // sync-ausnahme: Bildinhalt je Datei-ID unveränderlich (siehe oben), ein
+    // neues Foto bekommt eine neue ID und damit einen neuen Key.
     staleTime: Infinity,
     // 15 statt 60 Minuten: Hier liegen Bilder im Speicher (Vorschaubilder,
     // beim Bestand ohne Vorschaubild Originale); nach einem Verzeichnisbesuch

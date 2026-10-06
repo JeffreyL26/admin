@@ -119,7 +119,7 @@ Deshalb bleibt der Befehl hier stehen: als Abhilfe, nicht als Pflichtschritt.
 >
 > ```powershell
 > Expand-Archive 'C:\Temp\ohrganize-server-<version>.zip' -DestinationPath 'C:\Temp\ohrganize-release' -Force
-> & 'C:\Temp\ohrganize-release\deploy\windows\setup-server.ps1' -Archive 'C:\Temp\ohrganize-server-<version>.zip' -Domain 'portal.firma.de' -AcmeEmail 'it@firma.de'
+> & 'C:\Temp\ohrganize-release\deploy\windows\setup-server.ps1' -Archive 'C:\Temp\ohrganize-server-<version>.zip' -Domain 'kunde.ohrganize.com' -AcmeEmail 'it@kunde.de'
 > ```
 >
 > Am Ende stehen Initialpasswort-Datei, Installations-ID, der Server-Pin und
@@ -230,7 +230,7 @@ Caddy holt und erneuert das Zertifikat selbst — kein certbot, kein win-acme,
 keine Aufgabenplanung dafür.
 
 Läuft der Server unter einem Namen in der Zone des Anbieters
-(`<kunde>.ohrganize.com` statt eigener Domain), gilt zusätzlich
+(`<kunde>.ohrganize.com`, die Portal-Adresse ist immer diese), gilt zusätzlich
 `../../docs/kunden-subdomain.md`: DNS-only, HTTP-01 ohne API-Token auf dem
 Server, CAA auf das eigene ACME-Konto, CT-Überwachung — und das Pinning der
 Desktop-App aus Abschnitt 7.
@@ -464,7 +464,7 @@ zwei getrennten Datenbeständen.
 > (keine Adminrechte), Installer und Skript z. B. auf einem Stick:
 >
 > ```powershell
-> .\setup-workstation.ps1 -ApiBaseUrl 'https://portal.firma.de' -ServerPin 'sha256/…' -Installer '.\oHRganize-Setup-<Version>-<Variante>.exe'
+> .\setup-workstation.ps1 -ApiBaseUrl 'https://musterfirma.ohrganize.com' -ServerPin 'sha256/…' -Installer '.\oHRganize-Setup-<Version>-<Variante>.exe'
 > ```
 >
 > Es installiert die App still, wenn sie fehlt, schreibt die `config.json`
@@ -483,7 +483,7 @@ zwei getrennten Datenbeständen.
    | Quelle | Wofür | Reichweite |
    |---|---|---|
    | Maschinenvariable `OHRGANIZE_API_BASE` | Rollout per Gruppenrichtlinie oder Skript | ganzer Rechner |
-   | `%APPDATA%\oHRganize\config.json` mit `{ "apiBaseUrl": "https://portal.firma.de" }` | Einrichtung von Hand, je Benutzerprofil | ein Windows-Profil |
+   | `%APPDATA%\oHRganize\config.json` mit `{ "apiBaseUrl": "https://musterfirma.ohrganize.com" }` | Einrichtung von Hand, je Benutzerprofil | ein Windows-Profil |
 
    **Die Umgebungsvariable gewinnt** für die Adresse, wenn beides gesetzt
    ist (`readDesktopConfig` in `apps/desktop/src/main.ts`). Wer eine falsche
@@ -507,14 +507,14 @@ zwei getrennten Datenbeständen.
    ```powershell
    New-Item -ItemType Directory "$env:APPDATA\oHRganize" -Force | Out-Null
    [IO.File]::WriteAllText("$env:APPDATA\oHRganize\config.json",
-     '{ "apiBaseUrl": "https://portal.firma.de" }', [Text.UTF8Encoding]::new($false))
+     '{ "apiBaseUrl": "https://musterfirma.ohrganize.com" }', [Text.UTF8Encoding]::new($false))
    ```
 
    Per Gruppenrichtlinie/Skript (Computerkonfiguration → Einstellungen →
    Umgebung, oder einmalig als Administrator):
 
    ```powershell
-   [Environment]::SetEnvironmentVariable('OHRGANIZE_API_BASE', 'https://portal.firma.de', 'Machine')
+   [Environment]::SetEnvironmentVariable('OHRGANIZE_API_BASE', 'https://musterfirma.ohrganize.com', 'Machine')
    ```
 
 3. App starten und anmelden.
@@ -535,7 +535,7 @@ zwei getrennten Datenbeständen.
 - Nur `https://` — im lokalen Test auch `http://127.0.0.1:3001`, aber niemals
   ungesichertes `http://` über das Netz: Darüber gehen Anmeldedaten und
   vollständige Personalakten.
-- **Kein Schrägstrich am Ende.** `https://portal.firma.de/` erzeugt Aufrufe
+- **Kein Schrägstrich am Ende.** `https://musterfirma.ohrganize.com/` erzeugt Aufrufe
   gegen `…//api/health`; der Proxy antwortet darauf nicht wie erwartet.
 - Kein Pfad, kein Port, wenn der Proxy auf 443 lauscht — nur der Ursprung.
 
@@ -586,7 +586,7 @@ Start, und ein Wechsel ist eine bewusste IT-Entscheidung:
    Zeile steht im Kommentar des Caddyfile.
 
    ```powershell
-   node -e "const tls=require('tls'),c=require('crypto');const s=tls.connect(443,'portal.firma.de',{servername:'portal.firma.de'},()=>{const x=new c.X509Certificate(s.getPeerCertificate().raw);console.log('sha256/'+c.createHash('sha256').update(x.publicKey.export({type:'spki',format:'der'})).digest('base64'));s.end()})"
+   node -e "const tls=require('tls'),c=require('crypto');const s=tls.connect(443,'musterfirma.ohrganize.com',{servername:'musterfirma.ohrganize.com'},()=>{const x=new c.X509Certificate(s.getPeerCertificate().raw);console.log('sha256/'+c.createHash('sha256').update(x.publicKey.export({type:'spki',format:'der'})).digest('base64'));s.end()})"
    ```
 
 3. **Auf jedem Arbeitsplatz eintragen**, neben `apiBaseUrl` — als Datei oder
@@ -595,7 +595,7 @@ Start, und ein Wechsel ist eine bewusste IT-Entscheidung:
 
    ```powershell
    [IO.File]::WriteAllText("$env:APPDATA\oHRganize\config.json",
-     '{ "apiBaseUrl": "https://portal.firma.de", "serverKeyPins": ["sha256/<Base64-Hash>"] }',
+     '{ "apiBaseUrl": "https://musterfirma.ohrganize.com", "serverKeyPins": ["sha256/<Base64-Hash>"] }',
      [Text.UTF8Encoding]::new($false))
    ```
 

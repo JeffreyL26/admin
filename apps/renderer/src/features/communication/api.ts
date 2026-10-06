@@ -249,8 +249,9 @@ export function useMeetings(filters: { employee_id?: number; occasion?: MeetingO
  * laut Führungsverwaltung). Die Route gibt es nur in Varianten mit Führung;
  * der Aufrufer (RecipientsNote) erscheint nur dort. Eigener Schlüssel außerhalb
  * von ['communication', 'meetings']: Speichern eines Protokolls ändert nicht,
- * wer zuständig ist. `staleTime` wie die Auswahllisten der Führung, weil die
- * Person im Editor oft hin und her gewechselt wird.
+ * wer zuständig ist. Kein eigenes `staleTime`: Die Zuständigkeit ändern
+ * andere Arbeitsplätze, und der Editor soll sie beim Wechsel der Person
+ * aktuell zeigen.
  */
 export function useMeetingRecipients(employeeId: number | null) {
   return useQuery({
@@ -259,7 +260,6 @@ export function useMeetingRecipients(employeeId: number | null) {
       api.get<MeetingRecipientsResponse>(`/api/communication/meetings/recipients?employee_id=${employeeId}`),
     select: (d) => d.leaders,
     enabled: employeeId !== null,
-    staleTime: 30_000,
     meta: { silentError: true },
   });
 }

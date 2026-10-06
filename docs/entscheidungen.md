@@ -653,8 +653,9 @@ den Verkehr der HR-Administration — feste Schlüssel (`serverKeyPins` in
 certbot mit `--reuse-key` bei nginx — ohne eines von beiden bräche der Pin
 bei der ersten Erneuerung). Der Browserpfad des Portals
 bleibt vom Zoneninhaber sichtbar umleitbar; das ist dieselbe
-Vertrauensklasse wie die Auslieferung der Software, und wer sie nicht will,
-nimmt die eigene Domain. Dass Let's-Encrypt-Laufzeiten bis 2028 auf 45 Tage
+Vertrauensklasse wie die Auslieferung der Software. Wer sie nicht will,
+fordert ausdrücklich eine Sonderanfertigung mit eigener Domain an; die
+Portal-Adresse bleibt sonst immer `<kunde>.ohrganize.com`. Dass Let's-Encrypt-Laufzeiten bis 2028 auf 45 Tage
 fallen, ändert daran nichts: Der Proxy erneuert selbst, der Schlüssel bleibt.
 
 **In Kauf genommen — Schlüsselwechsel als geplanter Ausfall:** Bei einem

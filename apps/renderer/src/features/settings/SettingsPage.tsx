@@ -49,6 +49,8 @@ export function SettingsPage() {
   const { data: regionData } = useQuery({
     queryKey: ['regions'],
     queryFn: () => api.get<RegionsResponse>('/api/regions'),
+    // sync-ausnahme: Das Land kommt aus der Variante des Builds (nie aus
+    // einer Einstellung), die Liste ändert sich zur Laufzeit nicht.
     staleTime: Infinity,
   });
   const regions = regionData?.regions ?? REGIONS;

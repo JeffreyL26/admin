@@ -4,7 +4,9 @@
 # Prüfen: caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 #
 # VOR DEM AUSROLLEN ERSETZEN:
-#   portal.firma.de     → eigene Domain
+#   musterfirma.ohrganize.com → Name des Kunden (die Portal-Adresse ist immer
+#                         diese; ein anderer Name nur auf ausdruecklichen
+#                         Kundenwunsch, als Sonderanfertigung)
 #   it@firma.de         → Postfach für Let's-Encrypt-Benachrichtigungen
 #   /srv/ohrganize-web  → Zielverzeichnis des Portal-Builds (apps/web/dist)
 #
@@ -41,7 +43,7 @@
 	# }
 }
 
-portal.firma.de {
+musterfirma.ohrganize.com {
 	# -----------------------------------------------------------------------
 	# Zertifikat
 	# -----------------------------------------------------------------------
@@ -81,7 +83,7 @@ portal.firma.de {
 	# liegt; Caddys Speicheraufbau ist keine Schnittstelle, in die man einen
 	# eigenen Schlüssel legt). Reihenfolge: (1) Wechsel ankündigen —
 	# Freitagabend, nicht Montagmorgen. (2) Caddy anhalten, im Caddy-Speicher
-	# den Ordner certificates/<aussteller>/portal.firma.de/
+	# den Ordner certificates/<aussteller>/musterfirma.ohrganize.com/
 	# (unter /var/lib/caddy/.local/share/caddy/) samt .key entfernen, Caddy
 	# starten: Es holt ein Zertifikat mit neuem Schlüssel; die Zeile
 	# reuse_private_keys bleibt stehen und hält ab jetzt den neuen fest.
@@ -97,7 +99,7 @@ portal.firma.de {
 	#
 	# Pin des laufenden Servers ablesen (openssl, auch aus Git für Windows;
 	# bewusst eine Zeile zum Kopieren):
-	#   openssl s_client -connect portal.firma.de:443 -servername portal.firma.de </dev/null 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+	#   openssl s_client -connect musterfirma.ohrganize.com:443 -servername musterfirma.ohrganize.com </dev/null 2>/dev/null | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
 	# Ergebnis mit dem Präfix „sha256/“ in config.json eintragen.
 	tls {
 		reuse_private_keys
