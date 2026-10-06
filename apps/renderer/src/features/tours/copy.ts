@@ -118,6 +118,40 @@ export const COPY = {
   'stellen.step6.title': 'Nach Status filtern',
   'stellen.step6.text': 'Mit dem Filter finden Sie Entwürfe, offene und besetzte Stellen schnell wieder.',
   'stellen.step6.todo': 'Wählen Sie einen Status.',
+
+  // ---- Ankündigungen --------------------------------------------------------
+  'ankuendigungen.title': 'Ankündigungen kennenlernen',
+  'ankuendigungen.finale': 'Ankündigungen erledigt',
+  'ankuendigungen.step1.title': 'Die erste Ankündigung',
+  'ankuendigungen.step1.text':
+    'Ankündigungen erscheinen als Karte auf dem Dashboard der Mitarbeitenden, in der App und im Portal.',
+  'ankuendigungen.step1.todo': 'Klicken Sie hier und legen Sie eine an.',
+  'ankuendigungen.step2.title': 'Titel und Text',
+  'ankuendigungen.step2.text': 'Ein kurzer Titel und ein Text genügen. Anhänge sind optional.',
+  'ankuendigungen.step2.todo': 'Geben Sie Titel und Text ein.',
+  'ankuendigungen.step2.alt': 'Hier geht es mit der Ankündigung weiter.',
+  'ankuendigungen.step3.title': 'Wer sieht sie, und ab wann?',
+  'ankuendigungen.step3.text':
+    'Wählen Sie die Zielgruppe und den Zeitraum. Liegt der Beginn in der Zukunft, bleibt die Ankündigung geplant und ist noch für niemanden sichtbar. Für den Anfang empfehlen wir das.',
+  'ankuendigungen.step3.todo': 'Wählen Sie ein Datum.',
+  'ankuendigungen.step3.alt': 'Hier geht es mit der Ankündigung weiter.',
+  'ankuendigungen.step4.title': 'Lesebestätigung',
+  'ankuendigungen.step4.text':
+    'Wichtige Mitteilungen lassen sich bestätigen. Danach sehen Sie, wer sie gelesen hat.',
+  'ankuendigungen.step4.todo': 'Haken Sie die Option an.',
+  'ankuendigungen.step4.alt': 'Hier geht es mit der Ankündigung weiter.',
+  'ankuendigungen.step5.title': 'Anlegen',
+  'ankuendigungen.step5.text': 'Mit dem Speichern entsteht die Ankündigung. Bearbeiten und Löschen bleiben jederzeit möglich.',
+  'ankuendigungen.step5.todo': 'Legen Sie die Ankündigung an.',
+  'ankuendigungen.step5.alt': 'Hier geht es mit der Ankündigung weiter.',
+  'ankuendigungen.step6.title': 'Die Übersicht',
+  'ankuendigungen.step6.text': 'Status, Zielgruppe, Zeitraum und Lesequote sehen Sie auf einen Blick.',
+  'ankuendigungen.step6.todo': 'Öffnen Sie die Ankündigung.',
+  'ankuendigungen.step6.alt': 'Legen Sie zuerst eine Ankündigung an.',
+  'ankuendigungen.step7.title': 'Status und Empfänger',
+  'ankuendigungen.step7.text':
+    'Oben stehen Status und Zielgruppe. Bei Lesebestätigung sehen Sie darunter, wer schon bestätigt hat.',
+  'ankuendigungen.step7.todo': 'Schließen Sie die Ansicht.',
 } as const;
 
 export type CopyKey = keyof typeof COPY;

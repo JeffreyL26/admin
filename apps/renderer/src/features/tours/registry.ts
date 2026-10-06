@@ -63,6 +63,20 @@ export const TOURS: TourDef[] = [
     ],
   },
   {
+    id: 'ankuendigungen',
+    path: '/kommunikation/ankuendigungen',
+    area: 'kommunikation',
+    steps: [
+      { event: 'ankuendigungen.editor-dialog', target: 'ankuendigungen-create-btn' },
+      { event: 'ankuendigungen.content-entered', target: 'ankuendigungen-title', altTarget: 'ankuendigungen-create-btn' },
+      { event: 'ankuendigungen.schedule-set', target: 'ankuendigungen-publish', altTarget: 'ankuendigungen-create-btn' },
+      { event: 'ankuendigungen.ack-checked', target: 'ankuendigungen-ack', altTarget: 'ankuendigungen-create-btn' },
+      { event: 'ankuendigungen.saved', target: 'ankuendigungen-form', altTarget: 'ankuendigungen-create-btn', placement: 'above', anchor: 'bottom' },
+      { event: 'ankuendigungen.detail-opened', target: 'ankuendigungen-row', altTarget: 'ankuendigungen-create-btn' },
+      { event: 'ankuendigungen.detail-closed', target: 'ankuendigungen-status' },
+    ],
+  },
+  {
     id: 'stellen',
     path: '/recruiting/stellen',
     area: 'recruiting',
