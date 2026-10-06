@@ -1029,9 +1029,9 @@ function RoleDialog({
         </div>
       )}
 
-      <div style={{ marginTop: 16 }} data-tour="rechte-role-form">
+      <div style={{ marginTop: 16 }}>
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-          <strong>Rechte je Bereich</strong>
+          <strong data-tour="rechte-role-form">Rechte je Bereich</strong>
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
             {grantedCount} von {ADMIN_AREAS.length} Bereichen freigegeben
           </span>

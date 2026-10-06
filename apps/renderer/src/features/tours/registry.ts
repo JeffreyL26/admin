@@ -80,7 +80,7 @@ export const TOURS: TourDef[] = [
         placement: 'above',
       },
       { event: 'rollen-rechte.admin-role-dialog', page: 'benutzer', enter: true, target: 'rechte-role-btn', altTarget: 'rechte-tab-rollen' },
-      { event: 'rollen-rechte.admin-role-saved', page: 'benutzer', target: 'rechte-role-form', altTarget: 'rechte-role-btn', placement: 'above' },
+      { event: 'rollen-rechte.admin-role-saved', page: 'benutzer', target: 'rechte-role-form', altTarget: 'rechte-role-btn' },
       {
         event: 'rollen-rechte.assign-opened',
         page: 'benutzer',

@@ -27,10 +27,12 @@ interface Found {
   box: Box;
   vw: number;
   vh: number;
+  /** Liegt das Ziel in einem Dialog: dessen Rand, innerhalb dessen die Blase bleibt. */
+  clip: Box | null;
 }
 
 const sameFound = (a: Found | null, b: Found | null) =>
-  a === b || (!!a && !!b && a.name === b.name && a.vw === b.vw && a.vh === b.vh && sameBox(a.box, b.box));
+  a === b || (!!a && !!b && a.name === b.name && a.vw === b.vw && a.vh === b.vh && sameBox(a.box, b.box) && sameBox(a.clip, b.clip));
 
 /**
  * Sucht das Ziel einer Blase im DOM (`data-tour`), probiert die Namen der Reihe
@@ -66,8 +68,10 @@ function useTarget(names: (string | undefined)[]): Found | null {
             scrolled.current = true;
             el.scrollIntoView({ block: 'center', behavior: 'smooth' });
           }
+          const m = modal?.getBoundingClientRect();
           return {
             name,
+            clip: m ? { left: Math.round(m.left), top: Math.round(m.top), width: Math.round(m.width), height: Math.round(m.height) } : null,
             box: { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) },
             vw: window.innerWidth,
             vh: window.innerHeight,
@@ -293,18 +297,21 @@ function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: T
   const kind: 'main' | 'empty' | 'alt' =
     found.name === step.target ? 'main' : found.name === step.emptyTarget ? 'empty' : 'alt';
   const base = `${tour.id}.step${n}`;
-  const { box, vw, vh } = found;
+  const { box, vw, vh, clip } = found;
   const cx = box.left + box.width / 2;
   const tall = box.height > vh * 0.5;
 
   const pos: React.CSSProperties = {};
   let arrow: number | null = null;
   let up = false;
-  pos.left = clamp(cx - BLOB_W / 2, 12, Math.max(12, vw - BLOB_W - 12));
+  // Ziel im Dialog: Die Blase bleibt innerhalb des Dialogs und haengt nicht ueber seinen Rand.
+  const minLeft = clip ? Math.max(12, clip.left + 12) : 12;
+  const maxLeft = Math.max(minLeft, (clip ? Math.min(vw, clip.left + clip.width - 12) : vw - 12) - BLOB_W);
+  pos.left = clamp(cx - BLOB_W / 2, minLeft, maxLeft);
   if (tall) {
     // Grosses Ziel (Karte): Blase innen oben, ohne Zeiger.
     pos.top = Math.max(12, box.top) + 56;
-    pos.left = clamp(box.left + box.width - BLOB_W - 16, 12, Math.max(12, vw - BLOB_W - 12));
+    pos.left = clamp(box.left + box.width - BLOB_W - 16, minLeft, maxLeft);
   } else if (
     box.top - GAP - BLOB_H > 12 &&
     (step.placement === 'above' || box.top + box.height + GAP + BLOB_H > vh)
