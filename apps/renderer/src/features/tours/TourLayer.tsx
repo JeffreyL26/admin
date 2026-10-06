@@ -29,10 +29,12 @@ interface Found {
   vh: number;
   /** Liegt das Ziel in einem Dialog: dessen Rand, innerhalb dessen die Blase bleibt. */
   clip: Box | null;
+  /** Obere Kante von Leiste, Wechselhinweis und Launcher: darunter steht keine Blase. */
+  zone: number;
 }
 
 const sameFound = (a: Found | null, b: Found | null) =>
-  a === b || (!!a && !!b && a.name === b.name && a.vw === b.vw && a.vh === b.vh && sameBox(a.box, b.box) && sameBox(a.clip, b.clip));
+  a === b || (!!a && !!b && a.name === b.name && a.vw === b.vw && a.vh === b.vh && a.zone === b.zone && sameBox(a.box, b.box) && sameBox(a.clip, b.clip));
 
 /**
  * Sucht das Ziel einer Blase im DOM (`data-tour`), probiert die Namen der Reihe
@@ -48,29 +50,37 @@ const sameFound = (a: Found | null, b: Found | null) =>
  */
 function useTarget(names: (string | undefined)[]): Found | null {
   const [found, setFound] = useState<Found | null>(null);
-  const scrolled = useRef(false);
+  // Zeitpunkt des letzten Rollens (0: noch nicht): Hoechstens alle 1,5 s, sonst ruckelt es.
+  const scrolled = useRef(0);
   const key = names.join('|');
 
   useEffect(() => {
     // Neuer Schritt: alter Treffer weg, Rollen wieder erlaubt.
-    scrolled.current = false;
+    scrolled.current = 0;
     setFound(null);
     const find = (): Found | null => {
       if (document.querySelector('.hm-setup__panel')) return null;
       const modal = document.querySelector('.hm-modal');
+      let zone = window.innerHeight;
+      for (const el of document.querySelectorAll('.hm-tour-bar, .hm-tour-notice, .hm-setup-launcher')) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) zone = Math.min(zone, Math.round(r.top) - 8);
+      }
       for (const name of names) {
         if (!name) continue;
         for (const el of document.querySelectorAll<HTMLElement>(`[data-tour="${name}"]`)) {
           if (modal && !modal.contains(el)) continue;
           const r = el.getBoundingClientRect();
           if (r.width <= 0 || r.height <= 0) continue;
-          if ((r.top < 0 || r.bottom > window.innerHeight) && !scrolled.current) {
-            scrolled.current = true;
+          // Hinter der Leiste zaehlt wie ausserhalb des Fensters (im Dialog liegt sie unter dem Overlay).
+          if ((r.top < 0 || r.bottom > (modal ? window.innerHeight : zone)) && Date.now() - scrolled.current > 1500) {
+            scrolled.current = Date.now();
             el.scrollIntoView({ block: 'center', behavior: 'smooth' });
           }
           const m = modal?.getBoundingClientRect();
           return {
             name,
+            zone,
             clip: m ? { left: Math.round(m.left), top: Math.round(m.top), width: Math.round(m.width), height: Math.round(m.height) } : null,
             box: { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) },
             vw: window.innerWidth,
@@ -84,7 +94,7 @@ function useTarget(names: (string | undefined)[]): Found | null {
     const tick = () => {
       if (document.hidden) return;
       const next = find();
-      if (!next) scrolled.current = false;
+      if (!next) scrolled.current = 0;
       setFound((prev) => (sameFound(prev, next) ? prev : next));
     };
     let raf = 0;
@@ -297,7 +307,7 @@ function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: T
   const kind: 'main' | 'empty' | 'alt' =
     found.name === step.target ? 'main' : found.name === step.emptyTarget ? 'empty' : 'alt';
   const base = `${tour.id}.step${n}`;
-  const { box, vw, vh, clip } = found;
+  const { box, vw, vh, clip, zone } = found;
   const cx = box.left + box.width / 2;
   const tall = box.height > vh * 0.5;
 
@@ -316,11 +326,14 @@ function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: T
     pos.left = clamp(box.left + box.width - BLOB_W - 16, minLeft, maxLeft);
   } else if (
     box.top - GAP - BLOB_H > 12 &&
-    (step.placement === 'above' || box.top + box.height + GAP + BLOB_H > vh)
+    (step.placement === 'above' || box.top + box.height + GAP + BLOB_H > zone)
   ) {
     up = true;
     pos.bottom = vh - box.top + GAP;
     arrow = clamp(cx - (pos.left as number), 22, BLOB_W - 22);
+  } else if (box.top + box.height + GAP + BLOB_H > zone) {
+    // Weder darueber noch darunter ist Platz (schmales Fenster): Blase ueber der Leiste, ohne Zeiger.
+    pos.top = Math.max(12, zone - BLOB_H);
   } else {
     pos.top = box.top + box.height + GAP;
     arrow = clamp(cx - (pos.left as number), 22, BLOB_W - 22);
