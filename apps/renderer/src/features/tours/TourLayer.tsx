@@ -309,8 +309,10 @@ function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: T
   const maxLeft = Math.max(minLeft, (clip ? Math.min(vw, clip.left + clip.width - 12) : vw - 12) - BLOB_W);
   pos.left = clamp(cx - BLOB_W / 2, minLeft, maxLeft);
   if (tall) {
-    // Grosses Ziel (Karte): Blase innen oben, ohne Zeiger.
-    pos.top = Math.max(12, box.top) + 56;
+    // Grosses Ziel (Karte): Blase innen, ohne Zeiger. `anchor: 'bottom'` im Dialog: unten
+    // rechts ueber der Fusszeile, fuer Formulare mit leerer rechter Spalte.
+    if (clip && step.anchor === 'bottom') pos.bottom = vh - Math.min(box.top + box.height, clip.top + clip.height - 84) + 12;
+    else pos.top = Math.max(12, box.top) + 56;
     pos.left = clamp(box.left + box.width - BLOB_W - 16, minLeft, maxLeft);
   } else if (
     box.top - GAP - BLOB_H > 12 &&

@@ -24,6 +24,8 @@ export interface TourStepDef {
   emptyTarget?: string;
   /** `above`: Blase ueber das Ziel (Dialoge: darunter laegen die Knoepfe). */
   placement?: 'above';
+  /** `bottom`: Ist das Ziel gross und liegt im Dialog, sitzt die Blase unten rechts statt oben rechts. */
+  anchor?: 'bottom';
   /** Schluessel in `TourDef.pages`; Vorgabe: erste Seite. */
   page?: string;
   /** Wechselhinweis (`<Tour>.step<N>.enter`) beim automatischen Seitenwechsel auf diesen Schritt. */
@@ -58,6 +60,19 @@ export const TOURS: TourDef[] = [
       { event: 'gehaelter.component-saved', target: 'gehaelter-component-form', altTarget: 'gehaelter-component-btn', placement: 'above' },
       { event: 'gehaelter.request-dialog', target: 'gehaelter-request-btn' },
       { event: 'gehaelter.decided-viewed', target: 'gehaelter-decided', altTarget: 'gehaelter-back' },
+    ],
+  },
+  {
+    id: 'stellen',
+    path: '/recruiting/stellen',
+    area: 'recruiting',
+    steps: [
+      { event: 'stellen.editor-dialog', target: 'stellen-create-btn' },
+      { event: 'stellen.saved', target: 'stellen-form', altTarget: 'stellen-create-btn', placement: 'above', anchor: 'bottom' },
+      { event: 'stellen.status-opened', target: 'stellen-status', altTarget: 'stellen-create-btn' },
+      { event: 'stellen.detail-opened', target: 'stellen-card', altTarget: 'stellen-create-btn' },
+      { event: 'stellen.detail-closed', target: 'stellen-stages' },
+      { event: 'stellen.filter-used', target: 'stellen-filter' },
     ],
   },
   {

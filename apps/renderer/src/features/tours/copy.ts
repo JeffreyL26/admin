@@ -91,6 +91,33 @@ export const COPY = {
   'rollen-rechte.step7.alt': 'Zurück zu den Konten, dort weisen Sie Rollen zu.',
   'rollen-rechte.step7.empty':
     'Es gibt noch kein weiteres Administrator-Konto. Legen Sie eines an, danach geht es hier weiter.',
+
+  // ---- Stellen --------------------------------------------------------------
+  'stellen.title': 'Stellen kennenlernen',
+  'stellen.finale': 'Stellen erledigt',
+  'stellen.step1.title': 'Die erste Stelle',
+  'stellen.step1.text': 'Eine Stelle ist ein Besetzungsbedarf. Bewerbungen hängen später an ihr.',
+  'stellen.step1.todo': 'Klicken Sie hier und legen Sie eine an.',
+  'stellen.step2.title': 'Die Eckdaten',
+  'stellen.step2.text':
+    'Pflicht sind nur Titel, Beschäftigungsart und Anzahl. Abteilung, Standort, Führungskraft und Gehaltsspanne ergänzen Sie, wenn Sie sie kennen.',
+  'stellen.step2.todo': 'Legen Sie die Stelle an.',
+  'stellen.step2.alt': 'Hier geht es mit der Stelle weiter.',
+  'stellen.step3.title': 'Vom Entwurf zur Besetzung',
+  'stellen.step3.text':
+    'Neue Stellen starten als Entwurf. Von dort geht es über veröffentlicht, pausiert und besetzt bis geschlossen. Angeboten wird nur, was zum aktuellen Stand passt.',
+  'stellen.step3.todo': 'Öffnen Sie die Auswahl. Ändern müssen Sie nichts.',
+  'stellen.step3.alt': 'Legen Sie zuerst eine Stelle an.',
+  'stellen.step4.title': 'Die Stelle im Detail',
+  'stellen.step4.text': 'Die Karte zeigt aktive, gesamte und eingestellte Bewerbungen auf einen Blick.',
+  'stellen.step4.todo': 'Öffnen Sie die Stelle.',
+  'stellen.step4.alt': 'Legen Sie zuerst eine Stelle an.',
+  'stellen.step5.title': 'Bewerbungen je Stufe',
+  'stellen.step5.text': 'Hier sehen Sie, in welcher Stufe der Pipeline wie viele Bewerbungen stehen.',
+  'stellen.step5.todo': 'Schließen Sie die Ansicht.',
+  'stellen.step6.title': 'Nach Status filtern',
+  'stellen.step6.text': 'Mit dem Filter finden Sie Entwürfe, offene und besetzte Stellen schnell wieder.',
+  'stellen.step6.todo': 'Wählen Sie einen Status.',
 } as const;
 
 export type CopyKey = keyof typeof COPY;

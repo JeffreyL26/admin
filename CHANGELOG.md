@@ -12,6 +12,13 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Seiten-Einfuehrung "Stellen" (06.10.2026)
+- **Neu:** Einfuehrung mit sechs Schritten fuer Recruiting → Stellen: Stelle
+  anlegen (Dialog, Eckdaten), Statusauswahl ansehen, Stelle im Detail und die
+  Bewerbungen je Stufe ansehen, nach Status filtern. Angelegt wird nur ein
+  Entwurf, alles danach ist reines Ansehen. Ohne Stelle zeigen die Schritte 3
+  und 4 auf "Neue Stelle". Nur Renderer, kein Backend.
+
 ### Seiten-Einfuehrung "Rollen & Rechte" (06.10.2026)
 - **Neu:** Eine Einfuehrung mit sieben Schritten ueber zwei Seiten: Fachrollen
   (`/verwaltung/rollen`, vier Schritte) und Benutzer & Rechte
