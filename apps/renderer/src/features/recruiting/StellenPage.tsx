@@ -405,6 +405,7 @@ export function StellenPage() {
                       style={{ maxWidth: 160 }}
                       data-tour={p.id === newestId ? 'stellen-status' : undefined}
                       onOpen={() => tourEvent('stellen.status-opened')}
+                      menuOnly
                       value=""
                       onChange={(e) => e.target.value && setStatus.mutate({ id: p.id, status: e.target.value as JobPostingStatus })}
                     >

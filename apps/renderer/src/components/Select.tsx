@@ -18,7 +18,7 @@ import { Tooltip } from './Tooltip';
  * Objekt mit `target.value` (immer ein String, wie im DOM). So bleiben die
  * Aufrufstellen unverändert, nur der Tag heißt anders.
  *
- * Tastatur wie nativ: Pfeile wechseln den Wert auch bei geschlossener Liste,
+ * Tastatur wie nativ: Pfeile wechseln den Wert auch bei geschlossener Liste (ausser mit `menuOnly`),
  * Enter/Leertaste öffnen, Escape schließt, Buchstaben springen zum nächsten
  * passenden Eintrag. ARIA: Auslöser als combobox, Liste als listbox.
  */
@@ -53,6 +53,13 @@ interface Props {
   'data-tour'?: string;
   /** Die Liste ging auf (nicht bei Pfeiltasten, die den Wert aendern). */
   onOpen?: () => void;
+  /**
+   * Fuer Auswahlfelder, deren `onChange` sofort etwas ausfuehrt (Status aendern,
+   * Rolle zuweisen): Pfeiltasten, Pos1/Ende und Buchstaben oeffnen nur die Liste,
+   * statt bei geschlossener Liste den Wert zu wechseln und damit die Aktion
+   * auszuloesen. Gewaehlt wird dann in der offenen Liste (Enter, Klick).
+   */
+  menuOnly?: boolean;
   /** Mindestbreite der Liste; ohne Angabe so breit wie das Feld. */
   menuMinWidth?: number;
 }
@@ -108,6 +115,7 @@ export function Select({
   autoFocus,
   menuMinWidth,
   onOpen,
+  menuOnly,
   ...aria
 }: Props) {
   const options = useMemo(() => collectOptions(children), [children]);
@@ -244,6 +252,11 @@ export function Select({
 
   const onButtonKey = (e: React.KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return;
+    if (menuOnly && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+      e.preventDefault();
+      openMenu();
+      return;
+    }
     switch (e.key) {
       case 'ArrowDown':
       case 'ArrowUp': {
@@ -269,7 +282,7 @@ export function Select({
         return;
       }
       default:
-        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (!menuOnly && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
           const idx = jumpByText(e.key);
           if (idx !== null) emit(options[idx]!.value);
         }

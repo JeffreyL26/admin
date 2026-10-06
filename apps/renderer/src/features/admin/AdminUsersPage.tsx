@@ -247,6 +247,7 @@ function AccountsTab() {
                             style={{ width: 210 }}
                             data-tour={tourTarget ? 'rechte-assign-select' : undefined}
                             onOpen={() => tourEvent('rollen-rechte.assign-opened')}
+                            menuOnly
                             value={a.admin_role_id ?? ''}
                             disabled={self || assign.isPending}
                             onChange={(e) =>
