@@ -8,6 +8,8 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useEmployees, type EmployeeLite } from '../../components/EmployeeSelect';
 import { useToast } from '../../components/Toast';
+import { tourEvent } from '../tours/events';
+import { maxId } from '../tours/maxId';
 
 const ROLES_KEY = ['admin', 'roles'];
 
@@ -68,6 +70,10 @@ export function RolesPage() {
 
   const { data: roles, isLoading } = useRoles();
 
+  // Ziel der Einfuehrung "Rollen & Rechte": die zuletzt angelegte Rolle.
+  // Inaktive Rollen haben einen gesperrten Mitglieder-Knopf und taugen nicht als Ziel.
+  const newestRoleId = maxId(roles, (r) => r.active === 1);
+
   const invalidate = () => qc.invalidateQueries({ queryKey: ROLES_KEY });
 
   const toggleActive = useMutation({
@@ -97,9 +103,11 @@ export function RolesPage() {
         actions={
           <button
             className="hm-btn hm-btn--primary"
+            data-tour="rollen-create-btn"
             onClick={() => {
               setEditRole(null);
               setDialogOpen(true);
+              tourEvent('rollen-rechte.role-dialog');
             }}
           >
             <Plus size={16} /> Rolle anlegen
@@ -194,7 +202,11 @@ export function RolesPage() {
                           <button
                             className="hm-btn hm-btn--sm hm-btn--secondary"
                             disabled={r.active !== 1}
-                            onClick={() => setMembersRole(r)}
+                            data-tour={r.id === newestRoleId ? 'rollen-members-btn' : undefined}
+                            onClick={() => {
+                              setMembersRole(r);
+                              tourEvent('rollen-rechte.members-dialog');
+                            }}
                           >
                             <Users size={14} /> Mitglieder
                           </button>
@@ -307,6 +319,7 @@ function RoleDialog({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ROLES_KEY });
       toast.success(role ? 'Rolle gespeichert' : 'Rolle angelegt');
+      if (role === null) tourEvent('rollen-rechte.role-saved');
       onClose();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -332,7 +345,7 @@ function RoleDialog({
         </>
       }
     >
-      <div className="hm-form-grid">
+      <div className="hm-form-grid" data-tour="rollen-form">
         <Field label="Name" required span2 hint="Muss eindeutig sein, z. B. „Werkstudent“.">
           <input
             className="hm-input"
@@ -460,6 +473,7 @@ function MembersDialog({ role, onClose }: { role: Role | null; onClose: () => vo
       toast.success(
         changed.length === 1 ? 'Mitgliedschaft gespeichert' : `${changed.length} Änderungen gespeichert`,
       );
+      tourEvent('rollen-rechte.members-saved');
       onClose();
     },
     onError: (e: Error) => {
@@ -553,6 +567,7 @@ function MembersDialog({ role, onClose }: { role: Role | null; onClose: () => vo
 
           <div
             role="group"
+            data-tour={employees.length > 0 ? 'rollen-members-list' : undefined}
             aria-label={role ? `Mitglieder der Rolle ${role.name}` : 'Mitglieder'}
             style={{
               maxHeight: 380,
@@ -563,7 +578,10 @@ function MembersDialog({ role, onClose }: { role: Role | null; onClose: () => vo
             }}
           >
             {visible.length === 0 ? (
-              <p style={{ padding: 14, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+              <p
+                data-tour={employees.length === 0 ? 'rollen-members-empty' : undefined}
+                style={{ padding: 14, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}
+              >
                 Keine Mitarbeitenden gefunden. Passen Sie den Suchbegriff an.
               </p>
             ) : (

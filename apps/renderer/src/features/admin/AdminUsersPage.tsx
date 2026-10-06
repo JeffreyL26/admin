@@ -26,6 +26,7 @@ import { Tooltip } from '../../components/Tooltip';
 import { Select } from '../../components/Select';
 import { HintBox } from '../../components/HintBox';
 import { t } from '../setup/copy';
+import { tourEvent } from '../tours/events';
 
 const KEY = ['admin', 'admin-roles'];
 const USERS_KEY = ['admin', 'users'];
@@ -71,8 +72,8 @@ export function AdminUsersPage() {
       />
       <Tabs
         tabs={[
-          { key: 'konten', label: 'Konten' },
-          { key: 'rollen', label: 'Rollen & Rechte' },
+          { key: 'konten', label: 'Konten', tour: 'rechte-tab-konten' },
+          { key: 'rollen', label: 'Rollen & Rechte', tour: 'rechte-tab-rollen' },
         ]}
         active={tab}
         onChange={setTab}
@@ -100,6 +101,8 @@ function AccountsTab() {
     () => new Map((employees ?? []).map((e) => [e.id, e])),
     [employees],
   );
+  // Ziel der Einfuehrung "Rollen & Rechte": erstes Admin-Konto, das nicht das eigene ist.
+  const tourTargetId = accounts?.find((a) => a.role === 'admin' && a.id !== user?.id)?.id;
   /** Einmalig anzuzeigendes Erstpasswort (Anlage oder Zurücksetzen). */
   const [issued, setIssued] = useState<{ account: AdminAccount; password: string } | null>(null);
 
@@ -155,6 +158,7 @@ function AccountsTab() {
           <button
             className="hm-btn hm-btn--primary"
             style={{ flex: 'none' }}
+            data-tour={accounts ? 'rechte-account-create-btn' : undefined}
             onClick={() => setCreating(true)}
           >
             <Plus size={15} /> Konto anlegen
@@ -176,6 +180,7 @@ function AccountsTab() {
               {(accounts ?? []).map((a) => {
                 const self = a.id === user?.id;
                 const portal = a.role === 'mitarbeiter';
+                const tourTarget = !portal && !self && a.id === tourTargetId;
                 return (
                   <tr key={a.id}>
                     <td style={{ fontWeight: 600 }}>
@@ -240,6 +245,9 @@ function AccountsTab() {
                           <Select
                             className="hm-select"
                             style={{ width: 210 }}
+                            data-tour={tourTarget ? 'rechte-assign-select' : undefined}
+                            onOpen={() => tourEvent('rollen-rechte.assign-opened')}
+                            menuOnly
                             value={a.admin_role_id ?? ''}
                             disabled={self || assign.isPending}
                             onChange={(e) =>
@@ -791,7 +799,14 @@ function RolesTab() {
       <Card
         title="Rollen"
         actions={
-          <button className="hm-btn hm-btn--primary hm-btn--sm" onClick={() => setEditing('neu')}>
+          <button
+            className="hm-btn hm-btn--primary hm-btn--sm"
+            data-tour="rechte-role-btn"
+            onClick={() => {
+              setEditing('neu');
+              tourEvent('rollen-rechte.admin-role-dialog');
+            }}
+          >
             <Plus size={15} /> Rolle anlegen
           </button>
         }
@@ -938,6 +953,7 @@ function RoleDialog({
     },
     onSuccess: () => {
       toast.success(role ? 'Rolle gespeichert' : 'Rolle angelegt');
+      if (role === null) tourEvent('rollen-rechte.admin-role-saved');
       onSaved();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Speichern fehlgeschlagen'),
@@ -1009,7 +1025,7 @@ function RoleDialog({
 
       <div style={{ marginTop: 16 }}>
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-          <strong>Rechte je Bereich</strong>
+          <strong data-tour="rechte-role-form">Rechte je Bereich</strong>
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
             {grantedCount} von {ADMIN_AREAS.length} Bereichen freigegeben
           </span>

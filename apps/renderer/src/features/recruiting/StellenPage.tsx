@@ -16,6 +16,8 @@ import { usePostings, usePosting, useRecruitingOrg, useInvalidate, type Posting 
 import { POSTING_STATUS_TONES, StageChip, parseEuroInput, centsToInput } from './common';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
+import { tourEvent } from '../tours/events';
+import { maxId } from '../tours/maxId';
 
 interface Draft {
   title: string;
@@ -90,6 +92,7 @@ function PostingEditor({
     },
     onSuccess: () => {
       toast.success(editId === null ? 'Stelle angelegt' : 'Stelle aktualisiert');
+      if (editId === null) tourEvent('stellen.saved');
       invalidate();
       onClose();
     },
@@ -113,7 +116,7 @@ function PostingEditor({
         </>
       }
     >
-      <div className="hm-form-grid">
+      <div className="hm-form-grid" data-tour="stellen-form">
         <Field label="Stellentitel" required span2>
           <input className="hm-input" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="z. B. Senior Backend Entwickler:in" />
         </Field>
@@ -211,7 +214,7 @@ function PostingDetailDialog({ postingId, onClose }: { postingId: number | null;
               </dd>
             </div>
           </dl>
-          <div>
+          <div data-tour="stellen-stages">
             <div style={{ fontWeight: 600, marginBottom: 8 }}>
               Bewerbungen je Stufe
               <span style={{ color: 'var(--text-muted)', fontWeight: 400, fontSize: 'var(--text-sm)' }}>
@@ -302,6 +305,8 @@ export function StellenPage() {
   };
 
   const all = postings ?? [];
+  // Ziel der Einfuehrung "Stellen": die zuletzt angelegte Stelle (hoechste id).
+  const newestId = maxId(all);
   const openCount = all.filter((p) => p.status === 'veroeffentlicht' || p.status === 'pausiert').length;
   const totalSeats = all.filter((p) => p.status === 'veroeffentlicht' || p.status === 'pausiert').reduce((s, p) => s + p.seats, 0);
   const totalApplications = all.reduce((s, p) => s + (p.active_count ?? 0), 0);
@@ -312,7 +317,16 @@ export function StellenPage() {
         title="Stellen"
         subtitle="Stellenausschreibungen und deren Besetzungsstatus verwalten"
         actions={
-          <button className="hm-btn hm-btn--primary" onClick={() => { setEditorInitial(emptyDraft()); setEditId(null); setEditorOpen(true); }}>
+          <button
+            className="hm-btn hm-btn--primary"
+            data-tour="stellen-create-btn"
+            onClick={() => {
+              setEditorInitial(emptyDraft());
+              setEditId(null);
+              setEditorOpen(true);
+              tourEvent('stellen.editor-dialog');
+            }}
+          >
             <Plus size={16} /> Neue Stelle
           </button>
         }
@@ -325,7 +339,16 @@ export function StellenPage() {
       </div>
 
       <div className="row" style={{ gap: 8, marginBottom: 16 }}>
-        <Select className="hm-select" style={{ maxWidth: 220 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+        <Select
+          className="hm-select"
+          style={{ maxWidth: 220 }}
+          data-tour="stellen-filter"
+          value={statusFilter}
+          onChange={(e) => {
+            setStatusFilter(e.target.value);
+            tourEvent('stellen.filter-used');
+          }}
+        >
           <option value="">Alle Status</option>
           {(Object.keys(JOB_POSTING_STATUS_LABELS) as JobPostingStatus[]).map((s) => (
             <option key={s} value={s}>{JOB_POSTING_STATUS_LABELS[s]}</option>
@@ -342,7 +365,15 @@ export function StellenPage() {
       ) : (
         <div className="stack" style={{ gap: 12 }}>
           {all.map((p) => (
-            <div key={p.id} className="hm-card hm-card--clickable" onClick={() => setDetailId(p.id)}>
+            <div
+              key={p.id}
+              className="hm-card hm-card--clickable"
+              data-tour={p.id === newestId ? 'stellen-card' : undefined}
+              onClick={() => {
+                setDetailId(p.id);
+                tourEvent('stellen.detail-opened');
+              }}
+            >
               <div className="hm-card__body">
                 <div className="row row--between" style={{ alignItems: 'flex-start', gap: 12 }}>
                   <div style={{ minWidth: 0 }}>
@@ -372,6 +403,9 @@ export function StellenPage() {
                     <Select
                       className="hm-select"
                       style={{ maxWidth: 160 }}
+                      data-tour={p.id === newestId ? 'stellen-status' : undefined}
+                      onOpen={() => tourEvent('stellen.status-opened')}
+                      menuOnly
                       value=""
                       onChange={(e) => e.target.value && setStatus.mutate({ id: p.id, status: e.target.value as JobPostingStatus })}
                     >
@@ -399,7 +433,13 @@ export function StellenPage() {
       )}
 
       <PostingEditor open={editorOpen} initial={editorInitial} editId={editId} onClose={() => setEditorOpen(false)} />
-      <PostingDetailDialog postingId={detailId} onClose={() => setDetailId(null)} />
+      <PostingDetailDialog
+        postingId={detailId}
+        onClose={() => {
+          if (detailId !== null) tourEvent('stellen.detail-closed');
+          setDetailId(null);
+        }}
+      />
       <ConfirmDialog
         open={deleteTarget !== null}
         title="Stelle löschen"

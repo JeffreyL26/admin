@@ -616,6 +616,8 @@ function ProfilesTab() {
                             <Select
                               className="hm-select"
                               value={p.required_level}
+                              aria-label={`Soll-Level ${p.skill_name}`}
+                              menuOnly
                               onChange={(e) => levelMutation.mutate({ id: p.id, required_level: Number(e.target.value) })}
                             >
                               {[1, 2, 3, 4, 5].map((l) => (

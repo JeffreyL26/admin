@@ -12,6 +12,32 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Seiten-Einfuehrung "Ankuendigungen" (06.10.2026)
+- **Neu:** Einfuehrung mit sieben Schritten fuer Kommunikation → Ankuendigungen:
+  Dialog oeffnen, Titel und Text, Zielgruppe und Zeitraum (Hinweis: ein Beginn
+  in der Zukunft haelt die Ankuendigung auf "geplant", also unsichtbar),
+  Lesebestaetigung, Anlegen, Uebersicht und Detailansicht. Nur Renderer.
+
+### Seiten-Einfuehrung "Stellen" (06.10.2026)
+- **Neu:** Einfuehrung mit sechs Schritten fuer Recruiting → Stellen: Stelle
+  anlegen (Dialog, Eckdaten), Statusauswahl ansehen, Stelle im Detail und die
+  Bewerbungen je Stufe ansehen, nach Status filtern. Angelegt wird nur ein
+  Entwurf, alles danach ist reines Ansehen. Ohne Stelle zeigen die Schritte 3
+  und 4 auf "Neue Stelle". Nur Renderer, kein Backend.
+
+### Seiten-Einfuehrung "Rollen & Rechte" (06.10.2026)
+- **Neu:** Eine Einfuehrung mit sieben Schritten ueber zwei Seiten: Fachrollen
+  (`/verwaltung/rollen`, vier Schritte) und Benutzer & Rechte
+  (`/verwaltung/benutzer`, drei Schritte). Nach Schritt 4 wechselt die Ansicht
+  selbst auf die zweite Seite und zeigt einen Wechselhinweis; wer woanders
+  weitermacht, findet in der Leiste den Knopf "Weiter bei ...". Fehlen Daten
+  (keine Person, kein weiteres Admin-Konto), nennt die Blase das und der
+  Schritt wartet. Konten ohne Bereich `benutzer` sehen nur die ersten vier
+  Schritte. Ohne Bereich `verwaltung` startet nichts.
+- **Geaendert:** Die Kachel im Einrichtungs-Assistenten heisst "Rollen & Rechte".
+  `registry.ts` kennt `pages`, `page`, `enter` und `emptyTarget`; nur Renderer,
+  kein Backend.
+
 ### Seiten-Einfuehrung "Gehaelter" (06.10.2026)
 - **Neu:** Beim ersten Besuch einer Seite startet ihre Einfuehrung: kleine Blasen
   mit farbigem Ring am Ziel, unten rechts pro Seite eine Leiste mit Haken und

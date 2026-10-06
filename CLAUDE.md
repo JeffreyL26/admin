@@ -471,6 +471,13 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   meldet). Eine neue Einfuehrung braucht: Eintrag in `TOURS`, Texte
   `<id>.step<N>.title|text|todo`, `data-tour`-Attribute und `tourEvent`-Aufrufe an der
   Seite. Ueberspringen ruft `announceSkip()` (gruene Meldung mit Link zur Dokumentation).
+  Eine Einfuehrung kann ueber mehrere Seiten laufen (`pages`, je Schritt `page`,
+  `enter` fuer den Wechselhinweis `<id>.step<N>.enter`): Sie startet nur auf der
+  Einstiegsseite (`pages[0]`), laeuft auf den anderen aber weiter und wechselt
+  nach einem Schritt selbst die Seite. `done` bleibt ein zusammenhaengender
+  Anfang, deshalb stehen Seiten mit moeglicherweise fehlendem Bereichsrecht am
+  Ende der Schritte (`visibleStepCount`). `emptyTarget` zeigt bei fehlenden
+  Daten den Hinweis `<id>.step<N>.empty`, und der Schritt wartet.
 - **Desktop-Embedding:** `desktop/src/main.ts` ruft `startServer(0)` aus dem
   esbuild-Bundle `server.cjs` auf (zufälliger Port) und reicht die Basis-URL via
   `additionalArguments` an das Preload-Skript → `window.ohrganize.apiBaseUrl`.

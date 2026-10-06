@@ -20,7 +20,8 @@ import { Tooltip } from './Tooltip';
  *
  * Tastatur wie nativ: Pfeile wechseln den Wert auch bei geschlossener Liste,
  * Enter/Leertaste öffnen, Escape schließt, Buchstaben springen zum nächsten
- * passenden Eintrag. ARIA: Auslöser als combobox, Liste als listbox.
+ * passenden Eintrag (mit `menuOnly` öffnen Pfeile, Pos1 und Ende nur die Liste,
+ * Buchstaben tun nichts). ARIA: Auslöser als combobox, Liste als listbox.
  */
 
 export interface SelectChangeEvent {
@@ -49,6 +50,18 @@ interface Props {
   'aria-label'?: string;
   'aria-labelledby'?: string;
   'aria-invalid'?: React.AriaAttributes['aria-invalid'];
+  /** Für Seiten-Einführungen: Ziel am Auslöser (`data-tour`). */
+  'data-tour'?: string;
+  /** Die Liste ging auf (per Klick, Enter, Leertaste oder, mit `menuOnly`, per Pfeiltaste). */
+  onOpen?: () => void;
+  /**
+   * Für Auswahlfelder, deren `onChange` sofort etwas ausführt (Status ändern,
+   * Rolle zuweisen): Pfeiltasten sowie Pos1 und Ende öffnen nur die Liste, statt
+   * bei geschlossener Liste den Wert zu wechseln und damit die Aktion auszulösen;
+   * Buchstaben tun bei geschlossener Liste nichts. Gewählt wird in der offenen
+   * Liste (Enter, Klick).
+   */
+  menuOnly?: boolean;
   /** Mindestbreite der Liste; ohne Angabe so breit wie das Feld. */
   menuMinWidth?: number;
 }
@@ -103,6 +116,8 @@ export function Select({
   required,
   autoFocus,
   menuMinWidth,
+  onOpen,
+  menuOnly,
   ...aria
 }: Props) {
   const options = useMemo(() => collectOptions(children), [children]);
@@ -184,6 +199,7 @@ export function Select({
     if (disabled || options.length === 0) return;
     setActive(selected && !selected.disabled ? selectedIndex : step(-1, 1));
     setOpen(true);
+    onOpen?.();
   };
   const closeMenu = (refocus = true) => {
     setOpen(false);
@@ -242,7 +258,7 @@ export function Select({
       case 'ArrowDown':
       case 'ArrowUp': {
         e.preventDefault();
-        if (e.altKey) {
+        if (e.altKey || menuOnly) {
           openMenu();
           return;
         }
@@ -258,12 +274,16 @@ export function Select({
       case 'Home':
       case 'End': {
         e.preventDefault();
+        if (menuOnly) {
+          openMenu();
+          return;
+        }
         const idx = e.key === 'Home' ? enabledIndexes[0] : enabledIndexes[enabledIndexes.length - 1];
         if (idx !== undefined) emit(options[idx]!.value);
         return;
       }
       default:
-        if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (!menuOnly && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
           const idx = jumpByText(e.key);
           if (idx !== null) emit(options[idx]!.value);
         }
@@ -332,6 +352,7 @@ export function Select({
         aria-label={aria['aria-label']}
         aria-labelledby={aria['aria-labelledby']}
         aria-invalid={aria['aria-invalid']}
+        data-tour={aria['data-tour']}
         onClick={() => (open ? closeMenu() : openMenu())}
         onKeyDown={onButtonKey}
       >

@@ -109,7 +109,7 @@ export function Tabs({
   size,
   ariaLabel,
 }: {
-  tabs: { key: string; label: React.ReactNode }[];
+  tabs: { key: string; label: React.ReactNode; tour?: string }[];
   active: string;
   onChange: (key: string) => void;
   /** 'sm': kompakte Form fuer Seitenkoepfe. */
@@ -123,6 +123,7 @@ export function Tabs({
           key={t.key}
           role="tab"
           aria-selected={active === t.key}
+          data-tour={t.tour}
           className={`hm-tab${active === t.key ? ' hm-tab--active' : ''}`}
           onClick={() => onChange(t.key)}
         >

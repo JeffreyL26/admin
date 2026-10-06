@@ -28,6 +28,8 @@ import {
 import { ConfirmDialog, Modal } from "../../components/Modal";
 import { useToast } from "../../components/Toast";
 import { Tooltip } from "../../components/Tooltip";
+import { tourEvent } from "../tours/events";
+import { maxId } from "../tours/maxId";
 import {
   AudienceSelect,
   audienceLabel,
@@ -161,6 +163,7 @@ function AnnouncementEditor({
       toast.success(
         editId === null ? "Ankündigung angelegt" : "Ankündigung aktualisiert",
       );
+      if (editId === null) tourEvent("ankuendigungen.saved");
       invalidate("announcements");
       onClose();
     },
@@ -201,12 +204,16 @@ function AnnouncementEditor({
         </>
       }
     >
-      <div className="hm-form-grid">
+      <div className="hm-form-grid" data-tour="ankuendigungen-form">
         <Field label="Titel" required span2>
           <input
             className="hm-input"
+            data-tour="ankuendigungen-title"
             value={form.title}
-            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+            onChange={(e) => {
+              setForm((f) => ({ ...f, title: e.target.value }));
+              if (editId === null && e.target.value.trim() && form.body.trim()) tourEvent("ankuendigungen.content-entered");
+            }}
             placeholder="z. B. Sommerfest am 14. August"
           />
         </Field>
@@ -215,7 +222,10 @@ function AnnouncementEditor({
             className="hm-textarea"
             rows={6}
             value={form.body}
-            onChange={(e) => setForm((f) => ({ ...f, body: e.target.value }))}
+            onChange={(e) => {
+              setForm((f) => ({ ...f, body: e.target.value }));
+              if (editId === null && e.target.value.trim() && form.title.trim()) tourEvent("ankuendigungen.content-entered");
+            }}
           />
         </Field>
         <AudienceSelect
@@ -226,10 +236,13 @@ function AnnouncementEditor({
           <input
             type="date"
             className="hm-input"
+            data-tour="ankuendigungen-publish"
             value={form.publish_at}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, publish_at: e.target.value }))
-            }
+            onChange={(e) => {
+              setForm((f) => ({ ...f, publish_at: e.target.value }));
+              // Zaehlt nur ein kuenftiger Beginn: Nur der haelt die Ankuendigung auf "geplant".
+              if (editId === null && e.target.value > todayIsoLocal()) tourEvent("ankuendigungen.schedule-set");
+            }}
           />
         </Field>
         <Field
@@ -246,13 +259,14 @@ function AnnouncementEditor({
           />
         </Field>
         <Field label="Lesebestätigung" span2>
-          <label className="hm-checkbox" style={{ height: 36 }}>
+          <label className="hm-checkbox" style={{ height: 36 }} data-tour="ankuendigungen-ack">
             <input
               type="checkbox"
               checked={form.requires_ack}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, requires_ack: e.target.checked }))
-              }
+              onChange={(e) => {
+                setForm((f) => ({ ...f, requires_ack: e.target.checked }));
+                if (editId === null && e.target.checked) tourEvent("ankuendigungen.ack-checked");
+              }}
             />
             Mitarbeitende müssen den Erhalt bestätigen
           </label>
@@ -345,7 +359,7 @@ function AnnouncementDetail({
         <Spinner center />
       ) : (
         <div className="stack">
-          <div className="row row--wrap" style={{ gap: 8 }}>
+          <div className="row row--wrap" style={{ gap: 8 }} data-tour="ankuendigungen-status">
             <Badge tone={STATUS_TONE[a.status]}>
               {ANNOUNCEMENT_STATUS_LABELS[a.status]}
             </Badge>
@@ -455,6 +469,8 @@ export function AnnouncementsPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [detailId, setDetailId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Announcement | null>(null);
+  // Ziel der Einfuehrung "Ankuendigungen": die zuletzt angelegte (hoechste id).
+  const newestId = maxId(announcements);
 
   // Deep-Link ?id= (Dashboard-Widget, Befehlspalette): Detail oeffnen und den
   // Parameter verbrauchen, damit Schliessen ihn nicht wieder aufreisst.
@@ -511,10 +527,12 @@ export function AnnouncementsPage() {
         actions={
           <button
             className="hm-btn hm-btn--primary"
+            data-tour="ankuendigungen-create-btn"
             onClick={() => {
               setEditorInitial(emptyEditor());
               setEditId(null);
               setEditorOpen(true);
+              tourEvent("ankuendigungen.editor-dialog");
             }}
           >
             <Plus size={16} /> Neue Ankündigung
@@ -552,7 +570,11 @@ export function AnnouncementsPage() {
                     <tr
                       key={a.id}
                       className="clickable"
-                      onClick={() => setDetailId(a.id)}
+                      data-tour={a.id === newestId ? "ankuendigungen-row" : undefined}
+                      onClick={() => {
+                        setDetailId(a.id);
+                        tourEvent("ankuendigungen.detail-opened");
+                      }}
                     >
                       <td style={{ fontWeight: 600 }}>{a.title}</td>
                       <td>
@@ -620,7 +642,10 @@ export function AnnouncementsPage() {
       />
       <AnnouncementDetail
         id={detailId}
-        onClose={() => setDetailId(null)}
+        onClose={() => {
+          if (detailId !== null) tourEvent("ankuendigungen.detail-closed");
+          setDetailId(null);
+        }}
         onEdit={openEdit}
       />
       <ConfirmDialog

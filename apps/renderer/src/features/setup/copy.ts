@@ -181,7 +181,7 @@ export const COPY = {
   'done.next.title': 'Vorgeschlagene Einrichtungen:',
   'done.next.salaries.title': 'Gehälter',
   'done.next.salaries.text': 'Vergütung je Person festlegen.',
-  'done.next.roles.title': 'Rollen',
+  'done.next.roles.title': 'Rollen & Rechte',
   'done.next.roles.text': 'Festlegen, wer was konfigurieren und einsehen darf.',
   'done.next.jobs.title': 'Stellen',
   'done.next.jobs.text': 'Offene Positionen anlegen und Bewerbungen sammeln.',

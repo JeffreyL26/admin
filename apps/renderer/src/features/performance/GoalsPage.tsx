@@ -427,6 +427,7 @@ function GoalRow({
         <Select
           className="hm-select"
           value={goal.status}
+          menuOnly
           onChange={(e) => updateStatus.mutate(e.target.value as GoalStatus)}
           style={{ width: 140 }}
           aria-label="Status"

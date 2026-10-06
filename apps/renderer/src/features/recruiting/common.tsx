@@ -107,6 +107,7 @@ function InterviewerPicker({
       <Select
         className="hm-select"
         value=""
+        menuOnly
         onChange={(e) => e.target.value && onChange([...value, Number(e.target.value)])}
       >
         <option value="">— Interviewer:in hinzufügen —</option>
@@ -796,6 +797,7 @@ export function ApplicationDrawer({
                   className="hm-select"
                   style={{ maxWidth: 220 }}
                   value={app.stage_id}
+                  menuOnly
                   onChange={(e) => moveStage.mutate(Number(e.target.value))}
                 >
                   {activeStages.map((s) => (

@@ -13,11 +13,16 @@ export type TourStatus = 'active' | 'done' | 'skipped';
 export interface TourState {
   status: TourStatus;
   done: number[];
+  /** Schrittzahl beim Abschluss (eingeschraenkte Konten sehen weniger Schritte). */
+  total?: number;
 }
 type Persisted = Record<string, TourState>;
 
 const EVENT = 'ohrganize:tours';
 const storageKey = (key: string) => `ohrganize.tours.${key}`;
+
+/** Nicht gespeichert: sichtbare Schrittzahl je Einfuehrung fuer das aktuelle Konto. */
+const limits: Record<string, number> = {};
 
 let activeKey: string | null = null;
 let tours: Persisted = {};
@@ -38,8 +43,8 @@ function load(key: string): Persisted {
     while (raw.includes(n) && n < tour.steps.length) n++;
     const done = Array.from({ length: n }, (_, i) => i);
     let status: TourStatus = s.status === 'done' || s.status === 'skipped' ? s.status : 'active';
-    if (status === 'done' && n < tour.steps.length) status = 'active';
-    out[tour.id] = { status, done };
+    if (status === 'done' && n < (typeof s.total === 'number' ? s.total : tour.steps.length)) status = 'active';
+    out[tour.id] = status === 'done' && typeof s.total === 'number' ? { status, done, total: s.total } : { status, done };
   }
   return out;
 }
@@ -66,6 +71,10 @@ export function useTourState() {
 }
 
 export const tourActions = {
+  /** Anzahl der Schritte, die dieses Konto sehen kann (registry.ts#visibleStepCount). */
+  setLimit: (id: string, n: number) => {
+    limits[id] = n;
+  },
   start: (id: string) => commit({ ...tours, [id]: { status: 'active', done: [] } }),
   /** Beendet ohne Abschluss. Zeigt die Meldung zur Dokumentation. */
   skip: (id: string) => {
@@ -83,10 +92,18 @@ export const tourActions = {
     for (const tour of TOURS) {
       const cur = next[tour.id];
       if (!cur || cur.status !== 'active') continue;
+      const total = limits[tour.id] ?? tour.steps.length;
       const index = cur.done.length;
-      if (tour.steps[index]?.event !== name) continue;
-      const done = [...cur.done, index];
-      next = { ...next, [tour.id]: { status: done.length >= tour.steps.length ? 'done' : 'active', done } };
+      if (index >= total) continue;
+      // Der Schritt, der dran ist, zaehlt immer; ein spaeterer nur, wenn er `catchUp` traegt.
+      let hit = tour.steps[index]?.event === name ? index : -1;
+      if (hit < 0) hit = tour.steps.findIndex((s, i) => i > index && i < total && s.catchUp === true && s.event === name);
+      if (hit < 0) continue;
+      const done = Array.from({ length: hit + 1 }, (_, i) => i);
+      next = {
+        ...next,
+        [tour.id]: done.length >= total ? { status: 'done', done, total } : { status: 'active', done },
+      };
     }
     if (next !== tours) commit(next);
   },
