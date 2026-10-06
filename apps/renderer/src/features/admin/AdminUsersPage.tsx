@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Link2, Pencil, Plus, ShieldAlert, Trash2, UserCog } from 'lucide-react';
 import {
@@ -24,6 +24,8 @@ import { EmployeeSelect, employeeName, useEmployees } from '../../components/Emp
 import { useToast } from '../../components/Toast';
 import { Tooltip } from '../../components/Tooltip';
 import { Select } from '../../components/Select';
+import { HintBox } from '../../components/HintBox';
+import { t } from '../setup/copy';
 
 const KEY = ['admin', 'admin-roles'];
 const USERS_KEY = ['admin', 'users'];
@@ -32,7 +34,7 @@ const EMPTY_PERMISSIONS: AdminPermissions = Object.fromEntries(
   ADMIN_AREAS.map((a) => [a, 'kein' as PermissionLevel]),
 ) as AdminPermissions;
 
-function useAdminRoles() {
+export function useAdminRoles() {
   return useQuery({
     queryKey: KEY,
     queryFn: () => api.get<{ admin_roles: AdminRole[] }>('/api/admin/admin-roles'),
@@ -454,22 +456,50 @@ function LinkProfileDialog({ account, onClose }: { account: AdminAccount; onClos
  * gesetzt werden — genau das war der Grund, warum `npm run seed` mit seinen
  * Demo-Passwörtern der De-facto-Weg zum Anlegen von Konten war.
  */
-function AccountDialog({
+export function AccountDialog({
   roles,
   onClose,
   onCreated,
+  fixedRole,
+  initialName,
+  initialEmployeeId,
+  profileTakenHint,
 }: {
   roles: AdminRole[];
   onClose: () => void;
   onCreated: (res: AdminAccountWithPassword) => void;
+  /** Einrichtungs-Assistent: Zugangsart steht fest, das Feld entfällt. */
+  fixedRole?: 'admin' | 'mitarbeiter';
+  initialName?: string;
+  initialEmployeeId?: number | null;
+  /** Tooltip an Profilen, die schon ein Konto haben (ausgegraut). */
+  profileTakenHint?: string;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
+  const { user: authUser } = useAuth();
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [role, setRole] = useState<'admin' | 'mitarbeiter'>('admin');
-  const [employeeId, setEmployeeId] = useState<number | null>(null);
+  const [name, setName] = useState(initialName ?? '');
+  const [nameTouched, setNameTouched] = useState(false);
+  // Pro Personalprofil gibt es genau ein Konto, und es dient zugleich als
+  // Portal-Zugang. Wer schon eins hat, ist nicht noch einmal wählbar.
+  const { data: accounts } = useAdminAccounts();
+  const { data: people } = useEmployees();
+  const takenProfiles = useMemo(
+    () => new Set((accounts ?? []).flatMap((a) => (a.employee_id != null ? [a.employee_id] : []))),
+    [accounts],
+  );
+  const [role, setRole] = useState<'admin' | 'mitarbeiter'>(fixedRole ?? 'admin');
+  const [employeeId, setEmployeeId] = useState<number | null>(initialEmployeeId ?? null);
   const [adminRoleId, setAdminRoleId] = useState<number | null>(null);
+
+  // Der Name folgt dem gewählten Profil, solange niemand ihn selbst getippt hat:
+  // Wer das Profil wechselt, behält sonst den Namen der vorigen Person.
+  useEffect(() => {
+    if (nameTouched) return;
+    const person = people?.find((p) => p.id === employeeId);
+    if (person) setName(employeeName(person));
+  }, [employeeId, people, nameTouched]);
 
   const create = useMutation({
     mutationFn: () =>
@@ -491,6 +521,11 @@ function AccountDialog({
 
   const portal = role === 'mitarbeiter';
   const valid = email.trim().includes('@') && name.trim().length > 0 && (!portal || !!employeeId);
+  // Einrichtungs-Assistent: Admin-Konten entstehen dort mit Vollzugriff (keine
+  // Rolle), die Auswahl entfällt. Hat das ANLEGENDE Konto selbst nur eine Rolle,
+  // bleibt sie sichtbar: Das Backend lässt es nur Rechte vergeben, die es hat
+  // (core/accountRights.ts), Vollzugriff wäre dort ein 403.
+  const showRoleSelect = !portal && !(fixedRole === 'admin' && authUser?.admin_role_id == null);
 
   return (
     <Modal
@@ -517,8 +552,11 @@ function AccountDialog({
           <input
             className="hm-input"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Vorname Nachname"
+            onChange={(e) => {
+              setName(e.target.value);
+              setNameTouched(true);
+            }}
+            placeholder="Anzeigename"
             autoFocus
           />
         </Field>
@@ -531,23 +569,28 @@ function AccountDialog({
             placeholder="vorname.nachname@firma.de"
           />
         </Field>
-        <Field label="Zugang" required>
-          <Select
-            className="hm-select"
-            value={role}
-            onChange={(e) => setRole(e.target.value as 'admin' | 'mitarbeiter')}
-          >
-            <option value="admin">HR-Administration (Desktop-App)</option>
-            <option value="mitarbeiter">Mitarbeitenden-Portal (Self-Service)</option>
-          </Select>
-        </Field>
+        <HintBox>
+          <p>{t('account.hint.name')}</p>
+        </HintBox>
+        {!fixedRole && (
+          <Field label="Zugang" required>
+            <Select
+              className="hm-select"
+              value={role}
+              onChange={(e) => setRole(e.target.value as 'admin' | 'mitarbeiter')}
+            >
+              <option value="admin">HR-Administration (Desktop-App)</option>
+              <option value="mitarbeiter">Mitarbeitenden-Portal (Self-Service)</option>
+            </Select>
+          </Field>
+        )}
         <Field
           label="Personalprofil"
           required={portal}
           hint={
             portal
               ? 'Pflicht: Das Portal zeigt ausschließlich die Daten dieses Profils.'
-              : 'Optional. Mit Profil kann sich das Konto zusätzlich im Portal anmelden.'
+              : 'Optional.'
           }
         >
           <EmployeeSelect
@@ -555,9 +598,20 @@ function AccountDialog({
             onChange={setEmployeeId}
             allowEmpty={!portal}
             emptyLabel="— kein Profil —"
+            disabledIds={takenProfiles}
+            disabledHint={
+              profileTakenHint ??
+              'Für dieses Profil gibt es bereits ein Konto. Es dient auch als Portal-Zugang, die Zugangsdaten sind dieselben.'
+            }
           />
         </Field>
         {!portal && (
+          <HintBox>
+            <p>{t('account.hint.profile.1')}</p>
+            <p>{t('account.hint.profile.2')}</p>
+          </HintBox>
+        )}
+        {showRoleSelect && (
           <Field
             label="Admin-Rolle"
             span2
@@ -619,7 +673,7 @@ function useLeaderGuardHint(): string | null {
  * diesem Dialog nirgends mehr. Wird es hier nicht notiert, hilft nur ein
  * erneutes Zurücksetzen.
  */
-function InitialPasswordDialog({
+export function InitialPasswordDialog({
   account,
   password,
   onClose,
@@ -639,7 +693,7 @@ function InitialPasswordDialog({
     } catch {
       // Zwischenablage kann vom Browserkern verweigert werden — das Passwort
       // steht sichtbar im Dialog, abschreiben geht immer.
-      toast.error('Kopieren nicht möglich — bitte abschreiben');
+      toast.error('Kopieren nicht möglich, bitte abschreiben');
     }
   }
 
@@ -650,7 +704,7 @@ function InitialPasswordDialog({
       onClose={onClose}
       footer={
         <button className="hm-btn hm-btn--primary" onClick={onClose}>
-          Notiert — schließen
+          Notiert
         </button>
       }
     >

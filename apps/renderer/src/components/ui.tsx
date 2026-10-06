@@ -1,5 +1,6 @@
 import React from 'react';
 import { SearchX } from 'lucide-react';
+import { nameInitials } from '@ohrganize/shared';
 import { Tooltip } from './Tooltip';
 
 /* Kleine Primitiven des Designsystems. Buttons/Inputs nutzen direkt die
@@ -41,14 +42,9 @@ export function Badge({ tone = 'neutral', children }: { tone?: BadgeTone; childr
   return <span className={`hm-badge hm-badge--${tone}`}>{children}</span>;
 }
 
-/** Initialen aus einem Anzeigenamen: erste Buchstaben der ersten beiden Woerter. */
+/** Initialen aus einem Anzeigenamen: erstes und letztes Wort (shared/common.ts). */
 export function initialsOf(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase())
-    .join('');
+  return nameInitials(name);
 }
 
 export function Avatar({
@@ -56,8 +52,11 @@ export function Avatar({
   size = 32,
   src,
   photoRef,
+  initials,
 }: {
   name: string;
+  /** Feste Buchstaben statt der Initialen des Namens (leerer Platzhalter). */
+  initials?: string;
   size?: number;
   src?: string;
   /** Ref auf den Avatar, z. B. damit useAvatarPhoto das Foto erst bei Sichtbarkeit lädt. */
@@ -66,7 +65,7 @@ export function Avatar({
   return (
     <Tooltip content={<span className="hm-tooltip__title">{name}</span>}>
       <span ref={photoRef} className="hm-avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>
-        {src ? <img src={src} alt={name} /> : initialsOf(name)}
+        {src ? <img src={src} alt={name} /> : (initials ?? initialsOf(name))}
       </span>
     </Tooltip>
   );

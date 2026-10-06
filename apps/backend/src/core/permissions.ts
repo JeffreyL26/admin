@@ -72,6 +72,8 @@ const SELF_GATED = ['/api/leadership/me'];
  */
 const ALWAYS_ALLOWED = [
   '/api/dashboard',
+  // Einrichtungs-Assistent: Rechte je Block im Handler (core/setupRoutes.ts).
+  '/api/setup',
   '/api/holidays',
   '/api/regions',
   '/api/bundeslaender',

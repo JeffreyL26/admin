@@ -82,6 +82,19 @@ export function addDaysIso(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Initialen eines Anzeigenamens: erster Buchstabe des ersten und des LETZTEN
+ * Wortes. "Bianka Marthina Simon" ergibt "BS", nicht "BM": Mittlere Vornamen
+ * zaehlen nicht. Ein einzelnes Wort ergibt einen Buchstaben.
+ */
+export function nameInitials(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '';
+  const first = parts[0]![0] ?? '';
+  const last = parts.length > 1 ? (parts[parts.length - 1]![0] ?? '') : '';
+  return `${first}${last}`.toUpperCase();
+}
+
 /** ISO-Datum (YYYY-MM-DD) → deutsche Anzeige (TT.MM.JJJJ). */
 export function formatDate(iso: string | null | undefined): string {
   if (iso === null || iso === undefined || iso === '') return '—';

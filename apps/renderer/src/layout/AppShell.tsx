@@ -11,9 +11,28 @@ import { Avatar } from '../components/ui';
 import { CommandPalette } from '../components/CommandPalette';
 import { Tooltip } from '../components/Tooltip';
 import { useLeaderStatus } from '../features/leadership/api';
+import { SetupProvider, useSpotlightPath } from '../features/setup/SetupProvider';
+import { SetupLayer } from '../features/setup/SetupAssistant';
+import { TourLayer } from '../features/tours/TourLayer';
+import { SkipNoticeBridge } from '../features/tours/SkipNoticeBridge';
+import { t } from '../features/setup/copy';
 import logo from '../assets/logo.png';
 
+/** Der Einrichtungs-Assistent hält seinen Stand für die ganze Shell (Dialog, Seitenleiste). */
 export function AppShell() {
+  return (
+    <SetupProvider>
+      <Shell />
+    </SetupProvider>
+  );
+}
+
+function Shell() {
+  const spotlight = useSpotlightPath();
+  // Der hervorgehobene Eintrag kann unter dem sichtbaren Teil der Seitenleiste liegen.
+  useEffect(() => {
+    if (spotlight) document.querySelector('.sidebar__link--spotlight')?.scrollIntoView({ block: 'nearest' });
+  }, [spotlight]);
   const { user, logout, can, features } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -115,9 +134,18 @@ export function AppShell() {
               <div key={section.key}>
                 {section.title && <div className="sidebar__section">{section.title}</div>}
                 {items.map((item) => (
-                  <NavLink key={item.path} to={item.path} className="sidebar__link" end={item.end}>
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    className={`sidebar__link${spotlight === item.path ? ' sidebar__link--spotlight' : ''}`}
+                    end={item.end}
+                  >
                     <item.icon size={17} />
                     {item.label}
+                    {/* Einrichtungs-Assistent: zeigt, wo der laufende Schritt später zu finden ist. */}
+                    {spotlight === item.path && (
+                      <span className="sidebar__spot">{t('frame.spotlight.badge')}</span>
+                    )}
                   </NavLink>
                 ))}
               </div>
@@ -141,7 +169,7 @@ export function AppShell() {
           </Tooltip>
         </div>
       </aside>
-      <main className="main">
+      <main className="main hm-setup-host">
         {/* Lizenzhinweise sitzen über dem scrollenden Seitenbereich, damit sie
             auf jeder Seite stehen bleiben (Zustand aus dem Auth-Kontext). */}
         <LicenseBanner />
@@ -152,7 +180,10 @@ export function AppShell() {
             <Outlet />
           </div>
         </div>
+        <SetupLayer />
       </main>
+      <TourLayer />
+      <SkipNoticeBridge />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );

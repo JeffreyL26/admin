@@ -12,6 +12,50 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Seiten-Einfuehrung "Gehaelter" (06.10.2026)
+- **Neu:** Beim ersten Besuch einer Seite startet ihre Einfuehrung: kleine Blasen
+  mit farbigem Ring am Ziel, unten rechts pro Seite eine Leiste mit Haken und
+  einem Segment je Schritt (Farben der Website-Leiste). Die Schritte haken sich
+  ueber die echten Aktionen ab (`tourEvent`); sind alle erledigt, fliegt der
+  Haken in die Fenstermitte und leuchtet auf. Fuenf Schritte fuer Gehaelter,
+  weitere Seiten tragen sich in `features/tours/registry.ts` und `copy.ts` ein.
+- **Ueberspringen** (Leiste, und jeder uebersprungene Schritt des Einrichtungs-
+  Assistenten) zeigt eine gruene Meldung mit dem Link "Dokumentation"; er ruft
+  dieselbe Aktion wie der Menueeintrag (`lib/docs.ts`). Einfuehrungen lassen
+  sich unter Einstellungen → Konto erneut starten.
+- **Admin-Konto im Assistenten:** mehrere angelegte Konten werden im Erfolgsmoment
+  alle genannt; Platzhalter "Anzeigename"; leeres Foto traegt ein "O".
+
+### Einrichtungs-Assistent fuer neue Installationen (06.10.2026)
+- **Neu:** Geführte Einrichtung in sieben Schritten (Firma und Standort,
+  Abteilungen, erste Mitarbeitende, Vorgesetzte, Abwesenheitsarten, zweites
+  Admin-Konto, Portal-Zugang) als Dialog ueber dem Hauptbereich, mit
+  Fortschrittsring, Erfolgsmoment je Schritt, Pause als Launcher unten rechts,
+  Hervorhebung des Zieleintrags in der Seitenleiste und Abschlussseite. Er
+  oeffnet sich von selbst nur bei einer leeren Installation; sonst bietet das
+  Dashboard eine Karte, und ueber Befehlspalette (Strg+K, "Einrichtung") und
+  Einstellungen → Konto laesst er sich jederzeit oeffnen.
+- **Stand aus den Daten:** `GET /api/setup/status` liefert nur Zaehlungen, je
+  Block nach Recht gefiltert (gesperrte Bloecke fehlen). Wer einen Schritt
+  ueber die normalen Seiten erledigt, sieht ihn im Assistenten erledigt. Nur
+  Pause, Ausblenden und "Abwesenheit bestaetigt" liegen je Konto im
+  localStorage (`ohrganize.setup.<Installation>.<Konto-ID>`).
+- **Schritte nach Recht:** Es erscheinen nur Schritte, die das Konto
+  bearbeiten darf und die Variante und Lizenz mitbringen.
+- **Wiederverwendet statt nachgebaut:** Schritt 3 oeffnet das vorhandene
+  Formular "Mitarbeiter:in anlegen" (neues Prop `onCreated`), Schritt 6 und 7
+  die Konto-Dialoge der Benutzerverwaltung (jetzt exportiert, `AccountDialog`
+  mit `fixedRole`). Das Erstpasswort lebt nur im Dialog.
+- **Texte:** alle Wortlaute stehen in `features/setup/copy.ts`.
+- **Portal-Zugang zaehlt jedes Konto mit Personalprofil**, auch ein Admin-Konto
+  (gleiche Zugangsdaten). Im Dialog "Konto anlegen" sind Profile, die schon ein
+  Konto haben, ausgegraut (Tooltip erklaert warum), und der Name folgt dem
+  gewaehlten Profil, solange er nicht selbst getippt wurde. `Select` kennt
+  dafuer `data-hint` an gesperrten `<option>`.
+- **Initialen** bestehen aus erstem und letztem Wort des Namens
+  (`nameInitials` in shared): "Bianka Marthina Simon" ergibt "BS" (Desktop,
+  Organisationsseite, Portal).
+
 ### Dateien verknuepfen nur mit Leserecht, Mitarbeiterfoto nur aus eigenem Bild-Upload (05.10.2026)
 - **Sicherheit, Verknuepfen:** Dokumente, Vertraege, AU-Bescheinigungen,
   Trainingszertifikate, Freelancer-Rechnungen, Vorlagen, Ankuendigungs-

@@ -118,6 +118,18 @@ paths:
       summary: Alias von /api/regions fuer das Land der Variante
       responses:
         "200": { description: "{ bundeslaender: { code: name } }" }
+  /api/setup/status:
+    get:
+      summary: Stand des Einrichtungs-Assistenten (nur Zaehlungen, abgeleitet aus den Daten)
+      description: >-
+        Jedes Admin-Konto darf die Route aufrufen. Die Rechte werden je Block
+        geprueft: Felder gesperrter Bereiche fehlen in der Antwort (nie 0),
+        allowed_areas nennt die lesbaren Bereiche. portal_users zaehlt jedes Konto mit
+        Personalprofil (auch Admin-Konten, die sich damit im Portal anmelden
+        koennen), ausser dem abfragenden Konto. employees_without_account
+        verlangt zusaetzlich das Leserecht auf personal. Gespeichert wird nichts.
+      responses:
+        "200": { description: "{ allowed_areas, company_saved?, locations?, departments?, employees_active?, employees_with_manager?, absence_types_active?, admin_users?, portal_users?, employees_without_account? }" }
   /api/holidays/{year}/{land}:
     get:
       summary: Gesetzliche Feiertage eines Jahres in einer Region

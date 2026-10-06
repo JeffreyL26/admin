@@ -94,6 +94,8 @@ function Progress({ value, max }: { value: number; max: number }) {
 
 export function AbsenceChartWidget({ data }: { data: DashboardData }) {
   if (!data.absenceDaysByMonth) return <Restricted />;
+  // Ohne Abwesenheiten bliebe nur ein leeres Gitter: wie die Nachbarkacheln einen Satz sagen.
+  if (data.absenceDaysByMonth.every((m) => !m.days)) return <Empty text="Keine Abwesenheiten." />;
   const currentMonth = todayIsoLocal().slice(0, 7);
   const monthData = data.absenceDaysByMonth.map((m) => ({
     name: MONTH_NAMES[Number(m.month.slice(5)) - 1],

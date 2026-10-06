@@ -2,11 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { CornerDownLeft, FileText, Megaphone, Search, User } from 'lucide-react';
+import { CornerDownLeft, FileText, Megaphone, Search, Sparkles, User } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
 import { NAV_SECTIONS, navItemAllowedByFeatures } from '../layout/nav';
 import { useLeaderStatus } from '../features/leadership/api';
+import { useSetupContext } from '../features/setup/SetupProvider';
+import { setupActions } from '../features/setup/store';
+import { t } from '../features/setup/copy';
 import { Avatar } from './ui';
 import { useDebounced } from './useDebounced';
 
@@ -22,6 +25,8 @@ interface PaletteItem {
   sublabel?: string;
   icon: React.ReactNode;
   to: string;
+  /** Statt zu navigieren etwas ausfuehren (Einrichtungs-Assistent oeffnen). */
+  action?: () => void;
 }
 
 // Der wirksame Rechtebereich eines Eintrags kommt wie in der Sidebar aus dem
@@ -34,6 +39,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const navigate = useNavigate();
   const { can, features } = useAuth();
   const isLeader = useLeaderStatus().data?.is_leader === true;
+  const setup = useSetupContext();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -100,6 +106,18 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         to: n.path,
       });
     }
+    // Einrichtungs-Assistent wieder oeffnen: nur auf Suche danach, sonst blaehte
+    // er die Standardliste auf.
+    if (setup.eligible && /einricht|assistent|setup/.test(lower)) {
+      result.push({
+        key: 'setup-reopen',
+        group: 'Navigation',
+        label: t('command.reopen'),
+        icon: <Sparkles size={16} />,
+        to: '',
+        action: () => setupActions.reopen(setup.progress.next),
+      });
+    }
     for (const e of employees ?? []) {
       result.push({
         key: `emp-${e.id}`,
@@ -130,14 +148,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       });
     }
     return result;
-  }, [q, employees, documents, announcements, can, isLeader]);
+  }, [q, employees, documents, announcements, can, isLeader, features, setup.eligible, setup.progress.next]);
 
   const clamped = Math.min(selected, Math.max(0, items.length - 1));
 
   const activate = useCallback(
     (item: PaletteItem) => {
       onClose();
-      navigate(item.to);
+      if (item.action) item.action();
+      else navigate(item.to);
     },
     [navigate, onClose],
   );

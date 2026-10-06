@@ -4,12 +4,20 @@ import { CheckCircle2, AlertCircle } from 'lucide-react';
 interface ToastItem {
   id: number;
   kind: 'success' | 'error';
-  message: string;
+  message: React.ReactNode;
+  /** Gruen hinterlegte Meldung (Hinweise, die man in Ruhe lesen soll). */
+  green?: boolean;
+}
+
+export interface ToastOptions {
+  /** Anzeigedauer in Millisekunden (Vorgabe 4200). */
+  duration?: number;
+  green?: boolean;
 }
 
 const ToastContext = createContext<{
-  success: (message: string) => void;
-  error: (message: string) => void;
+  success: (message: React.ReactNode, options?: ToastOptions) => void;
+  error: (message: React.ReactNode, options?: ToastOptions) => void;
 }>({ success: () => {}, error: () => {} });
 
 export function useToast() {
@@ -20,15 +28,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const nextId = useRef(1);
 
-  const push = useCallback((kind: ToastItem['kind'], message: string) => {
+  const push = useCallback((kind: ToastItem['kind'], message: React.ReactNode, options?: ToastOptions) => {
     const id = nextId.current++;
-    setToasts((t) => [...t, { id, kind, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
+    setToasts((t) => [...t, { id, kind, message, green: options?.green }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), options?.duration ?? 4200);
   }, []);
 
   const value = {
-    success: useCallback((m: string) => push('success', m), [push]),
-    error: useCallback((m: string) => push('error', m), [push]),
+    success: useCallback((m: React.ReactNode, o?: ToastOptions) => push('success', m, o), [push]),
+    error: useCallback((m: React.ReactNode, o?: ToastOptions) => push('error', m, o), [push]),
   };
 
   return (
@@ -36,7 +44,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       <div className="hm-toast-stack">
         {toasts.map((t) => (
-          <div key={t.id} className={`hm-toast hm-toast--${t.kind}`}>
+          <div key={t.id} className={`hm-toast hm-toast--${t.kind}${t.green ? ' hm-toast--green' : ''}`}>
             <span className="hm-toast__icon" style={{ display: 'inline-flex' }}>
               {t.kind === 'success' ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
             </span>

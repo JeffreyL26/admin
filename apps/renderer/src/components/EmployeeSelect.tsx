@@ -51,6 +51,8 @@ export function EmployeeSelect({
   emptyLabel = '— auswählen —',
   disabled,
   includeInactive = false,
+  disabledIds,
+  disabledHint,
 }: {
   value: number | null;
   onChange: (id: number | null) => void;
@@ -58,6 +60,9 @@ export function EmployeeSelect({
   emptyLabel?: string;
   disabled?: boolean;
   includeInactive?: boolean;
+  /** Personen, die nicht wählbar sind (ausgegraut), mit Erklärung im Tooltip. */
+  disabledIds?: ReadonlySet<number>;
+  disabledHint?: string;
 }) {
   const { data: employees } = useEmployees(includeInactive);
   return (
@@ -69,7 +74,12 @@ export function EmployeeSelect({
     >
       <option value="">{emptyLabel}</option>
       {(employees ?? []).map((e) => (
-        <option key={e.id} value={e.id}>
+        <option
+          key={e.id}
+          value={e.id}
+          disabled={disabledIds?.has(e.id) && e.id !== value}
+          data-hint={disabledIds?.has(e.id) && e.id !== value ? disabledHint : undefined}
+        >
           {e.last_name}, {e.first_name}
           {e.status === 'ausgeschieden' ? ' (ausgeschieden)' : ''}
         </option>

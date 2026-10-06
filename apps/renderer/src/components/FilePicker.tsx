@@ -123,6 +123,7 @@ export function FilePicker({
  */
 export function PhotoPicker({
   name,
+  placeholderInitials,
   previewUrl,
   busy,
   disabled,
@@ -131,6 +132,8 @@ export function PhotoPicker({
   imageOnly,
 }: {
   name: string;
+  /** Buchstaben im leeren Platzhalter statt der Initialen von `name`. */
+  placeholderInitials?: string;
   previewUrl?: string;
   busy?: boolean;
   disabled?: boolean;
@@ -165,7 +168,7 @@ export function PhotoPicker({
           {shown ? (
             <img src={shown} alt={name} />
           ) : (
-            <Avatar name={name} size={64} />
+            <Avatar name={name} size={64} initials={placeholderInitials} />
           )}
           <span className="hm-photopick__overlay">
             {busy ? <Loader2 size={18} className="hm-spin" /> : <UploadCloud size={18} />}

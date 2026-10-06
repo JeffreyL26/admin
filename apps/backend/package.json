@@ -12,7 +12,7 @@
     "backup": "tsx src/scripts/backup.ts",
     "lizenz": "tsx src/scripts/license-tool.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/merge-openapi.mjs --check && tsx src/test/smoke.ts && tsx src/test/licenseStateTest.ts && tsx src/test/licenseSmoke.ts && tsx src/test/featureSmoke.ts && tsx src/test/variantSmoke.ts && tsx src/test/holidaysTest.ts && tsx src/test/colorTest.ts && tsx src/test/auditTransactionCheck.ts && tsx src/test/fileLinkCheck.ts && tsx src/test/sessionPolicyTest.ts && tsx src/test/encryptionSmoke.ts && tsx src/modules/admin/smoke.ts && tsx src/modules/leadership/smoke.ts && tsx src/modules/communication/smoke.ts",
+    "test": "node scripts/merge-openapi.mjs --check && tsx src/test/smoke.ts && tsx src/test/licenseStateTest.ts && tsx src/test/licenseSmoke.ts && tsx src/test/featureSmoke.ts && tsx src/test/variantSmoke.ts && tsx src/test/holidaysTest.ts && tsx src/test/colorTest.ts && tsx src/test/auditTransactionCheck.ts && tsx src/test/fileLinkCheck.ts && tsx src/test/sessionPolicyTest.ts && tsx src/test/setupSmoke.ts && tsx src/test/encryptionSmoke.ts && tsx src/modules/admin/smoke.ts && tsx src/modules/leadership/smoke.ts && tsx src/modules/communication/smoke.ts",
     "openapi": "node scripts/merge-openapi.mjs",
     "build": "node scripts/build.mjs",
     "test:holidays": "tsx src/test/holidaysTest.ts"

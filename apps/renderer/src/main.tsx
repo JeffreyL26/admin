@@ -6,6 +6,8 @@ import './design/tokens.css';
 import './design/base.css';
 import './design/components.css';
 import './design/layout.css';
+import './features/setup/setup.css';
+import './features/tours/tours.css';
 import { VARIANT, VARIANT_MARKER } from '@variant-manifest';
 import { initTheme } from './design/theme';
 import App from './App';
