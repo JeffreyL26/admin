@@ -58,7 +58,7 @@ export const COPY = {
   'rollen-rechte.step1.todo': 'Klicken Sie hier und legen Sie eine an.',
   'rollen-rechte.step2.title': 'Name und Sichtbarkeit',
   'rollen-rechte.step2.text':
-    'Vergeben Sie einen Namen, etwa Außendienst. Aktiv und Kalender im Portal lassen Sie für den Anfang angehakt.',
+    'Vergeben Sie einen Namen, etwa Außendienst. Aktiv und Kalender im Portal lassen Sie für den Anfang angehakt. Zum Ausprobieren: Die Rolle lässt sich später wieder löschen.',
   'rollen-rechte.step2.todo': 'Legen Sie die Rolle an.',
   'rollen-rechte.step2.alt': 'Hier geht es mit der Rolle weiter.',
   'rollen-rechte.step3.title': 'Wer gehört dazu?',
@@ -82,7 +82,7 @@ export const COPY = {
   'rollen-rechte.step5.alt': 'Wechseln Sie auf den Reiter Rollen & Rechte.',
   'rollen-rechte.step6.title': 'Bereich für Bereich',
   'rollen-rechte.step6.text':
-    'Je Bereich gilt: kein Zugriff, nur lesen oder bearbeiten. Was nicht freigegeben ist, bleibt dem Konto verborgen.',
+    'Je Bereich gilt: kein Zugriff, nur lesen oder bearbeiten. Was nicht freigegeben ist, bleibt dem Konto verborgen. Die Rolle lässt sich später löschen, solange kein Konto sie hat.',
   'rollen-rechte.step6.todo': 'Legen Sie die Rolle an.',
   'rollen-rechte.step6.alt': 'Hier geht es mit der Rolle weiter.',
   'rollen-rechte.step7.title': 'Rolle zuweisen',
@@ -101,7 +101,7 @@ export const COPY = {
   'stellen.step1.todo': 'Klicken Sie hier und legen Sie eine an.',
   'stellen.step2.title': 'Die Eckdaten',
   'stellen.step2.text':
-    'Pflicht sind nur Titel, Beschäftigungsart und Anzahl. Abteilung, Standort, Führungskraft und Gehaltsspanne ergänzen Sie, wenn Sie sie kennen.',
+    'Pflicht sind nur Titel, Beschäftigungsart und Anzahl. Abteilung, Standort, Führungskraft und Gehaltsspanne ergänzen Sie, wenn Sie sie kennen. Eine Stelle ohne Bewerbungen lässt sich später löschen.',
   'stellen.step2.todo': 'Legen Sie die Stelle an.',
   'stellen.step2.alt': 'Hier geht es mit der Stelle weiter.',
   'stellen.step3.title': 'Vom Entwurf zur Besetzung',
