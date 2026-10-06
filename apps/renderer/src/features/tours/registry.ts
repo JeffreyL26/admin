@@ -10,12 +10,24 @@ import type { AdminArea } from '@ohrganize/shared';
  * (andere Ansicht, Dialog zu), nimmt die Blase das `altTarget` mit dem Text
  * `<Tour>.step<N>.alt`; gibt es keins, bleibt nur die Leiste.
  */
+export interface TourPage {
+  key: string;
+  path: string;
+  area: AdminArea;
+}
+
 export interface TourStepDef {
   event: string;
   target: string;
   altTarget?: string;
+  /** Fehlen Daten, auf die der Schritt wartet: Ziel mit Hinweistext `<Tour>.step<N>.empty`. */
+  emptyTarget?: string;
   /** `above`: Blase ueber das Ziel (Dialoge: darunter laegen die Knoepfe). */
   placement?: 'above';
+  /** Schluessel in `TourDef.pages`; Vorgabe: erste Seite. */
+  page?: string;
+  /** Wechselhinweis (`<Tour>.step<N>.enter`) beim automatischen Seitenwechsel auf diesen Schritt. */
+  enter?: boolean;
 }
 
 export interface TourDef {
@@ -24,6 +36,8 @@ export interface TourDef {
   path: string;
   /** Bereich, den das Konto zum Oeffnen der Seite braucht. */
   area: AdminArea;
+  /** Nur Einfuehrungen ueber mehrere Seiten; pages[0] ist die Einstiegsseite (= path/area). */
+  pages?: TourPage[];
   steps: TourStepDef[];
   /**
    * Ereignisse, die schon wahr sind, wenn die Einfuehrung startet (die Seite
@@ -46,7 +60,59 @@ export const TOURS: TourDef[] = [
       { event: 'gehaelter.decided-viewed', target: 'gehaelter-decided', altTarget: 'gehaelter-back' },
     ],
   },
+  {
+    id: 'rollen-rechte',
+    path: '/verwaltung/rollen',
+    area: 'verwaltung',
+    pages: [
+      { key: 'rollen', path: '/verwaltung/rollen', area: 'verwaltung' },
+      { key: 'benutzer', path: '/verwaltung/benutzer', area: 'benutzer' },
+    ],
+    steps: [
+      { event: 'rollen-rechte.role-dialog', target: 'rollen-create-btn' },
+      { event: 'rollen-rechte.role-saved', target: 'rollen-form', altTarget: 'rollen-create-btn', placement: 'above' },
+      { event: 'rollen-rechte.members-dialog', target: 'rollen-members-btn' },
+      {
+        event: 'rollen-rechte.members-saved',
+        target: 'rollen-members-list',
+        emptyTarget: 'rollen-members-empty',
+        altTarget: 'rollen-members-btn',
+        placement: 'above',
+      },
+      { event: 'rollen-rechte.admin-role-dialog', page: 'benutzer', enter: true, target: 'rechte-role-btn', altTarget: 'rechte-tab-rollen' },
+      { event: 'rollen-rechte.admin-role-saved', page: 'benutzer', target: 'rechte-role-form', altTarget: 'rechte-role-btn', placement: 'above' },
+      {
+        event: 'rollen-rechte.assign-opened',
+        page: 'benutzer',
+        target: 'rechte-assign-select',
+        emptyTarget: 'rechte-account-create-btn',
+        altTarget: 'rechte-tab-konten',
+      },
+    ],
+  },
 ];
+
+/** Die Einfuehrung, zu deren Seiten `pathname` gehoert (Einstiegsseite oder weitere). */
+export function tourAt(pathname: string): TourDef | null {
+  return TOURS.find((x) => [x.path, ...(x.pages ?? []).map((p) => p.path)].some((p) => pathname.startsWith(p))) ?? null;
+}
+
+/** Seite eines Schritts (Vorgabe: die erste). */
+export function stepPage(tour: TourDef, step: TourStepDef): TourPage {
+  const first = tour.pages?.[0] ?? { key: 'main', path: tour.path, area: tour.area };
+  return tour.pages?.find((p) => p.key === step.page) ?? first;
+}
+
+/**
+ * Anzahl der fuehrenden Schritte, deren Seitenbereich das Konto oeffnen darf.
+ * Ein Praefix, kein Filter: Seiten mit moeglicherweise fehlendem Recht stehen am
+ * Ende, damit `done` ein zusammenhaengender Anfang bleibt.
+ */
+export function visibleStepCount(tour: TourDef, can: (area: AdminArea) => boolean): number {
+  let n = 0;
+  while (n < tour.steps.length && can(stepPage(tour, tour.steps[n]).area)) n++;
+  return n;
+}
 
 /**
  * Anzahl der Segmentfarben (Variablen `--tour-1` bis `--tour-8` samt `--tour-N-on`

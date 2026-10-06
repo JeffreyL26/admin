@@ -1,10 +1,10 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { Check, X } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { ArrowRightLeft, Check, X } from 'lucide-react';
 import { useAuth } from '../../auth/AuthContext';
 import { Tooltip } from '../../components/Tooltip';
 import { t, type CopyKey } from './copy';
-import { TOURS, tourColor, type TourDef } from './registry';
+import { TOURS, stepPage, tourAt, tourColor, visibleStepCount, type TourDef, type TourStepDef } from './registry';
 import { tourActions, useTourState, type TourState, type TourStatus } from './store';
 
 const BLOB_W = 288;
@@ -125,16 +125,55 @@ export function TourLayer() {
   const { pathname, search } = useLocation();
   const { can } = useAuth();
   const { tours, bound } = useTourState();
-  const tour = TOURS.find((x) => pathname.startsWith(x.path)) ?? null;
+  const navigate = useNavigate();
+  const tour = tourAt(pathname);
   const state = tour ? tours[tour.id] : undefined;
+  const total = tour ? visibleStepCount(tour, can) : 0;
+  const entryPath = tour ? (tour.pages?.[0]?.path ?? tour.path) : '';
 
-  // Erster Besuch: starten. Erst, wenn der Stand dieser Installation geladen ist.
+  // Sichtbare Schrittzahl je Einfuehrung fuer dieses Konto (vor dem Start, vor Ereignissen).
   useEffect(() => {
-    if (tour && bound && !state && can(tour.area)) {
+    for (const x of TOURS) tourActions.setLimit(x.id, visibleStepCount(x, can));
+  }, [can]);
+
+  // Erster Besuch: starten, aber nur auf der Einstiegsseite. Erst, wenn der Stand
+  // dieser Installation geladen ist. Auf einer weiteren Seite laeuft ein Stand nur weiter.
+  useEffect(() => {
+    if (tour && bound && !state && pathname.startsWith(entryPath) && can(tour.area)) {
       tourActions.start(tour.id);
       tour.initial?.(search).forEach(tourActions.event);
     }
-  }, [tour, bound, state, can, search]);
+  }, [tour, bound, state, can, search, pathname, entryPath]);
+
+  // Seitenwechsel: Gehoert der naechste Schritt zu einer anderen Seite als der gerade
+  // erledigte und man steht noch dort, wechselt die Ansicht nach kurzer Pause (Meldung
+  // und Fuellen des Segments bleiben sichtbar). Wer selbst woanders hingeht, wird nicht umgeleitet.
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
+  const seen = useRef<{ id: string; n: number } | null>(null);
+  const [enterFor, setEnterFor] = useState<{ id: string; index: number } | null>(null);
+  const doneCount = state?.status === 'active' ? state.done.length : -1;
+  useEffect(() => {
+    if (!tour || doneCount < 0) {
+      seen.current = null;
+      return;
+    }
+    const before = seen.current;
+    seen.current = { id: tour.id, n: doneCount };
+    if (!before || before.id !== tour.id || doneCount <= before.n) return;
+    const from = stepPage(tour, tour.steps[doneCount - 1]);
+    const next = tour.steps[doneCount];
+    if (!next || doneCount >= total) return;
+    const to = stepPage(tour, next);
+    if (to.path === from.path) return;
+    const timer = window.setTimeout(() => {
+      if (!pathRef.current.startsWith(from.path)) return;
+      setEnterFor({ id: tour.id, index: doneCount });
+      navigate(to.path);
+    }, 900);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tour?.id, doneCount]);
 
   // Haken fliegt: Position des Hakens in der Leiste merken, solange sie steht.
   const lastCheck = useRef<Box | null>(null);
@@ -173,23 +212,48 @@ export function TourLayer() {
   }, [tour, state]);
 
   const active = tour && state?.status === 'active' ? { tour, state } : null;
+  const nextIndex = active ? active.tour.steps.findIndex((_, i) => !active.state.done.includes(i)) : -1;
+  const nextStep = active && nextIndex >= 0 && nextIndex < total ? active.tour.steps[nextIndex] : undefined;
+  const nextPage = active && nextStep ? stepPage(active.tour, nextStep) : undefined;
+  const onPage = !!nextPage && pathname.startsWith(nextPage.path);
   return (
     <>
-      {active && <TourBar tour={active.tour} state={active.state} />}
-      {active && <TourBlob tour={active.tour} state={active.state} />}
+      {active && (
+        <TourBar
+          tour={active.tour}
+          state={active.state}
+          total={total}
+          goto={nextPage && !onPage ? { key: nextPage.key, path: nextPage.path } : undefined}
+        />
+      )}
+      {active && nextStep && onPage && <TourBlob tour={active.tour} index={nextIndex} step={nextStep} />}
+      {active && nextStep && onPage && nextStep.enter && enterFor?.id === active.tour.id && enterFor.index === nextIndex && (
+        <TourEnterNotice key={`${active.tour.id}-${nextIndex}`} tour={active.tour} index={nextIndex} />
+      )}
       {finale && <TourFinale from={finale.from} label={finale.label} onDone={() => setFinale(null)} />}
     </>
   );
 }
 
-function TourBar({ tour, state }: { tour: TourDef; state: TourState }) {
+function TourBar({
+  tour,
+  state,
+  total,
+  goto,
+}: {
+  tour: TourDef;
+  state: TourState;
+  total: number;
+  goto?: { key: string; path: string };
+}) {
+  const navigate = useNavigate();
   return (
     <div className="hm-tour-bar" role="status" aria-live="polite">
       <span className="hm-tour__check" aria-hidden="true">
         <Check size={14} strokeWidth={3} />
       </span>
       <span className="hm-tour-bar__segs" aria-hidden="true">
-        {tour.steps.map((_, i) => (
+        {tour.steps.slice(0, total).map((_, i) => (
           <i
             key={i}
             className={state.done.includes(i) ? 'is-on' : ''}
@@ -198,8 +262,13 @@ function TourBar({ tour, state }: { tour: TourDef; state: TourState }) {
         ))}
       </span>
       <span className="hm-tour-bar__label">
-        {t('bar.label', { title: t(`${tour.id}.title` as CopyKey), done: state.done.length, total: tour.steps.length })}
+        {t('bar.label', { title: t(`${tour.id}.title` as CopyKey), done: state.done.length, total })}
       </span>
+      {goto && (
+        <button type="button" className="hm-tour-bar__goto" onClick={() => navigate(goto.path)}>
+          {t('bar.goto', { page: t(`${tour.id}.page.${goto.key}` as CopyKey) })}
+        </button>
+      )}
       <Tooltip content={<div className="hm-tooltip__title">{t('bar.skip')}</div>}>
         <button
           type="button"
@@ -214,15 +283,15 @@ function TourBar({ tour, state }: { tour: TourDef; state: TourState }) {
   );
 }
 
-function TourBlob({ tour, state }: { tour: TourDef; state: TourState }) {
-  const index = tour.steps.findIndex((_, i) => !state.done.includes(i));
-  const step = tour.steps[index];
-  const found = useTarget([step?.target, step?.altTarget]);
-  if (!step || !found) return null;
+function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: TourStepDef }) {
+  // Reihenfolge zaehlt: Ohne Daten steht der Hinweis vor dem Reiter-Ziel.
+  const found = useTarget([step.target, step.emptyTarget, step.altTarget]);
+  if (!found) return null;
 
   const color = tourColor(index);
   const n = index + 1;
-  const usesAlt = found.name !== step.target;
+  const kind: 'main' | 'empty' | 'alt' =
+    found.name === step.target ? 'main' : found.name === step.emptyTarget ? 'empty' : 'alt';
   const base = `${tour.id}.step${n}`;
   const { box, vw, vh } = found;
   const cx = box.left + box.width / 2;
@@ -267,7 +336,9 @@ function TourBlob({ tour, state }: { tour: TourDef; state: TourState }) {
           <span className="hm-tour-blob__n">{n}</span>
           {t(`${base}.title` as CopyKey)}
         </p>
-        {usesAlt ? (
+        {kind === 'empty' ? (
+          <p className="hm-tour-blob__todo">{t(`${base}.empty` as CopyKey)}</p>
+        ) : kind === 'alt' ? (
           <p className="hm-tour-blob__todo">{t(`${base}.alt` as CopyKey)}</p>
         ) : (
           <>
@@ -277,6 +348,35 @@ function TourBlob({ tour, state }: { tour: TourDef; state: TourState }) {
         )}
       </div>
     </>
+  );
+}
+
+/** Wechselhinweis nach dem automatischen Seitenwechsel: ca. 9 s, X, oder bis der Schritt erledigt ist. */
+function TourEnterNotice({ tour, index }: { tour: TourDef; index: number }) {
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setOpen(false), 9000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  if (!open) return null;
+  const color = tourColor(index);
+  return (
+    <div
+      className="hm-tour-notice"
+      style={{ '--c': color.bg, '--cn': color.on } as React.CSSProperties}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="hm-tour-blob__n">
+        <ArrowRightLeft size={12} strokeWidth={2.5} />
+      </span>
+      <p>{t(`${tour.id}.step${index + 1}.enter` as CopyKey)}</p>
+      <Tooltip content={<div className="hm-tooltip__title">{t('notice.close')}</div>}>
+        <button type="button" className="hm-tour-bar__skip hm-tour-notice__close" aria-label={t('notice.close')} onClick={() => setOpen(false)}>
+          <X size={14} />
+        </button>
+      </Tooltip>
+    </div>
   );
 }
 

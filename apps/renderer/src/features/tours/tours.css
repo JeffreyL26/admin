@@ -98,6 +98,72 @@ body:has(.hm-setup-launcher):has(.hm-tour-bar) .hm-toast-stack {
   bottom: 144px;
 }
 
+/* Knopf "Weiter bei <Seite>" fuer die falsche Seite */
+.hm-tour-bar__goto {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  background: var(--bg-tint-1);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.hm-tour-bar__goto:hover {
+  background: var(--bg-tint-2, var(--bg-tint-1));
+}
+
+/* ---------- Wechselhinweis ---------- */
+.hm-tour-notice {
+  position: fixed;
+  right: 24px;
+  bottom: 76px;
+  z-index: 120;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 38px 12px 12px;
+  border: 1.5px solid var(--c);
+  border-radius: 14px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  animation: hm-tour-rise 0.3s ease-out both;
+}
+.hm-tour-notice p {
+  margin: 0;
+}
+.hm-tour-notice .hm-tour-blob__n {
+  margin-top: 1px;
+}
+.hm-tour-notice__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+body:has(.hm-modal) .hm-tour-notice {
+  z-index: 90;
+}
+body:has(.hm-setup__panel) .hm-tour-notice {
+  display: none;
+}
+body:has(.hm-setup-launcher) .hm-tour-notice {
+  bottom: 144px;
+}
+body:has(.hm-tour-notice) .hm-toast-stack {
+  bottom: 188px;
+}
+body:has(.hm-setup-launcher):has(.hm-tour-notice) .hm-toast-stack {
+  bottom: 256px;
+}
+
 /* ---------- Ring und Blase ---------- */
 .hm-tour-ring {
   position: fixed;
@@ -240,6 +306,7 @@ body:has(.hm-setup-launcher):has(.hm-tour-bar) .hm-toast-stack {
 @media (prefers-reduced-motion: reduce) {
   .hm-tour-bar,
   .hm-tour-blob,
+  .hm-tour-notice,
   .hm-tour-finale__label,
   .hm-tour-finale__check.is-glow {
     animation: none;

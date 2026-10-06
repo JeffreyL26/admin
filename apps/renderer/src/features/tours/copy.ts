@@ -13,6 +13,8 @@ export const COPY = {
   'bar.skip.aria': 'Einführung überspringen',
   'skip.notice': 'Über die {docs} können Sie alles in Ruhe nachschauen.',
   'skip.docs': 'Dokumentation',
+  'bar.goto': 'Weiter bei {page}',
+  'notice.close': 'Hinweis schließen',
   'konto.title': 'Einführungen',
   'konto.text': 'Kurze Rundgänge durch einzelne Seiten. Übersprungene und abgeschlossene lassen sich erneut starten.',
   'konto.restart': 'Erneut starten',
@@ -44,6 +46,51 @@ export const COPY = {
     'Wer eine Anfrage stellt, entscheidet sie nicht selbst. Entschiedene Anträge bleiben hier nachvollziehbar.',
   'gehaelter.step5.todo': 'Wechseln Sie zwischen den Reitern.',
   'gehaelter.step5.alt': 'Zurück zur Übersicht, dort stehen die Anträge.',
+
+  // ---- Rollen & Rechte ------------------------------------------------------
+  'rollen-rechte.title': 'Rollen & Rechte kennenlernen',
+  'rollen-rechte.finale': 'Rollen & Rechte erledigt',
+  'rollen-rechte.page.rollen': 'Rollen',
+  'rollen-rechte.page.benutzer': 'Benutzer & Rechte',
+  'rollen-rechte.step1.title': 'Die erste eigene Rolle',
+  'rollen-rechte.step1.text':
+    'Rollen bestimmen, wer welche Abwesenheitsart beantragen darf. Für jede Beschäftigungsart gibt es schon eine.',
+  'rollen-rechte.step1.todo': 'Klicken Sie hier und legen Sie eine an.',
+  'rollen-rechte.step2.title': 'Name und Sichtbarkeit',
+  'rollen-rechte.step2.text':
+    'Vergeben Sie einen Namen, etwa Außendienst. Aktiv und Kalender im Portal lassen Sie für den Anfang angehakt.',
+  'rollen-rechte.step2.todo': 'Legen Sie die Rolle an.',
+  'rollen-rechte.step2.alt': 'Hier geht es mit der Rolle weiter.',
+  'rollen-rechte.step3.title': 'Wer gehört dazu?',
+  'rollen-rechte.step3.text':
+    'Eine Person kann mehrere Rollen haben. Ihr Personalprofil bleibt dabei unverändert.',
+  'rollen-rechte.step3.todo': 'Öffnen Sie die Mitglieder der neuen Rolle.',
+  'rollen-rechte.step4.title': 'Mitglieder wählen',
+  'rollen-rechte.step4.text':
+    'Wählen Sie eine Person aus. Solange keine Abwesenheitsart die Rolle verlangt, ändert sich für niemanden etwas. Zurücknehmen geht jederzeit.',
+  'rollen-rechte.step4.todo': 'Speichern Sie die Auswahl.',
+  'rollen-rechte.step4.alt': 'Hier geht es mit den Mitgliedern weiter.',
+  'rollen-rechte.step4.empty':
+    'Noch niemand angelegt. Legen Sie unter Personal → Mitarbeiter eine Person an, danach geht es hier weiter.',
+  'rollen-rechte.step5.enter':
+    'Nun sind wir im Bereich Benutzer & Rechte. Hier legen Sie fest, wer in der HR-Administration was sehen und bearbeiten darf.',
+  'rollen-rechte.step5.title': 'Rechte bündeln',
+  'rollen-rechte.step5.text':
+    'Anders als die Rollen eben regeln diese, welche Bereiche ein Konto in der App sieht und bearbeitet.',
+  'rollen-rechte.step5.todo': 'Klicken Sie hier und legen Sie eine an.',
+  'rollen-rechte.step5.alt': 'Wechseln Sie auf den Reiter Rollen & Rechte.',
+  'rollen-rechte.step6.title': 'Bereich für Bereich',
+  'rollen-rechte.step6.text':
+    'Je Bereich gilt: kein Zugriff, nur lesen oder bearbeiten. Was nicht freigegeben ist, bleibt dem Konto verborgen.',
+  'rollen-rechte.step6.todo': 'Legen Sie die Rolle an.',
+  'rollen-rechte.step6.alt': 'Hier geht es mit der Rolle weiter.',
+  'rollen-rechte.step7.title': 'Rolle zuweisen',
+  'rollen-rechte.step7.text':
+    'Konten ohne Rolle haben Vollzugriff. Mit dieser Auswahl weisen Sie einem Konto eine Rolle zu.',
+  'rollen-rechte.step7.todo': 'Öffnen Sie die Auswahl. Ändern müssen Sie nichts.',
+  'rollen-rechte.step7.alt': 'Zurück zu den Konten, dort weisen Sie Rollen zu.',
+  'rollen-rechte.step7.empty':
+    'Es gibt noch kein weiteres Administrator-Konto. Legen Sie eines an, danach geht es hier weiter.',
 } as const;
 
 export type CopyKey = keyof typeof COPY;
