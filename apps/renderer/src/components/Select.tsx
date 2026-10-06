@@ -18,9 +18,10 @@ import { Tooltip } from './Tooltip';
  * Objekt mit `target.value` (immer ein String, wie im DOM). So bleiben die
  * Aufrufstellen unverändert, nur der Tag heißt anders.
  *
- * Tastatur wie nativ: Pfeile wechseln den Wert auch bei geschlossener Liste (ausser mit `menuOnly`),
+ * Tastatur wie nativ: Pfeile wechseln den Wert auch bei geschlossener Liste,
  * Enter/Leertaste öffnen, Escape schließt, Buchstaben springen zum nächsten
- * passenden Eintrag. ARIA: Auslöser als combobox, Liste als listbox.
+ * passenden Eintrag (mit `menuOnly` öffnen Pfeile, Pos1 und Ende nur die Liste,
+ * Buchstaben tun nichts). ARIA: Auslöser als combobox, Liste als listbox.
  */
 
 export interface SelectChangeEvent {
@@ -49,15 +50,16 @@ interface Props {
   'aria-label'?: string;
   'aria-labelledby'?: string;
   'aria-invalid'?: React.AriaAttributes['aria-invalid'];
-  /** Fuer Seiten-Einfuehrungen: Ziel am Ausloeser (`data-tour`). */
+  /** Für Seiten-Einführungen: Ziel am Auslöser (`data-tour`). */
   'data-tour'?: string;
-  /** Die Liste ging auf (nicht bei Pfeiltasten, die den Wert aendern). */
+  /** Die Liste ging auf (per Klick, Enter, Leertaste oder, mit `menuOnly`, per Pfeiltaste). */
   onOpen?: () => void;
   /**
-   * Fuer Auswahlfelder, deren `onChange` sofort etwas ausfuehrt (Status aendern,
-   * Rolle zuweisen): Pfeiltasten, Pos1/Ende und Buchstaben oeffnen nur die Liste,
-   * statt bei geschlossener Liste den Wert zu wechseln und damit die Aktion
-   * auszuloesen. Gewaehlt wird dann in der offenen Liste (Enter, Klick).
+   * Für Auswahlfelder, deren `onChange` sofort etwas ausführt (Status ändern,
+   * Rolle zuweisen): Pfeiltasten sowie Pos1 und Ende öffnen nur die Liste, statt
+   * bei geschlossener Liste den Wert zu wechseln und damit die Aktion auszulösen;
+   * Buchstaben tun bei geschlossener Liste nichts. Gewählt wird in der offenen
+   * Liste (Enter, Klick).
    */
   menuOnly?: boolean;
   /** Mindestbreite der Liste; ohne Angabe so breit wie das Feld. */
@@ -252,16 +254,11 @@ export function Select({
 
   const onButtonKey = (e: React.KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return;
-    if (menuOnly && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
-      e.preventDefault();
-      openMenu();
-      return;
-    }
     switch (e.key) {
       case 'ArrowDown':
       case 'ArrowUp': {
         e.preventDefault();
-        if (e.altKey) {
+        if (e.altKey || menuOnly) {
           openMenu();
           return;
         }
@@ -277,6 +274,10 @@ export function Select({
       case 'Home':
       case 'End': {
         e.preventDefault();
+        if (menuOnly) {
+          openMenu();
+          return;
+        }
         const idx = e.key === 'Home' ? enabledIndexes[0] : enabledIndexes[enabledIndexes.length - 1];
         if (idx !== undefined) emit(options[idx]!.value);
         return;
