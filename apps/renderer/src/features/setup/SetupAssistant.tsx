@@ -266,7 +266,7 @@ function Celebration({ current }: { current: SetupStepKey }) {
 
 const NEXT_CARDS = [
   { id: 'salaries', path: '/verguetung/gehaelter' },
-  { id: 'goals', path: '/leistung/ziele' },
+  { id: 'roles', path: '/verwaltung/rollen' },
   { id: 'jobs', path: '/recruiting/stellen' },
   { id: 'news', path: '/kommunikation/ankuendigungen' },
 ] as const;
