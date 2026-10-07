@@ -20,6 +20,7 @@ export const COPY = {
   'blob.offscreen.side': 'Scrollen Sie zur Seite, dort geht es weiter.',
   'konto.title': 'Einführungen',
   'konto.text': 'Kurze Rundgänge durch einzelne Seiten. Übersprungene und abgeschlossene lassen sich erneut starten.',
+  'konto.docs': 'Bei Unklarheiten können Sie gerne die ausführliche {docs} zu Hilfe ziehen.',
   'konto.restart': 'Erneut starten',
   'konto.state.active': 'läuft',
   'konto.state.done': 'abgeschlossen',
