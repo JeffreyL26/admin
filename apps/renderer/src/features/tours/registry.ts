@@ -1,4 +1,4 @@
-import type { AdminArea } from '@ohrganize/shared';
+import { tourStepHit, type AdminArea } from '@ohrganize/shared';
 
 /**
  * Seiten-Einfuehrungen. Ein Schritt ist erledigt, wenn die Seite sein Ereignis
@@ -6,7 +6,9 @@ import type { AdminArea } from '@ohrganize/shared';
  * nicht einem "Weiter". Die Reihenfolge ist ein Vorschlag, erledigt werden darf
  * in jeder; "dran" ist der erste offene.
  *
- * `target` und `altTarget` sind Werte von `data-tour` im DOM. Fehlt das Ziel
+ * `target` und `altTarget` sind Namen in `data-tour` im DOM; ein Element darf mehrere
+ * tragen, durch Leerzeichen getrennt (Suche Wort fuer Wort, `data-tour~=`): So dient ein
+ * Element als Ziel der einen und als Ersatzziel einer anderen Stelle. Fehlt das Ziel
  * (andere Ansicht, Dialog zu), nimmt die Blase das `altTarget` mit dem Text
  * `<Tour>.step<N>.alt`; gibt es keins, bleibt nur die Leiste.
  */
@@ -33,7 +35,9 @@ export interface TourStepDef {
   /**
    * Meldet die Seite dieses Ereignis, obwohl davor liegende Schritte noch offen sind
    * (optionale Eingaben uebersprungen), gelten sie mit als erledigt. Nur fuer
-   * Schritte, deren Aktion die davor liegenden voraussetzt oder umfasst.
+   * Schritte, deren Aktion die davor liegenden voraussetzt oder umfasst, und nur,
+   * wenn alle uebersprungenen Schritte auf derselben Seite liegen wie dieser
+   * (`stepHit`): Ein Ereignis einer spaeteren Seite hakt nie Schritte einer anderen ab.
    */
   catchUp?: boolean;
   /** Schluessel in `TourDef.pages`; Vorgabe: erste Seite. */
@@ -138,6 +142,50 @@ export const TOURS: TourDef[] = [
       },
     ],
   }),
+  multiPage({
+    id: 'leistung-fuehrung',
+    pages: [
+      { key: 'einrichtung', path: '/fuehrung/einrichtung', area: 'fuehrung' },
+      { key: 'report', path: '/fuehrung/report', area: 'fuehrung' },
+      { key: 'beurteilungen', path: '/leistung/beurteilungen', area: 'leistung' },
+    ],
+    steps: [
+      { event: 'leistung-fuehrung.grant-dialog', target: 'lf-grant-btn', altTarget: 'lf-tab-leaders' },
+      {
+        event: 'leistung-fuehrung.grant-saved',
+        target: 'lf-grant-form',
+        emptyTarget: 'lf-grant-empty',
+        altTarget: 'lf-grant-alt',
+        placement: 'above',
+        anchor: 'bottom',
+      },
+      { event: 'leistung-fuehrung.categories-tab', target: 'lf-tab-categories' },
+      { event: 'leistung-fuehrung.scale-tab', target: 'lf-tab-scale' },
+      {
+        event: 'leistung-fuehrung.breakdown-opened',
+        page: 'report',
+        enter: true,
+        target: 'lf-report-row',
+        emptyTarget: 'lf-report-empty',
+      },
+      { event: 'leistung-fuehrung.templates-tab', page: 'beurteilungen', enter: true, target: 'lf-tab-templates' },
+      {
+        event: 'leistung-fuehrung.template-dialog',
+        page: 'beurteilungen',
+        target: 'lf-template-btn',
+        altTarget: 'lf-tab-templates',
+        catchUp: true,
+      },
+      {
+        event: 'leistung-fuehrung.template-saved',
+        page: 'beurteilungen',
+        target: 'lf-template-form',
+        altTarget: 'lf-template-btn',
+        placement: 'above',
+        catchUp: true,
+      },
+    ],
+  }),
 ];
 
 /** Die Einfuehrung, zu deren Seiten `pathname` gehoert (Einstiegsseite oder weitere). */
@@ -145,10 +193,20 @@ export function tourAt(pathname: string): TourDef | null {
   return TOURS.find((x) => [x.path, ...(x.pages ?? []).map((p) => p.path)].some((p) => pathname.startsWith(p))) ?? null;
 }
 
+/** Index des Schritts, den das Ereignis abhakt, oder -1 (Regel: packages/shared/src/tours.ts). */
+export function stepHit(tour: TourDef, index: number, total: number, name: string): number {
+  return tourStepHit(tour.steps, tourPages(tour).map((p) => p.key), index, total, name);
+}
+
+/** Die Seiten einer Einfuehrung; eine ohne `pages` hat genau eine (`main`). */
+function tourPages(tour: TourDef): TourPage[] {
+  return tour.pages ?? [{ key: 'main', path: tour.path, area: tour.area }];
+}
+
 /** Seite eines Schritts (Vorgabe: die erste). */
 export function stepPage(tour: TourDef, step: TourStepDef): TourPage {
-  const first = tour.pages?.[0] ?? { key: 'main', path: tour.path, area: tour.area };
-  return tour.pages?.find((p) => p.key === step.page) ?? first;
+  const pages = tourPages(tour);
+  return pages.find((p) => p.key === step.page) ?? pages[0]!;
 }
 
 /**

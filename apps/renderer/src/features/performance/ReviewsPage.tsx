@@ -37,6 +37,7 @@ import { SetupNote } from '../leadership/SetupShared';
 import { RatingInput, RatingValue } from '../leadership/RatingInput';
 import { Tooltip } from '../../components/Tooltip';
 import { useLeaderStatus } from '../leadership/api';
+import { tourEvent } from '../tours/events';
 
 /**
  * Beurteilungen (Bereich `leistung`). Die Vorgesetztenbewertung wird NICHT
@@ -65,11 +66,14 @@ export function ReviewsPage() {
       <Tabs
         tabs={[
           { key: 'cycles', label: 'Zyklen' },
-          { key: 'templates', label: 'Bögen' },
+          { key: 'templates', label: 'Bögen', tour: 'lf-tab-templates' },
           { key: 'conduct', label: 'Durchführen' },
         ]}
         active={tab}
-        onChange={setTab}
+        onChange={(key) => {
+          setTab(key);
+          if (key === 'templates') tourEvent('leistung-fuehrung.templates-tab');
+        }}
       />
       <div style={{ marginTop: 16 }}>
         {tab === 'cycles' && <CyclesTab />}
@@ -548,9 +552,11 @@ function TemplatesTab() {
         actions={
           <button
             className="hm-btn hm-btn--primary hm-btn--sm"
+            data-tour="lf-template-btn"
             onClick={() => {
               setEditing(null);
               setEditorOpen(true);
+              tourEvent('leistung-fuehrung.template-dialog');
             }}
           >
             <Plus size={15} /> Bogen anlegen
@@ -657,6 +663,7 @@ function TemplateEditor({ template, onClose }: { template: ReviewTemplate | null
     onSuccess: () => {
       toast.success(template ? 'Bogen aktualisiert' : 'Bogen angelegt');
       qc.invalidateQueries({ queryKey: ['performance', 'review-templates'] });
+      if (!template) tourEvent('leistung-fuehrung.template-saved');
       onClose();
     },
     onError: (e: unknown) => toast.error(e instanceof ApiRequestError ? e.message : 'Fehler beim Speichern'),
@@ -720,9 +727,11 @@ function TemplateEditor({ template, onClose }: { template: ReviewTemplate | null
         </>
       }
     >
-      <Field label="Name" required>
-        <input className="hm-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Standardbogen Fachkräfte" />
-      </Field>
+      <div data-tour={template ? undefined : 'lf-template-form'}>
+        <Field label="Name" required>
+          <input className="hm-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Standardbogen Fachkräfte" />
+        </Field>
+      </div>
       <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
         <div style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>Kriterien</div>
         {criteria.map((c, i) => {

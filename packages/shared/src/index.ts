@@ -19,4 +19,5 @@ export * from './licenseText.js';
 export * from './features.js';
 export * from './session.js';
 export * from './setup.js';
+export * from './tours.js';
 export * from './variants/index.js';

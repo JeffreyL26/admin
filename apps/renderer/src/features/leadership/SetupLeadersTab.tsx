@@ -8,9 +8,10 @@ import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
 import { useAvatarPhoto } from '../employees/avatarPhoto';
-import { useGrantLeader, useLeaders, useRevokeLeader, useUpdateLeader } from './api';
+import { useGrantLeader, useLeaders, useLeadershipLookup, useRevokeLeader, useUpdateLeader } from './api';
 import { SetupScopeModal } from './SetupScopeModal';
 import { SetupEmployeeSelect, SetupNote, errorMessage, personCount } from './SetupShared';
+import { tourEvent } from '../tours/events';
 
 /**
  * Reiter „Führungskräfte“: Wer ist freigeschaltet, wofür ist die Person
@@ -68,7 +69,15 @@ export function SetupLeadersTab({ canEdit }: { canEdit: boolean }) {
         flush
         actions={
           canEdit ? (
-            <button type="button" className="hm-btn hm-btn--primary hm-btn--sm" onClick={() => setGranting(true)}>
+            <button
+              type="button"
+              className="hm-btn hm-btn--primary hm-btn--sm"
+              data-tour="lf-grant-btn lf-grant-alt"
+              onClick={() => {
+                setGranting(true);
+                tourEvent('leistung-fuehrung.grant-dialog');
+              }}
+            >
               <Plus size={15} /> Führungskraft freischalten
             </button>
           ) : undefined
@@ -364,6 +373,7 @@ function GrantDialog({
         onSuccess: (res) => {
           toast.success(`${res.leader.first_name} ${res.leader.last_name} als Führungskraft freigeschaltet`);
           onWarnings(res.warnings);
+          tourEvent('leistung-fuehrung.grant-saved');
           close();
         },
         onError: (e) => toast.error(errorMessage(e, 'Freischaltung fehlgeschlagen')),
@@ -392,7 +402,7 @@ function GrantDialog({
         </>
       }
     >
-      <div className="hm-form-grid">
+      <GrantFormGrid exclude={exclude}>
         <Field
           label="Person"
           required
@@ -439,7 +449,23 @@ function GrantDialog({
             es mit dem Profil (z. B. mit der Admin-Rolle „Führungskraft“).
           </SetupNote>
         </div>
-      </div>
+      </GrantFormGrid>
     </Modal>
+  );
+}
+
+/**
+ * Formularraster des Dialogs und Ziel der Einfuehrung. Eigene Komponente, damit die Personenliste
+ * nur geladen wird, solange der Dialog offen ist. Ist niemand mehr frei (eigenes Profil und
+ * Freigeschaltete ausgenommen), zeigt die Einfuehrung ihren Hinweis statt des Formulars.
+ */
+function GrantFormGrid({ exclude, children }: { exclude: Set<number>; children: React.ReactNode }) {
+  const employees = useLeadershipLookup().data?.employees;
+  // Bis die Liste da ist, kein Ziel: sonst zeigte die Einfuehrung kurz den Formulartext und wechselte dann auf den Hinweis.
+  const tour = employees === undefined ? undefined : employees.every((e) => exclude.has(e.id)) ? 'lf-grant-empty' : 'lf-grant-form';
+  return (
+    <div className="hm-form-grid" data-tour={tour}>
+      {children}
+    </div>
   );
 }

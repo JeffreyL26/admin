@@ -18,6 +18,7 @@ import { useLeadershipReport } from './api';
 import { ReportBreakdown } from './ReportBreakdown';
 import { DistributionBar, PeriodSwitcher } from './common';
 import { Select } from '../../components/Select';
+import { tourEvent } from '../tours/events';
 
 /**
  * Satisfaction-Report (Arbeitstitel des Kunden, genau so beschriftet):
@@ -177,7 +178,7 @@ export function ReportPage() {
       </div>
 
       {leaderCount === 0 ? (
-        <div className="hm-card">
+        <div className="hm-card" data-tour="lf-report-empty">
           <EmptyState
             icon={<Gauge size={40} />}
             title="Noch keine Führungskräfte freigeschaltet"
@@ -215,14 +216,18 @@ export function ReportPage() {
             className={`lead-report-list${isPlaceholderData ? ' lead-report-list--stale' : ''}`}
             aria-busy={isPlaceholderData}
           >
-            {rows.map((row) => (
+            {rows.map((row, i) => (
               <LeaderReportRow
                 key={row.employee_id}
                 row={row}
                 periodKey={periodKey}
                 kind={period.kind}
                 expanded={expanded === row.employee_id}
-                onToggle={() => setExpanded((id) => (id === row.employee_id ? null : row.employee_id))}
+                tour={i === 0}
+                onToggle={() => {
+                  tourEvent('leistung-fuehrung.breakdown-opened');
+                  setExpanded((id) => (id === row.employee_id ? null : row.employee_id));
+                }}
               />
             ))}
           </div>
@@ -266,12 +271,15 @@ function LeaderReportRow({
   periodKey,
   kind,
   expanded,
+  tour,
   onToggle,
 }: {
   row: ReportLeaderRow;
   periodKey: string | null;
   kind: RatingPeriodKind;
   expanded: boolean;
+  /** Erste Karte: Ziel der Einführung. */
+  tour?: boolean;
   onToggle: () => void;
 }) {
   const open = openCount(row);
@@ -287,6 +295,7 @@ function LeaderReportRow({
       <button
         type="button"
         id={headId}
+        data-tour={tour ? 'lf-report-row' : undefined}
         className="lead-report-row lead-report-head"
         aria-expanded={expanded}
         aria-controls={expanded ? panelId : undefined}

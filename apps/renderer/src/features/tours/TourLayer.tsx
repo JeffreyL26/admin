@@ -91,7 +91,7 @@ function useTarget(names: (string | undefined)[]): Found | null {
       }
       for (const name of names) {
         if (!name) continue;
-        for (const el of document.querySelectorAll<HTMLElement>(`[data-tour="${name}"]`)) {
+        for (const el of document.querySelectorAll<HTMLElement>(`[data-tour~="${name}"]`)) {
           if (modal && !modal.contains(el)) continue;
           const raw = el.getBoundingClientRect();
           if (raw.width <= 0 || raw.height <= 0) continue;

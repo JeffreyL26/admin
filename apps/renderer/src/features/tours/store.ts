@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { readJson, subscribeTo, writeJson } from '../../lib/localStore';
-import { TOURS } from './registry';
+import { TOURS, stepHit } from './registry';
 import { announceSkip } from './skipEvent';
 
 /**
@@ -121,9 +121,7 @@ export const tourActions = {
       const total = limits[tour.id] ?? tour.steps.length;
       const index = cur.done.length;
       if (index >= total) continue;
-      // Der Schritt, der dran ist, zaehlt immer; ein spaeterer nur, wenn er `catchUp` traegt.
-      let hit = tour.steps[index]?.event === name ? index : -1;
-      if (hit < 0) hit = tour.steps.findIndex((s, i) => i > index && i < total && s.catchUp === true && s.event === name);
+      const hit = stepHit(tour, index, total, name);
       if (hit < 0) continue;
       const done = Array.from({ length: hit + 1 }, (_, i) => i);
       next = {

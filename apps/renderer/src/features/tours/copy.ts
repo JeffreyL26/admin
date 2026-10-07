@@ -158,6 +158,55 @@ export const COPY = {
   'ankuendigungen.step7.text':
     'Oben stehen Status und Zielgruppe. Bei Lesebestätigung sehen Sie darunter, wer schon bestätigt hat.',
   'ankuendigungen.step7.todo': 'Schließen Sie die Ansicht.',
+
+  // ---- Leistung & Führung ---------------------------------------------------
+  'leistung-fuehrung.title': 'Leistung & Führung kennenlernen',
+  'leistung-fuehrung.finale': 'Leistung & Führung erledigt',
+  'leistung-fuehrung.page.einrichtung': 'Einrichtung',
+  'leistung-fuehrung.page.beurteilungen': 'Beurteilungen',
+  'leistung-fuehrung.page.report': 'Satisfaction-Report',
+  'leistung-fuehrung.step1.title': 'Wer bewertet?',
+  'leistung-fuehrung.step1.text':
+    'Führungskräfte bewerten ihr Team unter Mein Team. Dafür schalten Sie sie hier frei.',
+  'leistung-fuehrung.step1.todo': 'Klicken Sie hier und schalten Sie eine Person frei.',
+  'leistung-fuehrung.step1.alt': 'Wechseln Sie auf den Reiter Führungskräfte.',
+  'leistung-fuehrung.step2.title': 'Person und Zuständigkeit',
+  'leistung-fuehrung.step2.text':
+    'Wählen Sie eine Person. Lassen Sie die automatische Zuständigkeit für den Anfang ausgewählt: Dann gehört zum Team, wer laut Organisation unter ihr steht. Hat die Person ein Konto, sieht sie danach Mein Team. Wir nutzen das als Testlauf: Die Freischaltung lässt sich jederzeit wieder entziehen.',
+  'leistung-fuehrung.step2.todo': 'Schalten Sie die Führungskraft frei.',
+  'leistung-fuehrung.step2.alt': 'Hier geht es mit der Freischaltung weiter.',
+  'leistung-fuehrung.step2.empty':
+    'Es gibt niemanden mehr, den Sie freischalten können. Legen Sie unter Personal → Mitarbeiter eine Person an, danach geht es hier weiter.',
+  'leistung-fuehrung.step3.title': 'Worauf es ankommt',
+  'leistung-fuehrung.step3.text':
+    'Kategorien sind die Punkte, nach denen bewertet wird, etwa Zusammenarbeit. Sie gelten für alle Führungskräfte gleich.',
+  'leistung-fuehrung.step3.todo': 'Öffnen Sie den Reiter Kategorien.',
+  'leistung-fuehrung.step4.title': 'Skala und Zeitraum',
+  'leistung-fuehrung.step4.text': 'Hier legen Sie fest, wie fein bewertet wird und für welchen Zeitraum eine Bewertung gilt.',
+  'leistung-fuehrung.step4.todo': 'Öffnen Sie den Reiter. Ändern müssen Sie nichts.',
+  'leistung-fuehrung.step5.enter':
+    'Nun sind wir im Satisfaction-Report. Hier sehen Sie, wie Führungskräfte ihr Team insgesamt einschätzen.',
+  'leistung-fuehrung.step5.title': 'Eine Karte je Führungskraft',
+  'leistung-fuehrung.step5.text':
+    'Die Karte fasst die Bewertungen einer Führungskraft zusammen. Aufgeklappt sehen Sie, wen sie wie bewertet hat.',
+  'leistung-fuehrung.step5.todo': 'Öffnen Sie eine Karte.',
+  'leistung-fuehrung.step5.empty':
+    'Noch keine Führungskraft freigeschaltet. Schalten Sie eine unter Führung → Einrichtung frei, danach geht es hier weiter.',
+  'leistung-fuehrung.step6.enter':
+    'Zuletzt die Beurteilungen. Hier bewerten sich Mitarbeitende selbst oder geben einander Feedback.',
+  'leistung-fuehrung.step6.title': 'Beurteilungsbögen',
+  'leistung-fuehrung.step6.text':
+    'Ein Bogen ist der Fragebogen einer Beurteilung. Er kann dieselben Kategorien nutzen wie die Führungskräfte.',
+  'leistung-fuehrung.step6.todo': 'Öffnen Sie den Reiter Bögen.',
+  'leistung-fuehrung.step7.title': 'Der erste Bogen',
+  'leistung-fuehrung.step7.text': 'Wir nutzen das als Testlauf: Ein Bogen lässt sich später wieder löschen.',
+  'leistung-fuehrung.step7.todo': 'Klicken Sie hier und legen Sie einen an.',
+  'leistung-fuehrung.step7.alt': 'Wechseln Sie auf den Reiter Bögen.',
+  'leistung-fuehrung.step8.title': 'Name und Kriterien',
+  'leistung-fuehrung.step8.text':
+    'Vergeben Sie einen Namen und mindestens ein Kriterium. Wählen Sie dafür eine Kategorie, fließt es in den Vergleich mit der Bewertung durch die Führungskraft ein.',
+  'leistung-fuehrung.step8.todo': 'Legen Sie den Bogen an.',
+  'leistung-fuehrung.step8.alt': 'Hier geht es mit dem Bogen weiter.',
 } as const;
 
 export type CopyKey = keyof typeof COPY;

@@ -6,6 +6,7 @@ import { SetupLeadersTab } from './SetupLeadersTab';
 import { SetupCategoriesTab } from './SetupCategoriesTab';
 import { SetupScaleTab } from './SetupScaleTab';
 import { SetupNote } from './SetupShared';
+import { tourEvent } from '../tours/events';
 
 type TabKey = 'leaders' | 'categories' | 'scale';
 
@@ -40,12 +41,16 @@ export function SetupPage() {
       <div style={{ marginBottom: 20 }}>
         <Tabs
           tabs={[
-            { key: 'leaders', label: 'Führungskräfte' },
-            { key: 'categories', label: 'Kategorien' },
-            { key: 'scale', label: 'Skala & Zeitraum' },
+            { key: 'leaders', label: 'Führungskräfte', tour: tab === 'leaders' ? undefined : 'lf-tab-leaders lf-grant-alt' },
+            { key: 'categories', label: 'Kategorien', tour: 'lf-tab-categories' },
+            { key: 'scale', label: 'Skala & Zeitraum', tour: 'lf-tab-scale' },
           ]}
           active={tab}
-          onChange={(key) => setTab(key as TabKey)}
+          onChange={(key) => {
+            setTab(key as TabKey);
+            if (key === 'categories') tourEvent('leistung-fuehrung.categories-tab');
+            if (key === 'scale') tourEvent('leistung-fuehrung.scale-tab');
+          }}
         />
       </div>
       {tab === 'leaders' && <SetupLeadersTab canEdit={canEdit} />}

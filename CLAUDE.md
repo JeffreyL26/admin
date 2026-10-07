@@ -467,8 +467,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **Seiten-Einfuehrungen** (`apps/renderer/src/features/tours/`): Mini-Onboardings je
   Seite, Start beim ersten Besuch (`TourLayer`, Stand `ohrganize.tours.<Installation>.<user.id>`,
   gebunden wie der Assistent). Texte NUR in `tours/copy.ts`, Segmentfarben als `--tour-N` in `design/tokens.css`, Schritte in `registry.ts`
-  (`target`/`altTarget` = `data-tour` im DOM, `event` = was die Seite per `tourEvent()`
-  meldet). Eine neue Einfuehrung braucht: Eintrag in `TOURS`, Texte
+  (`target`/`altTarget` = Namen in `data-tour` im DOM, mehrere je Element durch Leerzeichen
+  getrennt, `event` = was die Seite per `tourEvent()` meldet; die Fortschrittsregel `tourStepHit`
+  steht DOM-frei in `packages/shared/src/tours.ts`, Test `apps/backend/src/test/tourProgressTest.ts`).
+  Eine neue Einfuehrung braucht: Eintrag in `TOURS`, Texte
   `<id>.step<N>.title|text|todo`, `data-tour`-Attribute und `tourEvent`-Aufrufe an der
   Seite. Ueberspringen ruft `announceSkip()` (gruene Meldung mit Link zur Dokumentation).
   Eine Einfuehrung kann ueber mehrere Seiten laufen (`pages`, je Schritt `page`,
