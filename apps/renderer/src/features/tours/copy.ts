@@ -167,23 +167,23 @@ export const COPY = {
   'leistung-fuehrung.page.report': 'Satisfaction-Report',
   'leistung-fuehrung.step1.title': 'Wer bewertet?',
   'leistung-fuehrung.step1.text':
-    'Führungskräfte bewerten ihr Team unter Mein Team. Dafür schalten Sie sie hier frei.',
-  'leistung-fuehrung.step1.todo': 'Klicken Sie hier und schalten Sie eine Person frei.',
+    'Führungskräfte bewerten ihr zugewiesenes Team unter „Mein Team“. Das schalten wir für sie hier frei.',
+  'leistung-fuehrung.step1.todo': 'Legen Sie die erste Führungskraft an.',
   'leistung-fuehrung.step1.alt': 'Wechseln Sie auf den Reiter Führungskräfte.',
   'leistung-fuehrung.step2.title': 'Person und Zuständigkeit',
   'leistung-fuehrung.step2.text':
-    'Wählen Sie eine Person. Lassen Sie die automatische Zuständigkeit für den Anfang ausgewählt: Dann gehört zum Team, wer laut Organisation unter ihr steht. Hat die Person ein Konto, sieht sie danach Mein Team. Wir nutzen das als Testlauf: Die Freischaltung lässt sich jederzeit wieder entziehen.',
+    'Wählen Sie eine Person, die als Führungskraft agiert. Lassen Sie den Haken für die automatische Zuständigkeit für den Anfang ausgewählt: Die Software ermittelt dann die Zuständigkeiten automatisch aus dem Organigramm, sofern es bereits angelegt ist. Wenn nicht, können Sie diese im Nachhinein hinzufügen. Keine Sorge: Die Freischaltung lässt sich jederzeit wieder entziehen.',
   'leistung-fuehrung.step2.todo': 'Schalten Sie die Führungskraft frei.',
   'leistung-fuehrung.step2.alt': 'Hier geht es mit der Freischaltung weiter.',
   'leistung-fuehrung.step2.empty':
     'Es gibt niemanden mehr, den Sie freischalten können. Legen Sie unter Personal → Mitarbeiter eine Person an, danach geht es hier weiter.',
-  'leistung-fuehrung.step3.title': 'Worauf es ankommt',
+  'leistung-fuehrung.step3.title': 'Bewertungskategorien',
   'leistung-fuehrung.step3.text':
-    'Kategorien sind die Punkte, nach denen bewertet wird, etwa Zusammenarbeit. Sie gelten für alle Führungskräfte gleich.',
+    'Kategorien sind die Punkte, nach denen bewertet wird, etwa Zusammenarbeit. Sie gelten einheitlich für alle Führungskräfte.',
   'leistung-fuehrung.step3.todo': 'Öffnen Sie den Reiter Kategorien.',
   'leistung-fuehrung.step4.title': 'Skala und Zeitraum',
-  'leistung-fuehrung.step4.text': 'Hier legen Sie fest, wie fein bewertet wird und für welchen Zeitraum eine Bewertung gilt.',
-  'leistung-fuehrung.step4.todo': 'Öffnen Sie den Reiter. Ändern müssen Sie nichts.',
+  'leistung-fuehrung.step4.text': 'Hier legen Sie fest, wie bewertet wird und für welchen Zeitraum eine Bewertung gilt.',
+  'leistung-fuehrung.step4.todo': 'Öffnen Sie den Reiter. Ändern müssen Sie für den Durchlauf nichts.',
   'leistung-fuehrung.step5.enter':
     'Nun sind wir im Satisfaction-Report. Hier sehen Sie, wie Führungskräfte ihr Team insgesamt einschätzen.',
   'leistung-fuehrung.step5.title': 'Eine Karte je Führungskraft',

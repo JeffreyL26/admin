@@ -10,6 +10,8 @@ import { consumeRestored, tourActions, useTourState, type TourState, type TourSt
 const BLOB_W = 288;
 const BLOB_H = 150;
 const GAP = 16;
+/** Schmalste Blase neben einem Dialog; darunter bleibt sie im Dialog. */
+const MIN_SIDE_W = 220;
 
 interface Box {
   left: number;
@@ -442,6 +444,10 @@ function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: T
   let arrow: number | null = null;
   let side: number | null = null;
   let up = false;
+  // Neben einem Dialog darf die Blase schmaler werden, damit sie auch in kleineren Fenstern daneben passt.
+  let width = BLOB_W;
+  const roomLeft = clip ? clip.left - GAP - 12 : 0;
+  const roomRight = clip ? vw - 12 - (clip.left + clip.width + GAP) : 0;
   // Ziel im Dialog: Die Blase bleibt innerhalb des Dialogs und haengt nicht ueber seinen Rand.
   const minLeft = clip ? Math.max(12, clip.left + 12) : 12;
   const maxLeft = Math.max(minLeft, (clip ? Math.min(vw, clip.left + clip.width - 12) : vw - 12) - BLOB_W);
@@ -457,8 +463,16 @@ function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: T
     const right = found.clipClose ? found.clipClose - 8 : clip.left + clip.width - 12;
     pos.left = clamp(right - BLOB_W, minLeft, maxLeft);
     pos.bottom = vh - box.top + 6;
+  } else if (dialogForm && clip && Math.max(roomLeft, roomRight) >= MIN_SIDE_W) {
+    // Formular im Dialog: Ist neben dem Dialog Platz, steht die Blase daneben und deckt nichts ab (links mit
+    // Zeiger, rechts ohne; der Ring zeigt, worum es geht).
+    const left = roomLeft >= MIN_SIDE_W;
+    width = Math.min(BLOB_W, left ? roomLeft : roomRight);
+    pos.left = left ? clip.left - GAP - width : clip.left + clip.width + GAP;
+    pos.top = clamp(clip.top + clip.height / 2 - blobH / 2, 12, Math.max(12, vh - blobH - 12));
+    if (left) side = clamp(clip.top + clip.height / 2 - (pos.top as number), 22, Math.max(22, blobH - 22));
   } else if (tall) {
-    // Grosses Ziel (Karte): Blase innen, ohne Zeiger. `anchor: 'bottom'` im Dialog: unten
+    // Grosses Ziel (Karte): Blase innen, ohne Zeiger. `anchor: 'bottom'` im Dialog ohne Platz daneben: unten
     // rechts ueber der Fusszeile, fuer Formulare mit leerer rechter Spalte.
     if (clip && step.anchor === 'bottom') pos.bottom = vh - Math.min(box.top + box.height, clip.top + clip.height - 84) + 12;
     else pos.top = Math.max(12, box.top) + 56;
@@ -534,7 +548,9 @@ function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: T
         style={{
           ...vars,
           ...pos,
-          width: BLOB_W,
+          width,
+          // Hoeher als das Fenster (sehr niedrig, stark gezoomt): Blase scrollt, statt unten abzuschneiden.
+          ...(blobH >= vh - 24 ? { maxHeight: vh - 24, overflowY: 'auto' as const } : {}),
           ['--ax' as string]: arrow === null ? undefined : `${arrow}px`,
           ['--ay' as string]: side === null ? undefined : `${side}px`,
         }}
