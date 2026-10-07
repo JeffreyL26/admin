@@ -5,7 +5,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { Tooltip } from '../../components/Tooltip';
 import { t, type CopyKey } from './copy';
 import { TOURS, stepPage, tourAt, tourColor, visibleStepCount, type TourDef, type TourStepDef } from './registry';
-import { tourActions, useTourState, type TourState, type TourStatus } from './store';
+import { consumeRestored, tourActions, useTourState, type TourState, type TourStatus } from './store';
 
 const BLOB_W = 288;
 const BLOB_H = 150;
@@ -24,17 +24,29 @@ const sameBox = (a: Box | null, b: Box | null) =>
 /** Gefundenes Ziel samt Fenstergroesse: Aendert sich nur das Fenster, rechnet die Blase neu. */
 interface Found {
   name: string;
+  /** Sichtbarer Teil des Ziels (abgeschnitten von Scrollbereichen und Fenster). */
   box: Box;
+  /** Volle Hoehe des Ziels, auch was weggescrollt ist: entscheidet, ob es als gross gilt. */
+  fullHeight: number;
   vw: number;
   vh: number;
   /** Liegt das Ziel in einem Dialog: dessen Rand, innerhalb dessen die Blase bleibt. */
   clip: Box | null;
+  /** Linke Kante des Schliessen-X im Dialog (0 ohne Dialog): Eine Blase oben rechts bleibt links davon. */
+  clipClose: number;
+  /** Linke Kante des ersten Knopfs der Dialog-Fusszeile (0 ohne): Links davon ist die Fusszeile frei. */
+  clipFooter: number;
+  /**
+   * Ziel liegt im DOM, ist aber ganz weggescrollt: in welcher Richtung es liegt. `box` ist dann der
+   * Bereich, in dem es sichtbar wuerde; die Blase sagt, wohin man scrollen muss.
+   */
+  offscreen: 'up' | 'down' | 'side' | null;
   /** Obere Kante von Leiste, Wechselhinweis und Launcher: darunter steht keine Blase. */
   zone: number;
 }
 
 const sameFound = (a: Found | null, b: Found | null) =>
-  a === b || (!!a && !!b && a.name === b.name && a.vw === b.vw && a.vh === b.vh && a.zone === b.zone && sameBox(a.box, b.box) && sameBox(a.clip, b.clip));
+  a === b || (!!a && !!b && a.name === b.name && a.clipClose === b.clipClose && a.clipFooter === b.clipFooter &&a.offscreen === b.offscreen && a.fullHeight === b.fullHeight && a.vw === b.vw && a.vh === b.vh && a.zone === b.zone && sameBox(a.box, b.box) && sameBox(a.clip, b.clip));
 
 /**
  * Sucht das Ziel einer Blase im DOM (`data-tour`), probiert die Namen der Reihe
@@ -50,40 +62,72 @@ const sameFound = (a: Found | null, b: Found | null) =>
  */
 function useTarget(names: (string | undefined)[]): Found | null {
   const [found, setFound] = useState<Found | null>(null);
-  // Gerollt wird einmal pro Erscheinen (und nach einer Groessenaenderung des Fensters):
-  // Wer danach selbst scrollt, wird nicht zurueckgeholt.
-  const scrolled = useRef(false);
   const key = names.join('|');
 
   useEffect(() => {
-    // Neuer Schritt: alter Treffer weg, Rollen wieder erlaubt.
-    scrolled.current = false;
+    // Neuer Schritt: alter Treffer weg. Gerollt wird einmal je Ziel (und wieder nach einer Groessenaenderung
+    // des Fensters): Ein neues Ziel, auch innerhalb des Schritts, wird geholt; eines, das man selbst
+    // weggescrollt hat, nicht zurueck. Neu ist ein Ziel, wenn das Element wechselt und das alte noch im
+    // Seiteninhalt haengt (anderes Feld, neuester Eintrag). Baut React es nur neu auf (Reiterwechsel: altes
+    // Element weg, gleicher Name und gleiche Art), ist es dasselbe; aendert sich nur sein Inhalt, ebenso.
     setFound(null);
+    let last: { el: HTMLElement; name: string } | null = null;
+    // Solange die Einfuehrung selbst rollt, ist das Ziel unterwegs: kein Hinweis "Scrollen Sie ...".
+    let autoScrollUntil = 0;
+    const autoScroll = (el: HTMLElement, opts: ScrollIntoViewOptions) => {
+      autoScrollUntil = performance.now() + 900;
+      el.scrollIntoView({ ...opts, behavior: 'smooth' });
+    };
     const find = (): Found | null => {
       if (document.querySelector('.hm-setup__panel')) return null;
       const modal = document.querySelector('.hm-modal');
       let zone = window.innerHeight;
-      for (const el of document.querySelectorAll('.hm-tour-bar, .hm-tour-notice, .hm-setup-launcher')) {
-        const r = el.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) zone = Math.min(zone, Math.round(r.top) - 8);
+      // Im Dialog liegen Leiste und Launcher unter dem Overlay, die Blase darf ueber ihnen stehen.
+      if (!modal) {
+        for (const el of document.querySelectorAll('.hm-tour-bar, .hm-tour-notice, .hm-setup-launcher')) {
+          const r = el.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) zone = Math.min(zone, Math.round(r.top) - 8);
+        }
       }
       for (const name of names) {
         if (!name) continue;
         for (const el of document.querySelectorAll<HTMLElement>(`[data-tour="${name}"]`)) {
           if (modal && !modal.contains(el)) continue;
-          const r = el.getBoundingClientRect();
-          if (r.width <= 0 || r.height <= 0) continue;
-          // Hinter der Leiste zaehlt wie ausserhalb des Fensters (im Dialog liegt sie unter dem Overlay).
-          if ((r.top < 0 || r.bottom > (modal ? window.innerHeight : zone)) && !scrolled.current) {
-            scrolled.current = true;
-            el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          const raw = el.getBoundingClientRect();
+          if (raw.width <= 0 || raw.height <= 0) continue;
+          const area = viewArea(el);
+          const r = intersect(raw, area);
+          // Bereich ohne Flaeche (Container oeffnet sich gerade): noch nichts zu zeigen, Scrollen hilft nicht.
+          if (area.width < 1 || area.height < 1) return null;
+          const fresh =
+            !last ||
+            (el !== last.el && (last.el.isConnected || last.name !== name || last.el.tagName !== el.tagName));
+          last = { el, name };
+          if (fresh) {
+            if (!r || raw.top < 0 || raw.bottom > zone) {
+              // Hinter der Leiste zaehlt wie ausserhalb des Fensters.
+              autoScroll(el, { block: 'center', inline: 'nearest' });
+            } else if (r.width < raw.width * 0.6 || (r.height < raw.height * 0.6 && raw.height <= window.innerHeight * 0.5)) {
+              // Groesstenteils abgeschnitten (breite Tabelle, Feld am Rand des Dialogs): bis an den Rand nachrollen.
+              // Grosse Ziele (Formulare, Karten) nicht: Sie passen ohnehin nicht ganz hinein.
+              autoScroll(el, { block: 'nearest', inline: 'nearest' });
+            }
           }
+          if (!r && performance.now() < autoScrollUntil) return null;
+          // Ganz weggescrollt: kein Ersatzziel (dessen Text stimmte dann nicht), sondern der Hinweis, wohin.
+          const offscreen = r ? null : raw.bottom <= area.top ? 'up' : raw.top >= area.top + area.height ? 'down' : 'side';
           const m = modal?.getBoundingClientRect();
+          const close = modal?.querySelector('.hm-modal__header button')?.getBoundingClientRect();
+          const footer = modal?.querySelector('.hm-modal__footer button')?.getBoundingClientRect();
           return {
             name,
             zone,
-            clip: m ? { left: Math.round(m.left), top: Math.round(m.top), width: Math.round(m.width), height: Math.round(m.height) } : null,
-            box: { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) },
+            clip: m ? roundBox(m) : null,
+            clipClose: close ? Math.round(close.left) : 0,
+            clipFooter: footer ? Math.round(footer.left) : 0,
+            offscreen,
+            box: roundBox(r ?? area),
+            fullHeight: Math.round(raw.height),
             vw: window.innerWidth,
             vh: window.innerHeight,
           };
@@ -95,7 +139,6 @@ function useTarget(names: (string | undefined)[]): Found | null {
     const tick = () => {
       if (document.hidden) return;
       const next = find();
-      if (!next) scrolled.current = false;
       setFound((prev) => (sameFound(prev, next) ? prev : next));
     };
     let raf = 0;
@@ -112,11 +155,15 @@ function useTarget(names: (string | undefined)[]): Found | null {
     observer.observe(document.body, { childList: true, subtree: true });
     const iv = window.setInterval(tick, 1000);
     const onResize = () => {
-      scrolled.current = false;
+      last = null;
       schedule();
     };
     window.addEventListener('resize', onResize);
     window.addEventListener('scroll', schedule, true);
+    // Seiten und Dialoge blenden mit Versatz ein (Animation, keine Transition); ihr Ende aendert das DOM
+    // nicht, verschiebt aber das Ziel. Transitionen (Hover) bleiben aussen vor, sie feuern bei jeder Mausbewegung.
+    const motion = ['animationend', 'animationcancel'] as const;
+    motion.forEach((e) => document.addEventListener(e, schedule, true));
     // Wieder sichtbar: sofort neu messen, nicht erst mit dem naechsten Takt.
     document.addEventListener('visibilitychange', schedule);
     return () => {
@@ -125,6 +172,7 @@ function useTarget(names: (string | undefined)[]): Found | null {
       if (raf) cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('scroll', schedule, true);
+      motion.forEach((e) => document.removeEventListener(e, schedule, true));
       document.removeEventListener('visibilitychange', schedule);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,6 +182,44 @@ function useTarget(names: (string | undefined)[]): Found | null {
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+/** Bereich, in dem ein Element sichtbar sein kann: Schnitt aller Vorfahren, die ihren Ueberlauf abschneiden, mit dem Fenster. */
+function viewArea(el: HTMLElement): Box {
+  let left = 0;
+  let top = 0;
+  let right = window.innerWidth;
+  let bottom = window.innerHeight;
+  for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+    const s = getComputedStyle(p);
+    if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+    const pr = p.getBoundingClientRect();
+    if (s.overflowX !== 'visible') {
+      left = Math.max(left, pr.left);
+      right = Math.min(right, pr.right);
+    }
+    if (s.overflowY !== 'visible') {
+      top = Math.max(top, pr.top);
+      bottom = Math.min(bottom, pr.bottom);
+    }
+  }
+  return { left, top, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+}
+
+/** Schnitt von Element und Sichtbereich; null, wenn nichts davon zu sehen ist. */
+function intersect(r: DOMRect, a: Box): Box | null {
+  const left = Math.max(r.left, a.left);
+  const top = Math.max(r.top, a.top);
+  const right = Math.min(r.right, a.left + a.width);
+  const bottom = Math.min(r.bottom, a.top + a.height);
+  return right > left && bottom > top ? { left, top, width: right - left, height: bottom - top } : null;
+}
+
+const roundBox = (b: Box): Box => ({
+  left: Math.round(b.left),
+  top: Math.round(b.top),
+  width: Math.round(b.width),
+  height: Math.round(b.height),
+});
 
 /**
  * Seiten-Einfuehrungen: Beim ersten Besuch einer Seite startet ihre Einfuehrung.
@@ -223,7 +309,13 @@ export function TourLayer() {
 
   useEffect(() => {
     if (tour && state) {
-      if (prev.current?.id === tour.id && prev.current.status === 'active' && state.status === 'done' && lastCheck.current) {
+      if (
+        prev.current?.id === tour.id &&
+        prev.current.status === 'active' &&
+        state.status === 'done' &&
+        !consumeRestored(tour.id) &&
+        lastCheck.current
+      ) {
         setFinale({ from: lastCheck.current, label: t(`${tour.id}.finale` as CopyKey) });
       }
       prev.current = { id: tour.id, status: state.status };
@@ -322,6 +414,13 @@ function TourBar({
 function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: TourStepDef }) {
   // Reihenfolge zaehlt: Ohne Daten steht der Hinweis vor dem Reiter-Ziel.
   const found = useTarget([step.target, step.emptyTarget, step.altTarget]);
+  // Echte Hoehe der Blase (Texte sind unterschiedlich lang); bis zur ersten Messung der Schaetzwert.
+  const blobRef = useRef<HTMLDivElement>(null);
+  const [blobH, setBlobH] = useState(BLOB_H);
+  useLayoutEffect(() => {
+    const h = blobRef.current?.offsetHeight;
+    if (h && h !== blobH) setBlobH(h);
+  });
   if (!found) return null;
 
   const color = tourColor(index);
@@ -331,49 +430,115 @@ function TourBlob({ tour, index, step }: { tour: TourDef; index: number; step: T
   const base = `${tour.id}.step${n}`;
   const { box, vw, vh, clip, zone } = found;
   const cx = box.left + box.width / 2;
-  const tall = box.height > vh * 0.5;
+  // `anchor: 'bottom'` markiert ein Formular, das den Dialog fuellt: gross unabhaengig von der Fensterhoehe,
+  // und der Ring umfasst den ganzen Dialog. Sonst entscheidet die volle Hoehe, nicht der gerade sichtbare Teil.
+  const dialogForm = !!clip && step.anchor === 'bottom';
+  const tall = dialogForm || found.fullHeight > vh * 0.5;
+  const ring = dialogForm && clip ? clip : box;
+  // `left` gilt nur fuer das eigentliche Ziel; ein Ersatzziel (Knopf auf der Seite) steht normal.
+  const placement = step.placement === 'left' && kind !== 'main' ? undefined : step.placement;
 
   const pos: React.CSSProperties = {};
   let arrow: number | null = null;
+  let side: number | null = null;
   let up = false;
   // Ziel im Dialog: Die Blase bleibt innerhalb des Dialogs und haengt nicht ueber seinen Rand.
   const minLeft = clip ? Math.max(12, clip.left + 12) : 12;
   const maxLeft = Math.max(minLeft, (clip ? Math.min(vw, clip.left + clip.width - 12) : vw - 12) - BLOB_W);
   pos.left = clamp(cx - BLOB_W / 2, minLeft, maxLeft);
-  if (tall) {
+  if (placement === 'left' && !tall && box.left - GAP - BLOB_W >= 12) {
+    // Links neben dem Ziel, auch ausserhalb des Dialogs: So bleibt frei, was darunter steht.
+    pos.left = box.left - GAP - BLOB_W;
+    pos.top = clamp(box.top + box.height / 2 - blobH / 2, 12, Math.max(12, vh - blobH - 12));
+    side = clamp(box.top + box.height / 2 - (pos.top as number), 22, Math.max(22, blobH - 22));
+  } else if (placement === 'left' && !tall && clip && box.top - 6 - blobH >= 12) {
+    // Links kein Platz (schmales Fenster): rechts im Dialog, endet ueber der Zeile des Ziels (dort steht
+    // rechts oft ein Zaehler) und bleibt links vom Schliessen-X. Ohne Zeiger; der Ring zeigt, worum es geht.
+    const right = found.clipClose ? found.clipClose - 8 : clip.left + clip.width - 12;
+    pos.left = clamp(right - BLOB_W, minLeft, maxLeft);
+    pos.bottom = vh - box.top + 6;
+  } else if (tall) {
     // Grosses Ziel (Karte): Blase innen, ohne Zeiger. `anchor: 'bottom'` im Dialog: unten
     // rechts ueber der Fusszeile, fuer Formulare mit leerer rechter Spalte.
     if (clip && step.anchor === 'bottom') pos.bottom = vh - Math.min(box.top + box.height, clip.top + clip.height - 84) + 12;
     else pos.top = Math.max(12, box.top) + 56;
     pos.left = clamp(box.left + box.width - BLOB_W - 16, minLeft, maxLeft);
   } else if (
-    box.top - GAP - BLOB_H > 12 &&
-    (step.placement === 'above' || box.top + box.height + GAP + BLOB_H > zone)
+    box.top - GAP - blobH > 12 &&
+    (placement === 'above' || box.top + box.height + GAP + blobH > zone)
   ) {
     up = true;
     pos.bottom = vh - box.top + GAP;
     arrow = clamp(cx - (pos.left as number), 22, BLOB_W - 22);
-  } else if (box.top + box.height + GAP + BLOB_H > zone) {
+  } else if (box.top + box.height + GAP + blobH > zone) {
     // Weder darueber noch darunter ist Platz (schmales Fenster): Blase ueber der Leiste, ohne Zeiger.
-    pos.top = Math.max(12, zone - BLOB_H);
+    pos.top = Math.max(12, zone - blobH);
   } else {
     pos.top = box.top + box.height + GAP;
     arrow = clamp(cx - (pos.left as number), 22, BLOB_W - 22);
   }
 
   const vars = { '--c': color.bg, '--cn': color.on } as React.CSSProperties;
+
+  if (found.offscreen) {
+    // Ziel weggescrollt: kein Ring, die Blase steht am Rand des Bereichs, hinter dem es liegt, und zeigt dorthin.
+    // Im Dialog nach oben: in der freien Mitte seiner Kopfzeile, ohne Zeiger; so deckt der Hinweis keine Eingabe ab.
+    const dir = found.offscreen;
+    const offPos: React.CSSProperties = { left: clamp(cx - BLOB_W / 2, minLeft, maxLeft) };
+    let pointer = dir !== 'side';
+    if (dir === 'up' && clip && box.top - blobH - 2 >= clip.top + 4) {
+      offPos.top = box.top - blobH - 2;
+      pointer = false;
+    } else if (dir === 'up') offPos.top = box.top + 12;
+    else if (
+      dir === 'down' &&
+      clip &&
+      found.clipFooter &&
+      minLeft + BLOB_W <= found.clipFooter - 8 &&
+      box.top + box.height + 2 + blobH <= clip.top + clip.height - 4
+    ) {
+      // Gegenstueck zur Kopfzeile: in der freien linken Haelfte der Fusszeile, ohne Zeiger.
+      offPos.left = minLeft;
+      offPos.top = box.top + box.height + 2;
+      pointer = false;
+    } else if (dir === 'down') offPos.bottom = vh - Math.min(box.top + box.height, zone) + 12;
+    else offPos.top = clamp(box.top + box.height / 2 - blobH / 2, 12, Math.max(12, vh - blobH - 12));
+    return (
+      <div
+        key={`${index}-off`}
+        ref={blobRef}
+        className={`hm-tour-blob${dir === 'down' ? ' is-up' : ''}`}
+        style={{ ...vars, ...offPos, width: BLOB_W, ['--ax' as string]: `${BLOB_W / 2}px` }}
+        data-arrow={pointer ? 'yes' : 'none'}
+        role="note"
+      >
+        <p className="hm-tour-blob__title hm-tour-blob__title--compact">
+          <span className="hm-tour-blob__n">{n}</span>
+          {t(`blob.offscreen.${dir}`)}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <>
       <div
         className="hm-tour-ring"
-        style={{ ...vars, left: box.left - 4, top: box.top - 4, width: box.width + 8, height: box.height + 8 }}
+        style={{ ...vars, left: ring.left - 4, top: ring.top - 4, width: ring.width + 8, height: ring.height + 8 }}
         aria-hidden="true"
       />
       <div
         key={`${index}-${found.name}`}
-        className={`hm-tour-blob${up ? ' is-up' : ''}`}
-        style={{ ...vars, ...pos, width: BLOB_W, ['--ax' as string]: arrow === null ? undefined : `${arrow}px` }}
-        data-arrow={arrow === null ? 'none' : 'yes'}
+        ref={blobRef}
+        className={`hm-tour-blob${up ? ' is-up' : ''}${side !== null ? ' is-left' : ''}`}
+        style={{
+          ...vars,
+          ...pos,
+          width: BLOB_W,
+          ['--ax' as string]: arrow === null ? undefined : `${arrow}px`,
+          ['--ay' as string]: side === null ? undefined : `${side}px`,
+        }}
+        data-arrow={arrow === null && side === null ? 'none' : 'yes'}
         role="note"
       >
         <p className="hm-tour-blob__title">

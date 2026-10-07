@@ -3598,6 +3598,26 @@ button.lead-star:disabled {
 .hm-toast--green .hm-toast__icon {
   color: var(--success);
 }
+.hm-toast__close {
+  flex: none;
+  align-self: flex-start;
+  width: 26px;
+  height: 26px;
+  margin: -3px -8px 0 2px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.hm-toast__close:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
 .hm-toast__link {
   border: 0;
   background: none;

@@ -1,5 +1,8 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { Tooltip } from './Tooltip';
+
+const CLOSE_LABEL = 'Hinweis schließen';
 
 interface ToastItem {
   id: number;
@@ -7,12 +10,15 @@ interface ToastItem {
   message: React.ReactNode;
   /** Gruen hinterlegte Meldung (Hinweise, die man in Ruhe lesen soll). */
   green?: boolean;
+  closable?: boolean;
 }
 
 export interface ToastOptions {
   /** Anzeigedauer in Millisekunden (Vorgabe 4200). */
   duration?: number;
   green?: boolean;
+  /** X zum Schliessen, fuer lange stehende Meldungen. */
+  closable?: boolean;
 }
 
 const ToastContext = createContext<{
@@ -30,7 +36,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const push = useCallback((kind: ToastItem['kind'], message: React.ReactNode, options?: ToastOptions) => {
     const id = nextId.current++;
-    setToasts((t) => [...t, { id, kind, message, green: options?.green }]);
+    setToasts((t) => [...t, { id, kind, message, green: options?.green, closable: options?.closable }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), options?.duration ?? 4200);
   }, []);
 
@@ -49,6 +55,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               {t.kind === 'success' ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
             </span>
             {t.message}
+            {t.closable && (
+              <Tooltip content={<div className="hm-tooltip__title">{CLOSE_LABEL}</div>}>
+                <button
+                  type="button"
+                  className="hm-toast__close"
+                  aria-label={CLOSE_LABEL}
+                  onClick={() => setToasts((all) => all.filter((x) => x.id !== t.id))}
+                >
+                  <X size={15} />
+                </button>
+              </Tooltip>
+            )}
           </div>
         ))}
       </div>

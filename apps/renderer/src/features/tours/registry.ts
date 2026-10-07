@@ -22,9 +22,13 @@ export interface TourStepDef {
   altTarget?: string;
   /** Fehlen Daten, auf die der Schritt wartet: Ziel mit Hinweistext `<Tour>.step<N>.empty`. */
   emptyTarget?: string;
-  /** `above`: Blase ueber das Ziel (Dialoge: darunter laegen die Knoepfe). */
-  placement?: 'above';
-  /** `bottom`: Ist das Ziel gross und liegt im Dialog, sitzt die Blase unten rechts statt oben rechts. */
+  /**
+   * `above`: Blase ueber das Ziel (Dialoge: darunter laegen die Knoepfe).
+   * `left`: links daneben, auch ausserhalb des Dialogs; ohne Platz dort rechts im Dialog ueber der Zeile des Ziels.
+   * Nur fuer das Hauptziel, Ersatzziele stehen normal.
+   */
+  placement?: 'above' | 'left';
+  /** `bottom`: Das Ziel ist ein Formular, das den Dialog fuellt: Ring um den ganzen Dialog, Blase unten rechts. */
   anchor?: 'bottom';
   /**
    * Meldet die Seite dieses Ereignis, obwohl davor liegende Schritte noch offen sind
@@ -85,7 +89,7 @@ export const TOURS: TourDef[] = [
     area: 'kommunikation',
     steps: [
       { event: 'ankuendigungen.editor-dialog', target: 'ankuendigungen-create-btn' },
-      { event: 'ankuendigungen.content-entered', target: 'ankuendigungen-title', altTarget: 'ankuendigungen-create-btn' },
+      { event: 'ankuendigungen.content-entered', target: 'ankuendigungen-content', altTarget: 'ankuendigungen-create-btn' },
       { event: 'ankuendigungen.schedule-set', target: 'ankuendigungen-publish', altTarget: 'ankuendigungen-create-btn' },
       { event: 'ankuendigungen.ack-checked', target: 'ankuendigungen-ack', altTarget: 'ankuendigungen-create-btn', catchUp: true },
       { event: 'ankuendigungen.saved', target: 'ankuendigungen-form', altTarget: 'ankuendigungen-create-btn', placement: 'above', anchor: 'bottom', catchUp: true },
@@ -124,7 +128,7 @@ export const TOURS: TourDef[] = [
         placement: 'above',
       },
       { event: 'rollen-rechte.admin-role-dialog', page: 'benutzer', enter: true, target: 'rechte-role-btn', altTarget: 'rechte-tab-rollen' },
-      { event: 'rollen-rechte.admin-role-saved', page: 'benutzer', target: 'rechte-role-form', altTarget: 'rechte-role-btn' },
+      { event: 'rollen-rechte.admin-role-saved', page: 'benutzer', target: 'rechte-role-form', altTarget: 'rechte-role-btn', placement: 'left' },
       {
         event: 'rollen-rechte.assign-opened',
         page: 'benutzer',

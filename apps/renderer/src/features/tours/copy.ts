@@ -15,6 +15,9 @@ export const COPY = {
   'skip.docs': 'Dokumentation',
   'bar.goto': 'Weiter bei {page}',
   'notice.close': 'Hinweis schließen',
+  'blob.offscreen.up': 'Scrollen Sie nach oben, dort geht es weiter.',
+  'blob.offscreen.down': 'Scrollen Sie nach unten, dort geht es weiter.',
+  'blob.offscreen.side': 'Scrollen Sie zur Seite, dort geht es weiter.',
   'konto.title': 'Einführungen',
   'konto.text': 'Kurze Rundgänge durch einzelne Seiten. Übersprungene und abgeschlossene lassen sich erneut starten.',
   'konto.restart': 'Erneut starten',
@@ -58,7 +61,7 @@ export const COPY = {
   'rollen-rechte.step1.todo': 'Klicken Sie hier und legen Sie eine an.',
   'rollen-rechte.step2.title': 'Name und Sichtbarkeit',
   'rollen-rechte.step2.text':
-    'Vergeben Sie einen Namen, etwa Außendienst. Aktiv und Kalender im Portal lassen Sie für den Anfang angehakt. Zum Ausprobieren: Die Rolle lässt sich später wieder löschen.',
+    'Vergeben Sie einen Namen, etwa Außendienst. Die Haken für Aktiv und Kalender im Portal lassen Sie für den Anfang ausgewählt. Wir nutzen das als Testlauf: Die Rolle lässt sich später wieder löschen.',
   'rollen-rechte.step2.todo': 'Legen Sie die Rolle an.',
   'rollen-rechte.step2.alt': 'Hier geht es mit der Rolle weiter.',
   'rollen-rechte.step3.title': 'Wer gehört dazu?',
@@ -68,7 +71,7 @@ export const COPY = {
   'rollen-rechte.step3.alt': 'Keine aktive Rolle vorhanden. Legen Sie eine an, dann geht es hier weiter.',
   'rollen-rechte.step4.title': 'Mitglieder wählen',
   'rollen-rechte.step4.text':
-    'Wählen Sie eine Person aus. Solange keine Abwesenheitsart die Rolle verlangt, ändert sich für niemanden etwas. Zurücknehmen geht jederzeit.',
+    'Wählen Sie eine Person aus. Zurücknehmen geht jederzeit.',
   'rollen-rechte.step4.todo': 'Speichern Sie die Auswahl.',
   'rollen-rechte.step4.alt': 'Hier geht es mit den Mitgliedern weiter.',
   'rollen-rechte.step4.empty':
@@ -77,12 +80,12 @@ export const COPY = {
     'Nun sind wir im Bereich Benutzer & Rechte. Hier legen Sie fest, wer in der HR-Administration was sehen und bearbeiten darf.',
   'rollen-rechte.step5.title': 'Rechte bündeln',
   'rollen-rechte.step5.text':
-    'Anders als die Rollen eben regeln diese, welche Bereiche ein Konto in der App sieht und bearbeitet.',
+    'Anders als die Rollen, die wir uns gerade angeschaut haben, regeln Rechte, welche Bereiche ein Konto in der App sieht und bearbeitet.',
   'rollen-rechte.step5.todo': 'Klicken Sie hier und legen Sie eine an.',
   'rollen-rechte.step5.alt': 'Wechseln Sie auf den Reiter Rollen & Rechte.',
   'rollen-rechte.step6.title': 'Bereich für Bereich',
   'rollen-rechte.step6.text':
-    'Je Bereich gilt: kein Zugriff, nur lesen oder bearbeiten. Was nicht freigegeben ist, bleibt dem Konto verborgen. Die Rolle lässt sich später löschen, solange kein Konto sie hat.',
+    'Je Bereich gilt: Was nicht freigegeben ist, bleibt dem Konto verborgen. Die Rolle lässt sich später löschen, solange Sie ihr noch kein Konto zugewiesen haben.',
   'rollen-rechte.step6.todo': 'Legen Sie die Rolle an.',
   'rollen-rechte.step6.alt': 'Hier geht es mit der Rolle weiter.',
   'rollen-rechte.step7.title': 'Rolle zuweisen',
@@ -97,7 +100,8 @@ export const COPY = {
   'stellen.title': 'Stellen kennenlernen',
   'stellen.finale': 'Stellen erledigt',
   'stellen.step1.title': 'Die erste Stelle',
-  'stellen.step1.text': 'Eine Stelle ist ein Besetzungsbedarf. Bewerbungen hängen später an ihr.',
+  'stellen.step1.text':
+    'Mit Stellen können Sie den Überblick über Ihre Stellenausschreibungen behalten. Sollten Sie eine inseriert haben, können Sie sie hier anlegen, um den Prozess zu beobachten und zu protokollieren.',
   'stellen.step1.todo': 'Klicken Sie hier und legen Sie eine an.',
   'stellen.step2.title': 'Die Eckdaten',
   'stellen.step2.text':
@@ -106,8 +110,8 @@ export const COPY = {
   'stellen.step2.alt': 'Hier geht es mit der Stelle weiter.',
   'stellen.step3.title': 'Vom Entwurf zur Besetzung',
   'stellen.step3.text':
-    'Neue Stellen starten als Entwurf. Von dort geht es über veröffentlicht, pausiert und besetzt bis geschlossen. Angeboten wird nur, was zum aktuellen Stand passt.',
-  'stellen.step3.todo': 'Öffnen Sie die Auswahl. Ändern müssen Sie nichts.',
+    'Neue Stellen starten als Entwurf. Von dort geht der Status über zu veröffentlicht, pausiert, besetzt bis geschlossen.',
+  'stellen.step3.todo': 'Öffnen Sie die Auswahl. Sie müssen keinen neuen Status auswählen.',
   'stellen.step3.alt': 'Keine Stelle in der Liste. Legen Sie eine an oder wählen Sie den Filter Alle Status.',
   'stellen.step4.title': 'Die Stelle im Detail',
   'stellen.step4.text': 'Die Karte zeigt aktive, gesamte und eingestellte Bewerbungen auf einen Blick.',

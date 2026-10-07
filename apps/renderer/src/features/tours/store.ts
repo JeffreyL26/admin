@@ -15,6 +15,8 @@ export interface TourState {
   done: number[];
   /** Schrittzahl beim Abschluss (eingeschraenkte Konten sehen weniger Schritte). */
   total?: number;
+  /** Schon einmal abgeschlossen: Ein abgebrochener erneuter Durchlauf zaehlt wieder als abgeschlossen. */
+  completedOnce?: boolean;
 }
 type Persisted = Record<string, TourState>;
 
@@ -23,6 +25,13 @@ const storageKey = (key: string) => `ohrganize.tours.${key}`;
 
 /** Nicht gespeichert: sichtbare Schrittzahl je Einfuehrung fuer das aktuelle Konto. */
 const limits: Record<string, number> = {};
+/** Nicht gespeichert: per Abbruch auf "abgeschlossen" zurueckgesetzt, also ohne Abschluss-Animation. */
+const restored = new Set<string>();
+
+/** Liefert einmal true, wenn der letzte Wechsel auf "abgeschlossen" ein Abbruch war. */
+export function consumeRestored(id: string): boolean {
+  return restored.delete(id);
+}
 
 let activeKey: string | null = null;
 let tours: Persisted = {};
@@ -44,7 +53,10 @@ function load(key: string): Persisted {
     const done = Array.from({ length: n }, (_, i) => i);
     let status: TourStatus = s.status === 'done' || s.status === 'skipped' ? s.status : 'active';
     if (status === 'done' && n < (typeof s.total === 'number' ? s.total : tour.steps.length)) status = 'active';
-    out[tour.id] = status === 'done' && typeof s.total === 'number' ? { status, done, total: s.total } : { status, done };
+    const state: TourState = status === 'done' && typeof s.total === 'number' ? { status, done, total: s.total } : { status, done };
+    // Am gespeicherten Status, nicht am korrigierten: Auch ein auf "laeuft" zurueckgesetzter Abschluss zaehlt.
+    if (s.completedOnce === true || s.status === 'done') state.completedOnce = true;
+    out[tour.id] = state;
   }
   return out;
 }
@@ -75,11 +87,25 @@ export const tourActions = {
   setLimit: (id: string, n: number) => {
     limits[id] = n;
   },
-  start: (id: string) => commit({ ...tours, [id]: { status: 'active', done: [] } }),
-  /** Beendet ohne Abschluss. Zeigt die Meldung zur Dokumentation. */
+  start: (id: string) => {
+    const prev = tours[id];
+    const completedOnce = prev?.completedOnce === true || prev?.status === 'done';
+    commit({ ...tours, [id]: completedOnce ? { status: 'active', done: [], completedOnce } : { status: 'active', done: [] } });
+  },
+  /**
+   * Beendet ohne Abschluss. Zeigt die Meldung zur Dokumentation. War sie schon einmal abgeschlossen,
+   * bleibt sie das: Ein abgebrochener erneuter Durchlauf macht daraus kein "uebersprungen".
+   */
   skip: (id: string) => {
     const cur = tours[id];
-    commit({ ...tours, [id]: { status: 'skipped', done: cur?.done ?? [] } });
+    if (cur?.completedOnce) {
+      const tour = TOURS.find((x) => x.id === id);
+      const total = limits[id] ?? tour?.steps.length ?? 0;
+      restored.add(id);
+      commit({ ...tours, [id]: { status: 'done', done: Array.from({ length: total }, (_, i) => i), total, completedOnce: true } });
+    } else {
+      commit({ ...tours, [id]: { status: 'skipped', done: cur?.done ?? [] } });
+    }
     announceSkip();
   },
   /**
@@ -102,7 +128,12 @@ export const tourActions = {
       const done = Array.from({ length: hit + 1 }, (_, i) => i);
       next = {
         ...next,
-        [tour.id]: done.length >= total ? { status: 'done', done, total } : { status: 'active', done },
+        [tour.id]:
+          done.length >= total
+            ? { status: 'done', done, total, completedOnce: true }
+            : cur.completedOnce
+              ? { status: 'active', done, completedOnce: true }
+              : { status: 'active', done },
       };
     }
     if (next !== tours) commit(next);

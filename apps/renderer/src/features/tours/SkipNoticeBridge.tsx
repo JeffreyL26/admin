@@ -26,7 +26,7 @@ function SkipNotice() {
 export function SkipNoticeBridge() {
   const toast = useToast();
   useEffect(() => {
-    const on = () => toast.success(<SkipNotice />, { duration: 10000, green: true });
+    const on = () => toast.success(<SkipNotice />, { duration: 10000, green: true, closable: true });
     window.addEventListener(SKIP_EVENT, on);
     return () => window.removeEventListener(SKIP_EVENT, on);
   }, [toast]);

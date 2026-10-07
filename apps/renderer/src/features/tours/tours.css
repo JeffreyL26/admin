@@ -200,6 +200,10 @@ body:has(.hm-setup-launcher):has(.hm-tour-notice) .hm-toast-stack {
   font-size: var(--text-base);
   font-weight: 700;
 }
+.hm-tour-blob__title--compact {
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
 .hm-tour-blob__n {
   width: 22px;
   height: 22px;
@@ -238,6 +242,12 @@ body:has(.hm-setup-launcher):has(.hm-tour-notice) .hm-toast-stack {
   top: auto;
   bottom: -7px;
   transform: rotate(225deg);
+}
+.hm-tour-blob.is-left[data-arrow='yes']::after {
+  left: auto;
+  right: -7px;
+  top: calc(var(--ay) - 6px);
+  transform: rotate(135deg);
 }
 
 /* ---------- Finale ---------- */

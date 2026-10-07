@@ -120,6 +120,9 @@ function AckBar({
   );
 }
 
+/** Einfuehrung: Der Schritt "Titel und Text" gilt erst ab zwei Zeichen, sonst stuende die naechste Blase schon beim ersten Tastendruck da. */
+const bodyEntered = (body: string) => body.trim().length >= 2;
+
 function AnnouncementEditor({
   open,
   initial,
@@ -208,11 +211,11 @@ function AnnouncementEditor({
         <Field label="Titel" required span2>
           <input
             className="hm-input"
-            data-tour="ankuendigungen-title"
+            data-tour={form.title.trim() ? undefined : "ankuendigungen-content"}
             value={form.title}
             onChange={(e) => {
               setForm((f) => ({ ...f, title: e.target.value }));
-              if (editId === null && e.target.value.trim() && form.body.trim()) tourEvent("ankuendigungen.content-entered");
+              if (editId === null && e.target.value.trim() && bodyEntered(form.body)) tourEvent("ankuendigungen.content-entered");
             }}
             placeholder="z. B. Sommerfest am 14. August"
           />
@@ -221,10 +224,11 @@ function AnnouncementEditor({
           <textarea
             className="hm-textarea"
             rows={6}
+            data-tour={form.title.trim() ? "ankuendigungen-content" : undefined}
             value={form.body}
             onChange={(e) => {
               setForm((f) => ({ ...f, body: e.target.value }));
-              if (editId === null && e.target.value.trim() && form.title.trim()) tourEvent("ankuendigungen.content-entered");
+              if (editId === null && bodyEntered(e.target.value) && form.title.trim()) tourEvent("ankuendigungen.content-entered");
             }}
           />
         </Field>
