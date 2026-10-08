@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
-import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryCache, QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { LICENSE_ERROR_CODES } from '@ohrganize/shared';
 import { ApiRequestError } from './api/client';
 import { AuthProvider, useAuth } from './auth/AuthContext';
@@ -110,6 +110,26 @@ function QueryErrorBridge() {
   return null;
 }
 
+/**
+ * Rückkehr ins Fenster per Alt+Tab oder Klick: React Query (v5) hört von sich aus nur auf
+ * `visibilitychange`. Das feuert, wenn ein Fenster verdeckt oder minimiert war, nicht beim Wechsel
+ * zu einem Fenster, das die ganze Zeit sichtbar blieb (zweiter Bildschirm, nebeneinander). Gemeint
+ * ist mit `refetchOnWindowFocus` aber genau dieser Moment. Der Fensterfokus löst deshalb zusätzlich
+ * dasselbe aus wie ein Sichtbarwerden (`QueryCache.onFocus`: jede Abfrage nach ihren eigenen Regeln,
+ * also `refetchOnWindowFocus` und `staleTime`), ohne den Fokuszustand anzufassen, an dem
+ * `refetchInterval` hängt (sonst pausierte das Nachladen in einem sichtbaren, unfokussierten Fenster).
+ * Das Portal (apps/web/src/App.tsx) hat dieselbe Komponente; beide zusammen ändern.
+ */
+function RefetchOnWindowFocus() {
+  const client = useQueryClient();
+  useEffect(() => {
+    const onFocus = () => client.getQueryCache().onFocus();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [client]);
+  return null;
+}
+
 function Gate() {
   const { user, loading } = useAuth();
   if (loading) {
@@ -131,6 +151,7 @@ function Gate() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <RefetchOnWindowFocus />
       <AuthProvider>
         <ToastProvider>
           <QueryErrorBridge />

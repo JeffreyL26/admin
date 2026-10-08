@@ -1,5 +1,5 @@
-import React from 'react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import React, { useEffect } from 'react';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { ToastProvider } from './components/Toast';
@@ -30,6 +30,21 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/**
+ * Nachladen auch bei Rückkehr per Alt+Tab, nicht nur nach Verdecken oder Minimieren. Gleich wie in
+ * der Desktop-App, Begründung dort (apps/renderer/src/App.tsx, RefetchOnWindowFocus); beide Kopien
+ * zusammen ändern.
+ */
+function RefetchOnWindowFocus() {
+  const client = useQueryClient();
+  useEffect(() => {
+    const onFocus = () => client.getQueryCache().onFocus();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [client]);
+  return null;
+}
 
 /**
  * Platzhalter-Shell, bis die Sitzung wiederhergestellt ist. Sie zeichnet die
@@ -103,6 +118,7 @@ const router = createBrowserRouter([
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <RefetchOnWindowFocus />
       <AuthProvider>
         <ToastProvider>
           <RouterProvider router={router} />

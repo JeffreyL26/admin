@@ -37,6 +37,12 @@ statisch prüfen lässt.
    beider Clients (`renderer/src/App.tsx`, `web/src/App.tsx`)
    `refetchOnWindowFocus`, `refetchOnReconnect` und `staleTime` 500 ms;
    die Begründung steht im Kommentar dort. Kein Dauer-Polling als Ersatz.
+   „Fokus“ heißt auch Rückkehr per Alt+Tab: React Query hört nur auf
+   `visibilitychange`, deshalb löst `RefetchOnWindowFocus` (beide App.tsx)
+   beim Fensterfokus dasselbe aus. Das gilt auch für die eigenen Rechte: Der
+   Auth-Kontext der Desktop-App gleicht Konto, Rechte und Lizenz über die
+   Query `AUTH_ME_KEY` (`/api/auth/me`) ab, bei Fokus, Neuverbindung und
+   Menüwechsel (AppShell); eine geänderte eigene Rolle wirkt ohne Neustart.
    **Eine Abfrage mit eigenem `staleTime` oder abgeschaltetem Neuladen ist
    eine Ausnahme** und braucht direkt darüber einen Kommentar
    `// sync-ausnahme: <Grund>`; sonst scheitert `npm test`. Zulässig nur
@@ -233,7 +239,14 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `fuehrung: bearbeiten` und (solange es Protokolle lesen darf)
   `kommunikation: lesen`. Wer ein Konto anlegt, zurücksetzt, verknüpft,
   löst, dessen Rolle ändert oder es löscht, braucht mindestens diese Rechte
-  (`assertWithinOwnRights`, 403). Außerdem merkt sich jedes Konto die Rechte
+  (`assertWithinOwnRights`, 403). Der Vergleich „mehr Rechte als“ steht EINMAL
+  als `levelsBeyond` in `packages/shared/src/admin.ts` (Test
+  `src/test/rightsRulesTest.ts`): Backend-Rangprüfung, Selbstschutz der
+  eigenen Rolle und die Sperren der Rollenverwaltung in der Desktop-App
+  benutzen ihn; eine Änderung der Regel gehört dorthin, nicht in eine Kopie.
+  Rechte auf Module, die die Ausgabe nicht enthält, zählen dabei bewusst mit
+  (sie werden nach einem Wechsel auf eine größere Ausgabe wirksam).
+  Außerdem merkt sich jedes Konto die Rechte
   der Person, die sein Passwort zuletzt im Klartext ausgegeben hat
   (`users.credentials_issuer_rights`, Migration `005_credentials_issuer`,
   NULL = Vollzugriff bzw. Betreiber; geschrieben NUR über

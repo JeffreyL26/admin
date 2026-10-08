@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { LogOut, Search } from 'lucide-react';
 import { pathAllowedByFeatures, type AdminArea } from '@ohrganize/shared';
 import { useSidebarSections } from './sidebarConfig';
 import { navItemAllowedByFeatures } from './nav';
 import { LicenseBanner } from './LicenseBanner';
 import { SessionEndBanner } from './SessionEndBanner';
-import { useAuth } from '../auth/AuthContext';
+import { AUTH_ME_KEY, useAuth } from '../auth/AuthContext';
 import { Avatar } from '../components/ui';
 import { CommandPalette } from '../components/CommandPalette';
 import { Tooltip } from '../components/Tooltip';
@@ -36,7 +37,14 @@ function Shell() {
   const { user, logout, can, features } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Eigene Rechte bei jedem Menüwechsel abgleichen, wie die Seitendaten beim Wechsel neu laden
+  // (Prinzip 3): Der Auth-Kontext bleibt gemountet und lädt sonst nur bei Fokus. Nur wenn der
+  // Stand älter als die staleTime ist, und ein laufender Abruf wird mitgenutzt.
+  useEffect(() => {
+    void queryClient.refetchQueries({ queryKey: AUTH_ME_KEY, stale: true }, { cancelRefetch: false });
+  }, [location.pathname, queryClient]);
   // Führungsfunktion: sichtbar nur für freigeschaltete Personalprofile —
   // unabhängig von der Admin-Rolle (Details in features/leadership/api.ts).
   const isLeader = useLeaderStatus().data?.is_leader === true;

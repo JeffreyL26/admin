@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   areaOpen,
   checkIntervalMs,
@@ -7,6 +7,7 @@ import {
   DESKTOP_REFRESH_CHECK_MS,
   FULL_ACCESS,
   hasFeature,
+  sameRecordExcept,
   sessionEndReached,
   sessionEndsAt as endsAtFrom,
   sessionEndWarningMs,
@@ -136,6 +137,26 @@ const AuthContext = createContext<AuthState>({
 
 export const useAuth = () => useContext(AuthContext);
 
+/**
+ * Query der eigenen Identitaet (/api/auth/me). Der Auth-Kontext gleicht Konto, Rechte und Lizenz
+ * darueber ab; wer die eigene Rolle aendern kann (Rollenverwaltung), invalidiert ihn danach.
+ */
+export const AUTH_ME_KEY = ['auth', 'me'] as const;
+
+/** Gleicher Inhalt? Fuer den Abgleich bei jedem Fokus: Unveraendertes behaelt seine Identitaet. */
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Gleiches Konto? Login und /api/auth/me liefern `user` unterschiedlich: /me zusaetzlich mit den
+ * Token-Angaben (iat, session, auth_time, exp), die sich bei jeder Verlaengerung aendern. Verglichen
+ * wird alles ausser diesen, in fester Reihenfolge; ein neues Kontofeld zaehlt damit von selbst mit.
+ */
+// Gleich halten mit dem, was der globale Hook an req.user haengt (apps/backend/src/server.ts,
+// `req.user = { ...account, iat, session, auth_time }`); ein neuer Claim dort gehoert hierher.
+const TOKEN_CLAIMS = new Set(['iat', 'session', 'auth_time', 'exp']);
+const sameUser = (a: AuthUser, b: AuthUser) =>
+  sameRecordExcept(a as unknown as Record<string, unknown>, b as unknown as Record<string, unknown>, TOKEN_CLAIMS);
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [permissions, setPermissions] = useState<AdminPermissions>(FULL_ACCESS);
@@ -149,11 +170,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const licenseRef = useRef<LicenseStatus | null>(null);
   licenseRef.current = license;
 
-  /** Identität, Rechte und Lizenz aus einer Login-/me-Antwort übernehmen. */
+  /**
+   * Identität, Rechte und Lizenz aus einer Login-/me-Antwort übernehmen. Unverändertes wird nicht
+   * neu gesetzt: Der Abgleich läuft bei jedem Fokus, und neue Objekte ließen jede abhängige
+   * Ansicht neu rechnen.
+   */
   const applyMe = useCallback((res: MeResponse) => {
-    setUser(res.user);
-    setPermissions(res.permissions ?? FULL_ACCESS);
-    setLicense(res.license ?? null);
+    setUser((prev) => (prev !== null && sameUser(prev, res.user) ? prev : res.user));
+    const nextPermissions = res.permissions ?? FULL_ACCESS;
+    setPermissions((prev) => (sameJson(prev, nextPermissions) ? prev : nextPermissions));
+    const nextLicense = res.license ?? null;
+    setLicense((prev) => (sameJson(prev, nextLicense) ? prev : nextLicense));
   }, []);
 
   const logout = useCallback(() => {
@@ -169,6 +196,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [queryClient]);
 
   /**
+   * Startwert des Abgleichs (unten) aus einer Antwort, die schon vorliegt, damit er nicht gleich
+   * ein zweites Mal fragt. Ein Abruf, der noch unterwegs ist, wird vorher verworfen: Er kann mit
+   * dem alten Token und dem alten Stand gestartet sein (etwa vor einem Passwortwechsel) und würde
+   * den frischen Stand sonst beim Eintreffen überschreiben.
+   */
+  const seedMe = useCallback(
+    async (me: MeResponse) => {
+      await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY });
+      queryClient.setQueryData(AUTH_ME_KEY, me);
+    },
+    [queryClient],
+  );
+
+  /**
    * Sitzung von außen beendet (401) oder an ihrer Höchstdauer angekommen. War
    * es das Ende der Sitzung, mit Hinweis; ein 401 aus anderem Grund (etwa
    * Passwortwechsel auf einem anderen Gerät) meldet ohne Hinweis ab.
@@ -179,16 +220,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (ended) setNotice(SESSION_END_NOTICE);
   }, [logout]);
 
+  // Lizenz nachladen heißt: den Abgleich unten neu fragen; er übernimmt Konto, Rechte und Lizenz
+  // in einem Weg. Fehler bleiben still (meta.silentError), ein 401 landet im Unauthorized-Handler.
   const refreshLicense = useCallback(async () => {
     if (!hasToken()) return;
-    try {
-      const me = await api.get<MeResponse>('/api/auth/me');
-      if (me.user.role === 'admin') setLicense(me.license ?? null);
-    } catch {
-      // Ein 401 landet ohnehin im Unauthorized-Handler; alles andere lässt den
-      // bisherigen Zustand stehen — ein Banner ist kein Grund für einen Fehler.
-    }
-  }, []);
+    await queryClient.refetchQueries({ queryKey: AUTH_ME_KEY });
+  }, [queryClient]);
 
   useEffect(() => {
     setUnauthorizedHandler(endSession);
@@ -199,12 +236,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     api
       .get<MeResponse>('/api/auth/me')
       .then((res) => {
-        if (res.user.role !== 'admin') setToken(null);
-        else applyMe(res);
+        if (res.user.role !== 'admin') {
+          // Konto ist inzwischen ein Portal-Konto: derselbe Hinweis wie bei Anmeldung und Abgleich.
+          setToken(null);
+          setNotice(ADMIN_ONLY_MESSAGE);
+        } else {
+          applyMe(res);
+          void seedMe(res);
+        }
       })
       .catch(() => setToken(null))
       .finally(() => setLoading(false));
-  }, [endSession, applyMe]);
+  }, [endSession, applyMe, seedMe]);
+
+  // Abgleich während der Sitzung (Prinzip 3 in CLAUDE.md): Ändert jemand die eigene Rolle, deren
+  // Rechte oder die Zuweisung, ziehen Seitenleiste, Kürzel und jedes `can` nach, ohne Neustart:
+  // bei Rückkehr ins Fenster (App.tsx, RefetchOnWindowFocus), Neuverbindung und Menüwechsel
+  // (AppShell). Kein Polling. Das Backend liest das Konto bei jeder Anfrage frisch (server.ts),
+  // /api/auth/me ist also immer aktuell. Wird das Konto zum Portal-Konto, endet die Sitzung mit
+  // demselben Hinweis wie bei der Anmeldung.
+  const signedIn = user !== null;
+  const { data: freshMe } = useQuery({
+    queryKey: AUTH_ME_KEY,
+    queryFn: () => api.get<MeResponse>('/api/auth/me'),
+    enabled: signedIn,
+    // Ein 401 beendet die Sitzung über den Unauthorized-Handler; alles andere lässt den Stand stehen.
+    meta: { silentError: true },
+  });
+  useEffect(() => {
+    if (!freshMe || !hasToken()) return;
+    if (freshMe.user.role !== 'admin') {
+      logout();
+      setNotice(ADMIN_ONLY_MESSAGE);
+      return;
+    }
+    applyMe(freshMe);
+  }, [freshMe, applyMe, logout]);
 
   // Zustandswechsel mitten in der Sitzung (Header oder 403 LICENSE_EXPIRED,
   // siehe api/client.ts): nur nachladen, wenn sich wirklich etwas geändert
@@ -218,10 +285,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Solange noch kein Zustand vorliegt, kommt er aus genau dieser Antwort
       // — ein zweites /api/auth/me wäre reine Doppelarbeit.
       if (!hasToken() || licenseRef.current === null || licenseRef.current.state === state) return;
-      void refreshLicense();
+      // Kam das Signal aus der Antwort des Abgleichs selbst (der Client liest den Header vor dem
+      // Body), bringt genau diese Antwort den neuen Stand: laufenden Abruf mitnutzen, nicht abbrechen.
+      void queryClient.refetchQueries({ queryKey: AUTH_ME_KEY }, { cancelRefetch: false });
     });
     return () => setLicenseStateHandler(null);
-  }, [refreshLicense]);
+  }, [queryClient]);
 
   // Solange angemeldet: Token verlängern, sobald es zehn Minuten alt ist, bei
   // kurzer Laufzeit (OHRGANIZE_DESKTOP_TOKEN_TTL) spätestens nach der halben
@@ -284,7 +353,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(res.token);
     setNotice(null);
     applyMe(res);
-  }, [queryClient, applyMe]);
+    const { token: _token, ...me } = res;
+    await seedMe(me);
+  }, [queryClient, applyMe, seedMe]);
 
   const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
     const res = await api.put<{ ok: boolean; token: string }>('/api/auth/password', {
@@ -295,8 +366,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // liefert must_change_password = 0 und die (bei einem gesperrten Konto
     // bisher nicht abrufbaren) Rechte.
     setToken(res.token);
-    applyMe(await api.get<MeResponse>('/api/auth/me'));
-  }, [applyMe]);
+    const me = await api.get<MeResponse>('/api/auth/me');
+    applyMe(me);
+    await seedMe(me);
+  }, [applyMe, seedMe]);
 
   const can = useCallback(
     (area: AdminArea, needed: 'lesen' | 'bearbeiten' = 'lesen') => areaOpen(VARIANT, area, permissions[area], needed),
