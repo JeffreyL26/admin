@@ -7,17 +7,22 @@ import {
   ADMIN_AREA_LABELS,
   PERMISSION_LEVELS,
   PERMISSION_LEVEL_LABELS,
+  areasOutsideVariant,
   formatDate,
+  levelsBeyond,
+  moduleEnabled,
+  permissionRank,
+  variantAreas,
   type AdminAccount,
   type AdminAccountWithPassword,
+  type AdminArea,
   type AdminPermissions,
   type AdminRole,
   type PermissionLevel,
 } from '@ohrganize/shared';
-import { moduleEnabled } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { api } from '../../api/client';
-import { useAuth } from '../../auth/AuthContext';
+import { AUTH_ME_KEY, useAuth } from '../../auth/AuthContext';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { EmployeeSelect, employeeName, useEmployees } from '../../components/EmployeeSelect';
@@ -27,6 +32,47 @@ import { Select } from '../../components/Select';
 import { HintBox } from '../../components/HintBox';
 import { t } from '../setup/copy';
 import { tourEvent } from '../tours/events';
+
+/**
+ * Bereiche, die es in dieser Variante gibt (Modul enthalten). Nur sie vergibt der Rollen-Editor:
+ * Ein Recht auf ein fehlendes Modul wirkte nirgends (`can` ist dort immer zu). Gespeicherte Stufen
+ * fehlender Bereiche (Startrollen der Migration, Wechsel auf eine kleinere Ausgabe) bleiben stehen und
+ * zaehlen im Backend beim Rang eines Kontos BEWUSST mit: Nach einem Upgrade auf eine groessere
+ * Ausgabe werden sie wirksam, und die Rangpruefung (core/accountRights.ts) muss sie deshalb schon
+ * vorher kennen, sonst vergaebe jemand Rechte, die er nicht hat. Rollenliste und Editor nennen sie
+ * gesondert; der Editor erlaubt dort nur das Entziehen.
+ */
+const VARIANT_AREAS = variantAreas(VARIANT);
+
+/** Gespeicherte Rechte einer Rolle auf Bereiche, deren Modul diese Ausgabe nicht enthaelt. */
+const outsideVariantAreas = (permissions: AdminPermissions): AdminArea[] => areasOutsideVariant(VARIANT, permissions);
+
+/**
+ * Bereiche, in denen eine Rolle mehr darf als `own`, auch ausserhalb der Ausgabe. Eine solche Rolle
+ * aendert oder loescht nur, wer diese Rechte selbst hat (Backend: assertWithinOwnRights auf den
+ * bestehenden Stand); dieselbe Regel wie dort (`levelsBeyond`, packages/shared).
+ */
+const rightsBeyond = (role: AdminPermissions, own: AdminPermissions): AdminArea[] => levelsBeyond(role, own);
+
+/** Hinweiskasten der Rollenverwaltung (eigene Rolle, Rolle ueber den eigenen Rechten). */
+function RoleNotice({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 8,
+        margin: '14px 0 4px',
+        padding: '10px 12px',
+        borderRadius: 'var(--radius-sm)',
+        background: 'var(--bg-tint-1)',
+        fontSize: 'var(--text-sm)',
+      }}
+    >
+      <ShieldAlert size={16} style={{ flex: 'none', marginTop: 2 }} />
+      <span>{children}</span>
+    </div>
+  );
+}
 
 const KEY = ['admin', 'admin-roles'];
 const USERS_KEY = ['admin', 'users'];
@@ -776,7 +822,7 @@ export function InitialPasswordDialog({
 function RolesTab() {
   const toast = useToast();
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { user, permissions: ownPermissions } = useAuth();
   const { data: roles, isLoading } = useAdminRoles();
   const [editing, setEditing] = useState<AdminRole | 'neu' | null>(null);
   const [deleting, setDeleting] = useState<AdminRole | null>(null);
@@ -829,7 +875,9 @@ function RolesTab() {
               <tbody>
                 {roles!.map((r) => {
                   const own = user?.admin_role_id === r.id;
-                  const granted = ADMIN_AREAS.filter((a) => r.permissions[a] !== 'kein');
+                  const granted = VARIANT_AREAS.filter((a) => r.permissions[a] !== 'kein');
+                  const outside = outsideVariantAreas(r.permissions);
+                  const locked = rightsBeyond(r.permissions, ownPermissions).length > 0;
                   return (
                     <tr key={r.id}>
                       <td>
@@ -859,6 +907,23 @@ function RolesTab() {
                               </Badge>
                             ))
                           )}
+                          {outside.length > 0 && (
+                            <Tooltip
+                              content={
+                                <>
+                                  <span className="hm-tooltip__title">Nicht in dieser Ausgabe</span>
+                                  <span className="hm-tooltip__line">Ohne Wirkung · zählt beim Rang eines Kontos mit</span>
+                                </>
+                              }
+                            >
+                              <span
+                                tabIndex={0}
+                                style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', alignSelf: 'center' }}
+                              >
+                                außerhalb dieser Ausgabe: {outside.map((a) => ADMIN_AREA_LABELS[a]).join(', ')}
+                              </span>
+                            </Tooltip>
+                          )}
                         </div>
                       </td>
                       <td>{r.member_count ?? 0}</td>
@@ -869,13 +934,24 @@ function RolesTab() {
                             className="hm-btn hm-btn--quiet hm-btn--sm"
                             onClick={() => setEditing(r)}
                           >
-                            <Pencil size={14} /> Bearbeiten
+                            <Pencil size={14} /> {locked ? 'Ansehen' : 'Bearbeiten'}
                           </button>
-                          <Tooltip content={own ? <span className="hm-tooltip__title">{'Die eigene Rolle kann nicht gelöscht werden.'}</span> : null}>
+                          <Tooltip
+                            content={
+                              own ? (
+                                <span className="hm-tooltip__title">{'Die eigene Rolle kann nicht gelöscht werden.'}</span>
+                              ) : locked ? (
+                                <>
+                                  <span className="hm-tooltip__title">Nicht löschbar</span>
+                                  <span className="hm-tooltip__line">Rolle hat mehr Rechte als Ihr Konto</span>
+                                </>
+                              ) : null
+                            }
+                          >
                             <button
                               className="hm-btn hm-btn--quiet hm-btn--sm"
                               onClick={() => setDeleting(r)}
-                              disabled={own}
+                              disabled={own || locked}
                             >
                               <Trash2 size={14} />
                             </button>
@@ -898,6 +974,8 @@ function RolesTab() {
           onSaved={() => {
             qc.invalidateQueries({ queryKey: KEY });
             qc.invalidateQueries({ queryKey: USERS_KEY });
+            // Die eigene Rolle kann sich geaendert haben: Auth-Kontext neu abgleichen.
+            qc.invalidateQueries({ queryKey: AUTH_ME_KEY });
             setEditing(null);
           }}
         />
@@ -935,14 +1013,17 @@ function RoleDialog({
   onSaved: () => void;
 }) {
   const toast = useToast();
-  const { user } = useAuth();
+  // Eigene Rechte aus dem Auth-Kontext; der gleicht sie bei Fokus mit dem Server ab (AUTH_ME_KEY).
+  const { user, permissions: ownPermissions } = useAuth();
   const isOwnRole = role !== null && user?.admin_role_id === role.id;
 
   const [name, setName] = useState(role?.name ?? '');
   const [description, setDescription] = useState(role?.description ?? '');
-  const [permissions, setPermissions] = useState<AdminPermissions>(
-    role?.permissions ?? { ...EMPTY_PERMISSIONS },
-  );
+  // Stand beim Öffnen: Startwert des Formulars und Grundlage für die Zeilen außerhalb der Ausgabe.
+  // Lädt die Rolle zwischendurch neu, bleibt beides beim selben Stand (sonst sendete das Formular
+  // Stufen, die es nicht mehr anzeigt).
+  const [stored] = useState<AdminPermissions>(() => role?.permissions ?? { ...EMPTY_PERMISSIONS });
+  const [permissions, setPermissions] = useState<AdminPermissions>(() => ({ ...stored }));
 
   const save = useMutation({
     mutationFn: () => {
@@ -963,9 +1044,20 @@ function RoleDialog({
     setPermissions((p) => ({ ...p, [area]: level }));
 
   const grantedCount = useMemo(
-    () => ADMIN_AREAS.filter((a) => permissions[a] !== 'kein').length,
+    () => VARIANT_AREAS.filter((a) => permissions[a] !== 'kein').length,
     [permissions],
   );
+  // Gespeicherte Rechte auf Module, die diese Ausgabe nicht enthält: sichtbar, aber nur entziehbar
+  // (oder auf den gespeicherten Stand zurück), nie neu vergeben.
+  const outsideAreas = useMemo(() => outsideVariantAreas(stored), [stored]);
+  // Eine bestehende Rolle bearbeitet nur, wer ALLE ihre Rechte selbst hat, auch die außerhalb der
+  // Ausgabe (rightsBeyond). Sonst endete jedes Speichern mit 403; der Dialog sagt das vorher und
+  // sperrt Speichern.
+  const beyondOwn = useMemo(
+    () => (role === null ? [] : rightsBeyond(stored, ownPermissions)),
+    [role, stored, ownPermissions],
+  );
+  const editable = beyondOwn.length === 0;
 
   return (
     <Modal
@@ -980,7 +1072,7 @@ function RoleDialog({
           </button>
           <button
             className="hm-btn hm-btn--primary"
-            disabled={!name.trim() || save.isPending}
+            disabled={!editable || !name.trim() || save.isPending}
             onClick={() => save.mutate()}
           >
             Speichern
@@ -990,12 +1082,13 @@ function RoleDialog({
     >
       <div className="hm-form-grid">
         <Field label="Name" required>
-          <input className="hm-input" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="hm-input" value={name} disabled={!editable} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Beschreibung">
           <input
             className="hm-input"
             value={description}
+            disabled={!editable}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Wofür ist diese Rolle gedacht?"
           />
@@ -1003,31 +1096,25 @@ function RoleDialog({
       </div>
 
       {isOwnRole && (
-        <div
-          style={{
-            display: 'flex',
-            gap: 8,
-            margin: '14px 0 4px',
-            padding: '10px 12px',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--bg-tint-1)',
-            fontSize: 'var(--text-sm)',
-          }}
-        >
-          <ShieldAlert size={16} style={{ flex: 'none', marginTop: 2 }} />
-          <span>
-            Das ist <strong>Ihre eigene Rolle</strong>. Sie können Rechte hier nur zurücknehmen,
-            nicht erweitern, und die Benutzerverwaltung muss auf „Bearbeiten“ bleiben. Ansonsten
-            könnten Sie die Änderung nicht rückgängig machen.
-          </span>
-        </div>
+        <RoleNotice>
+          Das ist <strong>Ihre eigene Rolle</strong>. Sie können Rechte hier nur zurücknehmen,
+          nicht erweitern, und die Benutzerverwaltung muss auf „Bearbeiten“ bleiben. Ansonsten
+          könnten Sie die Änderung nicht rückgängig machen.
+        </RoleNotice>
+      )}
+
+      {!editable && (
+        <RoleNotice>
+          Diese Rolle hat mehr Rechte als Sie selbst ({beyondOwn.map((a) => ADMIN_AREA_LABELS[a]).join(', ')}).
+          Ändern, Rechte entziehen oder löschen kann sie nur ein Konto mit diesen Rechten oder mit Vollzugriff.
+        </RoleNotice>
       )}
 
       <div style={{ marginTop: 16 }}>
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
           <strong data-tour="rechte-role-form">Rechte je Bereich</strong>
           <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-            {grantedCount} von {ADMIN_AREAS.length} Bereichen freigegeben
+            {grantedCount} von {VARIANT_AREAS.length} Bereichen freigegeben
           </span>
         </div>
         <div className="hm-table-wrap">
@@ -1039,7 +1126,7 @@ function RoleDialog({
               </tr>
             </thead>
             <tbody>
-              {ADMIN_AREAS.map((area) => (
+              {VARIANT_AREAS.map((area) => (
                 <tr key={area}>
                   <td>
                     <div style={{ fontWeight: 600 }}>{ADMIN_AREA_LABELS[area]}</div>
@@ -1053,6 +1140,39 @@ function RoleDialog({
                         <button
                           key={level}
                           type="button"
+                          // Gesperrte Rolle: nur ansehen. Sonst keine Stufe über den eigenen Rechten
+                          // (Backend: assertWithinOwnRights auf die neuen Stufen, sonst 403).
+                          disabled={!editable || permissionRank(level) > permissionRank(ownPermissions[area])}
+                          className={`hm-btn hm-btn--sm ${
+                            permissions[area] === level ? 'hm-btn--primary' : 'hm-btn--secondary'
+                          }`}
+                          onClick={() => setLevel(area, level)}
+                        >
+                          {PERMISSION_LEVEL_LABELS[level]}
+                        </button>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {outsideAreas.map((area) => (
+                <tr key={area}>
+                  <td>
+                    <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      {ADMIN_AREA_LABELS[area]} <Badge tone="neutral">nicht in dieser Ausgabe</Badge>
+                    </div>
+                    <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                      Wirkt hier nicht, zählt aber beim Vergleich der Kontorechte mit und gilt nach einem
+                      Wechsel auf eine größere Ausgabe.{editable ? ' Hier lässt es sich nur entziehen.' : ''}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="row" style={{ gap: 4 }}>
+                      {PERMISSION_LEVELS.filter((level) => level === 'kein' || level === stored[area]).map((level) => (
+                        <button
+                          key={level}
+                          type="button"
+                          disabled={!editable}
                           className={`hm-btn hm-btn--sm ${
                             permissions[area] === level ? 'hm-btn--primary' : 'hm-btn--secondary'
                           }`}
@@ -1068,6 +1188,11 @@ function RoleDialog({
             </tbody>
           </table>
         </div>
+        {editable && VARIANT_AREAS.some((a) => permissionRank(ownPermissions[a]) < permissionRank('bearbeiten')) && (
+          <p style={{ marginTop: 10, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            Stufen über Ihren eigenen Rechten sind gesperrt: Eine Rolle kann nicht mehr erlauben als Ihr Konto.
+          </p>
+        )}
         <p style={{ marginTop: 10, fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
           <UserCog size={12} style={{ verticalAlign: -2, marginRight: 4 }} />
           „Nur lesen“ erlaubt das Ansehen, aber kein Anlegen, Ändern oder Löschen. Das Dashboard

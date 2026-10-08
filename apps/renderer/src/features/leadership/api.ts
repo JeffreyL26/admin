@@ -33,6 +33,8 @@ import type {
   RatingsSaveRequest,
   TeamMemberDetailResponse,
 } from '@ohrganize/shared';
+import { moduleEnabled } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { api } from '../../api/client';
 
 export const LEADERSHIP_KEY = ['leadership'] as const;
@@ -59,6 +61,8 @@ export function useLeaderStatus() {
   return useQuery({
     queryKey: [...LEADERSHIP_KEY, 'me', 'status'],
     queryFn: () => api.get<LeaderStatus>('/api/leadership/me/status'),
+    // Ohne Modul Leistung & Fuehrung gibt es die Route nicht: keine Anfrage, niemand ist Fuehrungskraft.
+    enabled: moduleEnabled(VARIANT, 'performance'),
     meta: { silentError: true },
   });
 }
