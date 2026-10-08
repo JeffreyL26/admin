@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { backToState } from '../../lib/backTo';
 import { Mail, Phone, Settings, BookUser, MapPin } from 'lucide-react';
@@ -9,6 +9,7 @@ import {
 } from '@ohrganize/shared';
 import { Avatar, Badge, EmptyState, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
+import { HintBox } from '../../components/HintBox';
 import { useToast } from '../../components/Toast';
 import { useDebounced } from '../../components/useDebounced';
 import { useAvatarPhoto, type PersonPhoto } from '../employees/avatarPhoto';
@@ -35,12 +36,34 @@ function FieldVisibilityDialog({ open, onClose }: { open: boolean; onClose: () =
   const { data: fields } = useDirectoryFields();
   const save = useSaveDirectoryFields();
   const [draft, setDraft] = useState<Record<string, boolean>>({});
+  // Stand der Felder, aus dem der Entwurf stammt (zum Erkennen fremder Änderungen, siehe unten).
+  const [baseline, setBaseline] = useState<string | null>(null);
+  const fieldsKey = fields ? JSON.stringify(fields.map((f) => [f.field_key, f.visible])) : null;
+  const seedDraft = () => {
+    if (!fields) return;
+    setDraft(Object.fromEntries(fields.map((f) => [f.field_key, f.visible])));
+    setBaseline(fieldsKey);
+  };
 
+  // Entwurf einmal je Öffnen aus den Daten setzen, nicht bei jeder Änderung: Die Felder laden bei
+  // Fensterfokus und Menüwechsel nach (App.tsx), und eine Änderung an einem anderen Arbeitsplatz
+  // ersetzte sonst die ungespeicherte Auswahl. Gespeichert wird immer die ganze Liste; ändert sie
+  // jemand anderes, während der Dialog offen ist, sagt der Dialog das, statt still zu überschreiben.
+  const seeded = useRef(false);
   useEffect(() => {
-    if (open && fields) {
-      setDraft(Object.fromEntries(fields.map((f) => [f.field_key, f.visible])));
+    if (!open) {
+      seeded.current = false;
+      // Sonst verglich das erste Bild nach dem nächsten Öffnen mit dem Stand von diesem Mal.
+      setBaseline(null);
+      return;
     }
+    if (fields && !seeded.current) {
+      seeded.current = true;
+      seedDraft();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, fields]);
+  const changedElsewhere = open && baseline !== null && fieldsKey !== null && fieldsKey !== baseline;
 
   return (
     <Modal
@@ -77,6 +100,17 @@ function FieldVisibilityDialog({ open, onClose }: { open: boolean; onClose: () =
         Ausgeblendete Felder werden serverseitig entfernt: hier im Verzeichnis sowie im Verzeichnis und im
         Organigramm des Portals. Die Personalakte bleibt davon unberührt.
       </p>
+      {changedElsewhere && (
+        <div style={{ marginBottom: 14 }}>
+          <HintBox>
+            Die Sichtbarkeit wurde inzwischen an einem anderen Arbeitsplatz geändert. Speichern überschreibt
+            das mit Ihrer Auswahl.{' '}
+            <button type="button" className="hm-btn hm-btn--quiet hm-btn--sm" onClick={seedDraft}>
+              Aktuellen Stand laden
+            </button>
+          </HintBox>
+        </div>
+      )}
       <div className="stack" style={{ gap: 8 }}>
         {DIRECTORY_FIELD_KEYS.map((key: DirectoryFieldKey) => (
           <label key={key} className="hm-checkbox">
