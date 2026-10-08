@@ -18,7 +18,7 @@
  * Routen und Seiten, keine Tabellen. Ein Wechsel der Edition ist Installer
  * plus Lizenz, ohne Migration.
  */
-import { permits, type AdminArea, type PermissionLevel } from '../admin.js';
+import { ADMIN_AREAS, permits, type AdminArea, type AdminPermissions, type PermissionLevel } from '../admin.js';
 import { COUNTRY_CODES, EDITION_PATTERN, type CountryCode, type Edition } from '../country.js';
 import registry from './registry.json';
 
@@ -72,6 +72,24 @@ export function areaOpen(
   needed: 'lesen' | 'bearbeiten' = 'lesen',
 ): boolean {
   return moduleEnabled(variant, AREA_MODULES[area]) && permits(level, needed);
+}
+
+/** Rechtebereiche, deren Modul die Variante enthält (Bereiche ohne Modulbindung immer). */
+export function variantAreas(variant: Pick<VariantManifest, 'modules'>): AdminArea[] {
+  return ADMIN_AREAS.filter((a) => moduleEnabled(variant, AREA_MODULES[a]));
+}
+
+/**
+ * Bereiche, auf die `permissions` ein Recht gibt, deren Modul die Variante aber nicht enthält
+ * (Startrollen der Migration, Wechsel auf eine kleinere Ausgabe). Ohne Wirkung, zählen aber im Rang.
+ */
+export function areasOutsideVariant(
+  variant: Pick<VariantManifest, 'modules'>,
+  permissions: Partial<AdminPermissions>,
+): AdminArea[] {
+  return ADMIN_AREAS.filter(
+    (a) => !moduleEnabled(variant, AREA_MODULES[a]) && (permissions[a] ?? 'kein') !== 'kein',
+  );
 }
 
 /** Ist das Modul in der Variante enthalten? undefined/null = keine Modulbindung = immer. */

@@ -253,3 +253,36 @@ export function permits(level: PermissionLevel, needed: 'lesen' | 'bearbeiten'):
   if (needed === 'lesen') return level === 'lesen' || level === 'bearbeiten';
   return level === 'bearbeiten';
 }
+
+/** Stufen als Zahl, um „höher?“ vergleichen zu können (fehlende Stufe = kein). */
+export function permissionRank(level: PermissionLevel | undefined): number {
+  return level === 'bearbeiten' ? 2 : level === 'lesen' ? 1 : 0;
+}
+
+/**
+ * Bereiche, in denen `levels` mehr erlaubt als `own` (fehlende Stufe = kein). EINE Regel für
+ * die Rangprüfung im Backend (core/accountRights.ts, Selbstschutz in modules/admin/userRoutes.ts)
+ * und die Sperren der Rollenverwaltung in der Desktop-App; Test: src/test/rightsRulesTest.ts.
+ */
+export function levelsBeyond(levels: Partial<AdminPermissions>, own: Partial<AdminPermissions>): AdminArea[] {
+  return ADMIN_AREAS.filter((a) => permissionRank(levels[a]) > permissionRank(own[a]));
+}
+
+/**
+ * Gleicher Inhalt zweier flacher Datensätze, ohne die Schlüssel in `ignored`, unabhängig von der
+ * Reihenfolge der Schlüssel (Abgleich des eigenen Kontos in der Desktop-App: Token-Angaben ändern
+ * sich bei jeder Verlängerung und zählen nicht).
+ */
+export function sameRecordExcept(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+  ignored: ReadonlySet<string>,
+): boolean {
+  const key = (r: Record<string, unknown>) =>
+    JSON.stringify(
+      Object.entries(r)
+        .filter(([k]) => !ignored.has(k))
+        .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)),
+    );
+  return key(a) === key(b);
+}

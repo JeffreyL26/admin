@@ -35,6 +35,7 @@ import { z } from 'zod';
 import {
   ADMIN_AREAS,
   PERMISSION_LEVELS,
+  levelsBeyond,
   type AdminArea,
   type AdminPermissions,
   type PermissionLevel,
@@ -48,7 +49,6 @@ import {
   assertWithinOwnRights,
   effectiveRights,
   issuerRightsOf,
-  rank,
   type RightsChange,
 } from '../../core/accountRights.js';
 import { prepareIssuedPassword, storeIssuedPassword } from '../../core/credentials.js';
@@ -246,9 +246,7 @@ export async function adminUserRoutes(app: FastifyInstance): Promise<void> {
     // abzugeben würde die letzte Tür hinter sich zuziehen.
     if ((req.user.admin_role_id ?? null) === id) {
       const before = loadPermissions(id);
-      const raised = ADMIN_AREAS.filter(
-        (a) => rank(body.permissions[a] ?? 'kein') > rank(before[a]),
-      );
+      const raised = levelsBeyond(body.permissions, before);
       if (raised.length > 0) {
         throw forbidden(
           'Sie können Ihre eigenen Rechte nicht erweitern. Bitten Sie eine andere Person mit Benutzerverwaltung darum.',

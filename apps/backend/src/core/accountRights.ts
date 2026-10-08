@@ -34,7 +34,9 @@ import type { FastifyRequest } from 'fastify';
 import {
   ADMIN_AREAS,
   ADMIN_AREA_LABELS,
+  levelsBeyond,
   moduleEnabled,
+  permissionRank,
   permits,
   type AdminArea,
   type AdminPermissions,
@@ -50,10 +52,8 @@ const LEADERSHIP_IN_VARIANT = moduleEnabled(VARIANT, 'performance');
 /** Gibt es in dieser Ausgabe Gesprächsprotokolle für die Führung? */
 const PROTOCOLS_IN_VARIANT = LEADERSHIP_IN_VARIANT && moduleEnabled(VARIANT, 'communication');
 
-/** Stufen als Zahl, um „höher?“ vergleichen zu können. */
-export function rank(level: PermissionLevel): number {
-  return level === 'bearbeiten' ? 2 : level === 'lesen' ? 1 : 0;
-}
+/** Stufen als Zahl, um „höher?“ vergleichen zu können (packages/shared, `permissionRank`). */
+export const rank = (level: PermissionLevel): number => permissionRank(level);
 
 /** Rechte eines Kontos ohne jede Admin-Berechtigung (Portal-Konten). */
 export const NO_ACCESS: AdminPermissions = Object.fromEntries(
@@ -178,7 +178,7 @@ export function assertWithinOwnRights(
   message: string,
 ): void {
   const own = ownRights(req);
-  const exceeded = ADMIN_AREAS.filter((a) => rank(levels[a] ?? 'kein') > rank(own[a]));
+  const exceeded = levelsBeyond(levels, own);
   if (exceeded.length > 0) throw forbidden(`${message} Betroffene Bereiche: ${areaList(exceeded)}.`);
 }
 
@@ -190,7 +190,7 @@ export interface RightsChange {
 }
 
 function raisedAreas(change: RightsChange): AdminArea[] {
-  return ADMIN_AREAS.filter((a) => rank(change.after[a]) > rank(change.before[a]));
+  return levelsBeyond(change.after, change.before);
 }
 
 /**
