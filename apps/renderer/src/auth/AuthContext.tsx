@@ -1,12 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  areaOpen,
   checkIntervalMs,
   desktopSessionAction,
   DESKTOP_REFRESH_CHECK_MS,
   FULL_ACCESS,
   hasFeature,
-  permits,
   sessionEndReached,
   sessionEndsAt as endsAtFrom,
   sessionEndWarningMs,
@@ -25,6 +25,7 @@ import {
   tokenLifetime,
   tokenState,
 } from '../api/client';
+import { VARIANT } from '@variant-manifest';
 
 export interface AuthUser {
   id: number;
@@ -82,7 +83,12 @@ interface AuthState {
    * ein 403.
    */
   permissions: AdminPermissions;
-  /** Kurzform für Sichtbarkeitsprüfungen in der Oberfläche. */
+  /**
+   * Kurzform für Sichtbarkeitsprüfungen in der Oberfläche. Ein Bereich, dessen
+   * Modul die Variante nicht enthält, ist für niemanden offen (auch nicht bei
+   * Vollzugriff): Seitenleiste, Kürzel, Palette und Einführungen fragen alle
+   * hier und führen so nie auf Seiten, die es im Build nicht gibt.
+   */
   can: (area: AdminArea, needed?: 'lesen' | 'bearbeiten') => boolean;
   /**
    * Freigeschaltete Feature-Schluessel der Lizenz (null = alles an). Reine
@@ -116,7 +122,8 @@ const AuthContext = createContext<AuthState>({
   license: null,
   refreshLicense: async () => {},
   permissions: FULL_ACCESS,
-  can: () => true,
+  // Wie im Provider: Vollzugriff, aber nur fuer Bereiche, deren Modul die Variante enthaelt.
+  can: (area) => areaOpen(VARIANT, area, 'bearbeiten'),
   features: null,
   hasFeature: () => true,
   loading: true,
@@ -292,7 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applyMe]);
 
   const can = useCallback(
-    (area: AdminArea, needed: 'lesen' | 'bearbeiten' = 'lesen') => permits(permissions[area], needed),
+    (area: AdminArea, needed: 'lesen' | 'bearbeiten' = 'lesen') => areaOpen(VARIANT, area, permissions[area], needed),
     [permissions],
   );
   const features = license?.features ?? null;

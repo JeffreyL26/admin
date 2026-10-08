@@ -666,7 +666,7 @@ export function AccountDialog({
  */
 function useLeaderGuardHint(): string | null {
   const { can } = useAuth();
-  if (!moduleEnabled(VARIANT, 'leadership')) return null;
+  if (!moduleEnabled(VARIANT, 'performance')) return null;
   const protocols = moduleEnabled(VARIANT, 'communication');
   if (can('fuehrung', 'bearbeiten') && (!protocols || can('kommunikation', 'lesen'))) return null;
   return protocols

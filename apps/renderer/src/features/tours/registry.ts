@@ -210,9 +210,10 @@ export function stepPage(tour: TourDef, step: TourStepDef): TourPage {
 }
 
 /**
- * Anzahl der fuehrenden Schritte, deren Seitenbereich das Konto oeffnen darf.
- * Ein Praefix, kein Filter: Seiten mit moeglicherweise fehlendem Recht stehen am
- * Ende, damit `done` ein zusammenhaengender Anfang bleibt.
+ * Anzahl der fuehrenden Schritte, deren Seitenbereich das Konto oeffnen darf
+ * (`can` kennt auch die Variante: ein fehlendes Modul ist nie offen). Ein Praefix,
+ * kein Filter: Seiten mit moeglicherweise fehlendem Recht stehen am Ende, damit
+ * `done` ein zusammenhaengender Anfang bleibt.
  */
 export function visibleStepCount(tour: TourDef, can: (area: AdminArea, needed?: 'lesen' | 'bearbeiten') => boolean): number {
   const needed = tour.minRight ?? 'bearbeiten';

@@ -446,7 +446,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `overall_percent` (Anteil der Bestnote, skalenübergreifend); das Aggregat
   liefert die Führungsbewertungen des Zyklus-Zeitraums als `supervisor`.
   Endgültiges Schema: Migration `321_reviews_final_schema`. Ein
-  Navigationsabschnitt „Leistung & Führung“, Rechtebereiche bleiben getrennt.
+  Navigationsabschnitt „Leistung & Führung“, Rechtebereiche bleiben getrennt;
+  als Baustein der Variante sind beide aber EIN Modul `performance` (siehe
+  Varianten).
   Deep-Links: `/leistung/beurteilungen?tab=conduct&employee=<id>`,
   `/leistung/feedback?employee=<id>`. Hintergrund: docs/entscheidungen.md.
 - **Einrichtungs-Assistent** (`apps/renderer/src/features/setup/`). Sieben
@@ -859,9 +861,22 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (`default`, je Variante `id`, `country`, `edition`, `label`, `modules`).
   Editionen sind KEINE feste Liste im Code, nur ein Muster (`EDITION_PATTERN`);
   welche es gibt und wie sie heissen, legt der Anbieter dort fest. Heute gibt
-  es genau `de-vollversion` (alle neun Module). Pflichtmodule `employees` und
-  `admin`, Abhaengigkeit `me` braucht `absences` (`variants/index.ts` prueft
-  beim Import und wirft bei Fehlern).
+  es genau `de-vollversion` (alle acht Module). Leistung und Fuehrung sind EIN
+  Modul `performance` mit zwei Rechtebereichen (`AREA_MODULES` zeigt `leistung`
+  und `fuehrung` darauf; die Backend-Ordner bleiben getrennt). Pflichtmodule
+  `employees`, `admin`, `absences` und `me` (das Portal ist Teil jeder Ausgabe
+  und stellt Abwesenheitsantraege), Abhaengigkeit `me` braucht `absences`
+  (`variants/index.ts` prueft beim Import und wirft bei Fehlern). **`can()`
+  der Desktop-App kennt die Variante** (`areaOpen` in `variants/index.ts`): Ein
+  Bereich, dessen Modul fehlt, ist fuer niemanden offen, auch nicht bei
+  Vollzugriff. Was ueber `can` entscheidet (Kuerzel, Palette, Einfuehrungen,
+  Tabs der Personalakte, Eintraege der Seitenleiste mit Bereich), braucht
+  deshalb keine eigene Modulpruefung. Wer ohne `can` filtert, behaelt
+  `moduleEnabled`: `NAV_SECTIONS` (statisch beim Import; der Eintrag „Mein
+  Team“ fragt nur nach der Fuehrungsfunktion, nicht nach `can`), Dashboard
+  (Bereiche vom Server, `allowed_areas`) und Assistent (`useSetup.ts` prueft
+  das Modul je Schritt; heute deckt `can` alle Schritte ab, die Pruefung
+  bleibt fuer Schritte, deren Modul vom Bereich abweicht).
 - **Verdrahtung wird erzeugt, nicht geschrieben:** `npm run variants:gen`
   (`scripts/variant-wiring.mjs`) schreibt je App `src/variants/<id>.ts`
   (Backend `backendModules`, Renderer `variantRoutes`, Portal

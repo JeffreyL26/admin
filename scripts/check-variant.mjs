@@ -37,9 +37,11 @@ const marker = `OHRGANIZE_VARIANT:${variantId}`;
  * Routen aus den routes.ts der Module; Desktop-App API-Pfade, die nur die
  * Seiten des Moduls aufrufen (nav.ts und gemeinsame api.ts-Dateien kennen
  * Pfade aller Module und taugen deshalb nicht); Portal Ueberschriften der
- * Seiten. Ein Modul gilt als enthalten, wenn ALLE seine Zeichenketten im
- * Bundle stehen; so kippt ein einzelner Treffer in einem Kommentar den Test
- * nicht. Beim Umbenennen einer Seite hier nachziehen.
+ * Seiten. Ein Modul gilt als enthalten, wenn ALLE Zeichenketten EINER seiner
+ * Gruppen im Bundle stehen; so kippt ein einzelner Treffer in einem Kommentar
+ * den Test nicht. Ein Modul aus mehreren Code-Ordnern (Leistung & Fuehrung)
+ * hat eine Gruppe je Ordner, damit auch ein halb mitgerutschtes Modul
+ * auffaellt. Beim Umbenennen einer Seite hier nachziehen.
  */
 const MODULE_SIGNATURES = {
   absences: {
@@ -47,16 +49,19 @@ const MODULE_SIGNATURES = {
     renderer: ['/api/absences/sick-notes', '/api/absences/closures'],
     web: ['Ihre Krankmeldungen', 'Gute Besserung'],
   },
-  performance: {
-    backend: ['/api/performance/reviews', '/api/performance/goals'],
-    renderer: ['/api/performance/feedback-meetings', '/api/performance/rating-categories'],
-    web: [],
-  },
-  leadership: {
-    backend: ['/api/leadership/leaders', '/api/leadership/settings'],
-    renderer: ['Die gewählte Skala gilt für jede Kategorie', 'Eigene Skalen einzelner Kategorien'],
-    web: [],
-  },
+  // Leistung und Fuehrung sind ein Modul aus zwei Ordnern: eine Gruppe je Ordner.
+  performance: [
+    {
+      backend: ['/api/performance/reviews', '/api/performance/goals'],
+      renderer: ['/api/performance/feedback-meetings', '/api/performance/rating-categories'],
+      web: [],
+    },
+    {
+      backend: ['/api/leadership/leaders', '/api/leadership/settings'],
+      renderer: ['Die gewählte Skala gilt für jede Kategorie', 'Eigene Skalen einzelner Kategorien'],
+      web: [],
+    },
+  ],
   compensation: {
     backend: ['/api/compensation/salaries', '/api/compensation/payroll'],
     renderer: ['/api/compensation/freelancer-invoices', '/api/compensation/payroll-runs'],
@@ -99,11 +104,13 @@ function checkBundle(label, files, kind) {
   if (!text.includes(marker)) problem(`${label}: Marker ${marker} fehlt.`);
   const foreign = [...text.matchAll(/OHRGANIZE_VARIANT:([a-z0-9-]+)/g)].map((m) => m[1]).filter((id) => id !== variantId);
   if (foreign.length) problem(`${label}: fremde Variante(n) ${[...new Set(foreign)].join(', ')} enthalten.`);
-  for (const [module, sig] of Object.entries(MODULE_SIGNATURES)) {
+  for (const [module, sigs] of Object.entries(MODULE_SIGNATURES)) {
     if (!kind || variant.modules.includes(module)) continue;
-    const hits = (sig[kind] ?? []).filter((s) => text.includes(s));
-    if (hits.length === (sig[kind] ?? []).length && hits.length > 0) {
-      problem(`${label}: Modul ${module} ist nicht Teil der Variante, aber enthalten (${hits.join(', ')}).`);
+    for (const sig of Array.isArray(sigs) ? sigs : [sigs]) {
+      const hits = (sig[kind] ?? []).filter((s) => text.includes(s));
+      if (hits.length === (sig[kind] ?? []).length && hits.length > 0) {
+        problem(`${label}: Modul ${module} ist nicht Teil der Variante, aber enthalten (${hits.join(', ')}).`);
+      }
     }
   }
   console.log(`ok  ${label} (${files.length} Datei(en))`);

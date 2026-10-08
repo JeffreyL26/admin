@@ -237,7 +237,7 @@ export const WIDGET_DEFS: Record<WidgetKey, WidgetDef> = {
   // Führungskräfte ohne HR-Rechte nicht anbietbar, für die es gedacht ist. Das
   // Widget lädt seine Daten selbst und blendet sich für Nicht-Führungskräfte
   // inhaltlich aus, statt gar nicht erst angeboten zu werden.
-  'leadership-team': { title: 'Mein Team', description: 'Bewertungsstand Ihres Zuständigkeitsbereichs', icon: UsersRound, accent: '--org-2', module: 'leadership' },
+  'leadership-team': { title: 'Mein Team', description: 'Bewertungsstand Ihres Zuständigkeitsbereichs', icon: UsersRound, accent: '--org-2', module: 'performance' },
   'leadership-report': { title: 'Satisfaction-Report', description: 'Bewertungsstand je Führungskraft im Zeitraum', icon: Gauge, accent: '--org-3', area: 'fuehrung' },
   // Kein `area`: Der Lizenzzustand kommt mit Login und /api/auth/me zu jedem
   // Admin-Konto (Auth-Kontext), unabhängig vom Bereich `einstellungen` — das

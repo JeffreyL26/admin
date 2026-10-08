@@ -46,7 +46,7 @@ import { conflict, forbidden } from './errors.js';
 import { permissionsFor } from './permissions.js';
 import { parseIssuerRights } from './credentials.js';
 
-const LEADERSHIP_IN_VARIANT = moduleEnabled(VARIANT, 'leadership');
+const LEADERSHIP_IN_VARIANT = moduleEnabled(VARIANT, 'performance');
 /** Gibt es in dieser Ausgabe Gesprächsprotokolle für die Führung? */
 const PROTOCOLS_IN_VARIANT = LEADERSHIP_IN_VARIANT && moduleEnabled(VARIANT, 'communication');
 

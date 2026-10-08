@@ -50,7 +50,7 @@ const emptyDraft = (): DraftMeeting => ({
 });
 
 /** Enthält die Variante die Führungsfunktion („Mein Team“)? Sonst erreicht keine Stufe die Führung. */
-const LEADERSHIP = moduleEnabled(VARIANT, 'leadership');
+const LEADERSHIP = moduleEnabled(VARIANT, 'performance');
 
 /** Wen die Stufe in DIESER Variante tatsächlich erreicht (Quelle: MEETING_VISIBILITY_READERS). */
 function readersOf(v: MeetingVisibility) {

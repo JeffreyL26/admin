@@ -31,13 +31,6 @@ export interface NavItem {
    */
   feature?: string;
   /**
-   * Fachmodul, zu dem der Eintrag gehoert, wenn es vom Abschnitt abweicht
-   * (die Fuehrungsseiten unter "Leistung & Fuehrung"). Ohne Angabe gilt das
-   * Modul des Abschnitts (AREA_MODULES ueber den Rechtebereich). Eintraege
-   * eines Moduls, das die Variante nicht enthaelt, existieren nicht.
-   */
-  module?: ModuleKey;
-  /**
    * Nur bei exaktem Pfad aktiv. Nötig, wenn ein Eintrag Unterseiten hat, die
    * selbst in der Seitenleiste stehen (/einstellungen → /einstellungen/lizenz):
    * NavLink markiert sonst beide, weil es Präfixe als aktiv wertet.
@@ -56,16 +49,15 @@ export interface NavSection {
    * ausschließlich im Backend (core/permissions.ts).
    */
   area?: AdminArea;
-  /** Fachmodul des Abschnitts; ohne Angabe aus `area` abgeleitet, ohne beides immer vorhanden. */
-  module?: ModuleKey;
 }
 
+/** Modul eines Abschnitts: das seines Rechtebereichs; ohne Bereich immer vorhanden. */
 function sectionModule(section: NavSection): ModuleKey | null {
-  return section.module ?? (section.area ? AREA_MODULES[section.area] : null);
+  return section.area ? AREA_MODULES[section.area] : null;
 }
 
+/** Modul eines Eintrags: das seines Rechtebereichs, sonst das des Abschnitts. */
 function itemModule(section: NavSection, item: NavItem): ModuleKey | null {
-  if (item.module) return item.module;
   if (item.area) return AREA_MODULES[item.area] ?? sectionModule(section);
   return sectionModule(section);
 }
@@ -150,7 +142,7 @@ export const ALL_NAV_SECTIONS: NavSection[] = [
     title: 'Leistung & Führung',
     area: 'leistung',
     items: [
-      { path: '/fuehrung/mein-team', label: 'Mein Team', icon: UsersRound, leaderOnly: true, module: 'leadership' },
+      { path: '/fuehrung/mein-team', label: 'Mein Team', icon: UsersRound, leaderOnly: true },
       { path: '/leistung/feedback', label: 'Gespräche', icon: MessagesSquare },
       { path: '/leistung/ziele', label: 'Ziele & OKR', icon: Target },
       { path: '/leistung/beurteilungen', label: 'Beurteilungen', icon: ClipboardCheck },

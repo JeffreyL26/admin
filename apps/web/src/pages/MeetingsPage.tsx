@@ -26,7 +26,7 @@ import { formatDate, todayIso } from '../lib/format';
  * sagt die Seite das.
  */
 const LEADERS_SEE_IT =
-  moduleEnabled(VARIANT, 'leadership') &&
+  moduleEnabled(VARIANT, 'performance') &&
   meetingVisibilitiesFor('employee').every((v) => MEETING_VISIBILITY_READERS[v].leaders);
 
 function useMyMeetings() {

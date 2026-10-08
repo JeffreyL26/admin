@@ -26,7 +26,8 @@ const testKeys = crypto.generateKeyPairSync('ed25519');
 }
 
 const { VARIANT } = await import('@variant-manifest');
-const { LICENSE_FILE_NAME, VARIANTS, DEFAULT_VARIANT_ID, parseVariantId, variantFor } = await import('@ohrganize/shared');
+const { AREA_MODULES, LICENSE_FILE_NAME, MODULE_KEYS, VARIANTS, DEFAULT_VARIANT_ID, areaOpen, parseVariantId, validateRegistry, variantFor } =
+  await import('@ohrganize/shared');
 const { buildServer } = await import('../server.js');
 const { closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
@@ -46,7 +47,42 @@ check('Register: Vorgabe-Variante existiert', VARIANTS.some((v) => v.id === DEFA
 check('Dev-Verdrahtung ist die Vorgabe-Variante', VARIANT.id === DEFAULT_VARIANT_ID, VARIANT.id);
 check('parseVariantId', JSON.stringify(parseVariantId('de-vollversion')) === JSON.stringify({ country: 'DE', edition: 'vollversion' }) && parseVariantId('xx-1') === null);
 check('variantFor kennt die Vorgabe', variantFor(VARIANT.country, VARIANT.edition)?.id === VARIANT.id);
-check('Pflichtmodule employees und admin enthalten', VARIANT.modules.includes('employees') && VARIANT.modules.includes('admin'));
+// Negativproben am Register: Die Vorgabe-Variante wurde schon beim Import geprueft,
+// deshalb hier abgewandelte Kopien, die validateRegistry ablehnen muss.
+const registryWith = (modules: string[]) => ({
+  default: 'de-probe',
+  variants: [{ id: 'de-probe', country: 'DE', edition: 'probe', label: 'Probe', modules }],
+});
+const rejects = (modules: string[], pattern: RegExp) => {
+  try {
+    validateRegistry(registryWith(modules));
+    return 'angenommen';
+  } catch (e) {
+    return pattern.test((e as Error).message) ? true : (e as Error).message;
+  }
+};
+const full = [...MODULE_KEYS] as string[];
+for (const required of ['employees', 'admin', 'absences', 'me']) {
+  const r = rejects(full.filter((m) => m !== required), /ist Pflicht/);
+  check(`Register ohne ${required} wird abgelehnt`, r === true, r);
+}
+// Die Abhaengigkeitsregel ist heute von der Pflichtpruefung verdeckt; mit eigenen Regeln greift sie.
+try {
+  validateRegistry(registryWith(full.filter((m) => m !== 'absences')), { required: [], dependencies: { me: ['absences'] } });
+  check('Abhaengigkeit me braucht absences greift', false, 'angenommen');
+} catch (e) {
+  check('Abhaengigkeit me braucht absences greift', /braucht "absences"/.test((e as Error).message), (e as Error).message);
+}
+// can() der Desktop-App: Ein fehlendes Modul ist auch bei Vollzugriff zu.
+const ohneVerguetung = { modules: full.filter((m) => m !== 'compensation') as typeof MODULE_KEYS[number][] };
+check('areaOpen: fehlendes Modul ist zu', !areaOpen(ohneVerguetung, 'verguetung', 'bearbeiten'));
+check('areaOpen: vorhandenes Modul mit Recht ist offen', areaOpen(ohneVerguetung, 'personal', 'lesen'));
+check('areaOpen: Einstellungen ohne Modulbindung', areaOpen(ohneVerguetung, 'einstellungen', 'lesen'));
+check('areaOpen: ohne Recht zu', !areaOpen(ohneVerguetung, 'personal', 'kein'));
+const leadership = rejects([...full, 'leadership'], /unbekanntes Modul "leadership"/);
+check('Register mit eigenem Modul leadership wird abgelehnt', leadership === true, leadership);
+check('Register mit allen Modulen wird angenommen', rejects(full, /./) === 'angenommen');
+check('Leistung und Fuehrung sind ein Modul', AREA_MODULES.leistung === 'performance' && AREA_MODULES.fuehrung === 'performance', AREA_MODULES);
 
 // -------------------------------------------------------------- Server --
 const app = await buildServer();

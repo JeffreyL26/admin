@@ -11,8 +11,10 @@ import {
   EMPLOYEE_TYPE_LABELS,
   formatDate,
   todayIsoLocal,
+  type AdminArea,
   type ContractDto,
 } from '@ohrganize/shared';
+import { useAuth } from '../../auth/AuthContext';
 import { ApiRequestError, api, downloadFile } from '../../api/client';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
@@ -36,19 +38,30 @@ import { EmployeeAbsenceTab, EmployeeCompensationTab } from './CrossModuleTabs';
 import { TYPE_TONES } from './EmployeeListPage';
 import { backToState, useBackTo } from '../../lib/backTo';
 
-const DETAIL_TABS = ['stammdaten', 'vertrag', 'dokumente', 'organisation', 'abwesenheit', 'verguetung'];
+// Modulübergreifende Tabs nur, wenn das Konto den Bereich öffnen darf. `can` kennt auch
+// die Variante: Fehlt das Modul im Build, fehlt der Tab (sonst 403 bzw. 404 beim Laden).
+const ALL_DETAIL_TABS: { key: string; label: string; area?: AdminArea }[] = [
+  { key: 'stammdaten', label: 'Stammdaten' },
+  { key: 'vertrag', label: 'Vertrag' },
+  { key: 'dokumente', label: 'Dokumente' },
+  { key: 'organisation', label: 'Organisation' },
+  { key: 'abwesenheit', label: 'Abwesenheit', area: 'abwesenheit' },
+  { key: 'verguetung', label: 'Vergütung', area: 'verguetung' },
+];
 
 export function EmployeeDetailPage() {
   const { id } = useParams();
   const employeeId = Number(id);
   const navigate = useNavigate();
   const { data, isLoading } = useEmployee(employeeId);
+  const { can } = useAuth();
+  const detailTabs = ALL_DETAIL_TABS.filter((d) => !d.area || can(d.area));
   // Der Tab steht in der URL (?tab=…), damit ein Rücksprung von einer anderen
   // Seite wieder im selben Tab landet, nicht auf den Stammdaten.
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const requested = params.get('tab');
-  const tab = requested && DETAIL_TABS.includes(requested) ? requested : 'stammdaten';
+  const tab = requested && detailTabs.some((d) => d.key === requested) ? requested : 'stammdaten';
   const setTab = (next: string) =>
     setParams(next === 'stammdaten' ? {} : { tab: next }, { replace: true, state: location.state });
   const backTo = useBackTo();
@@ -87,14 +100,7 @@ export function EmployeeDetailPage() {
       </div>
 
       <Tabs
-        tabs={[
-          { key: 'stammdaten', label: 'Stammdaten' },
-          { key: 'vertrag', label: 'Vertrag' },
-          { key: 'dokumente', label: 'Dokumente' },
-          { key: 'organisation', label: 'Organisation' },
-          { key: 'abwesenheit', label: 'Abwesenheit' },
-          { key: 'verguetung', label: 'Vergütung' },
-        ]}
+        tabs={detailTabs.map(({ key, label }) => ({ key, label }))}
         active={tab}
         onChange={setTab}
       />

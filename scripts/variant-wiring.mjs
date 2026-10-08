@@ -31,6 +31,15 @@ const checkOnly = process.argv.includes('--check');
 const registryPath = path.join(root, 'packages/shared/src/variants/registry.json');
 const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
 
+// Bekannte Modulschluessel aus MODULE_KEYS (TypeScript, deshalb gelesen statt importiert).
+const keysSource = fs.readFileSync(path.join(root, 'packages/shared/src/variants/index.ts'), 'utf8');
+const keysBlock = /export const MODULE_KEYS = \[([\s\S]*?)\] as const/.exec(keysSource);
+if (!keysBlock) throw new Error('variant-wiring: MODULE_KEYS in packages/shared/src/variants/index.ts nicht gefunden.');
+// Kommentare im Block zuerst entfernen: Ein Wort in Anfuehrungszeichen dort ist kein Modul.
+const keysCode = keysBlock[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+const MODULE_KEYS = new Set([...keysCode.matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]));
+if (MODULE_KEYS.size === 0) throw new Error('variant-wiring: MODULE_KEYS ist leer.');
+
 // ---------------------------------------------------------------------------
 // Modultabellen je App. Neue Module: hier eintragen UND in MODULE_KEYS
 // (packages/shared/src/variants/index.ts) UND in ROUTE_AREAS (permissions.ts).
@@ -45,14 +54,14 @@ const BACKEND = [
   { module: 'communication', name: 'communicationModule', from: '../modules/communication/routes.js' },
   { module: 'recruiting', name: 'recruitingModule', from: '../modules/recruiting/routes.js' },
   { module: 'admin', name: 'adminModule', from: '../modules/admin/routes.js' },
-  { module: 'leadership', name: 'leadershipModule', from: '../modules/leadership/routes.js' },
+  { module: 'performance', name: 'leadershipModule', from: '../modules/leadership/routes.js' },
   { module: 'me', name: 'meModule', from: '../modules/me/routes.js' },
   // Teilrouten des Portals, die an einem optionalen Modul haengen.
   { module: 'me', requires: 'compensation', name: 'meSalaryRoutes', from: '../modules/me/salaryRoutes.js' },
   { module: 'me', requires: 'communication', name: 'meCommunicationRoutes', from: '../modules/me/communicationRoutes.js' },
   { module: 'me', requires: 'performance', name: 'mePerformanceRoutes', from: '../modules/me/performanceRoutes.js' },
   // Gespraechsprotokolle in „Mein Team“: Zustaendigkeit aus leadership, Tabelle aus communication.
-  { module: 'leadership', requires: 'communication', name: 'leaderMeetingRoutes', from: '../modules/leadership/meetingRoutes.js' },
+  { module: 'performance', requires: 'communication', name: 'leaderMeetingRoutes', from: '../modules/leadership/meetingRoutes.js' },
 ];
 
 /** Routenlisten der Desktop-App je Modul, in Router-Reihenfolge. */
@@ -64,7 +73,7 @@ const RENDERER = [
   { module: 'compensation', name: 'compensationRoutes', from: '../features/compensation/routes' },
   { module: 'communication', name: 'communicationRoutes', from: '../features/communication/routes' },
   { module: 'admin', name: 'adminRoutes', from: '../features/admin/routes' },
-  { module: 'leadership', name: 'leadershipRoutes', from: '../features/leadership/routes' },
+  { module: 'performance', name: 'leadershipRoutes', from: '../features/leadership/routes' },
 ];
 
 /** Seiten des Portals, die an einem optionalen Modul haengen (Basisseiten stehen in App.tsx). */
@@ -78,6 +87,22 @@ const WEB = [
   { module: 'communication', path: '/gespraeche', name: 'MeetingsPage', from: '../pages/MeetingsPage' },
   { module: 'communication', path: '/kollegen', name: 'ColleaguesPage', from: '../pages/ColleaguesPage' },
 ];
+
+/**
+ * Ein unbekannter Schluessel in einer Tabelle (Tippfehler, Modul umbenannt)
+ * liesse den Eintrag still aus JEDEM Build fallen; das bricht hier ab.
+ */
+function assertKnownModules(table, label) {
+  for (const e of table) {
+    for (const key of [e.module, e.requires].filter(Boolean)) {
+      if (!MODULE_KEYS.has(key)) throw new Error(`variant-wiring: ${label} ${e.name} nennt unbekanntes Modul "${key}".`);
+    }
+  }
+}
+
+assertKnownModules(BACKEND, 'Backend');
+assertKnownModules(RENDERER, 'Renderer');
+assertKnownModules(WEB, 'Portal');
 
 const HEADER = (id) =>
   `// GENERIERT aus packages/shared/src/variants/registry.json durch scripts/variant-wiring.mjs.\n` +

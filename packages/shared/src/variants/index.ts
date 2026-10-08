@@ -18,16 +18,22 @@
  * Routen und Seiten, keine Tabellen. Ein Wechsel der Edition ist Installer
  * plus Lizenz, ohne Migration.
  */
-import type { AdminArea } from '../admin.js';
+import { permits, type AdminArea, type PermissionLevel } from '../admin.js';
 import { COUNTRY_CODES, EDITION_PATTERN, type CountryCode, type Edition } from '../country.js';
 import registry from './registry.json';
 
-/** Fachmodule, die eine Variante ein- oder ausschliessen kann. */
+/**
+ * Fachmodule, die eine Variante ein- oder ausschliessen kann. Leistung und
+ * Fuehrung sind EIN Modul (`performance`) mit zwei Rechtebereichen (`leistung`,
+ * `fuehrung`): Boegen binden Kriterien an die Kategorien und die Skala aus
+ * `modules/leadership`, die nur unter Fuehrung → Einrichtung gepflegt werden,
+ * und das Aggregat liefert die Fuehrungsbewertungen als `supervisor`. Die
+ * Backend-Ordner `modules/performance` und `modules/leadership` bleiben getrennt.
+ */
 export const MODULE_KEYS = [
   'employees',
   'absences',
   'performance',
-  'leadership',
   'compensation',
   'communication',
   'recruiting',
@@ -35,18 +41,6 @@ export const MODULE_KEYS = [
   'me',
 ] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
-
-export const MODULE_LABELS: Record<ModuleKey, string> = {
-  employees: 'Personal',
-  absences: 'Abwesenheit',
-  performance: 'Leistung',
-  leadership: 'Führung',
-  compensation: 'Vergütung',
-  communication: 'Kommunikation',
-  recruiting: 'Recruiting',
-  admin: 'Verwaltung und Benutzer',
-  me: 'Mitarbeitenden-Portal',
-};
 
 /**
  * Rechtebereich -> Modul. Damit Navigation, Dashboard und Palette einen
@@ -57,7 +51,7 @@ export const AREA_MODULES: Record<AdminArea, ModuleKey | null> = {
   personal: 'employees',
   abwesenheit: 'absences',
   leistung: 'performance',
-  fuehrung: 'leadership',
+  fuehrung: 'performance',
   verguetung: 'compensation',
   recruiting: 'recruiting',
   kommunikation: 'communication',
@@ -66,6 +60,20 @@ export const AREA_MODULES: Record<AdminArea, ModuleKey | null> = {
   benutzer: 'admin',
 };
 
+/**
+ * Darf ein Konto mit dieser Stufe den Bereich oeffnen? Nur, wenn die Variante
+ * sein Modul enthaelt: Ein fehlendes Modul ist fuer niemanden offen, auch nicht
+ * bei Vollzugriff. Grundlage von `can` in der Desktop-App (AuthContext).
+ */
+export function areaOpen(
+  variant: Pick<VariantManifest, 'modules'>,
+  area: AdminArea,
+  level: PermissionLevel,
+  needed: 'lesen' | 'bearbeiten' = 'lesen',
+): boolean {
+  return moduleEnabled(variant, AREA_MODULES[area]) && permits(level, needed);
+}
+
 /** Ist das Modul in der Variante enthalten? undefined/null = keine Modulbindung = immer. */
 export function moduleEnabled(variant: Pick<VariantManifest, 'modules'>, module: ModuleKey | null | undefined): boolean {
   return module === null || module === undefined || variant.modules.includes(module);
@@ -73,14 +81,21 @@ export function moduleEnabled(variant: Pick<VariantManifest, 'modules'>, module:
 
 /**
  * Module, ohne die keine Variante funktioniert: Personalprofile sind die
- * Grundlage aller anderen Module, und die Verwaltung enthaelt Benutzer und
- * Rechte (ohne sie gaebe es keine Konten).
+ * Grundlage aller anderen Module; die Verwaltung enthaelt Benutzer und Rechte
+ * (ohne sie gaebe es keine Konten), die Fachrollen (Antragsberechtigung der
+ * Abwesenheit) und das On-/Offboarding (Recruiting ruft es beim Einstellen);
+ * das Portal ist Teil jeder Ausgabe und stellt Abwesenheitsantraege, also
+ * gehoert auch die Abwesenheit dazu (`modules/me/routes.ts` importiert
+ * `absences/service`).
  */
-export const REQUIRED_MODULES: readonly ModuleKey[] = ['employees', 'admin'];
+export const REQUIRED_MODULES: readonly ModuleKey[] = ['employees', 'admin', 'absences', 'me'];
 
 /**
  * Fachliche Abhaengigkeiten: Das Portal stellt Abwesenheitsantraege, seine
  * Routen liegen im Modul `me`; ohne `absences` gaebe es nichts zu genehmigen.
+ * Solange beide Pflicht sind, greift schon die Pflichtpruefung; die Regel
+ * bleibt als Begruendung stehen und fuer den Fall, dass `me` wieder abwaehlbar
+ * wird (getestet in variantSmoke ueber eigene Regeln an `validateRegistry`).
  */
 export const MODULE_DEPENDENCIES: Partial<Record<ModuleKey, readonly ModuleKey[]>> = {
   me: ['absences'],
@@ -103,7 +118,7 @@ export function variantMarker(id: string): string {
   return `OHRGANIZE_VARIANT:${id}`;
 }
 
-interface RegistryFile {
+export interface RegistryFile {
   default: string;
   variants: {
     id: string;
@@ -114,7 +129,17 @@ interface RegistryFile {
   }[];
 }
 
-function validate(file: RegistryFile): { variants: VariantManifest[]; defaultId: string } {
+/** Regeln fuer `validateRegistry`; Vorgabe sind die festen Regeln oben, Tests geben eigene vor. */
+export interface RegistryRules {
+  required: readonly ModuleKey[];
+  dependencies: Partial<Record<ModuleKey, readonly ModuleKey[]>>;
+}
+
+/** Prueft das Register (Muster, Pflichtmodule, Abhaengigkeiten); wirft bei jedem Fehler. Exportiert fuer variantSmoke. */
+export function validateRegistry(
+  file: RegistryFile,
+  rules: RegistryRules = { required: REQUIRED_MODULES, dependencies: MODULE_DEPENDENCIES },
+): { variants: VariantManifest[]; defaultId: string } {
   const seen = new Set<string>();
   const variants: VariantManifest[] = [];
   for (const raw of file.variants) {
@@ -135,11 +160,11 @@ function validate(file: RegistryFile): { variants: VariantManifest[]; defaultId:
       if (!(MODULE_KEYS as readonly string[]).includes(m)) throw new Error(`${where}: unbekanntes Modul "${m}".`);
     }
     if (new Set(modules).size !== modules.length) throw new Error(`${where}: Modul doppelt.`);
-    for (const m of REQUIRED_MODULES) {
+    for (const m of rules.required) {
       if (!modules.includes(m)) throw new Error(`${where}: Modul "${m}" ist Pflicht.`);
     }
     for (const m of modules) {
-      for (const dep of MODULE_DEPENDENCIES[m] ?? []) {
+      for (const dep of rules.dependencies[m] ?? []) {
         if (!modules.includes(dep)) throw new Error(`${where}: Modul "${m}" braucht "${dep}".`);
       }
     }
@@ -157,7 +182,7 @@ function validate(file: RegistryFile): { variants: VariantManifest[]; defaultId:
   return { variants, defaultId: file.default };
 }
 
-const parsed = validate(registry as RegistryFile);
+const parsed = validateRegistry(registry as RegistryFile);
 
 /** Alle Varianten des Registers, in Registerreihenfolge. */
 export const VARIANTS: readonly VariantManifest[] = parsed.variants;
