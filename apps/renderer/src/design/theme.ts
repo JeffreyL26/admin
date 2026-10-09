@@ -16,7 +16,7 @@ export const THEMES: ThemeMeta[] = [
   {
     name: 'light',
     label: 'Hell',
-    description: 'Der freundliche Standard in Markenblau',
+    description: 'Der freundliche Standard in Blau',
     swatch: ['#f3f6fb', '#0f2f5f', '#0864c6'],
   },
   {
