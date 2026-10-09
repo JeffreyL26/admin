@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Users, Network, FolderOpen, CalendarDays, Send, Stethoscope,
+  Users, Network, FolderOpen, CalendarDays, Send, Stethoscope,
   ListChecks, Target, ClipboardCheck, Grid3x3, GraduationCap, MessagesSquare,
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
   FileText, Contact, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
@@ -7,6 +7,7 @@ import {
   FilePenLine, BadgeCheck, User,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { DashboardIcon } from './DashboardIcon';
 import {
   AREA_MODULES, hasFeature, moduleEnabled, pathAllowedByFeatures, type AdminArea, type ModuleKey,
 } from '@ohrganize/shared';
@@ -97,7 +98,7 @@ export const ALL_NAV_SECTIONS: NavSection[] = [
   {
     key: 'dashboard',
     title: null,
-    items: [{ path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard }],
+    items: [{ path: '/dashboard', label: 'Dashboard', icon: DashboardIcon }],
   },
   {
     key: 'personal',
