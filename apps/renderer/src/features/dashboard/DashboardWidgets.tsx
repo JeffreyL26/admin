@@ -106,7 +106,7 @@ export function widgetNotice(key: DashboardWidgetKey, model: DashboardModel): No
     case 'profile': return dashboardNotice(n('profile'), 0);
     case 'documents': return dashboardNotice(n('document'), 0);
     case 'follow-ups': return dashboardNotice(n('followup'), 0);
-    case 'onboarding': return dashboardNotice(0, model.tasks.filter((t) => t.kind === 'onboarding').length);
+    case 'onboarding': return dashboardNotice(0, model.tasks.filter((t) => t.kind === 'onboarding' && (t.progress?.total ?? 0) > (t.progress?.done ?? 0)).length);
     case 'announcements': return dashboardNotice(0, model.tasks.filter((t) => t.kind === 'announcement').length);
     default: return null;
   }
@@ -313,14 +313,13 @@ function PlanBody({ model }: { model: DashboardModel }) {
           })}
         </div>
       </div>
-      <div className="hm-db-plan__foot">
-        <span className="hm-db-note">Angezeigt: {formatRangeInText(plan.from, plan.to, today)}. Abgelehnte und zurückgezogene Anträge fehlen.</span>
-        {plan.rows.length > PLAN_ROWS_COLLAPSED && (
+      {plan.rows.length > PLAN_ROWS_COLLAPSED && (
+        <div className="hm-db-plan__foot">
           <button className="hm-db-btn" onClick={() => setAll((v) => !v)}>
             {all ? 'Weniger anzeigen' : `Alle ${plan.rows.length} Einträge anzeigen`}
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

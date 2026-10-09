@@ -720,7 +720,8 @@ export function useDashboardModel({ needsPlan = true }: { needsPlan?: boolean } 
     const annTasks = tasks.filter((t) => t.kind === 'announcement');
     const onbTasks = tasks.filter((t) => t.kind === 'onboarding');
     const pl = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-    const openOnbTasks = onbTasks.reduce((sum, t) => sum + ((t.progress?.total ?? 0) - (t.progress?.done ?? 0)), 0);
+    // Laufend (Sanduhr) ist ein Vorgang nur, solange Aufgaben offen sind.
+    const onbWithOpenTasks = onbTasks.filter((t) => (t.progress?.total ?? 0) > (t.progress?.done ?? 0)).length;
     const meetings = dash.data?.upcomingMeetings ?? [];
     type Raw = Omit<AreaSummary, 'key' | 'label' | 'incomplete'>;
     const raw: Record<Exclude<AreaKey, 'einstellungen'>, Raw> = {
@@ -757,8 +758,8 @@ export function useDashboardModel({ needsPlan = true }: { needsPlan?: boolean } 
       verwaltung: {
         open: 0,
         value: onbTasks.length, valueLabel: 'On- und Offboarding',
-        extra: openOnbTasks > 0 ? `${pl(openOnbTasks, 'Aufgabe', 'Aufgaben')} offen` : '',
-        running: onbTasks.length,
+        extra: '',
+        running: onbWithOpenTasks,
       },
       leistung: {
         open: 0,
