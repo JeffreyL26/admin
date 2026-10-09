@@ -9,30 +9,21 @@ import type { AdminArea, FeedbackMeetingKind, InterviewKind } from '@ohrganize/s
  * das Leserecht fehlt, gar nicht erst mitschickt (statt sie mit 0/[] zu füllen —
  * das würde „0 offene Anträge“ anzeigen, wo in Wahrheit welche liegen).
  * `allowed_areas` nennt die lesbaren Bereiche; danach blendet die Oberfläche
- * Kacheln und Widgets aus.
+ * Bereiche und Widgets aus.
  */
 export interface DashboardStats {
-  headcount?: number;
-  hiresYtd?: number;
-  pendingAbsences?: number;
-  missingSickNotes?: number;
-  expiringDocuments?: number;
-  openSalaryRequests?: number;
-  openPositions?: number;
-  activeApplications?: number;
   upcomingInterviewsCount?: number;
-  absentTodayCount?: number;
 }
 
 export interface DashboardData {
   allowed_areas: AdminArea[];
   stats: DashboardStats;
-  absentToday?: { id: number; first_name: string; last_name: string; type_name: string; color: string; date_to: string }[];
   byDepartment?: { department_id: number | null; department: string; count: number }[];
   absenceDaysByMonth?: { month: string; days: number }[];
   upcomingMeetings?: { id: number; kind: FeedbackMeetingKind; scheduled_date: string; first_name: string; last_name: string }[];
   upcomingBirthdays?: { id: number; first_name: string; last_name: string; birth_date: string; next_birthday: string }[];
-  activeAnnouncements?: { id: number; title: string; publish_at: string; requires_ack: number }[];
+  /** Alle mit Geburtstag heute (ohne die Grenze der Vorschau; 29.2. feiert sonst am 28.2.). */
+  birthdays_today?: { id: number; first_name: string; last_name: string }[];
   runningSurveys?: { id: number; title: string; date_to: string; participations: number }[];
   upcomingInterviews?: { id: number; kind: InterviewKind; scheduled_at: string; posting_title: string; first_name: string; last_name: string }[];
 }

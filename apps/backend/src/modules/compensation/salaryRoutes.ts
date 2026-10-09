@@ -4,7 +4,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
 import { audit, auditTrail } from '../../core/audit.js';
 import { todayIso, isValidIsoDate } from '../../core/dates.js';
-import { SALARY_COMPONENT_KINDS } from '@ohrganize/shared';
+import { SALARY_COMPONENT_KINDS, isOwnRequestDecision } from '@ohrganize/shared';
 import {
   assertNoComponentOverlap,
   componentsAt,
@@ -270,7 +270,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
     // Wer den Antrag gestellt hat, genehmigt ihn nicht selbst — sonst wäre der
     // Workflow gegenüber dem Direktweg wirkungslos. Ablehnen bleibt erlaubt:
     // Das ist ein Rückzug, kein Entscheid zugunsten der eigenen Sache.
-    if (body.decision === 'genehmigt' && request.requested_by_user_id === req.user.id) {
+    if (body.decision === 'genehmigt' && isOwnRequestDecision(req.user.id, request.requested_by_user_id)) {
       throw forbidden(
         'Eigene Gehaltsänderungsanträge dürfen nicht selbst genehmigt werden. Bitte lassen Sie den Antrag von einer anderen Person der HR-Administration prüfen.',
       );

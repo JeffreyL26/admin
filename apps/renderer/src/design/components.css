@@ -768,12 +768,8 @@
   transition: width 0.25s ease;
 }
 
-/* ---------- Kennzahlen-Karten ----------
-   Grundoptik ist "Standard" (nuechtern, Markenblau). Der Dashboard-Stil
-   "Farbenfroh" (.hm-dash--bunt, Schalter in DashboardPage) legt je Kachel
-   eine Akzentfarbe (--hm-accent) auf Plakette, Farbschimmer, Akzentlinie und
-   Chip: gleiches Rezept, eigenes Gesicht. Alle Mischungen ueber color-mix,
-   damit die vier Themes mitgehen. */
+/* ---------- Kennzahlen-Karten (StatCard) ----------
+   Nuechtern, Markenblau; genutzt von Verguetung und Personalakte. */
 .hm-stat {
   --hm-accent: var(--brand-primary);
   position: relative;
@@ -815,67 +811,14 @@
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
-.hm-dash--bunt .hm-stat {
-  gap: 8px;
-  padding-bottom: 20px;
-  isolation: isolate;
-  overflow: hidden;
-}
-.hm-dash--bunt .hm-stat::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(120px 90px at 100% 0%, color-mix(in srgb, var(--hm-accent) 16%, transparent), transparent 70%),
-    linear-gradient(160deg, color-mix(in srgb, var(--hm-accent) 4%, transparent), transparent 55%);
-}
-.hm-dash--bunt .hm-stat::after {
-  content: '';
-  position: absolute;
-  left: 20px;
-  right: 20px;
-  bottom: 0;
-  height: 3px;
-  border-radius: 3px 3px 0 0;
-  background: linear-gradient(90deg, var(--hm-accent), color-mix(in srgb, var(--hm-accent) 35%, transparent));
-  opacity: 0.85;
-}
-.hm-dash--bunt .hm-stat__label {
-  font-weight: 560;
-  color: var(--text-secondary);
-}
-.hm-dash--bunt .hm-stat__icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--hm-accent) 14%, var(--bg-surface));
-  color: var(--hm-accent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hm-accent) 22%, transparent);
-}
-.hm-dash--bunt .hm-stat__sub {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-weight: 560;
-  background: var(--gray-100);
-  color: var(--text-secondary);
-}
-.hm-dash--bunt .hm-stat__sub--success { background: var(--success-bg); color: var(--success); }
-.hm-dash--bunt .hm-stat__sub--warning { background: var(--warning-bg); color: var(--warning); }
-.hm-dash--bunt .hm-stat__sub--danger  { background: var(--danger-bg);  color: var(--danger); }
 
-/* ---------- Dashboard-Widgets ----------
-   Listenzeilen: Haupttext, Nebentext, rechts Datum oder Zahl. Im Standard
-   schlicht (kein Avatar, Chip als Text), farbenfroh mit Initialen-Avatar und
-   Chip in der Akzentfarbe des Widgets. */
+/* ---------- Dashboard-Widgets (Bestand, widgets.tsx) ----------
+   Listenzeilen: Haupttext, Nebentext, rechts Datum oder Zahl; schlicht, ohne
+   Avatar, Chip als Text. Rahmen und neue Widgets: features/dashboard/dashboard.css. */
 .hm-widget {
   --hm-accent: var(--brand-primary);
-  /* Diagrammfarben: Custom Properties erben in Inline-SVG, deshalb braucht
-     der Stilschalter keinen zweiten Weg in die Recharts-Fuellungen. */
+  /* Diagrammfarben: Custom Properties erben in Inline-SVG, die
+     Recharts-Fuellungen lesen sie direkt. */
   --hm-bar: var(--brand-primary);
   --hm-bar-current: var(--brand-primary);
   --hm-bar-1: var(--brand-navy);
@@ -885,37 +828,15 @@
   --hm-bar-5: var(--brand-navy);
   --hm-bar-6: var(--brand-navy);
 }
-.hm-dash--bunt .hm-widget {
-  --hm-bar: color-mix(in srgb, var(--hm-accent) 45%, var(--bg-surface));
-  --hm-bar-current: var(--hm-accent);
-  --hm-bar-1: var(--org-1);
-  --hm-bar-2: var(--org-2);
-  --hm-bar-3: var(--org-3);
-  --hm-bar-4: var(--org-4);
-  --hm-bar-5: var(--org-5);
-  --hm-bar-6: var(--org-6);
-}
 .hm-widget__icon {
   display: grid;
   place-items: center;
   flex-shrink: 0;
 }
-.hm-dash--bunt .hm-widget__icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--hm-accent) 14%, var(--bg-surface));
-  color: var(--hm-accent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hm-accent) 22%, transparent);
-}
 .hm-dash-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-.hm-dash--bunt .hm-dash-list {
-  gap: 4px;
-  margin: -6px -8px;
 }
 .hm-dash-row {
   display: flex;
@@ -924,15 +845,6 @@
   min-width: 0;
   color: inherit;
   text-decoration: none;
-}
-.hm-dash--bunt .hm-dash-row {
-  padding: 7px 8px;
-  border-radius: 10px;
-  transition: background 0.12s ease;
-}
-.hm-dash--bunt a.hm-dash-row:hover,
-.hm-dash--bunt button.hm-dash-row:hover {
-  background: color-mix(in srgb, var(--hm-accent) 7%, transparent);
 }
 /* Zeile als Knopf (oeffnet einen Dialog statt zu navigieren): gleiche Optik wie der Link. */
 .hm-dash-row--button {
@@ -954,18 +866,6 @@
 }
 .hm-dash-row__avatar {
   display: none;
-}
-.hm-dash--bunt .hm-dash-row__avatar {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  font-size: var(--text-xs);
-  font-weight: 650;
-  background: color-mix(in srgb, var(--hm-accent) 16%, var(--bg-surface));
-  color: var(--hm-accent);
 }
 .hm-dash-row__main {
   flex: 1;
@@ -996,27 +896,11 @@
   font-variant-numeric: tabular-nums;
   font-family: var(--font-numeric);
 }
-.hm-dash--bunt .hm-dash-row__chip {
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: var(--text-xs);
-  font-weight: 560;
-  background: color-mix(in srgb, var(--hm-accent) 12%, var(--bg-surface));
-  color: var(--hm-accent);
-}
-.hm-dash--bunt .hm-dash-row__chip--muted {
-  background: var(--gray-100);
-  color: var(--text-secondary);
-}
 .hm-widget .hm-progress {
-  display: none;
-}
-.hm-dash--bunt .hm-widget .hm-progress {
-  display: block;
   height: 6px;
   background: color-mix(in srgb, var(--hm-accent) 14%, var(--bg-surface));
 }
-.hm-dash--bunt .hm-widget .hm-progress__fill {
+.hm-widget .hm-progress__fill {
   background: var(--hm-accent);
 }
 .hm-dash-empty {
@@ -1026,15 +910,7 @@
   margin: 0;
   color: var(--text-muted);
 }
-.hm-dash--bunt .hm-dash-empty::before {
-  content: '';
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--hm-accent) 55%, var(--bg-surface));
-  flex-shrink: 0;
-}
-/* Kompakter Stilschalter im Seitenkopf. */
+/* Kompakte Reiter (Tabs size="sm"). */
 .hm-tabs--sm {
   padding: 3px;
   border-radius: 10px;

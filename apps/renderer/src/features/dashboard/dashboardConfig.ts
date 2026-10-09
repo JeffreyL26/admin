@@ -1,325 +1,298 @@
+import { useCallback, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Users, CalendarDays, Send, Stethoscope, FolderClock, Wallet, Briefcase,
-  CalendarClock, TrendingUp, Building2, MessagesSquare, Megaphone, BarChart3, Cake,
-  UserPlus, UsersRound, Gauge, FilePenLine, BadgeCheck, AlarmClock,
+  CalendarDays, Building2, CalendarClock, CalendarRange, MessagesSquare, Megaphone, BarChart3, Cake,
+  UserPlus, UsersRound, Gauge, BadgeCheck, AlarmClock, Send, Stethoscope, Wallet, FilePenLine, FolderClock,
 } from 'lucide-react';
-import { AREA_MODULES, moduleEnabled, widgetAllowedByFeatures, type AdminArea, type ModuleKey } from '@ohrganize/shared';
+import {
+  AREA_MODULES, mergeVisibleOrder, moduleEnabled, widgetAllowedByFeatures, type AdminArea, type ModuleKey,
+} from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
-import type { DashboardStats } from './api';
+import type { AreaKey } from './dashboardModel';
 
 /**
- * Registry des personalisierbaren Dashboards.
+ * Widget-Register des Dashboards.
  *
- * Die Auswahl (welche Widgets, welche KPI-Kacheln, in welcher Reihenfolge)
- * ist eine reine Anzeige-Präferenz und wird deshalb — wie das Theme — lokal
- * im localStorage persistiert (`ohrganize.dashboard`), nicht im Backend.
- * Neue Widgets künftiger Module werden hier registriert und erscheinen für
- * Bestandsnutzer über „Anpassen → Widget hinzufügen“.
+ * Auswahl, Reihenfolge und Breite der Widgets sind eine Anzeige-Praeferenz je
+ * Geraet (localStorage `ohrganize.dashboard`), wie das Theme, nicht im
+ * Backend. Neue Widgets kuenftiger Module werden hier registriert
+ * (`WIDGET_DEFS` mit Bereich, dazu `WIDGET_ORDER`) und erscheinen
+ * fuer Bestandsnutzer ueber „Anpassen → Widget hinzufügen“. Jedes Widget
+ * gehoert zu einem Bereich der Bereichsleiste; „Anpassen“ bietet bei
+ * gewaehltem Bereich nur dessen Widgets an.
  */
 
-// ---------------------------------------------------------------------------
-// KPI-Kacheln
-// ---------------------------------------------------------------------------
-
-export type StatKey =
-  | 'headcount'
-  | 'absentToday'
-  | 'pendingAbsences'
-  | 'missingSickNotes'
-  | 'expiringDocuments'
-  | 'openProfileChanges'
-  | 'openSalaryRequests'
-  | 'openPositions'
-  | 'upcomingInterviews';
-
 /**
- * `openProfileChanges` gehört zur Antwort von GET /api/dashboard, steht aber
- * nicht im Typ `DashboardStats` (features/dashboard/api.ts). Lokale Erweiterung
- * statt Fremdänderung — sie bleibt auch dann korrekt, wenn das Feld dort später
- * ergänzt wird.
- */
-type StatsWithProfileChanges = DashboardStats & { openProfileChanges?: number };
-
-/**
- * Akzentfarbe einer Kachel: ein CSS-Token, das in allen vier Themes definiert
- * ist. Die Palette ist bewusst die des Organigramms (`--org-1` bis `--org-6`)
- * plus die semantischen Farben, damit nichts Neues in tokens.css entsteht.
+ * Akzentfarbe der Bestands-Widgets (widgets.tsx): ein CSS-Token, das in allen
+ * vier Themes definiert ist (Palette des Organigramms plus Semantik).
  */
 export const ORG_ACCENTS = ['--org-1', '--org-2', '--org-3', '--org-4', '--org-5', '--org-6'] as const;
 export type Accent = (typeof ORG_ACCENTS)[number] | '--success' | '--warning' | '--danger';
 
-export type SubTone = 'neutral' | 'success' | 'warning' | 'danger';
-
-export interface StatDef {
-  label: string;
-  icon: LucideIcon;
-  accent: Accent;
-  /** Navigationsziel beim Klick auf die Kachel. */
-  path: string;
-  /**
-   * Rechtebereich, aus dem die Zahl stammt. Fehlt er dem Konto, liefert das
-   * Backend den Wert nicht (siehe api.ts) und die Kachel wird ausgeblendet —
-   * eine Kachel mit „0“ wäre eine Falschaussage, keine Zugriffsmeldung.
-   */
-  area: AdminArea;
-  /** Fachmodul, falls es vom Bereich abweicht; sonst aus `area` abgeleitet (AREA_MODULES). */
-  module?: ModuleKey;
-  value: (s: DashboardStats) => number | undefined;
-  sub?: (s: DashboardStats) => string | undefined;
-  /** Farbe des Untertitel-Chips; ohne Angabe neutral. */
-  subTone?: (s: DashboardStats) => SubTone;
-}
-
-/** Offene Vorgaenge: neutral bei 0, sonst Hinweis in Warnfarbe. */
-const pendingTone = (n: number | undefined): SubTone => (n !== undefined && n > 0 ? 'warning' : 'neutral');
-
-export const STAT_DEFS: Record<StatKey, StatDef> = {
-  headcount: {
-    label: 'Aktive Mitarbeitende',
-    icon: Users,
-    accent: '--org-1',
-    path: '/personal/mitarbeitende',
-    area: 'personal',
-    value: (s) => s.headcount,
-    sub: (s) => (s.hiresYtd === undefined ? undefined : `${s.hiresYtd} Neueintritte dieses Jahr`),
-    subTone: (s) => (s.hiresYtd !== undefined && s.hiresYtd > 0 ? 'success' : 'neutral'),
-  },
-  absentToday: {
-    label: 'Heute abwesend',
-    icon: CalendarDays,
-    accent: '--org-2',
-    path: '/abwesenheit/kalender',
-    area: 'abwesenheit',
-    value: (s) => s.absentTodayCount,
-    sub: (s) =>
-      s.absentTodayCount === undefined ? undefined : s.absentTodayCount === 0 ? 'Alle an Bord' : 'nicht im Haus',
-    subTone: (s) => (s.absentTodayCount === 0 ? 'success' : 'neutral'),
-  },
-  pendingAbsences: {
-    label: 'Offene Anträge',
-    icon: Send,
-    accent: '--org-3',
-    path: '/abwesenheit/antraege',
-    area: 'abwesenheit',
-    value: (s) => s.pendingAbsences,
-    sub: (s) => (s.pendingAbsences === 0 ? 'nichts zu entscheiden' : 'zur Entscheidung'),
-    subTone: (s) => pendingTone(s.pendingAbsences),
-  },
-  missingSickNotes: {
-    label: 'Fehlende AU',
-    icon: Stethoscope,
-    accent: '--org-5',
-    path: '/abwesenheit/krankmeldungen',
-    area: 'abwesenheit',
-    value: (s) => s.missingSickNotes,
-    sub: (s) =>
-      s.missingSickNotes === undefined
-        ? undefined
-        : s.missingSickNotes > 0
-          ? 'Frist überschritten'
-          : 'Alles fristgerecht',
-    subTone: (s) => (s.missingSickNotes !== undefined && s.missingSickNotes > 0 ? 'danger' : 'success'),
-  },
-  expiringDocuments: {
-    label: 'Ablaufende Dokumente',
-    icon: FolderClock,
-    accent: '--org-4',
-    path: '/personal/dokumente',
-    area: 'personal',
-    value: (s) => s.expiringDocuments,
-    // Zaehlt wie Personal → Dokumente → Ablaufend: Erinnerungsfrist je
-    // Dokument, nur gueltige und nicht abgeloeste Versionen.
-    sub: () => 'Erinnerungsfrist erreicht',
-    subTone: (s) => pendingTone(s.expiringDocuments),
-  },
-  openProfileChanges: {
-    label: 'Stammdaten-Anträge',
-    icon: FilePenLine,
-    accent: '--org-6',
-    path: '/personal/aenderungsantraege',
-    area: 'personal',
-    value: (s) => (s as StatsWithProfileChanges).openProfileChanges,
-    sub: () => 'zur Entscheidung',
-    subTone: (s) => pendingTone((s as StatsWithProfileChanges).openProfileChanges),
-  },
-  openSalaryRequests: {
-    label: 'Gehaltsanträge',
-    icon: Wallet,
-    accent: '--org-4',
-    path: '/verguetung/gehaelter',
-    area: 'verguetung',
-    value: (s) => s.openSalaryRequests,
-    sub: () => 'zur Entscheidung',
-    subTone: (s) => pendingTone(s.openSalaryRequests),
-  },
-  openPositions: {
-    label: 'Offene Stellen',
-    icon: Briefcase,
-    accent: '--org-2',
-    path: '/recruiting/stellen',
-    area: 'recruiting',
-    value: (s) => s.openPositions,
-    sub: (s) =>
-      s.activeApplications === undefined ? undefined : `${s.activeApplications} aktive Bewerbungen`,
-  },
-  upcomingInterviews: {
-    label: 'Anstehende Interviews',
-    icon: CalendarClock,
-    accent: '--org-3',
-    path: '/recruiting/interviews',
-    area: 'recruiting',
-    value: (s) => s.upcomingInterviewsCount,
-    sub: () => 'in den nächsten Tagen',
-  },
-};
-
-export const ALL_STATS = Object.keys(STAT_DEFS) as StatKey[];
-
-// ---------------------------------------------------------------------------
-// Widgets
-// ---------------------------------------------------------------------------
-
-export type WidgetKey =
-  | 'kpis'
-  | 'absence-chart'
-  | 'department-chart'
+export type DashboardWidgetKey =
   | 'absent-today'
-  | 'interviews'
-  | 'meetings'
+  | 'sick'
+  | 'requests'
+  | 'plan'
+  | 'absence-chart'
+  | 'follow-ups'
   | 'announcements'
   | 'surveys'
-  | 'follow-ups'
+  | 'profile'
+  | 'documents'
   | 'birthdays'
+  | 'department-chart'
+  | 'salary'
+  | 'interviews'
   | 'onboarding'
+  | 'meetings'
   | 'leadership-team'
   | 'leadership-report'
   | 'license';
 
-export interface WidgetDef {
+/** Frueherer Name, den widgets.tsx und gespeicherte Konfigurationen noch kennen. */
+export type WidgetKey = DashboardWidgetKey;
+
+export type WidgetSize = 'wide' | 'half';
+
+export interface DashboardWidgetDef {
+  key: DashboardWidgetKey;
   title: string;
   description: string;
   icon: LucideIcon;
+  /** Akzent der Bestands-Widgets (Diagrammfarben in widgets.tsx). */
   accent: Accent;
+  /** Bereich der Bereichsleiste (Filter, Farbe, Etikett). */
+  area: AreaKey;
   /**
    * Rechtebereich der angezeigten Daten. `undefined` = kein eigener Bereich
-   * (die KPI-Leiste; deren Kacheln bringen ihren Bereich einzeln mit).
-   * Fehlt der Bereich, blendet DashboardPage das Widget vollständig aus —
-   * inklusive der Galerie „Widget hinzufügen“, sonst ließe es sich zuschalten
-   * und stünde dann leer da.
+   * (Mein Team haengt an der Freischaltung der Person, die Lizenz kommt mit
+   * jedem Admin-Konto). Fehlt der Bereich dem Konto, ist das Widget weder
+   * sichtbar noch in „Anpassen“ angeboten.
    */
-  area?: AdminArea;
-  /** Fachmodul, falls es nicht aus `area` folgt (personengebundene Widgets); Widgets fehlender Module gibt es nicht. */
+  adminArea?: AdminArea;
+  /** Fachmodul, falls es nicht aus `adminArea` folgt; Widgets fehlender Module gibt es nicht. */
   module?: ModuleKey;
-  /** true = Widget belegt die volle Breite (KPI-Leiste). */
-  wide?: boolean;
+  /** Vorgabe der Breite; vom Nutzer je Widget umschaltbar. */
+  size: WidgetSize;
 }
 
-export const WIDGET_DEFS: Record<WidgetKey, WidgetDef> = {
-  kpis: { title: 'Kennzahlen', description: 'Frei wählbare KPI-Kacheln', icon: TrendingUp, accent: '--org-1', wide: true },
-  'absence-chart': { title: 'Abwesenheitstage je Monat', description: 'Genehmigte Tage im Jahresverlauf', icon: CalendarDays, accent: '--org-1', area: 'abwesenheit' },
-  'department-chart': { title: 'Mitarbeitende je Abteilung', description: 'Verteilung der Belegschaft', icon: Building2, accent: '--org-3', area: 'personal' },
-  'absent-today': { title: 'Heute abwesend', description: 'Wer heute nicht an Bord ist', icon: CalendarDays, accent: '--org-2', area: 'abwesenheit' },
-  interviews: { title: 'Anstehende Interviews', description: 'Nächste Recruiting-Termine', icon: CalendarClock, accent: '--org-3', area: 'recruiting' },
-  meetings: { title: 'Nächste Gespräche', description: 'Feedback-Termine der nächsten 3 Wochen', icon: MessagesSquare, accent: '--org-4', area: 'leistung' },
-  announcements: { title: 'Aktive Ankündigungen', description: 'Laufende Mitteilungen', icon: Megaphone, accent: '--org-5', area: 'kommunikation' },
-  surveys: { title: 'Laufende Umfragen', description: 'Teilnahmestand aktiver Umfragen', icon: BarChart3, accent: '--org-2', area: 'kommunikation' },
-  // Laedt seine Daten selbst (GET /api/communication/meetings/follow-ups).
-  'follow-ups': { title: 'Wiedervorlagen', description: 'Fällige Wiedervorlagen aus Gesprächsprotokollen', icon: AlarmClock, accent: '--org-6', area: 'kommunikation' },
-  birthdays: { title: 'Nächste Geburtstage', description: 'Wer demnächst feiert', icon: Cake, accent: '--org-5', area: 'personal' },
-  // Lädt seine Daten selbst über /api/admin/onboarding — ohne 'verwaltung'
-  // antwortet das Backend mit 403 und das Widget behauptete sonst, es sei
-  // niemand im On-/Offboarding.
-  onboarding: { title: 'On- & Offboarding', description: 'Wer gerade an- oder abreist', icon: UserPlus, accent: '--org-4', area: 'verwaltung' },
-  // Kein `area`: Wie der Sidebar-Eintrag „Mein Team“ (nav.ts, leaderOnly)
-  // hängt die Führungsfunktion an der Freischaltung der Person, nicht am
-  // Rechtebereich `fuehrung`. Mit einem Bereich wäre das Widget für genau die
-  // Führungskräfte ohne HR-Rechte nicht anbietbar, für die es gedacht ist. Das
-  // Widget lädt seine Daten selbst und blendet sich für Nicht-Führungskräfte
-  // inhaltlich aus, statt gar nicht erst angeboten zu werden.
-  'leadership-team': { title: 'Mein Team', description: 'Bewertungsstand Ihres Zuständigkeitsbereichs', icon: UsersRound, accent: '--org-2', module: 'performance' },
-  'leadership-report': { title: 'Satisfaction-Report', description: 'Bewertungsstand je Führungskraft im Zeitraum', icon: Gauge, accent: '--org-3', area: 'fuehrung' },
-  // Kein `area`: Der Lizenzzustand kommt mit Login und /api/auth/me zu jedem
-  // Admin-Konto (Auth-Kontext), unabhängig vom Bereich `einstellungen` — das
-  // Widget braucht keine eigene Abfrage. Nur der Sprung zur Lizenzseite hängt
-  // am Bereich. Standardmäßig ausgeblendet; die Banner sagen ohnehin Bescheid.
-  license: { title: 'Lizenz', description: 'Zustand, Laufzeit und Plätze der Lizenz', icon: BadgeCheck, accent: '--org-6' },
+export const WIDGET_DEFS: Record<DashboardWidgetKey, DashboardWidgetDef> = {
+  'absent-today': {
+    key: 'absent-today', title: 'Heute abwesend', icon: CalendarDays, accent: '--org-2', area: 'abwesenheit',
+    adminArea: 'abwesenheit', size: 'half',
+    description: 'Wer heute fehlt, mit Art und Rückkehr, dazu die nächsten 7 Tage',
+  },
+  sick: {
+    key: 'sick', title: 'Krankheit und AU', icon: Stethoscope, accent: '--org-5', area: 'abwesenheit',
+    adminArea: 'abwesenheit', size: 'half',
+    description: 'Aktuell Kranke mit Lohnfortzahlung und fehlende AU-Nachweise',
+  },
+  requests: {
+    key: 'requests', title: 'Abwesenheitsanträge', icon: Send, accent: '--org-3', area: 'abwesenheit',
+    adminArea: 'abwesenheit', size: 'half',
+    description: 'Offene Urlaubs- und Abwesenheitsanträge zur Entscheidung',
+  },
+  plan: {
+    key: 'plan', title: 'Wer fehlt wann', icon: CalendarRange, accent: '--org-2', area: 'abwesenheit',
+    adminArea: 'abwesenheit', size: 'wide',
+    description: 'Anwesenheitsplan über 10 Wochen mit offenen und genehmigten Abwesenheiten',
+  },
+  'absence-chart': {
+    key: 'absence-chart', title: 'Abwesenheitstage je Monat', icon: CalendarDays, accent: '--org-1', area: 'abwesenheit',
+    adminArea: 'abwesenheit', size: 'half',
+    description: 'Genehmigte Tage im Jahresverlauf',
+  },
+  'follow-ups': {
+    key: 'follow-ups', title: 'Wiedervorlagen', icon: AlarmClock, accent: '--org-6', area: 'kommunikation',
+    adminArea: 'kommunikation', size: 'half',
+    description: 'Fällige Wiedervorlagen aus Gesprächsprotokollen, nach Verzug',
+  },
+  announcements: {
+    key: 'announcements', title: 'Ankündigungen und Bestätigungen', icon: Megaphone, accent: '--org-5', area: 'kommunikation',
+    adminArea: 'kommunikation', size: 'half',
+    description: 'Laufende Ankündigungen und wer noch nicht bestätigt hat',
+  },
+  surveys: {
+    key: 'surveys', title: 'Laufende Umfragen', icon: BarChart3, accent: '--org-2', area: 'kommunikation',
+    adminArea: 'kommunikation', size: 'half',
+    description: 'Teilnahmestand aktiver Umfragen',
+  },
+  profile: {
+    key: 'profile', title: 'Stammdaten-Anträge', icon: FilePenLine, accent: '--org-6', area: 'personal',
+    adminArea: 'personal', size: 'half',
+    description: 'Änderungsanträge aus dem Portal (Anschrift, Bank, Krankenkasse)',
+  },
+  documents: {
+    key: 'documents', title: 'Ablaufende Dokumente', icon: FolderClock, accent: '--org-4', area: 'personal',
+    adminArea: 'personal', size: 'half',
+    description: 'Dokumente in ihrer Erinnerungsfrist und bereits abgelaufene',
+  },
+  birthdays: {
+    key: 'birthdays', title: 'Nächste Geburtstage', icon: Cake, accent: '--org-5', area: 'personal',
+    adminArea: 'personal', size: 'half',
+    description: 'Wer demnächst feiert',
+  },
+  'department-chart': {
+    key: 'department-chart', title: 'Mitarbeitende je Abteilung', icon: Building2, accent: '--org-3', area: 'personal',
+    adminArea: 'personal', size: 'half',
+    description: 'Verteilung der Belegschaft',
+  },
+  salary: {
+    key: 'salary', title: 'Gehaltsanträge', icon: Wallet, accent: '--org-4', area: 'verguetung',
+    adminArea: 'verguetung', size: 'half',
+    description: 'Gehaltsänderungen, die auf eine zweite Person warten',
+  },
+  interviews: {
+    key: 'interviews', title: 'Anstehende Interviews', icon: CalendarClock, accent: '--org-3', area: 'recruiting',
+    adminArea: 'recruiting', size: 'half',
+    description: 'Nächste Recruiting-Termine',
+  },
+  // Laedt seine Daten ueber /api/admin/onboarding; ohne 'verwaltung' antwortete
+  // das Backend mit 403.
+  onboarding: {
+    key: 'onboarding', title: 'On- und Offboarding', icon: UserPlus, accent: '--org-4', area: 'verwaltung',
+    adminArea: 'verwaltung', size: 'half',
+    description: 'Wer gerade anfängt oder geht, mit Fortschritt der Aufgaben',
+  },
+  meetings: {
+    key: 'meetings', title: 'Nächste Gespräche', icon: MessagesSquare, accent: '--org-4', area: 'leistung',
+    adminArea: 'leistung', size: 'half',
+    description: 'Feedback-Termine der nächsten 3 Wochen',
+  },
+  // Kein `adminArea`: Wie der Sidebar-Eintrag „Mein Team“ (nav.ts, leaderOnly)
+  // haengt die Fuehrungsfunktion an der Freischaltung der Person, nicht am
+  // Rechtebereich `fuehrung`. Das Widget laedt selbst und blendet sich fuer
+  // Nicht-Fuehrungskraefte inhaltlich aus.
+  'leadership-team': {
+    key: 'leadership-team', title: 'Mein Team', icon: UsersRound, accent: '--org-2', area: 'leistung',
+    module: 'performance', size: 'half',
+    description: 'Bewertungsstand Ihres Zuständigkeitsbereichs',
+  },
+  'leadership-report': {
+    key: 'leadership-report', title: 'Satisfaction-Report', icon: Gauge, accent: '--org-3', area: 'leistung',
+    adminArea: 'fuehrung', size: 'half',
+    description: 'Bewertungsstand je Führungskraft im Zeitraum',
+  },
+  // Kein `adminArea`: Der Lizenzzustand kommt mit Login und /api/auth/me zu
+  // jedem Admin-Konto. Standardmaessig ausgeblendet; die Banner sagen ohnehin Bescheid.
+  license: {
+    key: 'license', title: 'Lizenz', icon: BadgeCheck, accent: '--org-6', area: 'einstellungen',
+    size: 'half',
+    description: 'Zustand, Laufzeit und Plätze der Lizenz',
+  },
 };
 
-export const ALL_WIDGETS = Object.keys(WIDGET_DEFS) as WidgetKey[];
+/** Reihenfolge in „Anpassen“ und in der Liste aller Widgets. */
+export const WIDGET_ORDER: DashboardWidgetKey[] = [
+  'absent-today', 'sick', 'requests', 'plan', 'absence-chart', 'follow-ups', 'announcements', 'surveys',
+  'profile', 'documents', 'birthdays', 'department-chart', 'salary', 'interviews', 'onboarding', 'meetings',
+  'leadership-team', 'leadership-report', 'license',
+];
 
-// ---------------------------------------------------------------------------
-// Rechtefilter (reine Anzeige — die Sicherheitsgrenze ist das Backend)
-// ---------------------------------------------------------------------------
+export function widgetDef(key: DashboardWidgetKey): DashboardWidgetDef {
+  return WIDGET_DEFS[key];
+}
 
 /**
  * Darf dieses Widget angezeigt werden? `allowed` sind die vom Backend
  * gemeldeten lesbaren Bereiche (`allowed_areas` aus GET /api/dashboard).
  *
- * Wichtig: Das Ergebnis wird NICHT in die gespeicherte Konfiguration
- * zurückgeschrieben. Bekommt das Konto den Bereich später wieder, tauchen die
- * gewählten Widgets unverändert wieder auf.
+ * Reine Anzeige, die Sicherheitsgrenze ist das Backend. Das Ergebnis wird NICHT
+ * in die gespeicherte Auswahl zurueckgeschrieben: Bekommt das Konto den Bereich
+ * spaeter wieder, tauchen die gewaehlten Widgets unveraendert wieder auf.
  */
 export function widgetAllowed(
-  key: WidgetKey,
+  key: DashboardWidgetKey,
   allowed: ReadonlySet<AdminArea>,
   features: readonly string[] | null = null,
 ): boolean {
   const def = WIDGET_DEFS[key];
-  const area = def.area;
-  // Modul der Variante: Widgets eines Moduls, das dieser Build nicht
-  // enthaelt, werden weder angezeigt noch angeboten (auch nicht aus einer
-  // gespeicherten Konfiguration).
-  if (!moduleEnabled(VARIANT, def.module ?? (area ? AREA_MODULES[area] : null))) return false;
+  // Modul der Variante: Widgets eines Moduls, das dieser Build nicht enthaelt,
+  // werden weder angezeigt noch angeboten (auch nicht aus einer gespeicherten Auswahl).
+  if (!moduleEnabled(VARIANT, def.module ?? (def.adminArea ? AREA_MODULES[def.adminArea] : null))) return false;
   if (!widgetAllowedByFeatures(key, features)) return false;
-  return area === undefined || allowed.has(area);
-}
-
-/** Wie widgetAllowed, für die KPI-Kacheln. */
-export function statAllowed(
-  key: StatKey,
-  allowed: ReadonlySet<AdminArea>,
-  features: readonly string[] | null = null,
-): boolean {
-  const def = STAT_DEFS[key];
-  if (!moduleEnabled(VARIANT, def.module ?? AREA_MODULES[def.area])) return false;
-  if (!widgetAllowedByFeatures(key, features)) return false;
-  return allowed.has(def.area);
+  return def.adminArea === undefined || allowed.has(def.adminArea);
 }
 
 // ---------------------------------------------------------------------------
-// Konfiguration + Persistenz
+// Auswahl je Geraet
 // ---------------------------------------------------------------------------
 
-export interface DashboardConfig {
-  /** Sichtbare Widgets in Anzeige-Reihenfolge. */
-  widgets: WidgetKey[];
-  /** Sichtbare KPI-Kacheln (Reihenfolge folgt ALL_STATS). */
-  kpis: StatKey[];
+export interface DashboardLayout {
+  /** Fassung des gespeicherten Formats; 2 seit dem Dashboard aus HR-Sicht. */
+  v: 2;
+  widgets: DashboardWidgetKey[];
+  /** Vom Nutzer gewaehlte Breite; fehlt ein Eintrag, gilt die Vorgabe des Widgets. */
+  sizes: Partial<Record<DashboardWidgetKey, WidgetSize>>;
 }
 
-/** Bewusst kuratierter, aufgeräumter Default — alles Weitere ist zuschaltbar. */
-export const DEFAULT_CONFIG: DashboardConfig = {
-  widgets: ['kpis', 'absence-chart', 'absent-today', 'interviews', 'meetings', 'birthdays'],
-  kpis: ['headcount', 'absentToday', 'pendingAbsences', 'missingSickNotes', 'openPositions'],
+/**
+ * Vorgabe in der Reihenfolge eines HR-Morgens: wer fehlt heute, wer ist krank,
+ * der Plan, was zu entscheiden ist, wer anfaengt oder geht, faellige
+ * Wiedervorlagen, der Verlauf, dann Kommunikation, Personal, Verguetung und
+ * Recruiting.
+ */
+export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayout = {
+  v: 2,
+  widgets: [
+    'absent-today', 'sick', 'plan', 'requests', 'onboarding', 'follow-ups', 'absence-chart',
+    'announcements', 'profile', 'documents', 'salary', 'birthdays', 'interviews',
+  ],
+  sizes: {},
 };
 
 const STORAGE_KEY = 'ohrganize.dashboard';
 
-export function loadDashboardConfig(): DashboardConfig {
+const isKey = (k: unknown): k is DashboardWidgetKey => typeof k === 'string' && k in WIDGET_DEFS;
+
+/**
+ * Gespeicherte Auswahl lesen. Die Fassung 1 (bis Oktober 2026: Kennzahlen-
+ * Kacheln `kpis` plus Widgets) wird uebernommen: Die dort gewaehlten Widgets
+ * bleiben, die Kennzahlen entfallen (die Bereichsleiste ersetzt sie), und die
+ * neuen Widgets fuer den HR-Alltag kommen vorn hinzu.
+ */
+export function loadDashboardLayout(): DashboardLayout {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_CONFIG;
-    const parsed = JSON.parse(raw) as Partial<DashboardConfig>;
-    // Unbekannte Schlüssel (z. B. aus älteren Versionen) still herausfiltern.
-    const widgets = (parsed.widgets ?? []).filter((w): w is WidgetKey => w in WIDGET_DEFS);
-    const kpis = ALL_STATS.filter((k) => (parsed.kpis ?? []).includes(k));
-    return { widgets: [...new Set(widgets)], kpis };
+    if (!raw) return DEFAULT_DASHBOARD_LAYOUT;
+    const p = JSON.parse(raw) as { v?: number; widgets?: unknown[]; sizes?: Record<string, unknown> };
+    const chosen = (p.widgets ?? []).filter(isKey);
+    if (p.v !== 2) {
+      const daily: DashboardWidgetKey[] = ['absent-today', 'sick', 'plan', 'requests', 'onboarding', 'follow-ups'];
+      return { v: 2, widgets: [...new Set([...daily, ...chosen])], sizes: {} };
+    }
+    const sizes: DashboardLayout['sizes'] = {};
+    for (const [k, v] of Object.entries(p.sizes ?? {})) {
+      if (isKey(k) && (v === 'wide' || v === 'half')) sizes[k] = v;
+    }
+    return { v: 2, widgets: [...new Set(chosen)], sizes };
   } catch {
-    return DEFAULT_CONFIG;
+    return DEFAULT_DASHBOARD_LAYOUT;
   }
 }
 
-export function saveDashboardConfig(config: DashboardConfig): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+export function useDashboardLayout() {
+  const [layout, setLayout] = useState<DashboardLayout>(loadDashboardLayout);
+
+  const update = useCallback((next: DashboardLayout) => {
+    setLayout(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // Speicher gesperrt: Die Auswahl gilt dann nur fuer diese Sitzung.
+    }
+  }, []);
+
+  const remove = (key: DashboardWidgetKey) => update({ ...layout, widgets: layout.widgets.filter((w) => w !== key) });
+  const add = (key: DashboardWidgetKey) => update({ ...layout, widgets: [...layout.widgets, key] });
+  const reset = () => update(DEFAULT_DASHBOARD_LAYOUT);
+  const sizeOf = (key: DashboardWidgetKey): WidgetSize => layout.sizes[key] ?? WIDGET_DEFS[key].size;
+  const toggleSize = (key: DashboardWidgetKey) =>
+    update({ ...layout, sizes: { ...layout.sizes, [key]: sizeOf(key) === 'wide' ? 'half' : 'wide' } });
+  /** Neue Reihenfolge der sichtbaren Widgets; ausgeblendete (Bereichsfilter) behalten ihre Plaetze. */
+  const reorderVisible = (visibleOrder: DashboardWidgetKey[]) =>
+    update({ ...layout, widgets: mergeVisibleOrder(layout.widgets, visibleOrder) });
+
+  return { layout, remove, add, reset, sizeOf, toggleSize, reorderVisible };
 }

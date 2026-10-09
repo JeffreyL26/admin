@@ -485,6 +485,14 @@ const sickOverlap = await post('/api/absences/sick-notes', {
 });
 check('Überlappende Krankmeldung → 409', sickOverlap.statusCode === 409);
 
+// Dashboard: nur, wer an einem Tag krank ist, und heute Abwesende mit Rückkehrtag.
+const activeOn = (await get('/api/absences/sick-notes?active_on=2026-06-02')).json().sick_notes as { id: number }[];
+check(
+  'active_on: nur Krankmeldungen, die den Tag einschliessen',
+  activeOn.some((n) => n.id === s1.id) && !activeOn.some((n) => n.id === childSick.json().sick_note.id),
+  activeOn,
+);
+
 // Bereits fehlende Tage + Entgeltfortzahlung (Anreicherung der Liste).
 const enrichedList = await get('/api/absences/sick-notes');
 const enriched = enrichedList.json().sick_notes as {
@@ -777,6 +785,73 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
       !blobOf(oldCert.stored_name) &&
       JSON.parse(certAudit?.details ?? '{}').removed_file?.id === oldCert.id,
     { approve: healedApprove.statusCode, cert: healedCert.statusCode, audit: certAudit },
+  );
+}
+
+// ------------------------------------------------- Heute abwesend (Dashboard) ---
+// Eigene Person, damit der Test am realen Tag etwas findet: genehmigt heute,
+// danach ein Arbeitstag Betriebsruhe und direkt anschliessend genehmigter
+// Urlaub. Wieder da ist sie am ersten freien Arbeitstag danach.
+{
+  const { todayIso, addDaysIso, isWeekend } = await import('../../core/dates.js');
+  const { isHoliday } = await import('../../core/holidays.js');
+  const { closureDates } = await import('./service.js');
+  const today = todayIso();
+  const dora = Number(insertEmp.run('Dora', 'Dietrich', '2020-01-01', 30, 1, 1, null).lastInsertRowid);
+  const nextFree = (after: string, skip: (d: string) => boolean = () => false) => {
+    let d = addDaysIso(after, 1);
+    const closures = closureDates(d, addDaysIso(d, 60));
+    while (isWeekend(d) || isHoliday(d, 'DE', 'BY') || closures.has(d) || skip(d)) d = addDaysIso(d, 1);
+    return d;
+  };
+  const insertReq = db.prepare(
+    `INSERT INTO absence_requests (employee_id, type_id, date_from, date_to, days_counted, status)
+     VALUES (?, ?, ?, ?, 1, ?)`,
+  );
+  const todayId = Number(insertReq.run(dora, urlaubType.id, today, today, 'genehmigt').lastInsertRowid);
+  const shut = nextFree(today);
+  const shutClosure = await post('/api/absences/closures', { name: 'Test heute', date_from: shut, date_to: shut });
+  const vacation = nextFree(today);
+  insertReq.run(dora, urlaubType.id, vacation, vacation, 'genehmigt');
+  const expected = nextFree(vacation);
+  const row = ((await get('/api/absences/today')).json().absences as { id: number; back_on: string }[]).find(
+    (r) => r.id === todayId,
+  );
+  check(
+    'Heute abwesend: back_on überspringt Betriebsruhe und anschließenden Urlaub',
+    shutClosure.statusCode === 201 && vacation !== shut && row?.back_on === expected,
+    { shut, vacation, expected, row },
+  );
+
+  // Halber Folgetag: Beginnt der anschliessende Urlaub mit einem halben Tag,
+  // ist die Person an diesem Tag wieder da.
+  const emil = Number(insertEmp.run('Emil', 'Ernst', '2020-01-01', 30, 1, 1, null).lastInsertRowid);
+  const emilToday = Number(insertReq.run(emil, urlaubType.id, today, today, 'genehmigt').lastInsertRowid);
+  const halfDay = nextFree(today);
+  db.prepare(
+    `INSERT INTO absence_requests (employee_id, type_id, date_from, date_to, days_counted, status, half_day_start)
+     VALUES (?, ?, ?, ?, 0.5, 'genehmigt', 1)`,
+  ).run(emil, urlaubType.id, halfDay, halfDay);
+  const emilRow = ((await get('/api/absences/today')).json().absences as { id: number; back_on: string }[]).find(
+    (r) => r.id === emilToday,
+  );
+  check('Heute abwesend: halber Folgetag zählt als wieder da', emilRow?.back_on === halfDay, { halfDay, emilRow });
+
+  // Halber letzter Tag heute: heute wieder da, als halber Tag markiert.
+  const frida = Number(insertEmp.run('Frida', 'Fuchs', '2020-01-01', 30, 1, 1, null).lastInsertRowid);
+  const fridaId = Number(
+    db.prepare(
+      `INSERT INTO absence_requests (employee_id, type_id, date_from, date_to, days_counted, status, half_day_end)
+       VALUES (?, ?, ?, ?, 1.5, 'genehmigt', 1)`,
+    ).run(frida, urlaubType.id, addDaysIso(today, -1), today).lastInsertRowid,
+  );
+  const fridaRow = ((await get('/api/absences/today')).json().absences as {
+    id: number; back_on: string; back_today: boolean; half_today: boolean;
+  }[]).find((r) => r.id === fridaId);
+  check(
+    'Heute abwesend: halber letzter Tag heißt heute wieder da',
+    fridaRow?.back_on === today && fridaRow.back_today === true && fridaRow.half_today === true,
+    fridaRow,
   );
 }
 

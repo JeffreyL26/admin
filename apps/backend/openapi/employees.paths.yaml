@@ -214,7 +214,7 @@ paths:
         "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" }
   /api/documents/expiring:
     get:
-      summary: Ablaufende Dokumente (expiry_date innerhalb reminder_days, nur aktuelle Versionen)
+      summary: Ablaufende Dokumente (expiry_date innerhalb reminder_days, nur aktuelle Versionen, ohne Ausgeschiedene)
       responses:
         "200": { description: "{ documents: [...] }" }
   /api/documents/{id}:

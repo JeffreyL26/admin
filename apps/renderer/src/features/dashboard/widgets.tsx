@@ -3,13 +3,9 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-import { Megaphone } from 'lucide-react';
 import {
-  formatDate, todayIsoLocal, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS, MEETING_OCCASION_LABELS,
-  ONBOARDING_KIND_LABELS,
+  formatDate, todayIsoLocal, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS,
 } from '@ohrganize/shared';
-import { useOnboardingProcesses } from '../admin/api';
-import { useFollowUps } from '../communication/api';
 import { useLeaderStatus, useLeadershipReport } from '../leadership/api';
 import { useAuth } from '../../auth/AuthContext';
 import { Badge, initialsOf } from '../../components/ui';
@@ -19,23 +15,21 @@ import {
 } from '../settings/license';
 import type { DashboardData } from './api';
 import { ORG_ACCENTS } from './dashboardConfig';
+import { shortDate as shortDateOf } from './dashboardModel';
 
-/* Reine Widget-Inhalte des Dashboards — der Card-Rahmen (Titel, Icon,
-   Bearbeitungs-Controls) kommt aus DashboardPage. Alle Listen folgen einem
+/* Reine Widget-Inhalte des Dashboards; der Rahmen (Titel, Icon,
+   Bearbeitungs-Controls) kommt aus WidgetFrame in DashboardWidgets.tsx. Alle Listen folgen einem
    Rezept: Avatar oder Kennung in der Akzentfarbe des Widgets, Haupttext,
-   rechts ein Chip mit Datum oder Zahl (Klassen hm-dash-*). Der Dashboard-Stil
-   wirkt allein ueber CSS (.hm-dash--bunt); die Diagramme lesen ihre Farben aus
-   den Custom Properties --hm-bar* (components.css), die in SVG vererbt werden. */
+   rechts ein Chip mit Datum oder Zahl (Klassen hm-dash-*). Die Diagramme lesen
+   ihre Farben aus den Custom Properties --hm-bar* (components.css), die in SVG
+   vererbt werden. Die neu gezeichneten Widgets stehen in DashboardWidgets.tsx. */
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
 const initials = (first?: string | null, last?: string | null) => initialsOf(`${first ?? ''} ${last ?? ''}`);
 
 /** Kurzdatum fuer Chips: 24.09. (Jahr nur, wenn es nicht das laufende ist). */
-function shortDate(iso: string): string {
-  const [y, m, d] = iso.slice(0, 10).split('-');
-  return y === todayIsoLocal().slice(0, 4) ? `${d}.${m}.` : `${d}.${m}.${y}`;
-}
+const shortDate = (iso: string) => shortDateOf(iso, todayIsoLocal());
 
 function Empty({ text }: { text: string }) {
   return <p className="hm-dash-empty">{text}</p>;
@@ -178,28 +172,6 @@ export function DepartmentChartWidget({ data }: { data: DashboardData }) {
   );
 }
 
-export function AbsentTodayWidget({ data }: { data: DashboardData }) {
-  if (!data.absentToday) return <Restricted />;
-  if (data.absentToday.length === 0) return <Empty text="Heute sind alle an Bord. 🎉" />;
-  return (
-    <div className="hm-dash-list" style={{ maxHeight: 240, overflow: 'auto' }}>
-      {data.absentToday.map((a) => (
-        <Row
-          key={`${a.id}-${a.date_to}`}
-          to={`/abwesenheit/kalender?person=${a.id}`}
-          avatar={initials(a.first_name, a.last_name)}
-          title={`${a.first_name} ${a.last_name}`}
-          meta={
-            <span style={{ color: a.color, fontWeight: 560 }}>{a.type_name}</span>
-          }
-          chip={`bis ${shortDate(a.date_to)}`}
-          chipMuted
-        />
-      ))}
-    </div>
-  );
-}
-
 export function InterviewsWidget({ data }: { data: DashboardData }) {
   if (!data.upcomingInterviews) return <Restricted />;
   if (data.upcomingInterviews.length === 0) return <Empty text="Keine geplanten Interviews." />;
@@ -238,25 +210,6 @@ export function MeetingsWidget({ data }: { data: DashboardData }) {
   );
 }
 
-export function AnnouncementsWidget({ data }: { data: DashboardData }) {
-  if (!data.activeAnnouncements) return <Restricted />;
-  if (data.activeAnnouncements.length === 0) return <Empty text="Keine aktiven Ankündigungen." />;
-  return (
-    <div className="hm-dash-list">
-      {data.activeAnnouncements.map((a) => (
-        <Row
-          key={a.id}
-          to={`/kommunikation/ankuendigungen?id=${a.id}`}
-          avatar={<Megaphone size={14} />}
-          title={a.title}
-          meta={`veröffentlicht ${formatDate(a.publish_at.slice(0, 10))}`}
-          chip={a.requires_ack ? 'Bestätigung' : undefined}
-        />
-      ))}
-    </div>
-  );
-}
-
 export function SurveysWidget({ data }: { data: DashboardData }) {
   if (!data.runningSurveys) return <Restricted />;
   if (data.runningSurveys.length === 0) return <Empty text="Keine laufenden Umfragen." />;
@@ -273,65 +226,6 @@ export function SurveysWidget({ data }: { data: DashboardData }) {
           chipMuted
         />
       ))}
-    </div>
-  );
-}
-
-/**
- * Faellige Wiedervorlagen aus Gespraechsprotokollen (heute oder ueberfaellig).
- * Laedt selbst ueber /api/communication/meetings/follow-ups; ohne
- * `kommunikation` blendet DashboardPage das Widget aus.
- */
-export function FollowUpsWidget() {
-  const { data: followUps } = useFollowUps();
-  if (!followUps) return null;
-  if (followUps.length === 0) return <Empty text="Keine fälligen Wiedervorlagen." />;
-  return (
-    <div className="hm-dash-list">
-      {followUps.slice(0, 6).map((m) => (
-        <Row
-          key={m.id}
-          to={`/kommunikation/gespraeche?employee=${m.employee_id}`}
-          avatar={initials(m.first_name, m.last_name)}
-          title={`${m.first_name} ${m.last_name}`}
-          meta={`${MEETING_OCCASION_LABELS[m.occasion]} vom ${formatDate(m.meeting_date)}`}
-          chip={`fällig ${shortDate(m.follow_up_date ?? m.meeting_date)}`}
-        />
-      ))}
-    </div>
-  );
-}
-
-/** Lädt seine Daten selbst (Modul Verwaltung), statt /api/dashboard zu erweitern. */
-export function OnboardingWidget() {
-  const { data: processes } = useOnboardingProcesses('laufend', '');
-  if (!processes || processes.length === 0) {
-    return <Empty text="Aktuell ist niemand im On- oder Offboarding." />;
-  }
-  return (
-    <div className="hm-dash-list">
-      {processes.map((p) => {
-        const done = p.done_tasks ?? 0;
-        const total = p.total_tasks ?? 0;
-        return (
-          <Row
-            key={p.id}
-            to="/verwaltung/onboarding"
-            avatar={initials(p.first_name, p.last_name)}
-            title={`${p.first_name} ${p.last_name}`}
-            meta={
-              <span className="row" style={{ gap: 8 }}>
-                <span style={{ flexShrink: 0 }}>
-                  {ONBOARDING_KIND_LABELS[p.kind]}
-                  {p.target_date ? ` · Stichtag ${shortDate(p.target_date)}` : ''}
-                </span>
-                <span style={{ flex: 1, minWidth: 40 }}><Progress value={done} max={total} /></span>
-              </span>
-            }
-            chip={`${done}/${total}`}
-          />
-        );
-      })}
     </div>
   );
 }

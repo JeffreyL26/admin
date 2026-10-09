@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { isOwnPersonDecision } from '@ohrganize/shared';
 import { inTransaction } from '../../db/db.js';
 import { parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
@@ -42,7 +43,7 @@ export async function employeeChangeRequestRoutes(app: FastifyInstance): Promise
     // Zweiter Arm des Vier-Augen-Prinzips: Ein Konto der Personalabteilung MIT
     // verknüpftem Personalprofil darf den Antrag zum EIGENEN Profil nicht
     // genehmigen — auch dann nicht, wenn ihn jemand anderes gestellt hat.
-    const istEigenesProfil = req.user.employee_id !== null && req.user.employee_id === row.employee_id;
+    const istEigenesProfil = isOwnPersonDecision(req.user.employee_id, row.employee_id);
     // Entscheidung, geschriebene Personalakte und Audit-Eintrag in EINER
     // Transaktion (die des Service läuft darin als Savepoint): keine
     // geänderte Akte ohne Protokoll. Die Prüfungen in decideRequest werfen

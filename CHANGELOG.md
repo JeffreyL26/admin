@@ -12,6 +12,48 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Dashboard aus Sicht der HR (09.10.2026)
+- **Neu:** Bereichsleiste ueber dem Dashboard: je Bereich die wichtigste Zahl
+  (Abwesenheit: heute abwesend, „+n laut Antrag“) und ein Quadrat wie eine
+  Benachrichtigung, rot mit Zahl fuer offene Punkte, grau mit Sanduhr fuer
+  Laufendes. Klick filtert die Widgets; bei vielen Bereichen scrollt die Leiste.
+- **Neu:** Widgets Heute abwesend (Art, wieder da am, naechste 7 Tage),
+  Krankheit und AU (Lohnfortzahlung, fehlende Nachweise), Wer fehlt wann
+  (10 Wochen), Abwesenheitsantraege, Stammdaten- und Gehaltsantraege,
+  Ablaufende Dokumente (abgelaufen oder in der Erinnerungsfrist).
+  Genehmigen direkt aus dem Dashboard (Vier-Augen-Prinzip mit Begruendung im
+  Tooltip, Rueckfrage zum Resturlaub auf der Antragsseite; derselbe Antrag
+  laesst sich nicht doppelt genehmigen).
+- **Geaendert:** Widgets per Ziehen oder Pfeiltasten anordbar, halb oder ganz
+  breit, Escape bricht das Ziehen ab; „Anpassen“ zeigt im gefilterten
+  Bereich nur dessen Widgets, ein Bereich ohne Widget bietet seine Fachseite an.
+  Wiedervorlagen, Ankuendigungen und On- und Offboarding neu gezeichnet.
+  Geburtstag heute steht im Untertitel. Gespeicherte Auswahlen bleiben.
+- **Entfernt:** Kennzahlen-Kacheln und der Stil „Farbenfroh“.
+- **Geaendert:** Rote Quadrate und „Aufgaben fuer Sie“ zaehlen nur, was das
+  Konto erledigen kann (Recht bearbeiten, nicht der eigene Antrag). Antraege
+  zeigen Kommentar, Halbtage und Betriebsruhe; Knoepfe springen direkt zum
+  Antrag bzw. zur Person. „Wieder da“ beachtet Feiertage der Region,
+  Betriebsruhe und direkt anschliessende Abwesenheiten (ein halber Folgetag
+  zaehlt als wieder da, ein halber Tag heute steht dabei). Laesst sich das
+  Dashboard selbst nicht laden, sagt es das (mit „Erneut versuchen“, ohne Netz
+  mit Hinweis) statt endlos zu laden. Scheitert eine Abfrage ohne Daten oder wartet sie
+  ohne Netz, sagt das Widget das statt „alles erledigt“, die Leiste
+  meldet „Daten unvollständig“; ein gescheiterter Refetch laesst den letzten
+  Stand stehen. Den Ladekreisel gibt es nur beim ersten Aufbau.
+- **Geaendert:** „Krankmeldung erfassen“ oeffnet den Dialog direkt
+  (`/abwesenheit/krankmeldungen?neu=1`). Den Plan (zehn Wochen der ganzen
+  Firma) laedt das Dashboard nur, wenn er eingeblendet ist; Ankuendigungen nur
+  die heute gueltigen (`?status=aktiv`). Die Vier-Augen-Regeln stehen in
+  `shared/fourEyes.ts` und gelten fuer Backend und Dashboard gleich.
+- **Backend:** neu `GET /api/absences/today` (heute abwesend, genehmigt oder
+  beantragt, mit Rueckkehrtag `back_on`) und `active_on` an
+  `GET /api/absences/sick-notes`; `GET /api/dashboard` liefert nur noch, was
+  das Dashboard anzeigt (Kennzahlen und `absentToday` entfallen), dazu
+  `birthdays_today` ohne Grenze. `GET /api/documents/expiring` laesst
+  Dokumente Ausgeschiedener weg (auch in der Erinnerungsliste der
+  Dokumentenseite).
+
 ### Seiten-Einfuehrung "Ankuendigungen" (06.10.2026)
 - **Neu:** Einfuehrung mit sieben Schritten fuer Kommunikation → Ankuendigungen:
   Dialog oeffnen, Titel und Text, Zielgruppe und Zeitraum (Hinweis: ein Beginn

@@ -527,6 +527,34 @@ check(
   expiring.json().documents.some((d: { id: number }) => d.id === docId),
   expiring.json(),
 );
+{
+  // Ausgeschiedene: Akte nur noch aufbewahrt, nichts mehr „ablaufend“.
+  const owner = (getDb().prepare('SELECT employee_id FROM documents WHERE id = ?').get(docId) as { employee_id: number }).employee_id;
+  getDb().prepare("UPDATE employees SET status = 'ausgeschieden' WHERE id = ?").run(owner);
+  const gone = await app.inject({ method: 'GET', url: '/api/documents/expiring', headers: auth });
+  getDb().prepare("UPDATE employees SET status = 'aktiv' WHERE id = ?").run(owner);
+  check(
+    'Ablaufende Dokumente ohne Ausgeschiedene',
+    !gone.json().documents.some((d: { id: number }) => d.id === docId),
+    gone.json(),
+  );
+
+  // Dashboard: Geburtstag heute (Kopfzeile), nur aktive Personen.
+  const { todayIso } = await import('../../core/dates.js');
+  const born = `1990-${todayIso().slice(5)}`;
+  const before = (getDb().prepare('SELECT birth_date FROM employees WHERE id = ?').get(owner) as { birth_date: string | null }).birth_date;
+  getDb().prepare('UPDATE employees SET birth_date = ? WHERE id = ?').run(born === '1990-02-29' ? '1992-02-29' : born, owner);
+  const dash = await app.inject({ method: 'GET', url: '/api/dashboard', headers: auth });
+  getDb().prepare("UPDATE employees SET status = 'ausgeschieden' WHERE id = ?").run(owner);
+  const dashGone = await app.inject({ method: 'GET', url: '/api/dashboard', headers: auth });
+  getDb().prepare("UPDATE employees SET status = 'aktiv', birth_date = ? WHERE id = ?").run(before, owner);
+  const ids = (res: typeof dash) => ((res.json().birthdays_today ?? []) as { id: number }[]).map((b) => b.id);
+  check(
+    'Dashboard: birthdays_today nennt heutige Geburtstage, ohne Ausgeschiedene',
+    ids(dash).includes(owner) && !ids(dashGone).includes(owner),
+    { today: dash.json().birthdays_today, gone: dashGone.json().birthdays_today },
+  );
+}
 
 // Versionierung
 const upload2 = await app.inject({

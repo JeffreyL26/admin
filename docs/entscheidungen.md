@@ -367,7 +367,7 @@ Transaktion.
 dasselbe Feld auf verschiedene Werte setzen — welcher gewinnt, hinge dann an
 der Reihenfolge der Genehmigungen. Nebeneffekt und zweiter Grund: Das Backend
 hat kein Rate-Limiting; ohne diese Regel könnte ein Portal-Konto die
-HR-Warteschlange und die Dashboard-Kachel beliebig fluten.
+HR-Warteschlange und das Dashboard beliebig fluten.
 
 **`old_value` ist Beleg, nicht Bedingung.** Beim Anlegen wird der Stand
 festgehalten, damit die Personalabteilung eine Gegenüberstellung sieht. Beim
@@ -392,7 +392,7 @@ verknüpftem Profil beide Rollen hat (docs/web-portal.md) — sonst ließe sich 
 Antrag von einer dritten Person stellen und selbst genehmigen.
 
 **Keine Benachrichtigung, und das steht so im Text.** oHRganize verschickt
-keine E-Mails. HR sieht offene Anträge auf der Dashboard-Kachel und unter
+keine E-Mails. HR sieht offene Anträge im Dashboard (Bereich Personal) und unter
 Personal → Änderungsanträge, die betroffene Person die Entscheidung beim
 nächsten Portal-Besuch. `MIN_CLIENT_VERSION` wird bewusst nicht angehoben: Die
 Änderung ist additiv, und die Regel in `packages/shared` erlaubt eine Anhebung
@@ -1118,6 +1118,50 @@ Fremdschluessel (die Zieltabelle wechselt je Art). Beim Speichern weist
 geloescht, erreicht die Ankuendigung niemanden mehr und die HR sieht
 die Zielgruppe ohne Namen mit 0 Empfaengern. Ein Loeschschutz auf Abteilungen, Teams
 und Standorten waere die naechste Stufe, gehoert aber ins Personalmodul.
+
+## Dashboard aus Sicht der HR statt Kennzahlen-Kacheln
+
+**Stand:** Oktober 2026.
+
+**Ausgangslage:** Das Dashboard zeigte eine Reihe gleich gebauter
+Kennzahlen-Kacheln (Aktive Mitarbeitende, Heute abwesend, Offene Antraege,
+...) und darunter gleich grosse Karten, in den Stilen „Standard“ und
+„Farbenfroh“. Die Zahlen sagten der HR wenig, was sie am Tag tun muss:
+Hinter „3 offene Anträge“ stand nicht, dass einer davon schon laeuft, und
+die Zahl der Mitarbeitenden aendert keine Handlung.
+
+**Entscheidung:**
+- Oben eine Bereichsleiste mit einer Zelle je Fachbereich. Die grosse Zahl
+  ist die, die ein Mensch in der HR zuerst wissen will: bei Abwesenheit, wer
+  heute fehlt (dazu „+n laut Antrag“ fuer Abwesenheiten, die ohne
+  Entscheidung laufen), nicht die Zahl der Antraege. Was zu tun ist, zeigt
+  ein Quadrat wie eine App-Benachrichtigung: rot mit Zahl fuer offene
+  Punkte, grau mit Sanduhr, wenn nichts offen ist, aber etwas auf andere
+  wartet (Bestaetigungen, Onboarding). Rot schlaegt grau. Die Leiste scrollt
+  waagrecht, wenn mehr Bereiche dazukommen.
+- Die Widgets bleiben frei waehlbar und anordbar wie zuvor, jetzt mit
+  Bereich, Breite und Ziehen per Zeiger oder Tastatur. Neu sind Heute
+  abwesend (mit Art und Rueckkehrtag), Krankheit und AU (mit verbleibender
+  Lohnfortzahlung), Wer fehlt wann (10 Wochen), Abwesenheits-, Stammdaten-
+  und Gehaltsantraege, Ablaufende Dokumente; Wiedervorlagen, Ankuendigungen und On- und
+  Offboarding sind neu gezeichnet.
+- Entfernt: die Kennzahlen-Kacheln (die Bereichsleiste ersetzt sie) und der
+  Stil „Farbenfroh“. Gespeicherte Auswahlen werden uebernommen.
+
+**Warum so umgesetzt:**
+- Eigenes Ziehen statt einer Bibliothek: Neue Abhaengigkeiten brauchen eine
+  Abstimmung, und die Anforderung (ein Raster, Umsortieren, Breite) ist
+  klein. `position: fixed` misst seinen Versatz beim Start, weil die
+  Einblende-Animation der Seite (`.page-enter`) sonst den Bezugspunkt
+  verschiebt.
+- Jede Abfrage nur mit Leserecht: Das Dashboard liest aus den Endpunkten der
+  Fachseiten. Ohne Recht antworteten sie mit 403, und die App zeigte fuer
+  jede Abfrage einen Fehler.
+- Genehmigen direkt, Ablehnen nicht: Ablehnen verlangt eine Begruendung, die
+  Rueckfrage zum Resturlaub ist ein eigener Dialog; beides bleibt auf der
+  Antragsseite. Das Vier-Augen-Prinzip sperrt die Knoepfe am eigenen Antrag.
+- Monat im Fliesstext ausgeschrieben: Endet ein Satz mit „01.09.“, entstand
+  ein doppelter Punkt.
 
 ## Verschluesselung im Ruhezustand: SQLCipher ueber einen npm-Alias, Schluesseldatei statt Umgebungsvariable
 

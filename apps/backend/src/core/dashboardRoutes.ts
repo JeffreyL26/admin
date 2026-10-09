@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ADMIN_AREAS, permits, type AdminArea } from '@ohrganize/shared';
+import { ADMIN_AREAS, birthdayMonthDays, permits, type AdminArea } from '@ohrganize/shared';
 import { getDb } from '../db/db.js';
 import { permissionsFor } from './permissions.js';
 import { todayIso, addDaysIso } from './dates.js';
@@ -11,9 +11,10 @@ import { todayIso, addDaysIso } from './dates.js';
  * SICHERHEIT — bitte nicht wegoptimieren: `/api/dashboard` steht in
  * ALWAYS_ALLOWED (permissions.ts), der globale Hook prüft für diese Route also
  * KEINEN Bereich. Die Rechteprüfung passiert deshalb hier im Handler, Block für
- * Block. Ohne sie sähe z. B. eine Rolle mit `verguetung: 'kein'` die Zahl der
- * offenen Gehaltsanträge auf ihrer Startseite, und eine Rolle ohne
- * `abwesenheit` namentlich, wer heute krank ist.
+ * Block. Ohne sie sähe z. B. eine Rolle ohne `personal` Namen und Geburtstage
+ * der Belegschaft und eine Rolle ohne `abwesenheit` die Abwesenheitstage je
+ * Monat. Offene Vorgänge (Anträge, Krankmeldungen, Dokumente) liest das
+ * Dashboard aus den Endpunkten der Fachseiten, die der globale Hook prüft.
  *
  * Zwei Regeln dabei:
  * 1. Gesperrte Blöcke werden gar nicht erst abgefragt (kein Datenfluss, der
@@ -37,44 +38,21 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const mayPersonal = may('personal');
     const mayAbwesenheit = may('abwesenheit');
     const mayLeistung = may('leistung');
-    const mayVerguetung = may('verguetung');
     const mayRecruiting = may('recruiting');
     const mayKommunikation = may('kommunikation');
 
     const count = (sql: string, ...params: unknown[]) =>
       (db.prepare(sql).get(...params) as { n: number }).n;
 
-    // --- Personal (Belegschaft, Dokumente, Geburtstage) ---------------------
-    let headcount: number | undefined;
-    let hiresYtd: number | undefined;
-    let expiringDocuments: number | undefined;
-    let openProfileChanges: number | undefined;
+    // Nur, was das Dashboard anzeigt. Offene Antraege, Krankmeldungen,
+    // Dokumente und Gehaltsantraege liest es aus den Endpunkten der Fachseiten
+    // (dashboardModel.ts), Zaehler dafuer hier waeren Arbeit ohne Empfaenger.
+
+    // --- Personal (Abteilungen, Geburtstage) --------------------------------
     let byDepartment: unknown[] | undefined;
     let upcomingBirthdays: unknown[] | undefined;
+    let birthdays_today: unknown[] | undefined;
     if (mayPersonal) {
-      headcount = count(`SELECT COUNT(*) n FROM employees WHERE status = 'aktiv'`);
-      hiresYtd = count(
-        `SELECT COUNT(*) n FROM employees WHERE status = 'aktiv' AND hire_date >= ?`,
-        yearStart,
-      );
-      // Dieselbe Klausel wie GET /api/documents/expiring (modules/employees/
-      // documentRoutes.ts): Erinnerungsfrist je Dokument, 'localtime' wie
-      // dort, abgeloeste Versionen ausgenommen. Zusaetzlich nur, was heute
-      // noch gilt: Ein laengst abgelaufenes Dokument ist kein „ablaufendes“.
-      expiringDocuments = count(
-        `SELECT COUNT(*) n FROM documents d
-         WHERE d.expiry_date IS NOT NULL
-           AND date(d.expiry_date) >= date('now', 'localtime')
-           AND date(d.expiry_date) <= date('now', 'localtime', '+' || d.reminder_days || ' days')
-           AND NOT EXISTS(SELECT 1 FROM documents s WHERE s.supersedes_id = d.id)`,
-      );
-      // Offene Änderungsanträge aus dem Mitarbeitenden-Portal. Sie ändern die
-      // Personalakte und hängen deshalb am Bereich 'personal' — wie die Route
-      // /api/employees/change-requests, über die entschieden wird.
-      openProfileChanges = count(
-        `SELECT COUNT(*) n FROM employee_change_requests WHERE status = 'beantragt'`,
-      );
-
       byDepartment = db
         .prepare(
           `SELECT d.id AS department_id, COALESCE(d.name, 'Ohne Abteilung') AS department, COUNT(*) AS count
@@ -87,8 +65,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       upcomingBirthdays = db
         .prepare(
           `SELECT id, first_name, last_name, birth_date,
-                  -- Klammern nötig: || bindet in SQLite stärker als + (sonst
-                  -- ergäbe der ELSE-Zweig eine Zahl statt eines Datums-Strings).
+                  -- Klammern noetig: || bindet in SQLite staerker als + (sonst
+                  -- ergaebe der ELSE-Zweig eine Zahl statt eines Datums-Strings).
                   CASE WHEN substr(birth_date, 6) >= substr(?, 6)
                        THEN substr(?, 1, 4) || '-' || substr(birth_date, 6)
                        ELSE (CAST(substr(?, 1, 4) AS INTEGER) + 1) || '-' || substr(birth_date, 6)
@@ -98,40 +76,26 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
            ORDER BY next_birthday LIMIT 5`,
         )
         .all([today, today, today]);
+
+      // Alle, die heute Geburtstag haben (Kopf des Dashboards), ohne die
+      // Grenze der Vorschau; die Regel (29. Februar) steht in shared/dashboard.ts.
+      const monthDays = birthdayMonthDays(today);
+      birthdays_today = db
+        .prepare(
+          `SELECT id, first_name, last_name FROM employees
+           WHERE status = 'aktiv' AND birth_date IS NOT NULL
+             AND substr(birth_date, 6, 5) IN (${monthDays.map(() => '?').join(',')})
+           ORDER BY last_name, first_name`,
+        )
+        .all(monthDays);
     }
 
-    // --- Abwesenheit --------------------------------------------------------
-    // Namen + Abwesenheitsart sind hier fachlich sensibel (Krankheit), deshalb
-    // hängt der ganze Block am Bereich 'abwesenheit'.
-    let pendingAbsences: number | undefined;
-    let missingSickNotes: number | undefined;
-    let absentToday: unknown[] | undefined;
+    // --- Abwesenheit: Tage je Monat ------------------------------------------
     let absenceDaysByMonth: unknown[] | undefined;
     if (mayAbwesenheit) {
-      pendingAbsences = count(
-        `SELECT COUNT(*) n FROM absence_requests WHERE status = 'beantragt'`,
-      );
-      missingSickNotes = count(
-        `SELECT COUNT(*) n FROM sick_notes s
-         JOIN absence_requests r ON r.id = s.absence_request_id
-         WHERE s.certificate_file_id IS NULL AND s.certificate_due_date < ? AND r.status != 'storniert'`,
-        today,
-      );
-
-      absentToday = db
-        .prepare(
-          `SELECT e.id, e.first_name, e.last_name, t.name AS type_name, t.color, r.date_to
-           FROM absence_requests r
-           JOIN employees e ON e.id = r.employee_id
-           JOIN absence_types t ON t.id = r.type_id
-           WHERE r.status = 'genehmigt' AND r.date_from <= ? AND r.date_to >= ?
-           ORDER BY e.last_name`,
-        )
-        .all([today, today]);
-
       // `date_to >= ?` filtert nichts weg (date_to liegt nie vor date_from,
-      // die Routen weisen das ab), gibt dem Planer aber die Grenze für den
-      // Index (status, date_to); ohne sie las er alle genehmigten Anträge
+      // die Routen weisen das ab), gibt dem Planer aber die Grenze fuer den
+      // Index (status, date_to); ohne sie las er alle genehmigten Antraege
       // seit Inbetriebnahme (Migration 205_absence_query_indexes).
       absenceDaysByMonth = db
         .prepare(
@@ -143,26 +107,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         .all([yearStart, `${today.slice(0, 4)}-12-31`, yearStart]);
     }
 
-    // --- Vergütung ----------------------------------------------------------
-    let openSalaryRequests: number | undefined;
-    if (mayVerguetung) {
-      openSalaryRequests = count(
-        `SELECT COUNT(*) n FROM salary_change_requests WHERE status = 'beantragt'`,
-      );
-    }
-
-    // --- Recruiting: offene Stellen, aktive Bewerbungen, Interviews ---------
-    let openPositions: number | undefined;
-    let activeApplications: number | undefined;
+    // --- Recruiting: Interviews ---------------------------------------------
     let upcomingInterviewsCount: number | undefined;
     let upcomingInterviews: unknown[] | undefined;
     if (mayRecruiting) {
-      openPositions = count(
-        `SELECT COUNT(*) n FROM job_postings WHERE status IN ('veroeffentlicht', 'pausiert')`,
-      );
-      activeApplications = count(
-        `SELECT COUNT(*) n FROM applications WHERE status = 'aktiv'`,
-      );
       upcomingInterviewsCount = count(
         `SELECT COUNT(*) n FROM interviews WHERE status = 'geplant' AND substr(scheduled_at, 1, 10) >= ?`,
         today,
@@ -195,18 +143,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         .all([today, addDaysIso(today, 21)]);
     }
 
-    // --- Kommunikation ------------------------------------------------------
-    let activeAnnouncements: unknown[] | undefined;
+    // --- Kommunikation: laufende Umfragen -----------------------------------
     let runningSurveys: unknown[] | undefined;
     if (mayKommunikation) {
-      activeAnnouncements = db
-        .prepare(
-          `SELECT id, title, publish_at, requires_ack FROM announcements
-           WHERE publish_at <= ? AND (expires_at IS NULL OR expires_at >= ?)
-           ORDER BY publish_at DESC LIMIT 5`,
-        )
-        .all([today, today]);
-
       runningSurveys = db
         .prepare(
           `SELECT s.id, s.title, s.date_to,
@@ -218,20 +157,16 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       // Welche Bereiche dieses Konto lesen darf. Der Client blendet danach
-      // Kacheln und Widgets aus, statt Lücken als Nullwerte zu deuten.
+      // Bereiche und Widgets aus, statt Luecken als Nullwerte zu deuten.
       allowed_areas: ADMIN_AREAS.filter(may),
       stats: {
-        ...(mayPersonal ? { headcount, hiresYtd, expiringDocuments, openProfileChanges } : {}),
-        ...(mayAbwesenheit
-          ? { pendingAbsences, missingSickNotes, absentTodayCount: absentToday?.length ?? 0 }
-          : {}),
-        ...(mayVerguetung ? { openSalaryRequests } : {}),
-        ...(mayRecruiting ? { openPositions, activeApplications, upcomingInterviewsCount } : {}),
+        ...(mayRecruiting ? { upcomingInterviewsCount } : {}),
       },
-      ...(mayPersonal ? { byDepartment, upcomingBirthdays } : {}),
-      ...(mayAbwesenheit ? { absentToday, absenceDaysByMonth } : {}),
+      // Neue Felder in snake_case (CLAUDE.md); die aelteren behalten ihren Namen.
+      ...(mayPersonal ? { byDepartment, upcomingBirthdays, birthdays_today } : {}),
+      ...(mayAbwesenheit ? { absenceDaysByMonth } : {}),
       ...(mayLeistung ? { upcomingMeetings } : {}),
-      ...(mayKommunikation ? { activeAnnouncements, runningSurveys } : {}),
+      ...(mayKommunikation ? { runningSurveys } : {}),
       ...(mayRecruiting ? { upcomingInterviews } : {}),
     };
   });

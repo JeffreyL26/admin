@@ -203,7 +203,8 @@ export function PageHeader({
   actions,
 }: {
   title: string;
-  subtitle?: string;
+  /** Meist Text; ReactNode erlaubt Hervorhebungen (Dashboard: Geburtstag in Fett). */
+  subtitle?: React.ReactNode;
   actions?: React.ReactNode;
 }) {
   return (

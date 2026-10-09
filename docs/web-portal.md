@@ -195,7 +195,7 @@ Prüfung, Normalisierung und Statusübergänge liegen für beide Seiten gemeinsa
   transaktional und protokolliert den Stand **unmittelbar vor dem Schreiben**,
   nicht den `old_value` bei Antragstellung.
 - **Keine Benachrichtigung.** Es gibt keinen Mailversand: Die HR sieht offene
-  Anträge über die Dashboard-Kachel und die Seite *Personal →
+  Anträge im Dashboard (Bereich Personal) und auf der Seite *Personal →
   Änderungsanträge*, die Person sieht die Entscheidung beim nächsten
   Portal-Besuch. Texte in beiden Clients dürfen nichts anderes versprechen.
   `MIN_CLIENT_VERSION` wird bewusst **nicht** angehoben — die Änderung ist

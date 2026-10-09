@@ -373,14 +373,30 @@ export const communicationModule: FastifyPluginAsync = async (app) => {
   });
 
   // ------------------------------------------------------------------ Ankündigungen
-  app.get('/api/communication/announcements', async () => {
-    const rows = getDb()
+  app.get('/api/communication/announcements', async (req) => {
+    // `?status=aktiv`: nur, was heute gilt (Dashboard); gefiltert mit
+    // announcementStatus selbst (eine Regel), vor der Zielgruppenaufloesung.
+    const onlyActive = (req.query as { status?: string }).status === 'aktiv';
+    const all = getDb()
       .prepare('SELECT * FROM announcements ORDER BY publish_at DESC, id DESC')
       .all() as AnnouncementRow[];
+    const rows = onlyActive ? all.filter((a) => announcementStatus(a) === 'aktiv') : all;
+    // Bestaetigungen nur der gelieferten Ankuendigungen zaehlen (beim Filter
+    // sonst die ganze Tabelle aller Zeiten bei jedem Dashboard-Abruf).
+    const ackCounts = onlyActive
+      ? new Map(
+          rows.length === 0
+            ? []
+            : (getDb()
+                .prepare(
+                  `SELECT announcement_id AS id, COUNT(*) AS c FROM announcement_acks
+                   WHERE announcement_id IN (${rows.map(() => '?').join(',')}) GROUP BY announcement_id`,
+                )
+                .all(rows.map((r) => r.id)) as { id: number; c: number }[]).map((r) => [r.id, r.c] as const),
+        )
+      : countsBy('SELECT announcement_id AS id, COUNT(*) AS c FROM announcement_acks GROUP BY announcement_id');
     const ctx: AnnouncementListContext = {
-      ackCounts: countsBy(
-        'SELECT announcement_id AS id, COUNT(*) AS c FROM announcement_acks GROUP BY announcement_id',
-      ),
+      ackCounts,
       audience: audienceResolver(),
     };
     return { announcements: rows.map((a) => announcementToJson(a, ctx)) };

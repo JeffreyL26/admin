@@ -157,6 +157,24 @@ check('Auth-Pflicht auf Modulrouten', noAuth.statusCode === 401);
   check('Ankündigung: Lesequote (1/1)', detail.json().announcement.ack_count === 1 && detail.json().announcement.recipients === 1);
   check('Ankuendigung: Detail nennt, wer bestaetigt hat', detail.json().announcement.acks.length === 1 && detail.json().announcement.acks[0].name === 'Anna Adler', detail.json().announcement.acks);
 
+  // Dashboard: ?status=aktiv liefert nur heute gueltige (gleiche Regel wie der Status).
+  const expired = await app.inject({
+    method: 'POST',
+    url: '/api/communication/announcements',
+    headers: auth,
+    payload: { title: 'Vorbei', body: 'alt', audience_type: 'alle', audience_id: null, publish_at: '2020-01-01', expires_at: '2020-12-31', requires_ack: false },
+  });
+  const activeOnly = await app.inject({ method: 'GET', url: '/api/communication/announcements?status=aktiv', headers: auth });
+  const activeIds = (activeOnly.json().announcements as { id: number; status: string }[]);
+  check(
+    'Ankündigung: ?status=aktiv ohne geplante und abgelaufene',
+    activeIds.some((a) => a.id === annId) &&
+      !activeIds.some((a) => a.id === planned.json().announcement.id || a.id === expired.json().announcement.id) &&
+      activeIds.every((a) => a.status === 'aktiv'),
+    activeOnly.json(),
+  );
+  await app.inject({ method: 'DELETE', url: `/api/communication/announcements/${expired.json().announcement.id}`, headers: auth });
+
   const del = await app.inject({ method: 'DELETE', url: `/api/communication/announcements/${planned.json().announcement.id}`, headers: auth });
   check('Ankündigung: löschen', del.statusCode === 204);
 }

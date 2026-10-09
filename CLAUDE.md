@@ -156,7 +156,7 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   gemeinsame Logik beider Seiten steht in
   `modules/employees/changeRequestService.ts` (Vorbild:
   `absences/service.ts`). Benachrichtigt wird niemand: HR sieht offene
-  Anträge auf der Dashboard-Kachel und unter Personal → Änderungsanträge.
+  Anträge im Dashboard (Bereich Personal, Widget Stammdaten-Anträge) und unter Personal → Änderungsanträge.
 - **Führung & Bewertung — zwei Gates (Migration `310_leadership_ratings` im
   3xx-Kreis).** Die **Verwaltung** (Freischaltung, Zuständigkeit, Skala und
   Kategorien, Satisfaction-Report; alles unter `/api/leadership/*` außer `/me`)
@@ -1066,10 +1066,38 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   immer ganz unten. Abschnitte tragen dafür einen stabilen `key` in
   `layout/nav.ts`; ein neuer Abschnitt braucht einen und hängt sich bei
   bestehenden Konfigurationen hinten an.
-- **Dashboard ist personalisierbar:** Widgets/KPI-Kacheln sind pro Gerät wählbar
-  und anordenbar; Registry + localStorage-Persistenz (`ohrganize.dashboard`) in
-  `renderer/src/features/dashboard/dashboardConfig.ts`. Neue Module registrieren
-  ihre Dashboard-Widgets dort (Default-Sichtbarkeit bewusst kuratiert klein).
+- **Dashboard aus Sicht der HR** (`renderer/src/features/dashboard/`): Oben die
+  Bereichsleiste (`AreaBand.tsx`, horizontale Scroll-Leiste, ein Eintrag je
+  Bereich genügt): je Bereich die Zahl, die die HR zuerst wissen will
+  (Abwesenheit: heute abwesend, nicht die Anträge), dazu ein
+  Benachrichtigungs-Quadrat, rot mit Zahl für offene Punkte, grau mit Sanduhr,
+  wenn nur etwas läuft. Die Rangfolge, Datumstexte und das Umsortieren stehen
+  DOM-frei in `packages/shared/src/dashboard.ts` (Test
+  `src/test/dashboardLogicTest.ts`). Ein Klick auf einen Bereich filtert die
+  Widgets, „Anpassen“ bietet dann nur dessen Widgets an. Widgets sind pro Gerät
+  wählbar, per Ziehen oder Pfeiltasten anordbar (`SortableGrid.tsx`, ohne
+  Fremdbibliothek) und halb oder ganz breit; Registry samt Bereich und
+  localStorage `ohrganize.dashboard` (Fassung 2; Fassung 1 mit Kennzahlen wird
+  übernommen) in `dashboardConfig.ts`. Neue Module registrieren ihre Widgets in
+  `WIDGET_DEFS`. Die Daten liefert `dashboardModel.ts` aus den Endpunkten der
+  Fachseiten, meist unter deren Query-Keys; eigene Keys liegen unter dem Präfix
+  der Fachseite (Invalidierung per Präfix trifft sie mit, nie per exaktem Key
+  oder setQueryData darauf verlassen), jede Abfrage nur mit Leserecht aus `allowed_areas` (sonst
+  403 mit Toast), und gelesen wird `data` nur mit diesem Recht (eine
+  abgeschaltete Abfrage liefert sonst ihren alten Cache). Rot und „Aufgaben für
+  Sie“ zählen nur Erledigbares (`actionable`: Recht `bearbeiten` und keine
+  Entscheidung, die das Backend nach Vier-Augen abweist; beim Gehalt zählt der
+  Antragsteller `requested_by_user_id`, sonst die eigene Person). Diese Regeln
+  stehen EINMAL in `packages/shared/src/fourEyes.ts`, Backend-Prüfung und
+  Dashboard rufen dieselben Funktionen. Heute
+  Abwesende samt Rückkehrtag (Feiertage, Betriebsruhe, anschließende
+  Abwesenheiten) kommen aus `GET /api/absences/today`. Den Spinner gibt es nur
+  beim ersten Aufbau; danach lädt eine neue Abfrage nur in ihrem Widget. Fehlt
+  einer Quelle die Antwort (Fehler, ohne Netz pausiert), sagt das Widget es und
+  die Leiste meldet „Daten unvollständig“ (`dashboardSourceStatus` in shared). Genehmigen geht direkt, Ablehnen
+  (Begründung) und alles andere öffnet die Fachseite beim Vorgang
+  (`?antrag=`, `?employee=`). Fließtext schreibt den Monat aus
+  (`formatDateInText`), kompakte Spalten bleiben numerisch.
 - **Schrift:** Creato Display (Hausschrift der Website) aus dem Workspace-Paket
   `packages/fonts`; beide Clients importieren `@ohrganize/fonts/creato-display.css`
   in `main.tsx`, die Familie steht in `--font-sans` beider tokens.css. Drei

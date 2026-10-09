@@ -7,7 +7,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { eachDay, isWeekend, todayIso } from '../../core/dates.js';
 import { isHoliday } from '../../core/holidays.js';
 import { VARIANT } from '@variant-manifest';
-import type { CountryCode, RegionCode } from '@ohrganize/shared';
+import { isOwnPersonDecision, type CountryCode, type RegionCode } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import { AppError, badRequest, conflict, forbidden } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
@@ -699,7 +699,8 @@ export function assertNotOwnEmployee(
   message: string,
 ): void {
   const actorEmployeeId = (req.user as { employee_id?: number | null } | undefined)?.employee_id ?? null;
-  if (actorEmployeeId !== null && actorEmployeeId === employeeId) throw forbidden(message);
+  // Regel gemeinsam mit der Anzeige im Dashboard (shared/fourEyes.ts).
+  if (isOwnPersonDecision(actorEmployeeId, employeeId)) throw forbidden(message);
 }
 
 /** Herkunft eines Antrags: 1, wenn das anlegende Konto nicht der betroffenen Person gehoert. */

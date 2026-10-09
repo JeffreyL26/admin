@@ -183,6 +183,7 @@ paths:
         - { name: child_sick, in: query, schema: { type: string, enum: ["0", "1"] } }
         - { name: year, in: query, schema: { type: integer }, description: "Nur Krankmeldungen, die das Jahr berühren; ohne Angabe alle Jahre" }
         - { name: employee_id, in: query, schema: { type: integer }, description: "Nur Krankmeldungen dieser Person (alle Jahre, sofern year fehlt)" }
+        - { name: active_on, in: query, schema: { type: string, format: date }, description: "Nur Krankmeldungen, die diesen Tag einschliessen (Dashboard)" }
       responses:
         "200": { description: Krankmeldungen mit Antrags- und Mitarbeiterdaten }
     post:
@@ -200,6 +201,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" }
+  /api/absences/today:
+    get:
+      summary: Heute abwesend (genehmigt oder beantragt) mit naechstem Arbeitstag back_on
+      responses:
+        "200": { description: "{ absences: [...] }" }
   /api/absences/sick-notes/missing:
     get:
       summary: Fehlende AU-Bescheinigungen (Frist überschritten, kein Upload)

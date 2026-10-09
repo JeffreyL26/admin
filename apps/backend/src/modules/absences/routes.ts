@@ -7,7 +7,7 @@ import { assertMayLinkFiles, detachUnreferencedFile, removeDetachedBlob } from '
 import { pageOffsetOf, pageRequest } from '../../core/paging.js';
 import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../core/dates.js';
 import { holidaysByRegion, isHoliday } from '../../core/holidays.js';
-import type { CountryCode, RegionCode } from '@ohrganize/shared';
+import { nextWorkdayIso, type CountryCode, type RegionCode } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import {
   allowedTypeIdsFor,
@@ -786,7 +786,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
   }
 
   app.get('/api/absences/sick-notes', async (req) => {
-    const q = req.query as { child_sick?: string; year?: string; employee_id?: string };
+    const q = req.query as { child_sick?: string; year?: string; employee_id?: string; active_on?: string };
     const where: string[] = ["r.status != 'storniert'"];
     const params: unknown[] = [];
     if (q.child_sick === '1' || q.child_sick === 'true') where.push('s.child_sick = 1');
@@ -800,6 +800,12 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     if (q.employee_id) {
       where.push('r.employee_id = ?');
       params.push(Number(q.employee_id));
+    }
+    // Nur, wer an diesem Tag krankgemeldet ist (Dashboard): ohne das lud es
+    // das ganze Jahr samt Kettenanreicherung bei jedem Fensterfokus.
+    if (q.active_on && isValidIsoDate(q.active_on)) {
+      where.push('r.date_from <= ? AND r.date_to >= ?');
+      params.push(q.active_on, q.active_on);
     }
     const rows = db()
       .prepare(`${SICK_SELECT} WHERE ${where.join(' AND ')} ORDER BY r.date_from DESC, s.id DESC`)
@@ -818,6 +824,82 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       )
       .all(todayIso()) as SickRow[];
     return { sick_notes: enrichSickNotes(rows) };
+  });
+
+  /**
+   * Heute abwesend: genehmigt oder laut offenem Antrag, je mit dem naechsten
+   * Arbeitstag danach (`back_on`: ohne Wochenende, Feiertage der Region der
+   * Person, Betriebsruhe und weitere genehmigte Abwesenheiten derselben Person,
+   * die sich anschliessen). Quelle des Dashboard-Widgets „Heute abwesend“.
+   */
+  app.get('/api/absences/today', async () => {
+    const today = todayIso();
+    const rows = db()
+      .prepare(
+        `SELECT r.id, r.employee_id, e.first_name, e.last_name, r.status, r.date_from, r.date_to,
+                r.half_day_start, r.half_day_end, t.name AS type_name, t.color AS type_color,
+                ${REGION_SELECT_SQL}
+         FROM absence_requests r
+         JOIN employees e ON e.id = r.employee_id
+         JOIN absence_types t ON t.id = r.type_id
+         ${REGION_JOIN_SQL}
+         WHERE r.status IN ('genehmigt', 'beantragt') AND r.date_from <= ? AND r.date_to >= ?
+         ORDER BY e.last_name, e.first_name, r.date_from`,
+      )
+      .all([...regionSelectParams(), today, today]) as {
+      date_from: string;
+      date_to: string;
+      half_day_start: number;
+      half_day_end: number;
+      country: CountryCode;
+      bundesland: RegionCode;
+      [key: string]: unknown;
+    }[];
+    if (rows.length === 0) return { absences: [] };
+    // Genehmigte Abwesenheiten, die noch kommen: Schliesst eine direkt an
+    // (geteilter Urlaub, Krank und danach Urlaub), ist die Person erst danach da.
+    const employeeIds = [...new Set(rows.map((r) => r.employee_id as number))];
+    const later = db()
+      .prepare(
+        `SELECT employee_id, date_from, date_to, half_day_start, half_day_end FROM absence_requests
+         WHERE status = 'genehmigt' AND date_to > ?
+           AND employee_id IN (${employeeIds.map(() => '?').join(',')})`,
+      )
+      .all([today, ...employeeIds]) as {
+      employee_id: number;
+      date_from: string;
+      date_to: string;
+      half_day_start: number;
+      half_day_end: number;
+    }[];
+    // Ganz frei ist nur ein ganzer Abwesenheitstag; an einem halben ist die Person wieder da.
+    const fullyOff = (l: (typeof later)[number], d: string) =>
+      l.date_from <= d && l.date_to >= d &&
+      !(d === l.date_from && l.half_day_start === 1) && !(d === l.date_to && l.half_day_end === 1);
+    const lastEnd = [...rows, ...later].reduce((max, r) => (r.date_to > max ? r.date_to : max), today);
+    // Vorlauf fuer Feiertage und Betriebsruhe direkt nach dem Ende.
+    const closures = closureDates(addDaysIso(today, 1), addDaysIso(lastEnd, 60));
+    return {
+      absences: rows.map(({ country, bundesland, ...r }) => {
+        const own = later.filter((l) => l.employee_id === r.employee_id);
+        const isOff = (d: string) =>
+          closures.has(d) ||
+          Boolean(isHoliday(d, country, bundesland)) ||
+          own.some((l) => fullyOff(l, d));
+        // Heute nur halb: endet die Abwesenheit heute mit halbem Tag, ist die
+        // Person heute wieder da; `half_today` laesst den Client das sagen.
+        const halfToday =
+          (r.date_to === today && r.half_day_end === 1) || (r.date_from === today && r.half_day_start === 1);
+        const backToday = r.date_to === today && r.half_day_end === 1;
+        return {
+          ...r,
+          half_today: halfToday,
+          back_on: backToday ? today : nextWorkdayIso(r.date_to, isOff),
+          // „heute“ nach dem Datum des Servers: Client und Server koennen nachts verschiedene Tage haben.
+          back_today: backToday,
+        };
+      }),
+    };
   });
 
   app.post('/api/absences/sick-notes', async (req, reply) => {

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   EMPLOYEE_SELF_EDITABLE_FIELDS,
+  isOwnRequestDecision,
   maskConfidential,
   selfEditableField,
   type EmployeeChangeRequest,
@@ -295,7 +296,7 @@ export function decideRequest(
   const db = getDb();
   const row = getRequestRow(id);
   if (row.status !== 'beantragt') throw conflict('Der Antrag wurde bereits entschieden.');
-  if (entscheidung.decision === 'genehmigt' && (row.requested_by_user_id === userId || istEigenesProfil)) {
+  if (entscheidung.decision === 'genehmigt' && (isOwnRequestDecision(userId, row.requested_by_user_id) || istEigenesProfil)) {
     throw badRequest(
       'Eigene Änderungsanträge dürfen nicht selbst genehmigt werden. Bitte lassen Sie den Antrag von einer anderen Person der Personalabteilung prüfen.',
     );

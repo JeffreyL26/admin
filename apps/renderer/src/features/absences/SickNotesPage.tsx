@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
 import { formatDate, todayIsoLocal, SICK_PAY_LIMIT_DAYS, type SickNote } from '@ohrganize/shared';
@@ -92,7 +92,13 @@ export function SickNotesPage() {
   const [year, setYear] = useState<number | null>(() => new Date().getFullYear());
   const { data: notes, isLoading } = useSickNotes({ childSick: childFilter === '' ? null : childFilter, year });
   const { data: missing } = useMissingSickNotes();
-  const [createOpen, setCreateOpen] = useState(false);
+  // Erfassen-Dialog ueber ?neu=1 wie auf der Antragsseite: So oeffnet ihn auch
+  // der Knopf „Krankmeldung erfassen“ im Dashboard direkt.
+  const [params, setParams] = useSearchParams();
+  const createOpen = params.get('neu') === '1';
+  // replace: Oeffnen und Schliessen legen keinen Verlaufseintrag an, sonst
+  // oeffnete Zurueck nach dem Speichern den Dialog erneut.
+  const setCreateOpen = (open: boolean) => setParams(open ? { neu: '1' } : {}, { replace: true });
   const [uploadFor, setUploadFor] = useState<SickNote | null>(null);
 
   return (

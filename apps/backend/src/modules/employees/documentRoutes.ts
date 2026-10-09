@@ -168,6 +168,9 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
            -- Zähler und Erinnerungsliste zwischen 0 und 2 Uhr voneinander ab.
            AND date(d.expiry_date) <= date('now', 'localtime', '+' || d.reminder_days || ' days')
            AND NOT EXISTS(SELECT 1 FROM documents s WHERE s.supersedes_id = d.id)
+           -- Ausgeschiedene: Die Akte wird nur noch aufbewahrt, nichts ist zu
+           -- erneuern (sonst blieben ihre Dokumente fuer immer „abgelaufen“).
+           AND (d.employee_id IS NULL OR e.status = 'aktiv')
          ORDER BY d.expiry_date ASC`,
       )
       .all();

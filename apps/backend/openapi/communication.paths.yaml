@@ -37,6 +37,8 @@ paths:
     get:
       summary: Ankündigungen mit abgeleitetem Status, Empfängerzahl und Lesequote
       tags: [Kommunikation]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [aktiv] }, description: "Nur heute gültige (Dashboard); ohne Angabe alle" }
       responses:
         "200": { description: Ankündigungsliste }
     post:

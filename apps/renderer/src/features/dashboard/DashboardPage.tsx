@@ -1,196 +1,118 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SlidersHorizontal, Check, RotateCcw, Plus, X, GripVertical } from 'lucide-react';
+import { Check, Plus, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { dashboardNotice } from '@ohrganize/shared';
 import { useAuth } from '../../auth/AuthContext';
-import { RequestDialog } from '../absences/RequestDialog';
-import { Card, PageHeader, Spinner, StatCard, EmptyState, Tabs } from '../../components/ui';
+import { LOCALE } from '../../lib/locale';
+import { PageHeader, Spinner } from '../../components/ui';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
-import { useDashboard, type DashboardData } from './api';
-import {
-  ALL_STATS, ALL_WIDGETS, DEFAULT_CONFIG, STAT_DEFS, WIDGET_DEFS,
-  loadDashboardConfig, saveDashboardConfig, statAllowed, widgetAllowed,
-  type DashboardConfig, type StatKey, type WidgetKey,
-} from './dashboardConfig';
-import {
-  AbsenceChartWidget, DepartmentChartWidget, AbsentTodayWidget, InterviewsWidget,
-  MeetingsWidget, AnnouncementsWidget, SurveysWidget, FollowUpsWidget, BirthdaysWidget, OnboardingWidget,
-  LeadershipTeamWidget, LeadershipReportWidget, LicenseWidget,
-} from './widgets';
-import {
-  DASHBOARD_STYLE_LABELS, loadDashboardStyle, saveDashboardStyle, type DashboardStyle,
-} from './dashboardStyle';
-import { PersonalNotices } from './personalWidgets';
+import { RequestDialog } from '../absences/RequestDialog';
 import { SetupDashboardCard } from '../setup/SetupDashboardCard';
+import { useDashboard } from './api';
+import { AreaBand } from './AreaBand';
+import { WIDGET_ORDER, useDashboardLayout, widgetAllowed, widgetDef, type DashboardWidgetKey } from './dashboardConfig';
+import { AREA_COLORS, AREA_LABELS, AREA_PATHS, useDashboardModel, type AreaKey } from './dashboardModel';
+import { WidgetBody, WidgetFrame, widgetNotice } from './DashboardWidgets';
+import { PersonalNotices } from './personalWidgets';
+import { SortableGrid } from './SortableGrid';
 
-const STYLE_TABS = (Object.keys(DASHBOARD_STYLE_LABELS) as DashboardStyle[]).map((key) => ({
-  key,
-  label: DASHBOARD_STYLE_LABELS[key],
-}));
+/** Ergaenzung einer Zelle, deren Zahlen eine Quelle fehlt (Fehler oder laedt noch). */
+const INCOMPLETE = 'Daten unvollständig';
 
-function widgetBody(key: WidgetKey, data: DashboardData): React.ReactNode {
-  switch (key) {
-    case 'absence-chart': return <AbsenceChartWidget data={data} />;
-    case 'department-chart': return <DepartmentChartWidget data={data} />;
-    case 'absent-today': return <AbsentTodayWidget data={data} />;
-    case 'interviews': return <InterviewsWidget data={data} />;
-    case 'meetings': return <MeetingsWidget data={data} />;
-    case 'announcements': return <AnnouncementsWidget data={data} />;
-    case 'surveys': return <SurveysWidget data={data} />;
-    case 'follow-ups': return <FollowUpsWidget />;
-    case 'birthdays': return <BirthdaysWidget data={data} />;
-    case 'onboarding': return <OnboardingWidget />;
-    case 'leadership-team': return <LeadershipTeamWidget />;
-    case 'leadership-report': return <LeadershipReportWidget />;
-    case 'license': return <LicenseWidget />;
-    default: return null;
-  }
-}
-
+/**
+ * Dashboard aus Sicht der HR: oben die Bereichsleiste (je Bereich die Zahl, die
+ * man zuerst wissen will, dazu das Benachrichtigungs-Quadrat), darunter frei
+ * waehl- und anordbare Widgets. Hintergrund: docs/entscheidungen.md,
+ * Abschnitt „Dashboard aus Sicht der HR“.
+ */
 export function DashboardPage() {
-  const { user, features } = useAuth();
+  const layout = useDashboardLayout();
+  // Den Plan (zehn Wochen der ganzen Firma) nur laden, wenn er zu sehen ist.
+  const model = useDashboardModel({ needsPlan: layout.layout.widgets.includes('plan') });
+  const dash = useDashboard();
+  const { user, features, can } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
-  const { data, isLoading } = useDashboard();
-
-  const [config, setConfig] = useState<DashboardConfig>(loadDashboardConfig);
-  const [style, setStyle] = useState<DashboardStyle>(loadDashboardStyle);
   const [edit, setEdit] = useState(false);
-  const changeStyle = (next: DashboardStyle) => {
-    setStyle(next);
-    saveDashboardStyle(next);
-  };
-  const [quickAbsenceOpen, setQuickAbsenceOpen] = useState(false);
-  const [dragKey, setDragKey] = useState<WidgetKey | null>(null);
-  const [overKey, setOverKey] = useState<WidgetKey | null>(null);
-
-  const update = (next: DashboardConfig) => {
-    setConfig(next);
-    saveDashboardConfig(next);
-  };
-
-  const removeWidget = (key: WidgetKey) =>
-    update({ ...config, widgets: config.widgets.filter((w) => w !== key) });
-  const addWidget = (key: WidgetKey) => update({ ...config, widgets: [...config.widgets, key] });
-  const toggleKpi = (key: StatKey) => {
-    const active = new Set(config.kpis);
-    if (active.has(key)) active.delete(key);
-    else active.add(key);
-    update({ ...config, kpis: ALL_STATS.filter((k) => active.has(k)) });
-  };
-  const reset = () => {
-    update(DEFAULT_CONFIG);
-    toast.success('Dashboard zurückgesetzt');
-  };
-
-  /** Drag & Drop: gezogenes Widget vor dem Ziel einsortieren. */
-  const dropOn = (target: WidgetKey) => {
-    if (dragKey !== null && dragKey !== target) {
-      const rest = config.widgets.filter((w) => w !== dragKey);
-      const idx = rest.indexOf(target);
-      rest.splice(idx, 0, dragKey);
-      update({ ...config, widgets: rest });
-    }
-    setDragKey(null);
-    setOverKey(null);
-  };
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [chosenArea, setAreaFilter] = useState<'alle' | AreaKey>('alle');
+  // Ohne Grunddaten (Rechte der Bereiche) kein Dashboard; dann sagen, warum, statt endlos zu laden.
+  if (!dash.data && !dash.isLoading) {
+    const offline = dash.fetchStatus === 'paused';
+    return (
+      <div className="hm-db">
+        <PageHeader title="Dashboard" />
+        <div className="hm-db-emptybox">
+          <p className="hm-db-empty hm-db-bad">
+            {offline
+              ? 'Keine Verbindung zum Server. Das Dashboard lädt, sobald sie wieder besteht.'
+              : 'Das Dashboard ließ sich nicht laden.'}
+          </p>
+          {!offline && (
+            <button className="hm-db-btn" onClick={() => void dash.refetch()}>Erneut versuchen</button>
+          )}
+        </div>
+      </div>
+    );
+  }
+  if (model.loading || !dash.data) return <Spinner center />;
+  // Verschwindet der gewaehlte Bereich (Rechte oder Ausgabe geaendert), gilt wieder „Alle Bereiche“.
+  const areaFilter = chosenArea === 'alle' || model.areas.some((a) => a.key === chosenArea) ? chosenArea : 'alle';
+  const data = dash.data;
 
   const hour = new Date().getHours();
   const greeting = hour < 11 ? 'Guten Morgen' : hour < 17 ? 'Guten Tag' : 'Guten Abend';
-  const today = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  const today = new Date().toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
+  // Geburtstag heute ersetzt den Standardtext (die Liste kommt nur mit Leserecht
+  // Personal, ohne die Grenze der Vorschau und mit dem 29. Februar).
+  const birthdayNames = (data.birthdays_today ?? []).map((b) => `${b.first_name} ${b.last_name}`);
+  const birthdayText =
+    birthdayNames.length === 0
+      ? null
+      : birthdayNames.length === 1
+        ? `Heute hat ${birthdayNames[0]} Geburtstag!`
+        : `Heute haben ${birthdayNames.slice(0, -1).join(', ')} und ${birthdayNames[birthdayNames.length - 1]} Geburtstag!`;
 
-  if (isLoading || !data) return <Spinner center />;
-  const { stats } = data;
-
-  /**
-   * Rechtefilter: Das Backend liefert in `allowed_areas`, welche Bereiche
-   * dieses Konto lesen darf, und lässt gesperrte Blöcke aus der Antwort weg.
-   * Hier fallen die zugehörigen Widgets und Kacheln aus der Anzeige — ohne die
-   * gespeicherte Auswahl zu verändern, damit sie nach einer Rechteerweiterung
-   * unverändert zurückkommt. Das ist Kosmetik, keine Sicherheitsgrenze: die
-   * Daten kommen bereits gefiltert an.
-   */
-  const allowedAreas = new Set(data.allowed_areas ?? []);
-  const visibleWidgets = config.widgets.filter((w) => widgetAllowed(w, allowedAreas, features));
-  const visibleKpis = config.kpis.filter((k) => statAllowed(k, allowedAreas, features));
-  const selectableStats = ALL_STATS.filter((k) => statAllowed(k, allowedAreas, features));
-  const hiddenWidgets = ALL_WIDGETS.filter(
-    (w) => !config.widgets.includes(w) && widgetAllowed(w, allowedAreas, features),
-  );
-
-  /** Rahmen im Bearbeitungsmodus: Greifer, gestrichelte Kontur, Entfernen-Knopf. */
-  const editWrapProps = (key: WidgetKey): React.HTMLAttributes<HTMLDivElement> =>
-    edit
-      ? {
-          draggable: true,
-          onDragStart: () => setDragKey(key),
-          onDragOver: (e) => { e.preventDefault(); setOverKey(key); },
-          onDragLeave: () => setOverKey((k) => (k === key ? null : k)),
-          onDrop: () => dropOn(key),
-          style: {
-            cursor: 'grab',
-            opacity: dragKey === key ? 0.45 : 1,
-            outline: overKey === key && dragKey !== key ? '2px dashed var(--brand-primary)' : 'none',
-            outlineOffset: 3,
-            borderRadius: 12,
-          },
-        }
-      : {};
-
-  const editActions = (key: WidgetKey) =>
-    edit ? (
-      <>
-        <GripVertical size={15} style={{ color: 'var(--gray-400)' }} />
-        <Tooltip content={<span className="hm-tooltip__title">Widget entfernen</span>}>
-          <button
-            className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-            aria-label="Widget entfernen"
-            onClick={() => removeWidget(key)}
-          >
-            <X size={14} />
-          </button>
-        </Tooltip>
-      </>
-    ) : key === 'absent-today' ? (
-      // Schnelleintrag: Abwesenheit direkt vom Dashboard aus erfassen.
-      <Tooltip content={<span className="hm-tooltip__title">Abwesenheit schnell erfassen</span>}>
-        <button
-          className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm"
-          aria-label="Abwesenheit schnell erfassen"
-          onClick={() => setQuickAbsenceOpen(true)}
-        >
-          <Plus size={15} />
-        </button>
-      </Tooltip>
-    ) : undefined;
+  const inArea = (k: DashboardWidgetKey) => areaFilter === 'alle' || widgetDef(k).area === areaFilter;
+  const allowedKey = (k: DashboardWidgetKey) => widgetAllowed(k, model.allowed, features);
+  const shown = layout.layout.widgets.filter((k) => allowedKey(k) && inArea(k));
+  // Im Anpassen-Modus nur Widgets des gewaehlten Bereichs anbieten, bei „Alle Bereiche“ alle.
+  const addable = WIDGET_ORDER.filter((k) => !layout.layout.widgets.includes(k) && allowedKey(k) && inArea(k));
+  // Was auf eine Entscheidung oder Nacharbeit dieses Kontos wartet (Summe der Bereiche).
+  const totalOpen = model.openTasks.length;
+  const canRecord = can('abwesenheit', 'bearbeiten');
 
   return (
-    <div className={`hm-dash${style === 'farbenfroh' ? ' hm-dash--bunt' : ''}`}>
+    <div className="hm-db">
       <PageHeader
         title={`${greeting}, ${user?.name?.split(' ')[0] ?? ''} 👋`}
-        subtitle={`${today} — Ihr persönlicher Überblick.`}
+        subtitle={
+          <>
+            {today}: {birthdayText ? <strong className="hm-db-birthday">{birthdayText}</strong> : 'Ihr persönlicher Überblick.'}
+          </>
+        }
         actions={
-          <div className="row" style={{ gap: 8 }}>
-            <Tabs
-              size="sm"
-              ariaLabel="Darstellung des Dashboards"
-              tabs={STYLE_TABS}
-              active={style}
-              onChange={(key) => changeStyle(key as DashboardStyle)}
-            />
+          <div className="hm-db-actions">
+            {canRecord && (
+              <>
+                <button className="hm-db-btn hm-db-btn--primary" onClick={() => navigate('/abwesenheit/krankmeldungen?neu=1')}>
+                  Krankmeldung erfassen
+                </button>
+                <button className="hm-db-btn" onClick={() => setQuickOpen(true)}>Abwesenheit erfassen</button>
+              </>
+            )}
             {edit ? (
               <>
-                <Tooltip content={<span className="hm-tooltip__title">Standard-Layout wiederherstellen</span>}>
-                  <button className="hm-btn hm-btn--ghost" onClick={reset}>
-                    <RotateCcw size={15} /> Zurücksetzen
-                  </button>
-                </Tooltip>
-                <button className="hm-btn hm-btn--primary" onClick={() => setEdit(false)}>
+                <button className="hm-db-btn" onClick={() => { layout.reset(); toast.success('Dashboard zurückgesetzt'); }}>
+                  <RotateCcw size={15} /> Zurücksetzen
+                </button>
+                <button className="hm-db-btn hm-db-btn--primary" onClick={() => setEdit(false)}>
                   <Check size={15} /> Fertig
                 </button>
               </>
             ) : (
-              <button className="hm-btn hm-btn--secondary" onClick={() => setEdit(true)}>
+              <button className="hm-db-btn" onClick={() => setEdit(true)}>
                 <SlidersHorizontal size={15} /> Anpassen
               </button>
             )}
@@ -198,27 +120,50 @@ export function DashboardPage() {
         }
       />
 
-      {/* Galerie ausgeblendeter Widgets (nur im Bearbeitungsmodus). */}
+      <SetupDashboardCard />
+      {/* Persoenliche Hinweise (Ankuendigungen, Umfragen an dieses Konto):
+          erscheinen nur mit Inhalt, unabhaengig von der Widget-Auswahl. */}
+      <PersonalNotices />
+
+      {model.areas.length > 0 && (
+        <AreaBand
+          ariaLabel="Aufschlüsselung nach Bereichen"
+          selected={areaFilter}
+          onSelect={(key) => setAreaFilter(key === areaFilter && key !== 'alle' ? 'alle' : (key as 'alle' | AreaKey))}
+          cells={[
+            {
+              key: 'alle', label: 'Alle Bereiche', value: totalOpen, valueLabel: 'Aufgaben für Sie',
+              // Fehlt einem Bereich eine Quelle, ist auch die Summe unvollstaendig.
+              extra: model.areas.some((a) => a.incomplete) ? INCOMPLETE : undefined,
+              notice: dashboardNotice(totalOpen, model.areas.reduce((s, a) => s + a.running, 0)),
+            },
+            ...model.areas.map((a) => ({
+              key: a.key, label: a.label, value: a.value, valueLabel: a.valueLabel,
+              extra: a.incomplete ? INCOMPLETE : a.extra,
+              notice: dashboardNotice(a.open, a.running), color: AREA_COLORS[a.key],
+            })),
+          ]}
+        />
+      )}
+
       {edit && (
-        <div
-          style={{
-            border: '1px dashed var(--border-strong)', borderRadius: 12, padding: '10px 14px',
-            marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
-          }}
-        >
-          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', fontWeight: 600 }}>
-            Widget hinzufügen:
+        <div className="hm-db-gallery">
+          <span className="hm-db-gallery__label">
+            {areaFilter === 'alle' ? 'Widget hinzufügen:' : `Widget aus „${AREA_LABELS[areaFilter]}“ hinzufügen:`}
           </span>
-          {hiddenWidgets.length === 0 && (
-            <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-              Alle Widgets sind bereits sichtbar.
+          {addable.length === 0 && (
+            <span className="hm-db-note">
+              {areaFilter === 'alle' ? 'Alle Widgets sind bereits sichtbar.' : 'Alle Widgets dieses Bereichs sind bereits sichtbar.'}
             </span>
           )}
-          {hiddenWidgets.map((key) => {
-            const def = WIDGET_DEFS[key];
+          {addable.map((k) => {
+            const def = widgetDef(k);
             return (
-              <Tooltip key={key} content={<span className="hm-tooltip__title">{def.description}</span>}>
-                <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => addWidget(key)}>
+              <Tooltip
+                key={k}
+                content={<><span className="hm-tooltip__title">{def.description}</span><span className="hm-tooltip__line">{AREA_LABELS[def.area]}</span></>}
+              >
+                <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => layout.add(k)}>
                   <Plus size={13} /> <def.icon size={13} /> {def.title}
                 </button>
               </Tooltip>
@@ -227,128 +172,46 @@ export function DashboardPage() {
         </div>
       )}
 
-      <SetupDashboardCard />
-      {/* Persoenliche Hinweise (Ankuendigungen, Umfragen an dieses Konto):
-          erscheinen nur mit Inhalt, unabhaengig von der Widget-Konfiguration. */}
-      <PersonalNotices />
-
-      {visibleWidgets.length === 0 ? (
-        <Card>
-          <EmptyState
-            title="Ihr Dashboard ist leer"
-            hint={
-              config.widgets.length > 0
-                ? 'Für die gewählten Widgets fehlt Ihnen die Berechtigung. Wählen Sie über „Anpassen“ andere aus.'
-                : 'Fügen Sie über „Anpassen“ die Widgets hinzu, die für Sie zählen.'
-            }
-            action={
-              !edit && (
-                <button className="hm-btn hm-btn--primary" onClick={() => setEdit(true)}>
-                  <SlidersHorizontal size={15} /> Anpassen
-                </button>
-              )
-            }
-          />
-        </Card>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'start' }}>
-          {visibleWidgets.map((key) => {
-            const def = WIDGET_DEFS[key];
-
-            // KPI-Leiste: volle Breite, eigene Darstellung ohne Card-Rahmen.
-            if (key === 'kpis') {
-              const wrap = editWrapProps(key);
-              return (
-                <div key={key} {...wrap} style={{ gridColumn: '1 / -1', ...wrap.style }}>
-                  {edit && (
-                    <div className="row row--between" style={{ marginBottom: 8 }}>
-                      <span className="row" style={{ gap: 6, fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                        <GripVertical size={15} style={{ color: 'var(--gray-400)' }} /> Kennzahlen wählen:
-                      </span>
-                      <Tooltip content={<span className="hm-tooltip__title">Widget entfernen</span>}>
-                        <button className="hm-btn hm-btn--ghost hm-btn--icon hm-btn--sm" aria-label="Widget entfernen" onClick={() => removeWidget(key)}>
-                          <X size={14} />
-                        </button>
-                      </Tooltip>
-                    </div>
-                  )}
-                  {edit && (
-                    <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                      {selectableStats.map((sk) => {
-                        const sd = STAT_DEFS[sk];
-                        const active = config.kpis.includes(sk);
-                        return (
-                          <button
-                            key={sk}
-                            className={`hm-btn hm-btn--sm ${active ? 'hm-btn--primary' : 'hm-btn--secondary'}`}
-                            onClick={() => toggleKpi(sk)}
-                          >
-                            <sd.icon size={13} /> {sd.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {visibleKpis.length === 0 ? (
-                    <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-                      {config.kpis.length > 0
-                        ? 'Für die gewählten Kennzahlen fehlt Ihnen die Berechtigung.'
-                        : 'Keine Kennzahlen ausgewählt.'}
-                    </p>
-                  ) : (
-                    <div className="grid-stats">
-                      {visibleKpis.map((sk) => {
-                        const sd = STAT_DEFS[sk];
-                        const value = sd.value(stats);
-                        // Doppelter Boden: Liefert das Backend den Wert wider
-                        // Erwarten nicht, bleibt die Kachel weg statt eine 0 zu
-                        // zeigen, die es so nicht gibt.
-                        if (value === undefined) return null;
-                        return (
-                          <StatCard
-                            key={sk}
-                            label={sd.label}
-                            value={value}
-                            sub={sd.sub?.(stats)}
-                            subTone={sd.subTone?.(stats)}
-                            icon={<sd.icon size={16} />}
-                            accent={sd.accent}
-                            onClick={edit ? undefined : () => navigate(sd.path)}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            }
-
-            const wrap = editWrapProps(key);
-            return (
-              <div
-                key={key}
-                {...wrap}
-                className="hm-widget"
-                style={{ '--hm-accent': `var(${def.accent})`, ...wrap.style } as React.CSSProperties}
-              >
-                <Card
-                  title={
-                    <span className="row" style={{ gap: 10 }}>
-                      <span className="hm-widget__icon"><def.icon size={15} /></span>
-                      {def.title}
-                    </span>
-                  }
-                  actions={editActions(key)}
-                >
-                  {widgetBody(key, data)}
-                </Card>
-              </div>
-            );
-          })}
+      {shown.length === 0 ? (
+        <div className="hm-db-emptybox">
+          <p className="hm-db-empty">
+            {areaFilter === 'alle'
+              ? 'Ihr Dashboard ist leer. Über „Anpassen“ fügen Sie die Widgets hinzu, die für Sie zählen.'
+              : 'Für diesen Bereich ist kein Widget gewählt. Über „Anpassen“ lassen sich welche hinzufügen.'}
+          </p>
+          {areaFilter !== 'alle' && (
+            <button className="hm-db-btn" onClick={() => navigate(AREA_PATHS[areaFilter])}>
+              {AREA_LABELS[areaFilter]} öffnen
+            </button>
+          )}
         </div>
+      ) : (
+        <SortableGrid
+          className="hm-db-wgrid"
+          items={shown}
+          enabled={edit}
+          wide={(k) => layout.sizeOf(k) === 'wide'}
+          onCommit={layout.reorderVisible}
+          renderItem={(k, handle) => (
+            <WidgetFrame
+              widgetKey={k}
+              notice={widgetNotice(k, model)}
+              showArea={areaFilter === 'alle'}
+              edit={{
+                active: edit,
+                onRemove: () => layout.remove(k),
+                wide: layout.sizeOf(k) === 'wide',
+                onToggleSize: () => layout.toggleSize(k),
+                handle,
+              }}
+            >
+              <WidgetBody widgetKey={k} model={model} data={data} />
+            </WidgetFrame>
+          )}
+        />
       )}
-
-      <RequestDialog open={quickAbsenceOpen} onClose={() => setQuickAbsenceOpen(false)} />
+      {/* Nur mit Recht: der Dialog laedt beim Einhaengen die Abwesenheitsarten. */}
+      {canRecord && <RequestDialog open={quickOpen} onClose={() => setQuickOpen(false)} />}
     </div>
   );
 }
