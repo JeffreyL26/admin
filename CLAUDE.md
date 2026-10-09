@@ -1096,7 +1096,11 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   einer Quelle die Antwort (Fehler, ohne Netz pausiert), sagt das Widget es und
   die Leiste meldet „Daten unvollständig“ (`dashboardSourceStatus` in shared). Genehmigen geht direkt, Ablehnen
   (Begründung) und alles andere öffnet die Fachseite beim Vorgang
-  (`?antrag=`, `?employee=`). Fließtext schreibt den Monat aus
+  (`?antrag=`, `?employee=`). Was nur nicht gewählte Widgets an Offenem
+  zeigen, trägt der „Anpassen“-Knopf (und je Widget die Galerie); abgeglichen
+  wird über Aufgabenschlüssel: Jedes Widget mit offenen Punkten nennt sie in
+  `widgetOpenKeys` (Anträge nur über `requestTaskKey`), gerechnet wird in
+  `uncoveredBreakdown` (shared/dashboard.ts). Fließtext schreibt den Monat aus
   (`formatDateInText`), kompakte Spalten bleiben numerisch.
 - **Schrift:** Creato Display (Hausschrift der Website) aus dem Workspace-Paket
   `packages/fonts`; beide Clients importieren `@ohrganize/fonts/creato-display.css`

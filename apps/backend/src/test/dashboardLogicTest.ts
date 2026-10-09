@@ -8,6 +8,7 @@
 import {
   dashboardNotice, daysInText, filledSlots, formatDateInText, formatRangeInText, mergeVisibleOrder, moveItem,
   nextWorkdayIso, comparePlanRows, birthdayMonthDays, dashboardSourceStatus, isOwnPersonDecision, isOwnRequestDecision,
+  rangesOverlap, uncoveredBreakdown,
 } from '@ohrganize/shared';
 
 let failures = 0;
@@ -107,6 +108,20 @@ eq('nach vorn', moveItem(['a', 'b', 'c', 'd'], 3, 1), ['a', 'd', 'b', 'c']);
 eq('ausserhalb unveraendert', moveItem(['a', 'b'], 0, 5), ['a', 'b']);
 eq('gefilterte Ansicht', mergeVisibleOrder(['a', 'x', 'b', 'y', 'c'], ['c', 'a', 'b']), ['c', 'x', 'a', 'y', 'b']);
 eq('ungefiltert', mergeVisibleOrder(['a', 'b', 'c'], ['b', 'c', 'a']), ['b', 'c', 'a']);
+
+// Quadrat am „Anpassen“-Knopf: nur, was kein sichtbares Widget zeigt, jeder Punkt einmal.
+eq('nichts ausgeblendet', uncoveredBreakdown([['a', 'b']], []), { total: 0, each: [], sharedWith: [] });
+eq('sichtbar deckt ab', uncoveredBreakdown([['a', 'b']], [['a'], ['b']]), { total: 0, each: [0, 0], sharedWith: [[], []] });
+eq('Ueberschneidung einmal', uncoveredBreakdown([['x']], [['a', 'b'], ['b', 'c']]), { total: 3, each: [2, 2], sharedWith: [[1], [0]] });
+eq('teilweise abgedeckt', uncoveredBreakdown([['a']], [['a', 'b']]), { total: 1, each: [1], sharedWith: [[]] });
+eq('nur abgedeckte geteilt', uncoveredBreakdown([['a']], [['a', 'b'], ['a', 'c']]), { total: 2, each: [1, 1], sharedWith: [[], []] });
+eq('doppelter Schluessel je Widget', uncoveredBreakdown([], [['a', 'a']]), { total: 1, each: [1], sharedWith: [[]] });
+
+// Zeitraum im Fenster (Plan, heute).
+eq('innen', rangesOverlap('2026-10-05', '2026-10-07', '2026-10-01', '2026-10-31'), true);
+eq('ragt hinein', rangesOverlap('2026-09-28', '2026-10-01', '2026-10-01', '2026-10-31'), true);
+eq('davor', rangesOverlap('2026-09-01', '2026-09-30', '2026-10-01', '2026-10-31'), false);
+eq('danach', rangesOverlap('2026-11-01', '2026-11-02', '2026-10-01', '2026-10-31'), false);
 
 if (failures > 0) {
   console.log(`dashboardLogicTest: ${failures} Fehler`);

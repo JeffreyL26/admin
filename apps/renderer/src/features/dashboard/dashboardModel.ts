@@ -65,6 +65,13 @@ export interface TaskAction {
   decision?: boolean;
 }
 
+/**
+ * Schluessel der Aufgabe zu einem Abwesenheitsantrag. Die Widgets gleichen ueber ihn
+ * ab, welche Antraege sie gemeinsam zeigen (Plan, „Heute abwesend“, Antraege); nur
+ * hier zusammensetzen, sonst zaehlt der „Anpassen“-Knopf denselben Antrag doppelt.
+ */
+export const requestTaskKey = (requestId: number): string => `req-${requestId}`;
+
 export interface DashboardTask {
   key: string;
   kind: TaskKind;
@@ -81,6 +88,8 @@ export interface DashboardTask {
   weight: number;
   /** Anzahl erledigt / gesamt (Onboarding, Bestaetigungen), sonst null. */
   progress: { done: number; total: number } | null;
+  /** Zeitraum des Vorgangs (Antraege), damit Plan und „Heute abwesend“ ihre Punkte ohne eigene Abfrage finden. */
+  span?: { from: string; to: string };
   actions: TaskAction[];
   to: string;
 }
@@ -183,6 +192,8 @@ export interface AreaSummary {
   valueLabel: string;
   /** Ergaenzung zur Zahl, etwa weitere Abwesende laut offenem Antrag. */
   extra: string;
+  /** Aufschluesselung der offenen Punkte fuer den Tooltip am Quadrat, wenn die Zahl sie nicht selbst zeigt. */
+  openDetail: string[];
   /** Eine Quelle des Bereichs fehlt (Fehler oder laedt noch): Zahlen sind unvollstaendig. */
   incomplete: boolean;
   /**
@@ -258,6 +269,8 @@ export interface DashboardModel {
   tasks: DashboardTask[];
   /** Ueberfaellig oder zu entscheiden und vom Konto erledigbar: „Aufgaben fuer Sie“. */
   openTasks: DashboardTask[];
+  /** Vom Konto erledigbare Aufgaben je Art (Grundlage aller roten Zahlen). */
+  actionableOf: (kind: TaskKind) => DashboardTask[];
   /** Heute genehmigt abwesend (zaehlt als fehlt heute). */
   todayAbsences: TodayAbsence[];
   /** Heute laut offenem Antrag abwesend: faktisch weg, aber nicht entschieden (ohne die schon genehmigt Abwesenden). */
@@ -534,12 +547,12 @@ export function useDashboardModel({ needsPlan = true }: { needsPlan?: boolean } 
         .filter(Boolean).join(', ');
       const note = (r.comment ?? '').trim();
       tasks.push({
-        key: `req-${r.id}`, kind: 'request', tone: started ? 'overdue' : 'decide',
+        key: requestTaskKey(r.id), kind: 'request', tone: started ? 'overdue' : 'decide',
         actionable: doable('abwesenheit', isOwnPerson(r.employee_id)), employeeId: r.employee_id,
         person: nameOf(r.first_name, r.last_name), title,
         meta: `${formatRangeInText(r.date_from, r.date_to, today)}, ${daysInText(r.days_counted, LOCALE, r.closure_covered === 1)}${halves ? ` (${halves})` : ''}. ${r.created_by_proxy ? 'Vom HR erfasst.' : 'Aus dem Portal beantragt.'}${note ? ` Kommentar: „${note}“` : ''}`,
         age, unit, weight: started ? (ended ? 760 : 900) : 100 - diffDays(r.date_from, today),
-        progress: null,
+        progress: null, span: { from: r.date_from, to: r.date_to },
         actions: [
           { label: 'Genehmigen', primary: true, to: requestLink(r.id), approveId: r.id, area: 'abwesenheit', decision: true },
           // Ablehnen verlangt eine Begruendung: dafuer die Antragsseite, direkt beim Antrag.
@@ -709,7 +722,15 @@ export function useDashboardModel({ needsPlan = true }: { needsPlan?: boolean } 
     const allowed = new Set<AdminArea>(dash.data?.allowed_areas ?? []);
     const stats = dash.data?.stats ?? {};
     // Zaehlungen der Leiste: nur, was das Konto erledigen kann.
-    const ofKind = (...kinds: TaskKind[]) => tasks.filter((t) => t.actionable && kinds.includes(t.kind));
+    const byKind = new Map<TaskKind, DashboardTask[]>();
+    for (const t of tasks) {
+      if (!t.actionable) continue;
+      const list = byKind.get(t.kind);
+      if (list) list.push(t);
+      else byKind.set(t.kind, [t]);
+    }
+    const actionableOf = (kind: TaskKind) => byKind.get(kind) ?? [];
+    const ofKind = (...kinds: TaskKind[]) => kinds.flatMap(actionableOf);
     const absTasks = ofKind('sick', 'request');
     const profileTasks = ofKind('profile');
     const docTasks = ofKind('document');
@@ -723,7 +744,7 @@ export function useDashboardModel({ needsPlan = true }: { needsPlan?: boolean } 
     // Laufend (Sanduhr) ist ein Vorgang nur, solange Aufgaben offen sind.
     const onbWithOpenTasks = onbTasks.filter((t) => (t.progress?.total ?? 0) > (t.progress?.done ?? 0)).length;
     const meetings = dash.data?.upcomingMeetings ?? [];
-    type Raw = Omit<AreaSummary, 'key' | 'label' | 'incomplete'>;
+    type Raw = Omit<AreaSummary, 'key' | 'label' | 'incomplete' | 'openDetail'> & { openDetail?: string[] };
     const raw: Record<Exclude<AreaKey, 'einstellungen'>, Raw> = {
       abwesenheit: {
         open: absTasks.length,
@@ -733,11 +754,14 @@ export function useDashboardModel({ needsPlan = true }: { needsPlan?: boolean } 
       },
       personal: {
         open: profileTasks.length + docTasks.length,
-        value: profileTasks.length, valueLabel: 'Stammdaten-Anträge',
-        extra: [
-          docsExpired > 0 ? `+${pl(docsExpired, 'Dokument', 'Dokumente')} abgelaufen` : '',
-          docsSoon > 0 ? `+${pl(docsSoon, 'Dokument läuft', 'Dokumente laufen')} ab` : '',
-        ].filter(Boolean).join(' · '),
+        // Dokumente zaehlen nur im Quadrat (als Zusatzzeile verschoben sie die Zahl);
+        // was es ausser den Antraegen ist, sagt der Tooltip am Quadrat.
+        value: profileTasks.length, valueLabel: 'Stammdaten-Anträge', extra: '',
+        openDetail: docTasks.length === 0 ? [] : [
+          profileTasks.length > 0 ? pl(profileTasks.length, 'Stammdaten-Antrag', 'Stammdaten-Anträge') : '',
+          docsExpired > 0 ? `${pl(docsExpired, 'Dokument', 'Dokumente')} abgelaufen` : '',
+          docsSoon > 0 ? `${pl(docsSoon, 'Dokument läuft', 'Dokumente laufen')} ab` : '',
+        ].filter(Boolean),
         running: 0,
       },
       kommunikation: {
@@ -773,7 +797,7 @@ export function useDashboardModel({ needsPlan = true }: { needsPlan?: boolean } 
       const admin = AREA_ADMIN[key];
       if (!allowed.has(admin) || !moduleEnabled(VARIANT, AREA_MODULES[admin])) return [];
       const incomplete = AREA_SOURCES[key].some((src) => missingSources.has(src));
-      return [{ key, label: AREA_LABELS[key], ...raw[key], incomplete }];
+      return [{ key, label: AREA_LABELS[key], ...raw[key], openDetail: raw[key].openDetail ?? [], incomplete }];
     });
 
     const announcementsOut: DashboardAnnouncement[] = (announcementData ?? [])
@@ -794,6 +818,7 @@ export function useDashboardModel({ needsPlan = true }: { needsPlan?: boolean } 
       pendingSources: pendingSet,
       tasks,
       openTasks: tasks.filter((t) => t.actionable && t.tone !== 'running'),
+      actionableOf,
       todayAbsences,
       pendingToday,
       pendingTodayDecidable,

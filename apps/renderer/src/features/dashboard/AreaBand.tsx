@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Hourglass } from 'lucide-react';
 import type { DashboardNotice } from '@ohrganize/shared';
+import { Tooltip } from '../../components/Tooltip';
 
 /**
  * Bereichsleiste als horizontale Scroll-Leiste.
@@ -23,13 +24,13 @@ import type { DashboardNotice } from '@ohrganize/shared';
  */
 export type Notice = DashboardNotice;
 
-export function NotificationBadge({ notice, className }: { notice: Notice | null; className?: string }) {
+export function NotificationBadge({ notice, className, srText }: { notice: Notice | null; className?: string; srText?: string }) {
   if (!notice) return null;
   if (notice.count > 0) {
     return (
       <span className={`hm-db-badge hm-db-badge--count${className ? ` ${className}` : ''}`}>
         <span aria-hidden="true">{notice.count > 99 ? '99+' : notice.count}</span>
-        <span className="hm-db-sr">{notice.count} offen</span>
+        <span className="hm-db-sr">{srText ?? `${notice.count} offen`}</span>
       </span>
     );
   }
@@ -56,6 +57,8 @@ export interface AreaBandCell {
   /** Ergaenzung unter der Beschriftung, etwa „+1 laut Antrag“. */
   extra?: string;
   notice: Notice | null;
+  /** Woraus sich die Zahl im Quadrat zusammensetzt, wenn die Zelle es nicht selbst zeigt (Tooltip). */
+  noticeDetail?: string[];
   /** Akzentfarbe (CSS-Wert) fuer Punkt und Auswahl. */
   color?: string;
 }
@@ -134,13 +137,26 @@ export function AreaBand({ cells, selected, onSelect, ariaLabel }: Props) {
               {c.color && <i className="hm-db-band__dot" />}
               {c.label}
             </span>
-            <NotificationBadge notice={c.notice} className="hm-db-badge--corner" />
+            {c.notice && (
+              <Tooltip
+                content={c.noticeDetail && c.noticeDetail.length > 0 && c.notice.count > 0
+                  ? <><span className="hm-tooltip__title">Offen in {c.label}</span>{c.noticeDetail.map((l) => <span key={l} className="hm-tooltip__line">{l}</span>)}</>
+                  : null}
+              >
+                <span className="hm-db-band__notice">
+                  {/* Die Aufschluesselung auch fuer Tastatur und Vorleser: der Tooltip oeffnet nur am Quadrat. */}
+                  <NotificationBadge
+                    notice={c.notice}
+                    className="hm-db-badge--ring"
+                    srText={c.noticeDetail && c.noticeDetail.length > 0 ? `${c.notice.count} offen: ${c.noticeDetail.join(', ')}` : undefined}
+                  />
+                </span>
+              </Tooltip>
+            )}
             <span className="hm-db-band__main">
               <span className="hm-db-band__num">{c.value}</span>
-              <span className="hm-db-band__caption">
-                {c.valueLabel}
-                {c.extra && <em>{c.extra}</em>}
-              </span>
+              <span className="hm-db-band__caption">{c.valueLabel}</span>
+              {c.extra && <em className="hm-db-band__extra">{c.extra}</em>}
             </span>
           </button>
         ))}

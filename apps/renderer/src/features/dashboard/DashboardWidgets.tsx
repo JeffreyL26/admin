@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useIsMutating, useMutation, useMutationState, useQueryClient } from '@tanstack/react-query';
 import { GripVertical, Maximize2, Minimize2, X } from 'lucide-react';
 import {
-  SICK_PAY_LIMIT_DAYS, dashboardNotice, filledSlots, formatDateInText, formatRangeInText, isOwnPersonDecision,
+  SICK_PAY_LIMIT_DAYS, dashboardNotice, filledSlots, formatDateInText, formatRangeInText, isOwnPersonDecision, rangesOverlap,
 } from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
@@ -19,7 +19,7 @@ import { WIDGET_DEFS, widgetDef, type DashboardWidgetKey, type WidgetKey } from 
 import type { HandleProps } from './SortableGrid';
 import { NotificationBadge, type Notice } from './AreaBand';
 import {
-  AREA_COLORS, AREA_LABELS, calendarLink, personColor, requestLink, shortDate,
+  AREA_COLORS, AREA_LABELS, calendarLink, personColor, requestLink, requestTaskKey, shortDate,
   type DashboardModel, type DashboardSource, type DashboardTask, type TaskAction, type TodayAbsence,
 } from './dashboardModel';
 
@@ -94,21 +94,38 @@ export function WidgetFrame({
  * wartet auf andere. Sonst nichts (der Inhalt sagt dann selbst, dass alles ruhig ist).
  */
 export function widgetNotice(key: DashboardWidgetKey, model: DashboardModel): Notice | null {
-  // Rot zaehlt nur, was das Konto erledigen kann (Recht, Vier-Augen-Prinzip).
-  const n = (kind: DashboardTask['kind']) => model.tasks.filter((t) => t.kind === kind && t.actionable).length;
-  const openRequest = new Set(model.tasks.filter((t) => t.kind === 'request' && t.actionable).map((t) => t.key));
   switch (key) {
-    case 'absent-today': return dashboardNotice(model.pendingTodayDecidable.length, 0);
-    case 'plan': return dashboardNotice(model.plan.rows.filter((r) => r.status === 'beantragt' && openRequest.has(`req-${r.id}`)).length, 0);
-    case 'requests': return dashboardNotice(n('request'), 0);
-    case 'sick': return dashboardNotice(n('sick'), 0);
-    case 'salary': return dashboardNotice(n('salary'), 0);
-    case 'profile': return dashboardNotice(n('profile'), 0);
-    case 'documents': return dashboardNotice(n('document'), 0);
-    case 'follow-ups': return dashboardNotice(n('followup'), 0);
     case 'onboarding': return dashboardNotice(0, model.tasks.filter((t) => t.kind === 'onboarding' && (t.progress?.total ?? 0) > (t.progress?.done ?? 0)).length);
     case 'announcements': return dashboardNotice(0, model.tasks.filter((t) => t.kind === 'announcement').length);
-    default: return null;
+    default: return dashboardNotice(widgetOpenKeys(key, model).length, 0);
+  }
+}
+
+/**
+ * Offene Punkte eines Widgets als Aufgabenschluessel, alle aus den
+ * erledigbaren Aufgaben des Modells (Recht, Vier-Augen-Prinzip). Schluessel
+ * statt Zahl, weil Widgets sich ueberschneiden (Plan und „Heute abwesend“
+ * zeigen Antraege). Der Plan geht ueber den Zeitraum der Antraege, nicht ueber
+ * seine eigene Abfrage: Laedt sie noch oder scheitert sie, stimmen Quadrat und
+ * Abgleich trotzdem. „Heute abwesend“ zaehlt, was es selbst als entscheidbar
+ * zeigt (gleiche Schluessel wie die Antraege, eigene Abfrage), damit sein
+ * Quadrat auch dann stimmt, wenn die Liste der offenen Antraege fehlt.
+ */
+export function widgetOpenKeys(key: DashboardWidgetKey, model: DashboardModel): string[] {
+  const keys = (kind: DashboardTask['kind']) => model.actionableOf(kind).map((t) => t.key);
+  switch (key) {
+    case 'absent-today': return model.pendingTodayDecidable.map((a) => requestTaskKey(a.requestId));
+    case 'plan': {
+      const { from, to } = model.plan;
+      return model.actionableOf('request').filter((t) => t.span && rangesOverlap(t.span.from, t.span.to, from, to)).map((t) => t.key);
+    }
+    case 'requests': return keys('request');
+    case 'sick': return keys('sick');
+    case 'salary': return keys('salary');
+    case 'profile': return keys('profile');
+    case 'documents': return keys('document');
+    case 'follow-ups': return keys('followup');
+    default: return [];
   }
 }
 
@@ -272,7 +289,7 @@ function PlanBody({ model }: { model: DashboardModel }) {
           </div>
           {plan.rows.length === 0 && <p className="hm-db-empty" style={{ padding: '14px 0', borderTop: '1px solid var(--border)' }}>Im angezeigten Zeitraum ist niemand eingetragen.</p>}
           {rows.map((r) => {
-            const task = model.tasks.find((t) => t.key === `req-${r.id}`);
+            const task = model.tasks.find((t) => t.key === requestTaskKey(r.id));
             const right = r.left + r.width;
             const side = right > 68 ? { right: `calc(${100 - r.left}% + 8px)` } : { left: `calc(${right}% + 8px)` };
             const barClass = r.status === 'beantragt' ? 'hm-db-hatch' : r.category === 'krankheit' ? 'hm-db-bar-sick' : 'hm-db-bar-ok';

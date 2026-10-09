@@ -176,3 +176,47 @@ export function mergeVisibleOrder<K>(all: readonly K[], visibleOrder: readonly K
   const queue = [...visibleOrder];
   return all.map((k) => (visible.has(k) ? (queue.shift() as K) : k));
 }
+
+/** Ueberschneidet der Zeitraum [from, to] das Fenster [winFrom, winTo]? (ISO-Daten, je einschliesslich) */
+export function rangesOverlap(from: string, to: string, winFrom: string, winTo: string): boolean {
+  return from <= winTo && to >= winFrom;
+}
+
+export interface UncoveredBreakdown {
+  /** Offene Punkte, die nur ausgeblendete Widgets zeigen, jeder einmal (Quadrat am „Anpassen“-Knopf). */
+  total: number;
+  /** Je ausgeblendetem Widget: wie viele davon es zeigt (Quadrat in der Galerie). */
+  each: number[];
+  /** Je ausgeblendetem Widget: die anderen ausgeblendeten, die mindestens einen dieser Punkte ebenfalls zeigen. */
+  sharedWith: number[][];
+}
+
+/**
+ * Offene Punkte, die kein sichtbares Widget zeigt. Je Widget die Schluessel
+ * seiner offenen Punkte; ein Punkt zaehlt im Ganzen einmal, auch wenn ihn
+ * mehrere ausgeblendete Widgets zeigen, und gar nicht, sobald ihn ein
+ * sichtbares zeigt. Deshalb ergibt die Summe von `each` mehr als `total`,
+ * sobald sich ausgeblendete Widgets Punkte teilen; `sharedWith` sagt, mit wem.
+ */
+export function uncoveredBreakdown(
+  visible: readonly (readonly string[])[],
+  hidden: readonly (readonly string[])[],
+): UncoveredBreakdown {
+  const seen = new Set(visible.flat());
+  const own = hidden.map((keys) => new Set(keys.filter((k) => !seen.has(k))));
+  const owners = new Map<string, number[]>();
+  own.forEach((keys, i) => keys.forEach((k) => {
+    const list = owners.get(k);
+    if (list) list.push(i);
+    else owners.set(k, [i]);
+  }));
+  return {
+    total: owners.size,
+    each: own.map((keys) => keys.size),
+    sharedWith: own.map((keys, i) => {
+      const others = new Set<number>();
+      keys.forEach((k) => owners.get(k)?.forEach((j) => { if (j !== i) others.add(j); }));
+      return [...others].sort((a, b) => a - b);
+    }),
+  };
+}

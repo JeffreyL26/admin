@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, Plus, RotateCcw, SlidersHorizontal } from 'lucide-react';
-import { dashboardNotice } from '@ohrganize/shared';
+import { dashboardNotice, uncoveredBreakdown } from '@ohrganize/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { LOCALE } from '../../lib/locale';
 import { PageHeader, Spinner } from '../../components/ui';
@@ -10,10 +10,10 @@ import { useToast } from '../../components/Toast';
 import { RequestDialog } from '../absences/RequestDialog';
 import { SetupDashboardCard } from '../setup/SetupDashboardCard';
 import { useDashboard } from './api';
-import { AreaBand } from './AreaBand';
+import { AreaBand, NotificationBadge } from './AreaBand';
 import { WIDGET_ORDER, useDashboardLayout, widgetAllowed, widgetDef, type DashboardWidgetKey } from './dashboardConfig';
 import { AREA_COLORS, AREA_LABELS, AREA_PATHS, useDashboardModel, type AreaKey } from './dashboardModel';
-import { WidgetBody, WidgetFrame, widgetNotice } from './DashboardWidgets';
+import { WidgetBody, WidgetFrame, widgetNotice, widgetOpenKeys } from './DashboardWidgets';
 import { PersonalNotices } from './personalWidgets';
 import { SortableGrid } from './SortableGrid';
 
@@ -37,6 +37,28 @@ export function DashboardPage() {
   const [edit, setEdit] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
   const [chosenArea, setAreaFilter] = useState<'alle' | AreaKey>('alle');
+  // Verschwindet der gewaehlte Bereich (Rechte oder Ausgabe geaendert), gilt wieder „Alle Bereiche“.
+  const areaFilter = chosenArea === 'alle' || model.areas.some((a) => a.key === chosenArea) ? chosenArea : 'alle';
+  // Offenes, das nur nicht gewaehlte Widgets zeigen, meldet der „Anpassen“-Knopf. Gezaehlt
+  // wird nur, was „Anpassen“ im gewaehlten Bereich auch anbietet; abgeglichen gegen alle
+  // gewaehlten Widgets (der Bereichsfilter blendet sie nur voruebergehend aus).
+  const chosenWidgets = layout.layout.widgets;
+  // Je angebotenem Widget dasselbe noch einmal, damit die Galerie zeigt, welches es bringt,
+  // und mit welchen anderen es Punkte teilt (sonst ergaebe die Summe mehr als der Knopf).
+  const { hiddenOpen, hiddenOpenOf } = useMemo(() => {
+    const perWidget = new Map<DashboardWidgetKey, { count: number; alsoIn: string[] }>();
+    if (model.loading) return { hiddenOpen: 0, hiddenOpenOf: perWidget };
+    const ok = (k: DashboardWidgetKey) => widgetAllowed(k, model.allowed, features);
+    const offered = WIDGET_ORDER.filter(
+      (k) => !chosenWidgets.includes(k) && ok(k) && (areaFilter === 'alle' || widgetDef(k).area === areaFilter),
+    );
+    const visibleKeys = chosenWidgets.filter(ok).map((k) => widgetOpenKeys(k, model));
+    const split = uncoveredBreakdown(visibleKeys, offered.map((k) => widgetOpenKeys(k, model)));
+    offered.forEach((k, i) => perWidget.set(k, {
+      count: split.each[i], alsoIn: split.sharedWith[i].map((j) => widgetDef(offered[j]).title),
+    }));
+    return { hiddenOpen: split.total, hiddenOpenOf: perWidget };
+  }, [model, features, chosenWidgets, areaFilter]);
   // Ohne Grunddaten (Rechte der Bereiche) kein Dashboard; dann sagen, warum, statt endlos zu laden.
   if (!dash.data && !dash.isLoading) {
     const offline = dash.fetchStatus === 'paused';
@@ -57,8 +79,6 @@ export function DashboardPage() {
     );
   }
   if (model.loading || !dash.data) return <Spinner center />;
-  // Verschwindet der gewaehlte Bereich (Rechte oder Ausgabe geaendert), gilt wieder „Alle Bereiche“.
-  const areaFilter = chosenArea === 'alle' || model.areas.some((a) => a.key === chosenArea) ? chosenArea : 'alle';
   const data = dash.data;
 
   const hour = new Date().getHours();
@@ -112,8 +132,15 @@ export function DashboardPage() {
                 </button>
               </>
             ) : (
-              <button className="hm-db-btn" onClick={() => setEdit(true)}>
+              <button className="hm-db-btn hm-db-btn--badged" onClick={() => setEdit(true)}>
                 <SlidersHorizontal size={15} /> Anpassen
+                {hiddenOpen > 0 && (
+                  <NotificationBadge
+                    notice={dashboardNotice(hiddenOpen, 0)}
+                    className="hm-db-badge--button"
+                    srText={`${hiddenOpen} offen in nicht gewählten Widgets`}
+                  />
+                )}
               </button>
             )}
           </div>
@@ -135,12 +162,14 @@ export function DashboardPage() {
               key: 'alle', label: 'Alle Bereiche', value: totalOpen, valueLabel: 'Aufgaben für Sie',
               // Fehlt einem Bereich eine Quelle, ist auch die Summe unvollstaendig.
               extra: model.areas.some((a) => a.incomplete) ? INCOMPLETE : undefined,
-              notice: dashboardNotice(totalOpen, model.areas.reduce((s, a) => s + a.running, 0)),
+              // Kein rotes Quadrat: Es zeigte genau die grosse Zahl. Nur die Sanduhr sagt hier
+              // etwas Eigenes (keine Aufgabe offen, aber etwas wartet auf andere).
+              notice: dashboardNotice(0, totalOpen > 0 ? 0 : model.areas.reduce((s, a) => s + a.running, 0)),
             },
             ...model.areas.map((a) => ({
               key: a.key, label: a.label, value: a.value, valueLabel: a.valueLabel,
               extra: a.incomplete ? INCOMPLETE : a.extra,
-              notice: dashboardNotice(a.open, a.running), color: AREA_COLORS[a.key],
+              notice: dashboardNotice(a.open, a.running), noticeDetail: a.openDetail, color: AREA_COLORS[a.key],
             })),
           ]}
         />
@@ -158,13 +187,29 @@ export function DashboardPage() {
           )}
           {addable.map((k) => {
             const def = widgetDef(k);
+            const open = hiddenOpenOf.get(k);
             return (
               <Tooltip
                 key={k}
-                content={<><span className="hm-tooltip__title">{def.description}</span><span className="hm-tooltip__line">{AREA_LABELS[def.area]}</span></>}
+                content={
+                  <>
+                    <span className="hm-tooltip__title">{def.description}</span>
+                    <span className="hm-tooltip__line">{AREA_LABELS[def.area]}</span>
+                    {open && open.alsoIn.length > 0 && (
+                      <span className="hm-tooltip__line">Offenes teils auch in · {open.alsoIn.join(' · ')}</span>
+                    )}
+                  </>
+                }
               >
                 <button className="hm-btn hm-btn--secondary hm-btn--sm" onClick={() => layout.add(k)}>
                   <Plus size={13} /> <def.icon size={13} /> {def.title}
+                  {open && open.count > 0 && (
+                    <NotificationBadge
+                      notice={dashboardNotice(open.count, 0)}
+                      className="hm-db-badge--inline"
+                      srText={`${open.count} offen, sonst in keinem gewählten Widget${open.alsoIn.length > 0 ? `, teils auch in ${open.alsoIn.join(', ')}` : ''}`}
+                    />
+                  )}
                 </button>
               </Tooltip>
             );

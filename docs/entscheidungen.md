@@ -1147,6 +1147,22 @@ die Zahl der Mitarbeitenden aendert keine Handlung.
   Offboarding sind neu gezeichnet.
 - Entfernt: die Kennzahlen-Kacheln (die Bereichsleiste ersetzt sie) und der
   Stil „Farbenfroh“. Gespeicherte Auswahlen werden uebernommen.
+- Nachtrag Oktober 2026: Die Zahl einer Zelle steht immer auf derselben
+  Hoehe; eine Ergaenzung („+1 laut Antrag“) liegt darunter, nicht daneben.
+  Bei Personal fiel die Zeile zu den Dokumenten weg (sie verschob die Zahl),
+  die Aufschluesselung steht im Tooltip am Quadrat. Offenes, das nur nicht
+  gewaehlte Widgets zeigen, traegt der „Anpassen“-Knopf als rotes Quadrat,
+  in der Galerie jedes Widget seinen Anteil (mit dem Hinweis, mit welchen
+  anderen es Punkte teilt, weil deren Summe sonst den Knopf uebersteigt).
+  Gezaehlt wird im gewaehlten Bereich, abgeglichen ueber die Schluessel der
+  Aufgaben: `widgetOpenKeys` (DashboardWidgets.tsx) nennt je Widget seine
+  offenen Punkte, Antraege immer ueber `requestTaskKey`, und
+  `uncoveredBreakdown` (shared/dashboard.ts) rechnet. Ein neues Widget mit
+  offenen Punkten traegt sich in `widgetOpenKeys` ein, sonst zaehlt es weder
+  im eigenen Quadrat noch am Knopf.
+  Die Zelle „Alle Bereiche“ traegt kein rotes Quadrat: Ihre grosse Zahl
+  sind bereits die offenen Aufgaben, das Quadrat wiederholte sie nur. Sie
+  zeigt allein die graue Sanduhr, wenn nichts offen ist, aber etwas wartet.
 
 **Warum so umgesetzt:**
 - Eigenes Ziehen statt einer Bibliothek: Neue Abhaengigkeiten brauchen eine
