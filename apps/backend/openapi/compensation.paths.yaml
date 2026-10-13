@@ -144,15 +144,30 @@ paths:
       responses:
         "200": { description: Aktualisierter Lauf }
         "409": { description: Unzulässiger Statuswechsel }
-  /api/compensation/payroll-runs/{id}/export.datev:
+  /api/compensation/payroll-runs/{id}/datev-check:
     get:
-      summary: DATEV-LODAS-ASCII-Export (Bewegungsdaten); setzt Status auf exportiert
+      summary: "Prüfbericht vor dem DATEV-Export: Fehler (sperren), Warnungen (Hinweisdaten), Lohnarten in Benutzung, lieferbare Dateien"
       tags: [Vergütung]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
-        "200": { description: LODAS-ASCII-Datei (text/plain) }
-        "409": { description: Lauf ist noch nicht geprüft }
+        "200": { description: "report (program, pnr_mode, issues mit kinds, error_count, warning_count, lohnarten_in_use mit kinds) und files (kind, label, person_count, changed_count, changed_employee_ids)" }
+        "403": { description: "Rolle ohne Lesen in Personal oder Abwesenheit (der Export enthält deren Daten)" }
+        "501": { description: Lohnprogramm gehört nicht zum Land der Variante }
+  /api/compensation/payroll-runs/{id}/export.datev:
+    get:
+      summary: "DATEV-Lohnexport im Format des Lohnprogramms (Einstellung datevProgramm): LODAS-ASCII (Bewegungsdaten oder Stammdaten) oder Lohn und Gehalt (Bewegungsdaten, elf Spalten); setzt Status auf exportiert, auditiert jede Datei mit Prüfsumme"
+      tags: [Vergütung]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: kind, in: query, description: "Bewegungsdaten setzen den Lauf auf exportiert (mit verguetung: bearbeiten), Stammdaten nicht", schema: { type: string, enum: [bewegungsdaten, stammdaten], default: bewegungsdaten } }
+        - { name: scope, in: query, description: "Nur bei Stammdaten: alle Personen oder nur Neueintritte, Austritte, Gehalts- und Stammdatenänderungen", schema: { type: string, enum: [aenderungen, alle], default: aenderungen } }
+      responses:
+        "200": { description: "Textdatei in Windows-1252 (text/plain; charset=windows-1252)" }
+        "400": { description: Das Lohnprogramm kennt diese Datei nicht (Stammdaten nur bei LODAS) }
+        "403": { description: "Rolle ohne Lesen in Personal oder Abwesenheit (der Export enthält deren Daten)" }
+        "409": { description: "Lauf ist noch nicht geprüft, oder DATEV_EXPORT_BLOCKED mit den Meldungen zu dieser Datei in details" }
+        "501": { description: Lohnprogramm gehört nicht zum Land der Variante }
   /api/compensation/payroll-runs/{id}/export.csv:
     get:
       summary: Generischer CSV-Export (UTF-8 BOM, Semikolon); setzt Status auf exportiert

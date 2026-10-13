@@ -8,6 +8,7 @@ export * from './orgChart.js';
 export * from './absences.js';
 export * from './performance.js';
 export * from './compensation.js';
+export * from './datev.js';
 export * from './communication.js';
 export * from './recruiting.js';
 export * from './admin.js';

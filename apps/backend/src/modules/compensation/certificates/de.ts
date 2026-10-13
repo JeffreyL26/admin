@@ -141,7 +141,7 @@ function renderCertificateHtml(
   <span>${escapeHtml(formatDate(today))}</span>
 </header>
 <h1>${escapeHtml(title)}</h1>
-<p class="meta">${escapeHtml(name)} · Personalnummer ${escapeHtml(employee.personnel_number ?? String(employee.id))} · Zeitraum ${escapeHtml(period)}</p>
+<p class="meta">${escapeHtml(name)} · Personalnummer ${escapeHtml(employee.personnel_number?.trim() || String(employee.id))} · Zeitraum ${escapeHtml(period)}</p>
 ${bodyHtml}
 <div class="signature">
   <div class="line">Ort, Datum, Unterschrift Personalabteilung</div>

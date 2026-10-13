@@ -124,6 +124,14 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * `retry` fuer Abfragen, deren Seite einen 403 selbst erklaert: Ein fehlendes
+ * Recht aendert sich durch Wiederholen nicht, der Hinweis kommt sofort.
+ */
+export function retryUnlessForbidden(failureCount: number, error: Error): boolean {
+  return !(error instanceof ApiRequestError && error.status === 403) && failureCount < 2;
+}
+
 let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(fn: () => void): void {
   onUnauthorized = fn;

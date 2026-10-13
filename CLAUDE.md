@@ -810,7 +810,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Konto-Widerruf `DELETE`/`PATCH /api/admin/users/:id` und
   `POST …/reset-password` — der Lesezugriff steht im Nur-Lese-Betrieb allen
   bestehenden Konten offen, also muss ein ausgeschiedenes oder
-  kompromittiertes Konto entziehbar bleiben; Anlegen bleibt gesperrt).
+  kompromittiertes Konto entziehbar bleiben; Anlegen bleibt gesperrt;
+  dazu `PUT /api/settings/datev`, weil der DATEV-Export offen bleibt und
+  sein Prüfbericht sonst nicht zu beheben wäre).
   Die 403-Meldung ist kontoabhängig: Admins der Sachstand, Portal-Konten
   nur der neutrale Hinweis. `/api/license` hängt in `ROUTE_AREAS` am Bereich
   `einstellungen`; der Header `x-ohrganize-license` steht **nur auf
@@ -979,11 +981,54 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (`renderer/.../employeeForm.tsx`) lesen NUR ueber die Accessoren.
 - **Adapter statt fester Formate:** Lohnexport
   (`modules/compensation/payrollExport/`, Registry `PAYROLL_EXPORTERS`,
-  heute `lodas` fuer DE) und Bescheinigungen
+  heute `lodas` und `lug` fuer DE) und Bescheinigungen
   (`modules/compensation/certificates/`, `CERTIFICATE_TEMPLATES` je Land,
-  heute `de.ts`). Die Route `/export.datev` bleibt und schlaegt `lodas`
-  nach; ein Land ohne Vorlage antwortet mit 501 statt mit deutschen
-  Paragraphen.
+  heute `de.ts`). Die Route `/export.datev` bleibt und schlaegt den Adapter
+  aus der Einstellung `datevProgramm` nach; ein Land ohne Vorlage antwortet
+  mit 501 statt mit deutschen Paragraphen.
+- **DATEV-Lohnexport** (docs/datev-lohnexport.md): Alle Adapter lesen EINEN
+  Kontext (`payrollExport/context.ts`: Snapshot des Laufs, Personalakte
+  zum Exportzeitpunkt, genehmigte Fehltage des Monats gezaehlt wie
+  `countAbsenceDays`, also ohne Wochenende, Feiertage und Betriebsruhe, je
+  Tag ein Eintrag mit Krankheit vor Urlaub; gelesen in Sammelabfragen) und
+  EINEN Pruefbericht (`check.ts`). Was in welche Datei kommt, entscheidet
+  allein `positions.ts` (Bewegungen, Festbezuege, Lohnarten je Datei);
+  beide Adapter formatieren nur. Jede Meldung nennt mit `kinds` die
+  Dateien, die sie betrifft, und `issuesForFile` (shared) filtert fuer
+  Route (Sperre 409 `DATEV_EXPORT_BLOCKED`, Hinweisdaten) und Dialog
+  gleich, auch nach den Personen in der Datei. Feldnamen
+  (`LODAS_SATZ`), Wertelisten, Feldlaengen, Pruefziffern (IBAN,
+  SV-Nummer, Steuer-ID) und die Einordnung jeder Position
+  (`LODAS_POSITION_KIND`) stehen in `packages/shared/src/datev.ts`, nie in
+  einem Adapter. Dateien sind Buffer in Windows-1252 (`cp1252.ts`, NFC),
+  nie Strings. Wiederkehrende Bezuege gehen in der Vorgabe als
+  Festbezuege mit den STAMMDATEN (`u_lod_psd_festbezuege`, feste
+  `festbez_id` je Art, entfallene mit 0,00), nicht als monatliche Buchung;
+  `datevFestbezuege` kehrt das nur fuer Lohnbueros um, die keine
+  Festbezuege pflegen. Personengruppe nur beim Neueintritt (sonst
+  ueberschriebe die Ableitung Korrekturen in LODAS). Berater- und
+  Mandantennummer sind ab Werk LEER (Export gesperrt statt Demonummer;
+  Migration `403_datev_demo_numbers` entfernt gespeicherte Demowerte).
+  Schluesselfeld: `pnr` (Ziffern, verglichen als Zahl) oder mit
+  `datevBetrieblichePnr` `pnr_betriebliche#psd` in ALLEN Saetzen, auch den
+  Bewegungsdaten; Personalnummern werden auch gegen Profile ausserhalb des
+  Laufs geprueft. **Rechte:** Pruefbericht und Export verlangen neben
+  `verguetung` auch `personal: lesen` und `abwesenheit: lesen`
+  (`assertDatevAccess` in payrollRoutes.ts), sonst waere der Export der
+  Umweg an beiden Bereichen vorbei. Den Lauf auf „exportiert“ setzen nur
+  Bewegungsdaten und CSV, und nur mit `verguetung: bearbeiten`
+  (`markExported`). Kein HEAD auf beiden Exporten. Query `kind`/`scope`.
+  Lohnartennummern gelten nur GESPEICHERT (`datevSettingsFrom` mischt keine
+  Vorschlaege ein; die Seite belegt mit `DATEV_LOHNART_DEFAULTS` nur vor),
+  die Art der Nummer bestimmt `lohnartNumberKind` (shared) fuer Seite,
+  Positionsplan und Pruefbericht. Der Stundenlohn: `hourlyMonthCents`
+  (shared) im Lauf, eingefrorene `hours` im Snapshot, dieselben Stunden im
+  Export. Die Einstellungen schreibt nur `PUT /api/settings/datev` (in
+  `LICENSE_OPEN_ROUTES`, Zuordnungen werden zusammengefuehrt, die Seite
+  schickt nur Geaendertes). Jeder Export, auch CSV, schreibt
+  `auditStandalone('payroll_run.export_file')` mit SHA-256. Tests:
+  `src/test/datevTest.ts` (Dateien Zeile fuer Zeile) und
+  `modules/compensation/smoke.ts`, beide in `npm test`.
 - **Auswahllisten ueber die API:** `GET /api/regions[?country=]` liefert
   `{ country, country_label, regions }`; `GET /api/bundeslaender` bleibt als
   Alias. Beide stehen in `ALWAYS_ALLOWED` (`core/permissions.ts`), sonst

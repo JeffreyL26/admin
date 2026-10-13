@@ -53,7 +53,14 @@ export const employeeBodySchema = z.object({
   // oder pflegen ein eigenes Schema, oft mit führenden Nullen oder Präfix
   // ("P-0042"). Als Zahl gespeichert ginge diese Form verloren.
   // Eindeutigkeit erzwingt ein partieller UNIQUE-Index (Migration 104).
-  personnel_number: z.string().trim().max(40).nullish(),
+  // Leer heisst „keine Personalnummer“ (NULL): Ein gespeichertes '' fiele
+  // durch den Ersatz auf die Profil-ID in Exporten und Bescheinigungen.
+  personnel_number: z
+    .string()
+    .trim()
+    .max(40)
+    .nullish()
+    .transform((v) => (v === '' ? null : v)),
   email: nullableString,
   phone: nullableString,
   photo_file_id: z.number().int().positive().nullish(),

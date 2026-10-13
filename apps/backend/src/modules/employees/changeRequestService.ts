@@ -2,7 +2,10 @@ import { z } from 'zod';
 import {
   EMPLOYEE_SELF_EDITABLE_FIELDS,
   isOwnRequestDecision,
+  isValidBic,
+  isValidIban,
   maskConfidential,
+  normalizeIban,
   selfEditableField,
   type EmployeeChangeRequest,
   type EmployeeChangeRequestField,
@@ -59,15 +62,17 @@ function normalize(feld: EmployeeSelfEditableField, roh: string | null): string 
       break;
     case 'iban':
       // Leerzeichen sind auf Kontoauszügen üblich und werden hier still
-      // entfernt, statt die Eingabe abzulehnen.
-      wert = wert.replace(/\s+/g, '').toUpperCase();
-      if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]{10,30}$/.test(wert)) {
-        throw badRequest('Die IBAN hat nicht das erwartete Format (z. B. DE02120300000000202051).');
+      // entfernt, statt die Eingabe abzulehnen. Geprüft wird mit derselben
+      // Regel wie im DATEV-Export (Länge und Prüfsumme, packages/shared
+      // datev.ts): Was hier durchgeht, bemängelt der Export nicht später.
+      wert = normalizeIban(wert);
+      if (!isValidIban(wert)) {
+        throw badRequest('Die IBAN ist ungültig (Format oder Prüfsumme, z. B. DE02120300000000202051).');
       }
       break;
     case 'bic':
       wert = wert.replace(/\s+/g, '').toUpperCase();
-      if (!/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(wert)) {
+      if (!isValidBic(wert)) {
         throw badRequest('Der BIC hat nicht das erwartete Format (8 oder 11 Zeichen).');
       }
       break;

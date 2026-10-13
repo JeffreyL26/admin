@@ -143,3 +143,29 @@ export const MINIJOB_LIMIT_CENTS = 55600;
  * Cent/Stunde × Wochenstunden × 4,33 (Durchschnittswochen je Monat).
  */
 export const HOURLY_MONTH_FACTOR = 4.33;
+
+/** Wochenstunden, mit denen der Abrechnungslauf rechnet, wenn das Profil keine trägt. */
+export const DEFAULT_WEEKLY_HOURS = 40;
+
+/**
+ * Vertragsstunden eines Monats (Wochenstunden × 4,33), auf zwei
+ * Nachkommastellen kaufmännisch gerundet. Gerechnet in Hundertstel mit dem
+ * ganzzahligen Faktor 433: 15,5 × 4,33 ist als Gleitkommazahl
+ * 67,11499…, das Produkt 15,5 × 433 = 6711,5 dagegen exakt.
+ * Ohne Wochenstunden gilt dieselbe Vorgabe wie im Lauf (DEFAULT_WEEKLY_HOURS).
+ */
+export function contractMonthHours(weeklyHours: number | null | undefined): number {
+  return Math.round((weeklyHours ?? DEFAULT_WEEKLY_HOURS) * Math.round(HOURLY_MONTH_FACTOR * 100)) / 100;
+}
+
+/**
+ * Monatsbetrag eines Stundenlohns in Cent: Vertragsstunden (zwei Stellen) ×
+ * Stundensatz, kaufmännisch gerundet, in ganzen Zahlen gerechnet (Hundertstel
+ * Stunden × Cent). So rechnet auch das Lohnprogramm mit den Stunden aus dem
+ * DATEV-Export: 38,5 h ergeben 166,71 h, × 13,50 € = 2.250,585 €, also
+ * 2.250,59 € in Lauf und Lohnbüro gleichermaßen.
+ */
+export function hourlyMonthCents(rateCents: number, weeklyHours: number | null | undefined): number {
+  const hundredths = Math.round(contractMonthHours(weeklyHours) * 100);
+  return Math.round((hundredths * rateCents) / 100);
+}

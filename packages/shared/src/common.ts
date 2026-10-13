@@ -65,6 +65,15 @@ export function formatEuro(cents: number): string {
 }
 
 /**
+ * Integer-Cent als Dezimalzahl mit Komma, ohne Tausenderpunkt und Währung
+ * ('1234,56', '-12,50'): Eingabefelder, CSV und DATEV-Dateien. EINE Fassung;
+ * wer das Vorzeichen nicht will (DATEV), übergibt den Betrag selbst ohne.
+ */
+export function centsToDecimal(cents: number): string {
+  return (cents / 100).toFixed(2).replace('.', ',');
+}
+
+/**
  * Heutiges Datum als ISO-String in der LOKALEN Zeitzone.
  * `new Date().toISOString()` liefert UTC — in Deutschland ist das zwischen
  * 0 und 1/2 Uhr nachts noch der Vortag; Vorgabedaten und Fristenvergleiche

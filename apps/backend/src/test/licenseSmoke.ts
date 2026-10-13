@@ -264,6 +264,10 @@ const writeEmp = await createEmp(6);
 check('Nur-Lese: POST /api/employees → 403 LICENSE_EXPIRED', writeEmp.statusCode === 403 && writeEmp.json().error?.code === 'LICENSE_EXPIRED', writeEmp.json());
 const writeSettings = await app.inject({ method: 'PUT', url: '/api/settings', headers: auth, payload: { companyName: 'X' } });
 check('Nur-Lese: PUT /api/settings → 403', writeSettings.statusCode === 403 && writeSettings.json().error?.code === 'LICENSE_EXPIRED', writeSettings.json());
+// Der DATEV-Export bleibt offen, also auch seine Einstellungen: Sonst waere
+// ein Export, den der Pruefbericht sperrt, im Nur-Lese-Betrieb nicht zu beheben.
+const writeDatev = await app.inject({ method: 'PUT', url: '/api/settings/datev', headers: auth, payload: { datevBeraterNr: '28547', datevMandantenNr: '90909' } });
+check('Nur-Lese: PUT /api/settings/datev bleibt möglich', writeDatev.statusCode === 200 && writeDatev.json().settings?.datevBeraterNr === '28547', writeDatev.json());
 const patchRo = await app.inject({ method: 'PATCH', url: `/api/employees/${id1}`, headers: auth, payload: { phone: '1' } });
 check('Nur-Lese: PATCH → 403', patchRo.statusCode === 403, patchRo.json());
 
