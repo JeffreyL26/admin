@@ -2,6 +2,7 @@ import { getDb } from '../../db/db.js';
 import { notFound, badRequest, conflict } from '../../core/errors.js';
 import { addDaysIso } from '../../core/dates.js';
 import {
+  DEFAULT_WEEKLY_HOURS,
   HOURLY_MONTH_FACTOR,
   SALARY_DEDUCTION_KINDS,
   type SalaryComponentKind,
@@ -73,7 +74,7 @@ export function monthlyCents(
 ): number {
   const base =
     kind === 'stundenlohn'
-      ? Math.round(amountCents * (weeklyHours ?? 40) * HOURLY_MONTH_FACTOR)
+      ? Math.round(amountCents * (weeklyHours ?? DEFAULT_WEEKLY_HOURS) * HOURLY_MONTH_FACTOR)
       : amountCents;
   return (SALARY_DEDUCTION_KINDS as string[]).includes(kind) ? -base : base;
 }

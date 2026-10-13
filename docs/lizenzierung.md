@@ -80,8 +80,11 @@ außerdem genau die Schreibrouten, die den Weg zurück, den Export oder den
 Konto-Widerruf ermöglichen (`LICENSE_OPEN_ROUTES` in `core/license.ts`):
 Anmeldung, `/api/auth/me`, Passwortwechsel, `PUT /api/license`, die drei
 `…/sign`- bzw. `…/download`-POSTs, die nur eine kurzlebige Download-URL
-ausgeben, sowie `DELETE`/`PATCH /api/admin/users/:id` und
-`POST /api/admin/users/:id/reset-password`. Letztere aus einem
+ausgeben, `PUT /api/settings/datev` (die Einstellungen des DATEV-Exports:
+sein Prüfbericht sperrt ohne Berater- und Mandantennummer, Lohnarten oder
+passendes Schlüsselfeld, und der Export soll im Nur-Lese-Betrieb gerade
+möglich bleiben) sowie `DELETE`/`PATCH /api/admin/users/:id` und
+`POST /api/admin/users/:id/reset-password`. Die letzten beiden aus einem
 Sicherheitsgrund: Der Lesezugriff steht im Nur-Lese-Betrieb **allen**
 bestehenden Konten offen — ein ausgeschiedenes oder kompromittiertes Konto
 muss deshalb weiterhin gelöscht, zurückgesetzt (das entwertet alle

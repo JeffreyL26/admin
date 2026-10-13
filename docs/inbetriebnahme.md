@@ -247,11 +247,16 @@ Ergebnisse erzeugen:
 | Firmenname | `oHRganize GmbH` | steht auf Bescheinigungen und in Vorlagen |
 | Standard-Bundesland | `BY` | falsche Feiertage in Urlaubsberechnung und Kalender |
 | Verfallsdatum Resturlaub | `31.03.` | Resturlaub verfällt zum falschen Termin |
-| DATEV-Berater-/Mandantennummer | `1000001` / `10001` | Lohnexport landet beim falschen Mandanten |
 | Mindestteilnehmerzahl Umfragen | `5` | Schwelle, ab der Ergebnisse sichtbar werden |
 
-- [ ] Alle Werte auf die eigenen gesetzt, DATEV-Nummern mit der Steuerkanzlei
-      abgeglichen.
+Der DATEV-Lohnexport hat eine eigene Seite (**Einstellungen > DATEV-Lohnexport**):
+Berater- und Mandantennummer sind ab Werk leer, der Export ist bis dahin
+gesperrt (kein Demowert, der beim falschen Mandanten landen könnte). Dort
+stehen auch Lohnprogramm (LODAS oder Lohn und Gehalt), Lohnartennummern und
+Ausfallschlüssel; alles Weitere in `docs/datev-lohnexport.md`.
+
+- [ ] Alle Werte auf die eigenen gesetzt, DATEV-Nummern, Lohnarten und
+      Ausfallschlüssel mit der Steuerkanzlei abgeglichen.
 
 ## 7. Abwesenheitsarten prüfen (Gesundheitsdaten)
 

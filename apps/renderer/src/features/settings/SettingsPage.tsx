@@ -29,8 +29,6 @@ interface Settings {
   surveyMinParticipants: number;
   /** Portal-Kalender: Krankheiten anderer (maskiert als „Abwesend“) anzeigen. */
   portalShowOthersSickness: boolean;
-  datevBeraterNr: string;
-  datevMandantenNr: string;
 }
 
 export function SettingsPage() {
@@ -58,7 +56,16 @@ export function SettingsPage() {
   const settings = form ?? data?.settings ?? null;
 
   const save = useMutation({
-    mutationFn: (s: Settings) => api.put('/api/settings', s),
+    // Nur die Felder dieser Seite: GET liefert auch die DATEV-Einstellungen
+    // (/einstellungen/datev), die hier unangetastet bleiben.
+    mutationFn: (s: Settings) =>
+      api.put('/api/settings', {
+        companyName: s.companyName,
+        defaultBundesland: s.defaultBundesland,
+        carryoverDeadline: s.carryoverDeadline,
+        surveyMinParticipants: s.surveyMinParticipants,
+        portalShowOthersSickness: s.portalShowOthersSickness,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['settings'] });
       toast.success('Einstellungen gespeichert');
@@ -155,20 +162,6 @@ export function SettingsPage() {
                 jede Person weiterhin.
               </span>
             </div>
-            <Field label="DATEV-Beraternummer">
-              <input
-                className="hm-input"
-                value={settings.datevBeraterNr}
-                onChange={(e) => set({ datevBeraterNr: e.target.value })}
-              />
-            </Field>
-            <Field label="DATEV-Mandantennummer">
-              <input
-                className="hm-input"
-                value={settings.datevMandantenNr}
-                onChange={(e) => set({ datevMandantenNr: e.target.value })}
-              />
-            </Field>
           </div>
           <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>
             <button
@@ -181,8 +174,9 @@ export function SettingsPage() {
           </div>
         </Card>
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-          Passwort, Darstellung und Seitenleiste dieses Kontos finden Sie unter{' '}
-          <Link to="/einstellungen/konto">Konto</Link>.
+          Lohnprogramm, Berater- und Mandantennummer, Lohnarten und Ausfallschlüssel stehen unter{' '}
+          <Link to="/einstellungen/datev">DATEV-Lohnexport</Link>. Passwort, Darstellung und Seitenleiste
+          dieses Kontos finden Sie unter <Link to="/einstellungen/konto">Konto</Link>.
         </p>
       </div>
     </>

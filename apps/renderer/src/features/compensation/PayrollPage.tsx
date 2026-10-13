@@ -16,6 +16,7 @@ import { ConfirmDialog, Modal } from '../../components/Modal';
 import { useToast } from '../../components/Toast';
 import { currentMonth, downloadAuthenticated, FLAG_TONES, formatMonth, STATUS_TONES } from './lib';
 import { Tooltip } from '../../components/Tooltip';
+import { DatevExportDialog } from './DatevExportDialog';
 
 interface RunRow {
   id: number;
@@ -61,6 +62,7 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
   });
 
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [datevOpen, setDatevOpen] = useState(false);
   const discard = useMutation({
     mutationFn: () => api.delete(`/api/compensation/payroll-runs/${runId}`),
     onSuccess: () => {
@@ -82,16 +84,16 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
       toast.error(e instanceof ApiRequestError ? e.message : 'Statuswechsel fehlgeschlagen'),
   });
 
-  const doExport = async (format: 'datev' | 'csv') => {
+  // Der DATEV-Export laeuft ueber den Dialog (Pruefbericht, Wahl der Datei);
+  // hier nur noch der generische CSV-Export.
+  const doCsvExport = async () => {
     if (!data) return;
     try {
       await downloadAuthenticated(
-        `/api/compensation/payroll-runs/${runId}/export.${format}`,
-        format === 'datev'
-          ? `lodas_bewegungsdaten_${data.run.month}.txt`
-          : `abrechnung_${data.run.month}.csv`,
+        `/api/compensation/payroll-runs/${runId}/export.csv`,
+        `abrechnung_${data.run.month}.csv`,
       );
-      toast.success(format === 'datev' ? 'DATEV-Export erstellt' : 'CSV-Export erstellt');
+      toast.success('CSV-Export erstellt');
       queryClient.invalidateQueries({ queryKey: ['compensation'] });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Export fehlgeschlagen');
@@ -130,12 +132,17 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
                 </button>
               </>
             )}
-            <Tooltip content={run.status === 'offen' ? <span className="hm-tooltip__title">{'Der Lauf muss zuerst geprüft werden'}</span> : null}>
-              <button
-                className="hm-btn hm-btn--secondary"
-                disabled={run.status === 'offen'}
-                onClick={() => doExport('datev')}
-              >
+            <Tooltip
+              content={
+                <>
+                  <span className="hm-tooltip__title">Prüfbericht und Datei für das Lohnbüro</span>
+                  <span className="hm-tooltip__line">
+                    {run.status === 'offen' ? 'Export erst nach der Prüfung' : 'LODAS oder Lohn und Gehalt laut Einstellungen'}
+                  </span>
+                </>
+              }
+            >
+              <button className="hm-btn hm-btn--secondary" onClick={() => setDatevOpen(true)}>
                 <Download size={16} /> DATEV-Export
               </button>
             </Tooltip>
@@ -143,7 +150,7 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
               <button
                 className="hm-btn hm-btn--secondary"
                 disabled={run.status === 'offen'}
-                onClick={() => doExport('csv')}
+                onClick={doCsvExport}
               >
                 <FileSpreadsheet size={16} /> CSV-Export
               </button>
@@ -239,6 +246,13 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
           </div>
         )}
       </Card>
+      <DatevExportDialog
+        runId={runId}
+        month={run.month}
+        runStatus={run.status}
+        open={datevOpen}
+        onClose={() => setDatevOpen(false)}
+      />
       <ConfirmDialog
         open={discardOpen}
         title="Abrechnungslauf verwerfen"

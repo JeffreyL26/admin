@@ -141,7 +141,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   // Browserkern den Versions- und Lizenz-Header nicht an den Client geben.
   await app.register(cors, {
     origin: config.corsOrigin,
-    exposedHeaders: [SERVER_VERSION_HEADER, LICENSE_STATE_HEADER],
+    // Content-Disposition: Downloads per fetch (Lohnexporte) nehmen den
+    // Dateinamen aus der Antwort; ohne Freigabe sieht der Client sie nicht.
+    exposedHeaders: [SERVER_VERSION_HEADER, LICENSE_STATE_HEADER, 'Content-Disposition'],
   });
   await app.register(jwt, { secret: config.secret, sign: { expiresIn: config.tokenTtl } });
   await app.register(multipart, {

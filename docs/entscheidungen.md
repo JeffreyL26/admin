@@ -1657,3 +1657,90 @@ Bestandszahlen unveraendert).
 - Ablauf ueber die Betreiberskripte mit einem Archiv dieser Fassung nicht
   durchgespielt (Stand und Liste: `deploy/README.md`, Abschnitt 9.7, und
   `deploy/windows/README.md`, „Was der Probelauf gezeigt hat“).
+
+## DATEV-Lohnexport: Festbezuege als Stammdaten, Pruefbericht vor der Datei, Windows-1252
+
+**Entscheidung:** Der LODAS-Export folgt dem Schnittstellenhandbuch Feld
+fuer Feld (`payrollExport/lodas.ts`, Pruefung Zeile fuer Zeile in
+`src/test/datevTest.ts`). Wiederkehrende Bezuege (Gehalt, Zulagen,
+Sachbezuege, VWL, bAV, Abzuege) gehen in der Vorgabe als Festbezuege mit
+den Personalstammdaten (`u_lod_psd_festbezuege`, gueltig ab dem
+Abrechnungsmonat, feste Kennung je Art), die Bewegungsdaten tragen nur
+Einmalzahlungen, Stunden und Fehltage. Ein Pruefbericht steht vor jeder
+Datei: Fehler sperren (409 mit Bericht), Warnungen reisen als
+`[Hinweisdaten]` mit und erscheinen im Pruefprotokoll von LODAS. Alle
+Regeln ohne Datenbank (Feldnamen, Wertelisten, Pruefziffern, Einordnung
+der Positionen) liegen in `packages/shared/src/datev.ts`; Berater- und
+Mandantennummer sind ab Werk leer. Lohn und Gehalt ist ein zweiter
+Adapter derselben Registry mit elf Spalten.
+
+**Warum:** Die bisherige Datei war nicht importierbar: Sie nannte
+Feldnamen, die es in LODAS nicht gibt (`lohnart_nummer#bwd`,
+`betrag#bwd`), einen Kopfschluessel `Datum=`, keinen
+Bearbeitungsschluessel, und sie war UTF-8 statt ANSI. Sie buchte ausserdem
+jeden Monat das volle Gehalt als Bruttobezug; wo das Lohnbuero den
+Festbezug pflegt (der Normalfall in LODAS), haette ein Import doppelt
+gezahlt. Abzuege verloren ihr Vorzeichen und wurden zu Bezuegen. Nichts
+davon fiel auf, weil kein Test die Zeilen pruefte und der Verguetungs-
+Smoke-Test nicht in `npm test` lief.
+
+**Warum Festbezuege als Stammdaten und nicht als Buchung:** LODAS
+unterscheidet Festbezuege (Stammdaten, jeden Monat automatisch) von
+Bewegungsdaten (das Variable eines Monats). Eine HR-Software ist die
+Quelle der Vertraege, also liefert sie die Festbezuege dorthin, wo LODAS
+sie fuehrt, mit `StammdatenGueltigAb` und einer festen `festbez_id` je
+Art, damit ein spaeterer Export denselben Festbezug aktualisiert statt
+einen zweiten anzulegen. Die monatliche Buchung bleibt als Einstellung
+fuer Lohnbueros, die keine Festbezuege pflegen; sie ist ausdruecklich die
+Ausnahme.
+
+**Warum ein Pruefbericht statt einer Datei mit Rueckfall:** Der alte
+Export ersetzte eine fehlende Lohnart still durch `999` und uebernahm
+jede Personalnummer; die Datei sah fertig aus und scheiterte erst beim
+Lohnbuero oder, schlimmer, lief mit falschen Nummern durch. Jetzt ist
+alles, was die Datei unbrauchbar oder fehlgeleitet machte (Nummern des
+Mandanten, Lohnarten, Schluesselfeld), ein Fehler und sperrt; alles, was
+das Lohnbuero wissen, aber selbst entscheiden sollte (fehlende IBAN,
+abgeleitete Personengruppe, gekuerzte Namen), ist eine Warnung und reist
+in der Datei mit, damit beide Seiten dieselbe Liste sehen.
+
+**Warum Windows-1252 als Buffer:** LODAS und Lohn und Gehalt lesen ANSI.
+Ein UTF-8-Umlaut wird dort zu zwei Zeichen im Namen. Node hat keinen
+Encoder dafuer, also ein eigener mit der Tabelle der 27 Sonderzeichen des
+Bereichs 0x80 bis 0x9F; was nicht darstellbar ist, wird `?` und steht
+vorher im Pruefbericht. Die Route liefert den Buffer mit
+`charset=windows-1252`, der Client nimmt den Dateinamen aus der Antwort.
+
+**Verworfen, Beitragsgruppen und Krankenkassen-Betriebsnummer
+abzuleiten:** Die Personalakte fuehrt sie nicht, und eine falsche
+Beitragsgruppe wirkt monatelang still. Die Personengruppe ist die eine
+Ableitung, die sicher genug ist (Beschaeftigungsart zu 101, 102, 105,
+106, 109); sie ist in den Hinweisdaten als Ableitung gekennzeichnet.
+
+**Verworfen, Ist-Stunden zu schaetzen:** Vertragsstunden (Wochenstunden
+mal 4,33) gehen nur auf ausdruecklichen Wunsch mit und sind in der Datei
+als solche benannt. Eine Schaetzung, die wie eine Messung aussieht, waere
+der teurere Fehler.
+
+**Warum der Export Personal und Abwesenheit verlangt:** Er fuehrt Daten
+dreier Bereiche zusammen. Mit `verguetung: lesen` allein waere er der Weg
+an Bankverbindung, Steuer-ID, SV-Nummer und Krankheitstagen vorbei, die
+dieselbe Rolle in ihren eigenen Bereichen nicht sehen darf. Geprueft wird
+im Handler wie beim Dashboard; die Routenzuordnung bleibt `verguetung`.
+
+**Warum Fehler je Datei sperren:** Eine Lohnart, die nur in den
+Stammdaten steht, sperrte frueher auch die Bewegungsdaten, und bei Lohn
+und Gehalt eine Nummer, die in gar keiner Datei stand. Was eine Datei
+traegt, entscheidet jetzt EIN Positionsplan (`positions.ts`), den beide
+Adapter und der Pruefbericht lesen; jede Meldung nennt ihre Dateien.
+
+**Warum die Personengruppe nur beim Neueintritt mitgeht:** Ein nicht
+leeres Feld ueberschreibt in LODAS. Die Ableitung aus der
+Beschaeftigungsart haette bei jedem Export die Korrekturen des
+Lohnbueros (Altersrentner, Altersteilzeit) zurueckgesetzt.
+
+**Offen:** Das Konfessionsfeld heisst nach der Feldbeschreibung
+`konf_an#psd`, die Mustervorlage von 2016 nennt `konf#psd`; ein Prueflauf
+beim ersten Kunden klaert das. Entfallene Festbezuege gehen mit 0,00 statt
+ueber `[Entfernen]`. Im Nur-Lese-Betrieb der Lizenz lassen sich die
+DATEV-Einstellungen aendern, doppelte Personalnummern aber nicht.

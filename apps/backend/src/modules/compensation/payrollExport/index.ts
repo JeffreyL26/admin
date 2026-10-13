@@ -1,75 +1,68 @@
 /**
  * Registry der Lohnexport-Adapter.
  *
- * Abrechnungsformate sind Landesrecht: DATEV LODAS ist ein deutsches
- * Format, ein oesterreichischer oder Schweizer Kunde braucht ein anderes.
- * Statt eines Formats fest in der Route steht hier eine kleine Registry;
- * die Route `/export.datev` schlaegt den Adapter `lodas` nach und bleibt
- * unveraendert, damit bestehende Lesezeichen und die Oberflaeche weiter
- * funktionieren. Ein neues Land bringt eine Datei daneben und einen Eintrag
- * in EXPORTERS mit.
+ * Abrechnungsformate sind Landesrecht: DATEV LODAS und DATEV Lohn und
+ * Gehalt sind deutsche Formate, ein oesterreichischer oder Schweizer Kunde
+ * braucht andere. Statt eines Formats fest in der Route steht hier eine
+ * kleine Registry; die Route `/export.datev` schlaegt den Adapter aus der
+ * Einstellung `datevProgramm` nach. Ein neues Land bringt eine Datei
+ * daneben und einen Eintrag in PAYROLL_EXPORTERS mit.
+ *
+ * Alle Adapter lesen denselben Kontext (context.ts) und denselben
+ * Pruefbericht (check.ts); sie formatieren nur. Das Ergebnis ist ein Buffer
+ * im Zeichensatz des Zielprogramms (Windows-1252), nie ein String.
  */
-import type { CountryCode } from '@ohrganize/shared';
-import type { CompanySettings } from '../../../core/settings.js';
+import type {
+  CountryCode,
+  DatevCheckReport,
+  DatevExportKind,
+  DatevProgram,
+  DatevStammdatenScope,
+} from '@ohrganize/shared';
+import type { DatevExportContext, DatevPerson } from './context.js';
 import { lodasExporter } from './lodas.js';
+import { lugExporter } from './lug.js';
 
-/** Abrechnungslauf, so viel davon ein Adapter braucht. */
-export interface PayrollExportRun {
-  id: number;
-  /** Abrechnungsmonat 'JJJJ-MM'. */
-  month: string;
-  status: string;
-}
-
-/** Eine Zeile des Laufs, angereichert um den Namen der Person. */
-export interface PayrollExportItem {
-  employee_id: number;
-  /** Personalnummer fuer den Export; die Route liefert ersatzweise die Profil-ID. */
-  personnel_number: string;
-  gross_cents: number;
-  bonus_cents: number;
-  total_cents: number;
-  components_json: string;
-  bonuses_json: string;
-  flags_json: string;
-  warnings_json: string;
-  unpaid_absence_days: number;
-  first_name?: string;
-  last_name?: string;
-  employee_type?: string;
+export interface DatevFile {
+  filename: string;
+  contentType: string;
+  content: Buffer;
 }
 
 export interface PayrollExporter {
-  /** Schluessel in der Registry und im Audit-Eintrag des Exports. */
-  id: string;
+  /** Schluessel in der Registry, Einstellung `datevProgramm` und Audit-Eintrag. */
+  id: DatevProgram;
   country: CountryCode;
   label: string;
-  contentType: string;
-  filename(run: PayrollExportRun): string;
+  /** Welche Dateien der Adapter liefert. */
+  kinds: DatevExportKind[];
+  /** Personen, die eine Datei enthaelt (Sperre und Hinweisdaten betreffen nur sie). */
+  persons(kind: DatevExportKind, ctx: DatevExportContext, scope: DatevStammdatenScope): DatevPerson[];
   render(
-    run: PayrollExportRun,
-    items: readonly PayrollExportItem[],
-    settings: CompanySettings,
-  ): string;
+    kind: DatevExportKind,
+    ctx: DatevExportContext,
+    options: { scope: DatevStammdatenScope; report: DatevCheckReport },
+  ): DatevFile;
 }
 
 /** Alle bekannten Adapter, Schluessel ist `PayrollExporter.id`. */
-export const PAYROLL_EXPORTERS: Record<string, PayrollExporter> = {
-  [lodasExporter.id]: lodasExporter,
+export const PAYROLL_EXPORTERS: Record<DatevProgram, PayrollExporter> = {
+  lodas: lodasExporter,
+  lug: lugExporter,
 };
 
 export function payrollExporter(id: string): PayrollExporter {
-  const exporter = PAYROLL_EXPORTERS[id];
+  const exporter = (PAYROLL_EXPORTERS as Record<string, PayrollExporter | undefined>)[id];
   if (!exporter) throw new Error(`Unbekannter Lohnexport-Adapter: ${id}`);
   return exporter;
 }
 
-/** Adapter eines Landes (Auswahlliste, spaeter mehrere je Land). */
+/** Adapter eines Landes (Auswahl der Einstellungen, Pruefung der Route). */
 export function payrollExportersFor(country: CountryCode): PayrollExporter[] {
   return Object.values(PAYROLL_EXPORTERS).filter((e) => e.country === country);
 }
 
-/** Betrag in Cent als Dezimaldarstellung mit Komma ('1234,56'). */
+/** Betrag in Cent als Dezimaldarstellung mit Komma ('1234,56'), fuer den CSV-Export. */
 export function decimalComma(cents: number): string {
   return (cents / 100).toFixed(2).replace('.', ',');
 }

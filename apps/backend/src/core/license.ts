@@ -380,6 +380,12 @@ export const LICENSE_OPEN_ROUTES: ReadonlySet<string> = new Set([
   // Rechteprüfung (benutzer: bearbeiten) greift danach unverändert.
   '/api/admin/users/:id',
   '/api/admin/users/:id/reset-password',
+  // DATEV-Einstellungen (core/settingsRoutes.ts): Der DATEV-Export bleibt im
+  // Nur-Lese-Betrieb offen, sein Pruefbericht sperrt aber ohne Berater- und
+  // Mandantennummer, Lohnarten oder passendes Schluesselfeld. Ohne diese
+  // Route waere ein gesperrter Export dort nicht mehr zu beheben. Die
+  // Rechtepruefung (einstellungen: bearbeiten) greift unveraendert.
+  '/api/settings/datev',
 ]);
 
 /** Sicht des gemeinsamen Textbausteins auf den Kern (ohne Platzzaehlung). */

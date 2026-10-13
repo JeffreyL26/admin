@@ -29,16 +29,39 @@ export function currentMonth(): string {
   return todayIsoLocal().slice(0, 7);
 }
 
-/** Datei-Download eines auth-pflichtigen GET-Endpunkts (Exporte). */
-export async function downloadAuthenticated(path: string, filename: string): Promise<void> {
+/** Fehler eines Exports samt `details` der Antwort (etwa der DATEV-Pruefbericht bei 409). */
+export class ExportError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string,
+    public details?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Datei-Download eines auth-pflichtigen GET-Endpunkts (Exporte). Den
+ * Dateinamen bestimmt der Server (Content-Disposition); `fallbackFilename`
+ * greift nur, wenn die Kopfzeile fehlt.
+ */
+export async function downloadAuthenticated(path: string, fallbackFilename: string): Promise<void> {
   const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!res.ok) {
     const json = await res.json().catch(() => null);
-    throw new Error(json?.error?.message ?? `Export fehlgeschlagen (HTTP ${res.status})`);
+    throw new ExportError(
+      json?.error?.message ?? `Export fehlgeschlagen (HTTP ${res.status})`,
+      res.status,
+      json?.error?.code,
+      json?.error?.details,
+    );
   }
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallbackFilename;
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

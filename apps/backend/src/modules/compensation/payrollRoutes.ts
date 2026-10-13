@@ -1,12 +1,26 @@
+import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
-import { parse, conflict, notFound } from '../../core/errors.js';
-import { audit } from '../../core/audit.js';
-import { getAllSettings, getSetting } from '../../core/settings.js';
-import { MINIJOB_LIMIT_CENTS, formatMoney, localeFor, currencyFor, type PayrollFlag } from '@ohrganize/shared';
+import { AppError, parse, badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
+import { audit, auditStandalone } from '../../core/audit.js';
+import { permissionsFor } from '../../core/permissions.js';
+import {
+  COUNTRY_LABELS,
+  DATEV_EXPORT_KIND_LABELS,
+  MINIJOB_LIMIT_CENTS,
+  formatMoney,
+  issuesForFile,
+  localeFor,
+  currencyFor,
+  permits,
+  summarizeIssues,
+  type PayrollFlag,
+} from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { decimalComma, payrollExporter } from './payrollExport/index.js';
+import { buildDatevContext } from './payrollExport/context.js';
+import { checkDatevExport } from './payrollExport/check.js';
 import {
   assertMonth,
   goalById,
@@ -502,23 +516,128 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * Lohnexport im Format des Variantenlandes. Der Pfad nennt weiterhin
-   * `datev`, weil Oberflaeche und Lesezeichen ihn so kennen; den Inhalt
-   * liefert der Adapter `lodas` aus payrollExport/ (Registry je Land).
-   * Der Export setzt den Lauf-Status auf 'exportiert' (Voraussetzung:
-   * geprueft).
+   * Der DATEV-Export fuehrt Daten anderer Bereiche zusammen: Stammdaten
+   * (Bankverbindung, Steuer-ID, SV-Nummer, Anschrift) aus `personal` und
+   * Fehltage je Tag samt Krankheit aus `abwesenheit`. `verguetung: lesen`
+   * allein darf sie deshalb nicht bekommen, sonst waere der Export der
+   * Umweg an beiden Bereichen vorbei.
    */
-  app.get('/api/compensation/payroll-runs/:id/export.datev', async (req, reply: FastifyReply) => {
+  function assertDatevAccess(req: FastifyRequest): void {
+    const rights = permissionsFor(req.user.admin_role_id ?? null);
+    const missing = [
+      permits(rights.personal, 'lesen') ? null : 'Personal',
+      permits(rights.abwesenheit, 'lesen') ? null : 'Abwesenheit',
+    ].filter(Boolean);
+    if (missing.length > 0) {
+      throw forbidden(
+        `Der DATEV-Export enthält Stamm- und Abwesenheitsdaten; Ihrer Rolle fehlt dafür Lesen im Bereich ${missing.join(' und ')}.`,
+      );
+    }
+  }
+
+  /** Adapter des Lohnprogramms; ein Programm eines anderen Landes als der Variante gibt es hier nicht (501). */
+  function exporterFor(program: string) {
+    const exporter = payrollExporter(program);
+    if (exporter.country !== VARIANT.country) {
+      throw new AppError(501, 'NOT_IMPLEMENTED', `Für ${COUNTRY_LABELS[VARIANT.country]} gibt es keinen Lohnexport ${exporter.label}`);
+    }
+    return exporter;
+  }
+
+  /**
+   * Pruefbericht vor dem DATEV-Export: Programm, Schluesselfeld, Fehler
+   * (sperren die Dateien, die sie betreffen) und Warnungen (landen in den
+   * Hinweisdaten), dazu die Dateien, die der Adapter liefert, mit den
+   * Personen je Umfang. Reine Leseroute, aendert nichts am Lauf.
+   */
+  app.get('/api/compensation/payroll-runs/:id/datev-check', async (req) => {
+    assertDatevAccess(req);
     const id = Number((req.params as { id: string }).id);
     const run = getRun(id);
-    const exporter = payrollExporter('lodas');
-    markExported(req, run, exporter.id);
-    const body = exporter.render(run, getItems(id), getAllSettings());
-    reply
-      .header('Content-Type', exporter.contentType)
-      .header('Content-Disposition', `attachment; filename="${exporter.filename(run)}"`);
-    return reply.send(body);
+    const ctx = buildDatevContext(run);
+    const report = checkDatevExport(ctx);
+    const exporter = exporterFor(ctx.settings.program);
+    return {
+      report,
+      files: exporter.kinds.map((kind) => {
+        const changed = kind === 'stammdaten' ? exporter.persons(kind, ctx, 'aenderungen') : null;
+        return {
+          kind,
+          label: DATEV_EXPORT_KIND_LABELS[kind],
+          person_count: ctx.persons.length,
+          changed_count: changed?.length,
+          changed_employee_ids: changed?.map((p) => p.employee_id),
+        };
+      }),
+    };
   });
+
+  /**
+   * Lohnexport im Format des Lohnprogramms (Einstellung `datevProgramm`;
+   * Registry je Land in payrollExport/). Der Pfad nennt weiterhin `datev`,
+   * weil Oberflaeche und Lesezeichen ihn so kennen. `art` waehlt
+   * Bewegungsdaten (Vorgabe) oder Stammdaten (nur LODAS), `umfang` bei
+   * Stammdaten alle Personen oder nur die mit Neueintritt, Austritt,
+   * Gehalts- oder Stammdatenaenderung. Fehler des Pruefberichts sperren die
+   * Datei, die sie betreffen (409 mit diesen Meldungen), Warnungen stehen in
+   * der Datei. Der erste Export setzt den Lauf auf 'exportiert'
+   * (Voraussetzung: geprueft); jeder Export, auch ein wiederholter,
+   * hinterlaesst einen Audit-Eintrag mit der Pruefsumme der Datei, damit
+   * sich spaeter belegen laesst, was das Lohnbuero bekam. Kein HEAD: Er
+   * setzte den Status und schriebe eine Pruefsumme fuer eine Datei, die
+   * niemand bekommt.
+   */
+  app.get(
+    '/api/compensation/payroll-runs/:id/export.datev',
+    { exposeHeadRoute: false },
+    async (req, reply: FastifyReply) => {
+    assertDatevAccess(req);
+    const id = Number((req.params as { id: string }).id);
+    const query = parse(
+      z.object({
+        art: z.enum(['bewegungsdaten', 'stammdaten']).default('bewegungsdaten'),
+        umfang: z.enum(['aenderungen', 'alle']).default('aenderungen'),
+      }),
+      req.query,
+    );
+    const run = getRun(id);
+    if (run.status === 'offen') throw conflict('Der Lauf muss vor dem Export geprüft werden');
+    const ctx = buildDatevContext(run);
+    const report = checkDatevExport(ctx);
+    const exporter = exporterFor(ctx.settings.program);
+    if (!exporter.kinds.includes(query.art)) {
+      throw badRequest(`${exporter.label} kennt keine Datei „${DATEV_EXPORT_KIND_LABELS[query.art]}“`);
+    }
+    const inFile = exporter.persons(query.art, ctx, query.umfang);
+    const relevant = issuesForFile(report.issues, query.art, new Set(inFile.map((p) => p.employee_id)));
+    const errors = relevant.filter((i) => i.level === 'fehler');
+    if (errors.length > 0) {
+      throw new AppError(
+        409,
+        'DATEV_EXPORT_BLOCKED',
+        `Der DATEV-Export ist gesperrt: ${errors.length} Fehler im Prüfbericht`,
+        { ...report, issues: relevant, ...summarizeIssues(relevant) },
+      );
+    }
+    const file = exporter.render(query.art, ctx, { scope: query.umfang, report });
+    markExported(req, run, exporter.id);
+    auditStandalone(req, 'payroll_run.export_file', 'payroll_run', run.id, {
+      month: run.month,
+      program: exporter.id,
+      kind: query.art,
+      scope: query.art === 'stammdaten' ? query.umfang : undefined,
+      filename: file.filename,
+      bytes: file.content.length,
+      sha256: createHash('sha256').update(file.content).digest('hex'),
+      persons: inFile.length,
+      warnings: relevant.length,
+    });
+    reply
+      .header('Content-Type', file.contentType)
+      .header('Content-Disposition', `attachment; filename="${file.filename}"`);
+    return reply.send(file.content);
+    },
+  );
 
   // Generischer CSV-Export (UTF-8 mit BOM, Semikolon) — setzt Status auf
   // 'exportiert' (Voraussetzung: geprüft).

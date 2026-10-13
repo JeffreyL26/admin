@@ -4,7 +4,7 @@ import {
   Wallet, Calculator, Gift, Receipt, FileBadge, BookUser, Megaphone, BarChart3,
   FileText, Contact, Settings, Briefcase, KanbanSquare, UserSearch, CalendarClock,
   LineChart, FileStack, UserPlus, ShieldCheck, KeyRound, UsersRound, Gauge, SlidersHorizontal,
-  FilePenLine, BadgeCheck, User,
+  FilePenLine, BadgeCheck, User, FileOutput,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { DashboardIcon } from './DashboardIcon';
@@ -19,6 +19,12 @@ export interface NavItem {
   icon: LucideIcon;
   /** Abweichender Rechtebereich, wenn ein Eintrag nicht zu seinem Abschnitt passt. */
   area?: AdminArea;
+  /**
+   * Modul, an dem der Eintrag haengt, wenn es nicht das seines Bereichs ist
+   * (DATEV-Lohnexport: Bereich einstellungen, Modul compensation). Fehlt das
+   * Modul in der Variante, entfaellt der Eintrag.
+   */
+  module?: ModuleKey;
   /**
    * Nur für freigeschaltete Führungskräfte sichtbar — unabhängig von jedem
    * Rechtebereich (GET /api/leadership/me/status). Durchgesetzt wird der
@@ -57,8 +63,9 @@ function sectionModule(section: NavSection): ModuleKey | null {
   return section.area ? AREA_MODULES[section.area] : null;
 }
 
-/** Modul eines Eintrags: das seines Rechtebereichs, sonst das des Abschnitts. */
+/** Modul eines Eintrags: explizit, sonst das seines Rechtebereichs, sonst das des Abschnitts. */
 function itemModule(section: NavSection, item: NavItem): ModuleKey | null {
+  if (item.module) return item.module;
   if (item.area) return AREA_MODULES[item.area] ?? sectionModule(section);
   return sectionModule(section);
 }
@@ -199,6 +206,9 @@ export const ALL_NAV_SECTIONS: NavSection[] = [
     title: 'System',
     items: [
       { path: '/einstellungen', label: 'Einstellungen', icon: Settings, end: true, area: 'einstellungen' },
+      // Lohnprogramm, Berater- und Mandantennummer, Lohnarten, Ausfallschluessel
+      // (features/settings/DatevSettingsPage.tsx); Bereich einstellungen, Modul compensation.
+      { path: '/einstellungen/datev', label: 'DATEV-Lohnexport', icon: FileOutput, area: 'einstellungen', module: 'compensation' },
       // Lizenzzustand, Lizenzdatei einspielen, Lizenzbericht (features/settings/LicensePage.tsx).
       { path: '/einstellungen/lizenz', label: 'Lizenz', icon: BadgeCheck, area: 'einstellungen' },
       // Persoenliche Einstellungen des Kontos (features/settings/AccountPage.tsx).

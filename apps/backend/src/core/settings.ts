@@ -1,3 +1,4 @@
+import { DATEV_LOHNART_DEFAULTS, type DatevFestbezuegeMode, type DatevProgram } from '@ohrganize/shared';
 import { getDb } from '../db/db.js';
 
 // Das LAND der Installation steht bewusst NICHT hier: Es kommt aus der
@@ -22,8 +23,25 @@ export interface CompanySettings {
    * anderer ganz weg. Eigene Krankmeldungen sieht die Person immer.
    */
   portalShowOthersSickness: boolean;
+  /**
+   * DATEV-Lohnexport (modules/compensation/payrollExport, docs/datev-lohnexport.md).
+   * Berater- und Mandantennummer sind ab Werk LEER: Ohne sie ist der Export
+   * gesperrt, statt mit einer Demonummer beim falschen Mandanten zu landen.
+   */
   datevBeraterNr: string;
   datevMandantenNr: string;
+  /** Lohnprogramm des Lohnbueros: LODAS (Stamm- und Bewegungsdaten) oder Lohn und Gehalt (nur Bewegungsdaten). */
+  datevProgramm: DatevProgram;
+  /** LODAS: betriebliche Personalnummer (bis 20 Zeichen) statt der 5-stelligen Mitarbeiternummer als Schluessel. */
+  datevBetrieblichePnr: boolean;
+  /** Wiederkehrende Bezuege als Festbezuege (Stammdaten) oder monatliche Buchung. */
+  datevFestbezuege: DatevFestbezuegeMode;
+  /** Stundenloehner: Vertragsstunden (Wochenstunden mal 4,33) als Stunden uebergeben; ohne Zeiterfassung sonst nichts. */
+  datevVertragsstunden: boolean;
+  /** Lohnartennummer je DatevLohnartKey; was fehlt, nimmt den Vorschlag aus DATEV_LOHNART_DEFAULTS. */
+  datevLohnarten: Record<string, string>;
+  /** Ausfallschluessel je Abwesenheitsart (Schluessel: id als Text); ohne Eintrag wird die Art nicht uebergeben. */
+  datevAusfallschluessel: Record<string, string>;
 }
 
 const defaults: CompanySettings = {
@@ -32,8 +50,14 @@ const defaults: CompanySettings = {
   carryoverDeadline: '03-31',
   surveyMinParticipants: 5,
   portalShowOthersSickness: true,
-  datevBeraterNr: '1000001',
-  datevMandantenNr: '10001',
+  datevBeraterNr: '',
+  datevMandantenNr: '',
+  datevProgramm: 'lodas',
+  datevBetrieblichePnr: false,
+  datevFestbezuege: 'stammdaten',
+  datevVertragsstunden: false,
+  datevLohnarten: DATEV_LOHNART_DEFAULTS,
+  datevAusfallschluessel: {},
 };
 
 export function getSetting<K extends keyof CompanySettings>(key: K): CompanySettings[K] {

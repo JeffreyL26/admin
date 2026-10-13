@@ -160,4 +160,18 @@ export const compensationMigrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_freelancer_invoices_file ON freelancer_invoices(file_id) WHERE file_id IS NOT NULL;
     `,
   },
+  {
+    // Die fruehere Einstellungsseite speicherte beim Sichern das ganze
+    // Formular, also auch die Demowerte der DATEV-Nummern (1000001 und
+    // 10001), selbst wenn niemand sie angefasst hatte. Seit der Pruefbericht
+    // den Export ohne Nummern sperrt, liessen genau diese Werte ihn beim
+    // falschen Mandanten durch. Sie werden entfernt; die Einstellung faellt
+    // auf leer zurueck und der Export ist gesperrt, bis die echten Nummern
+    // eingetragen sind (Einstellungen > DATEV-Lohnexport).
+    name: '403_datev_demo_numbers',
+    sql: `
+      DELETE FROM app_settings WHERE key = 'datevBeraterNr' AND value = '"1000001"';
+      DELETE FROM app_settings WHERE key = 'datevMandantenNr' AND value = '"10001"';
+    `,
+  },
 ];

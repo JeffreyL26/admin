@@ -38,8 +38,9 @@ const insertEmployee = db.prepare(
   `INSERT INTO employees (first_name, last_name, employee_type, status, hire_date, weekly_hours, iban, tax_id, social_security_number)
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
+// Gueltige Pruefziffern (Steuer-ID, SV-Nummer): Der DATEV-Pruefbericht unten darf fuer E1 keine Warnung melden.
 const e1 = Number(
-  insertEmployee.run('Anna', 'Muster', 'vollzeit', 'aktiv', '2020-01-01', 40, 'DE02120300000000202051', '12345678901', '12 160894 M 007').lastInsertRowid,
+  insertEmployee.run('Anna', 'Muster', 'vollzeit', 'aktiv', '2020-01-01', 40, 'DE02120300000000202051', '86095742719', '15 070649 C 103').lastInsertRowid,
 );
 const e2 = Number(
   insertEmployee.run('Ben', 'Klein', 'minijob', 'aktiv', day15, 5, null, null, null).lastInsertRowid,
@@ -52,7 +53,14 @@ const e4 = Number(
   insertEmployee.run('Dora', 'Ohne', 'vollzeit', 'aktiv', null, 40, null, null, null).lastInsertRowid,
 );
 // Personalnummer (Migration 104) fuer CSV, LODAS und Bescheinigung; E2 bleibt ohne (Rueckfall auf die ID).
+// P-0042 ist keine LODAS-Mitarbeiternummer (Ziffern): Der Export verlangt
+// unten die betriebliche Personalnummer, vorher sperrt ihn der Pruefbericht.
 db.prepare('UPDATE employees SET personnel_number = ? WHERE id = ?').run('P-0042', e1);
+db.prepare(
+  `UPDATE employees SET birth_date = '1988-03-02', private_street = 'Baustraße 27a', private_zip = '80331',
+     private_city = 'München', tax_class = 'III', church_tax = 'rk', child_allowances = 1.5, bic = 'BYLADEM1001'
+   WHERE id = ?`,
+).run(e1);
 // Befristeter Vertrag fuer E1: Die Arbeitgeberbescheinigung liest die Befristung aus contracts.
 db.prepare(
   `INSERT INTO contracts (employee_id, contract_type, valid_from, valid_to) VALUES (?, 'befristet', '2020-01-01', '2027-12-31')`,
@@ -475,24 +483,160 @@ const toChecked = await app.inject({
 });
 check('Statuswechsel offen → geprueft', toChecked.statusCode === 200 && toChecked.json().run.status === 'geprueft');
 
+// ---------------- DATEV-Export ----------------
+
+// Ab Werk sind Berater- und Mandantennummer leer: Der Pruefbericht sperrt
+// den Export (409 mit Bericht), nichts wird als exportiert markiert.
+const checkEmpty = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/datev-check`, headers: auth });
+const emptyReport = checkEmpty.json().report as { error_count: number; issues: { level: string; message: string; employee_id?: number }[]; pnr_mode: string };
+check(
+  'DATEV-Pruefbericht ohne Nummern: Fehler fuer Berater, Mandant und P-0042',
+  checkEmpty.statusCode === 200 &&
+    emptyReport.error_count === 3 &&
+    emptyReport.issues.some((i) => i.level === 'fehler' && /Beraternummer/.test(i.message)) &&
+    emptyReport.issues.some((i) => i.level === 'fehler' && /Mandantennummer/.test(i.message)) &&
+    emptyReport.issues.some((i) => i.level === 'fehler' && i.employee_id === e1 && /Personalnummer/.test(i.message)),
+  emptyReport,
+);
+const blockedExport = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/export.datev`, headers: auth });
+check(
+  'Gesperrter Export → 409 DATEV_EXPORT_BLOCKED mit Bericht',
+  blockedExport.statusCode === 409 && blockedExport.json().error.code === 'DATEV_EXPORT_BLOCKED' && blockedExport.json().error.details.error_count === 3,
+  blockedExport.json(),
+);
+check(
+  'Gesperrter Export laesst den Status auf geprueft',
+  (db.prepare('SELECT status FROM payroll_runs WHERE id = ?').get(runId) as { status: string }).status === 'geprueft',
+);
+
+const badSettings = await app.inject({
+  method: 'PUT',
+  url: '/api/settings/datev',
+  headers: auth,
+  payload: { datevBeraterNr: '12', datevLohnarten: { grundgehalt: '12345' } },
+});
+check('Einstellungen: ungueltige Beraternummer und Lohnart → 400', badSettings.statusCode === 400, badSettings.json());
+
+// Die alte Einstellungsseite speicherte die Demonummern mit; Migration 403
+// entfernt sie (hier nachgestellt: Zeilen setzen, Migrations-SQL ausfuehren).
+db.prepare(`INSERT INTO app_settings (key, value) VALUES ('datevBeraterNr', '"1000001"'), ('datevMandantenNr', '"10001"')`).run();
+const { compensationMigrations } = await import('../../db/migrations/400_compensation.js');
+db.exec(compensationMigrations.find((mig) => mig.name === '403_datev_demo_numbers')!.sql);
+check(
+  'Migration 403: gespeicherte Demonummern 1000001/10001 entfernt',
+  !db.prepare(`SELECT 1 FROM app_settings WHERE key IN ('datevBeraterNr', 'datevMandantenNr')`).get(),
+);
+
+const settingsOk = await app.inject({
+  method: 'PUT',
+  url: '/api/settings/datev',
+  headers: auth,
+  payload: {
+    datevBeraterNr: '28547',
+    datevMandantenNr: '90909',
+    datevBetrieblichePnr: true,
+    datevLohnarten: { abzug_sonstig: '12' },
+  },
+});
+check('Einstellungen: DATEV-Nummern und betriebliche Personalnummer gesetzt', settingsOk.statusCode === 200, settingsOk.json());
+const partialLohnart = await app.inject({ method: 'PUT', url: '/api/settings/datev', headers: auth, payload: { datevLohnarten: { vwl: '511' } } });
+check(
+  'Einstellungen: Lohnarten werden zusammengefuehrt, ein Teilaufruf loescht die anderen nicht',
+  partialLohnart.json().settings.datevLohnarten.abzug_sonstig === '12' && partialLohnart.json().settings.datevLohnarten.vwl === '511',
+  partialLohnart.json().settings.datevLohnarten,
+);
+const datevViaGeneric = await app.inject({ method: 'PUT', url: '/api/settings', headers: auth, payload: { datevBeraterNr: '9999' } });
+check(
+  'Allgemeine Einstellungen schreiben keine DATEV-Nummern (eigene Route)',
+  datevViaGeneric.statusCode === 200 && datevViaGeneric.json().settings.datevBeraterNr === '28547',
+  datevViaGeneric.json(),
+);
+
+// Rechte: Der Export fuehrt Stamm- und Abwesenheitsdaten zusammen; eine
+// Rolle mit Verguetung, aber ohne Personal, bekommt ihn nicht.
+const payrollOnlyRole = Number(
+  db.prepare(`INSERT INTO admin_roles (name) VALUES ('Nur Vergütung')`).run().lastInsertRowid,
+);
+db.prepare(
+  `INSERT INTO admin_role_permissions (role_id, area, level) VALUES (?, 'verguetung', 'bearbeiten'), (?, 'abwesenheit', 'lesen')`,
+).run(payrollOnlyRole, payrollOnlyRole);
+db.prepare(
+  "INSERT INTO users (email, name, password_hash, role, admin_role_id) VALUES ('lohn@test.de', 'Nur Lohn', ?, 'admin', ?)",
+).run(bcrypt.hashSync('geheim123', 10), payrollOnlyRole);
+const payrollLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'lohn@test.de', password: 'geheim123' } });
+const authPayroll = { authorization: `Bearer ${payrollLogin.json().token as string}` };
+const checkNoPersonal = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/datev-check`, headers: authPayroll });
+const exportNoPersonal = await app.inject({
+  method: 'GET',
+  url: `/api/compensation/payroll-runs/${runId}/export.datev?art=stammdaten&umfang=alle`,
+  headers: authPayroll,
+});
+check(
+  'Rolle ohne Bereich Personal: Pruefbericht und Export → 403 (keine IBAN, Steuer-ID, SV-Nummer)',
+  checkNoPersonal.statusCode === 403 && exportNoPersonal.statusCode === 403 && /Personal/.test(exportNoPersonal.json().error.message),
+  { check: checkNoPersonal.json(), export: exportNoPersonal.json() },
+);
+const headExport = await app.inject({ method: 'HEAD', url: `/api/compensation/payroll-runs/${runId}/export.datev`, headers: auth });
+check('Export per HEAD wird nicht ausgefuehrt (kein Status, keine Pruefsumme)', headExport.statusCode === 404, headExport.statusCode);
+
+const checkOk = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/datev-check`, headers: auth });
+const okReport = checkOk.json().report as typeof emptyReport & { warning_count: number; lohnarten_in_use: { key: string; number: string }[] };
+check(
+  'DATEV-Pruefbericht: keine Fehler, Warnungen fuer E2 (IBAN, Steuer-ID, SV-Nummer, Minijob), betriebliche PNr',
+  okReport.error_count === 0 &&
+    okReport.pnr_mode === 'betrieblich' &&
+    ['IBAN fehlt', 'Steuer-ID fehlt', 'SV-Nummer fehlt', 'Minijob'].every((m) =>
+      okReport.issues.some((i) => i.employee_id === e2 && i.level === 'warnung' && i.message.includes(m)),
+    ) &&
+    !okReport.issues.some((i) => i.employee_id === e1 && /IBAN|Steuer-ID|SV-Nummer/.test(i.message)),
+  okReport,
+);
+check(
+  'DATEV-Pruefbericht: Dateien des Programms (Bewegungsdaten, Stammdaten)',
+  (checkOk.json().files as { kind: string }[]).map((f) => f.kind).join() === 'bewegungsdaten,stammdaten',
+  checkOk.json().files,
+);
+
 const datev = await app.inject({
   method: 'GET',
   url: `/api/compensation/payroll-runs/${runId}/export.datev`,
   headers: auth,
 });
+const datevBody = datev.rawPayload.toString('latin1');
 check(
-  'DATEV-LODAS-Export: Kopf + Bewegungsdaten mit Komma-Dezimale',
+  'DATEV-LODAS-Bewegungsdaten: Kopf laut Schnittstellenhandbuch, Windows-1252, Dateiname',
   datev.statusCode === 200 &&
-    datev.body.includes('[Allgemein]') &&
-    datev.body.includes('Ziel=LODAS') &&
-    datev.body.includes('[Bewegungsdaten]') &&
-    datev.body.includes('5200,00'),
-  datev.body.slice(0, 300),
+    datev.headers['content-type'] === 'text/plain; charset=windows-1252' &&
+    datev.headers['content-disposition'] === `attachment; filename="lodas_bewegungsdaten_${month}.txt"` &&
+    datevBody.includes('[Allgemein]\r\nZiel=LODAS\r\nVersion_SST=1.0\r\nBeraterNr=28547\r\nMandantenNr=90909\r\n') &&
+    datevBody.includes('Stringbegrenzer="\r\n') &&
+    datevBody.includes('BetrieblichePNrVerwenden=Ja') &&
+    !datevBody.includes('Datum='),
+  datevBody.slice(0, 400),
 );
 check(
-  'LODAS: Personalnummer statt ID (P-0042 fuer E1, Rueckfall ID fuer E2)',
-  datev.body.includes(';P-0042;') && datev.body.includes(`;${e2};`) && !datev.body.includes(`;${e1};`),
-  datev.body,
+  'LODAS-Bewegungsdaten: Satzbeschreibung mit echten Feldnamen, Schluessel pnr_betriebliche#psd',
+  datevBody.includes('1;u_lod_bwd_buchung_standard;abrechnung_zeitraum#bwd;pnr_betriebliche#psd;bs_nr#bwd;bs_wert_butab#bwd;la_eigene#bwd;'),
+  datevBody,
+);
+check(
+  'LODAS-Bewegungsdaten: nur der Bonus als Bruttobezug (BS 2), Festbezuege nicht (Vorgabe Stammdaten)',
+  datevBody.includes(`1;01.${String(m).padStart(2, '0')}.${y};"${e2}";2;200,00;420;`) &&
+    !datevBody.includes('5200,00'),
+  datevBody,
+);
+check(
+  'LODAS-Bewegungsdaten: Hinweisdaten mit Warnungen zu dieser Datei (ohne Stammdatenwarnungen)',
+  datevBody.includes('[Hinweisdaten]') &&
+    datevBody.includes(`"Klein, Ben (${e2}): Keine Personalnummer gepflegt, die Profil-ID wird`) &&
+    !datevBody.includes('IBAN fehlt'),
+  datevBody,
+);
+check(
+  'Jeder Export hinterlaesst einen Audit-Eintrag mit Pruefsumme',
+  !!db
+    .prepare(`SELECT 1 FROM audit_log WHERE action = 'payroll_run.export_file' AND entity_id = ? AND details LIKE '%sha256%'`)
+    .get(runId),
 );
 
 const runAfterExport = await app.inject({
@@ -501,6 +645,93 @@ const runAfterExport = await app.inject({
   headers: auth,
 });
 check('Export setzt Status auf exportiert', runAfterExport.json().run.status === 'exportiert');
+
+const stammdaten = await app.inject({
+  method: 'GET',
+  url: `/api/compensation/payroll-runs/${runId}/export.datev?art=stammdaten&umfang=alle`,
+  headers: auth,
+});
+const stammBody = stammdaten.rawPayload.toString('latin1');
+check(
+  'LODAS-Stammdaten: Mitarbeiter, Bank, Steuer, Festbezug fuer E1 (Umlaute in Windows-1252)',
+  stammdaten.statusCode === 200 &&
+    stammBody.includes('StammdatenGueltigAb=') &&
+    stammBody.includes('1;"P-0042";"Muster";"Anna";"Baustra\xdfe";"27a";80331;"M\xfcnchen";02.03.1988;"15070649C103";') &&
+    stammBody.includes('2;"P-0042";"DE02120300000000202051";"BYLADEM1001";') &&
+    stammBody.includes('3;"P-0042";"86095742719";3;1,5;11;') &&
+    stammBody.includes('6;"P-0042";1;200;5200,00;'),
+  stammBody,
+);
+check('LODAS-Stammdaten: Neueintritt E2 mit Personengruppe 109', stammBody.includes(`4;"${e2}";109;;`), stammBody);
+check('LODAS-Stammdaten: Stammdatenwarnung (IBAN) in den Hinweisdaten', stammBody.includes(`"Klein, Ben (${e2}): IBAN fehlt"`), stammBody);
+const stammChanges = await app.inject({
+  method: 'GET',
+  url: `/api/compensation/payroll-runs/${runId}/export.datev?art=stammdaten`,
+  headers: auth,
+});
+check(
+  'LODAS-Stammdaten (nur Aenderungen): E1 mit Gehaltsaenderung und E2 mit Neueintritt',
+  stammChanges.rawPayload.toString('latin1').includes('1;"P-0042";') && stammChanges.rawPayload.toString('latin1').includes(`1;"${e2}";`),
+);
+
+// Lohn und Gehalt: elf Spalten, keine Stammdaten. Die Personalnummer ist dort
+// immer die Mitarbeiternummer (Ziffern), P-0042 bleibt gesperrt.
+await app.inject({ method: 'PUT', url: '/api/settings/datev', headers: auth, payload: { datevProgramm: 'lug', datevFestbezuege: 'bewegungsdaten' } });
+const lugBlocked = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/export.datev`, headers: auth });
+check('Lohn und Gehalt mit P-0042 → 409 (nur Ziffern)', lugBlocked.statusCode === 409, lugBlocked.json());
+db.prepare('UPDATE employees SET personnel_number = ? WHERE id = ?').run('42', e1);
+const lug = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/export.datev`, headers: auth });
+const lugBody = lug.rawPayload.toString('latin1');
+check(
+  'Lohn und Gehalt: elf Felder, Grundgehalt und Bonus als Wert',
+  lug.statusCode === 200 &&
+    lug.headers['content-disposition'] === `attachment; filename="lug_bewegungsdaten_${month}.txt"` &&
+    lugBody.split('\r\n').filter(Boolean).every((l) => l.split(';').length === 11) &&
+    lugBody.includes('42;;;200;;;5200,00;;;;') &&
+    lugBody.includes(`${e2};;;420;;;200,00;;;;`),
+  lugBody,
+);
+const lugStamm = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/export.datev?art=stammdaten`, headers: auth });
+check('Lohn und Gehalt kennt keine Stammdaten → 400', lugStamm.statusCode === 400, lugStamm.json());
+await app.inject({ method: 'PUT', url: '/api/settings/datev', headers: auth, payload: { datevProgramm: 'lodas', datevFestbezuege: 'stammdaten' } });
+db.prepare('UPDATE employees SET personnel_number = ? WHERE id = ?').run('P-0042', e1);
+
+// Fehltage: Urlaub ueber die erste Monatshaelfte, darin Betriebsruhe am 8. und
+// 9. und eine Krankheit an einem Arbeitstag. Wie im Urlaubskonto fallen
+// Betriebsruhe, Wochenenden und Feiertage weg, und der kranke Tag steht
+// einmal da, als Krankheit.
+const { isWeekend: weekend } = await import('../../core/dates.js');
+const { isHoliday: holiday } = await import('../../core/holidays.js');
+const typeId = (name: string) => (db.prepare('SELECT id FROM absence_types WHERE name = ?').get(name) as { id: number }).id;
+const urlaubId = typeId('Urlaub');
+const krankId = typeId('Krankheit');
+const dayOf = (d: number) => `${month}-${String(d).padStart(2, '0')}`;
+const workday = (d: number) => !weekend(dayOf(d)) && !holiday(dayOf(d), 'DE', 'BY') && d !== 8 && d !== 9;
+const sickDay = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14].find(workday)!;
+db.prepare(`INSERT INTO company_closures (date_from, date_to, name) VALUES (?, ?, 'Smoke-Betriebsruhe')`).run(dayOf(8), dayOf(9));
+db.prepare(
+  `INSERT INTO absence_requests (employee_id, type_id, date_from, date_to, days_counted, status) VALUES (?, ?, ?, ?, 5, 'genehmigt'), (?, ?, ?, ?, 1, 'genehmigt')`,
+).run(e1, urlaubId, dayOf(1), dayOf(14), e1, krankId, dayOf(sickDay), dayOf(sickDay));
+await app.inject({
+  method: 'PUT',
+  url: '/api/settings/datev',
+  headers: auth,
+  payload: { datevAusfallschluessel: { [String(urlaubId)]: 'U', [String(krankId)]: 'K' } },
+});
+const kal = (await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/export.datev`, headers: auth })).rawPayload.toString('latin1');
+const kalLines = kal.split('\r\n').filter((l) => l.startsWith(`2;01.${String(m).padStart(2, '0')}.${y};"P-0042";`));
+const kalDays = kalLines.map((l) => l.split(';')[3]);
+const expectedDays = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 14].filter(workday).map((d) => String(d).padStart(2, '0'));
+check(
+  'Kalendarium: ohne Betriebsruhe (8., 9.), Wochenende und Feiertage, je Tag ein Satz',
+  JSON.stringify(kalDays) === JSON.stringify(expectedDays),
+  { kalDays, expectedDays },
+);
+check(
+  'Kalendarium: Krankheit im Urlaub steht einmal da, als Krankheit',
+  kalLines.filter((l) => l.split(';')[3] === String(sickDay).padStart(2, '0')).map((l) => l.split(';')[4]).join() === '"K"',
+  kalLines,
+);
 
 const csv = await app.inject({
   method: 'GET',

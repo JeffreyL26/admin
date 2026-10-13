@@ -12,6 +12,64 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### DATEV-Lohnexport nach Schnittstellenhandbuch (12.10.2026)
+- **Geaendert:** Die LODAS-Datei folgt jetzt dem DATEV Schnittstellenhandbuch:
+  Kopf mit Datumsformat und Stringbegrenzer statt eines erfundenen
+  `Datum=`-Schluessels, Satzart `u_lod_bwd_buchung_standard` mit den echten
+  Feldern (`bs_nr`, `bs_wert_butab`, `la_eigene`; vorher `lohnart_nummer`
+  und `betrag`, die LODAS nicht kennt), Bearbeitungsschluessel je Position,
+  Zeichensatz Windows-1252 statt UTF-8, Text in Stringbegrenzern,
+  Warnungen als `[Hinweisdaten]` im Pruefprotokoll. Betraege ohne
+  Vorzeichen; Abzuege wurden bisher still zu Bruttobezuegen.
+- **Neu:** Personalstammdaten fuer LODAS (Mitarbeiter, Bank, Steuer,
+  Taetigkeit, Beschaeftigung, Festbezuege, Stundensatz, Nettoabzuege),
+  wahlweise fuer alle Personen oder nur Neueintritte, Austritte und
+  Gehaltsaenderungen. Wiederkehrende Bezuege gehen in der Vorgabe als
+  Festbezuege, nicht mehr jeden Monat als Buchung (sonst zahlte das
+  Lohnbuero doppelt); umschaltbar.
+- **Neu:** DATEV Lohn und Gehalt als zweites Lohnprogramm (Bewegungsdaten
+  in elf Spalten fuer den ASCII-Import-Assistenten).
+- **Neu:** Fehltage aus genehmigten Abwesenheiten (Kalendarium bzw.
+  Kalendertag mit Tagesanzahl), je Abwesenheitsart ein Ausfallschluessel;
+  Vertragsstunden fuer Stundenloehner auf Wunsch.
+- **Neu:** Pruefbericht vor dem Export (`GET .../datev-check`, Dialog auf der
+  Abrechnungsseite): Fehler sperren die Datei (Berater- und
+  Mandantennummer, Lohnarten ohne Nummer, Personalnummern, die zum
+  Schluesselfeld nicht passen, Doppelte), Warnungen mit Pruefziffern fuer
+  IBAN, SV-Nummer und Steuer-ID, fehlende Stammdaten, gekuerzte Felder,
+  Zeichen ausserhalb von Windows-1252.
+- **Neu:** Seite Einstellungen > DATEV-Lohnexport (Programm, Nummern,
+  betriebliche Personalnummer, Festbezuege, Lohnarten, Ausfallschluessel).
+  Berater- und Mandantennummer sind ab Werk leer statt Demowerte.
+- **Geaendert:** Jeder Export, auch ein wiederholter, schreibt einen
+  Audit-Eintrag mit Dateiname und SHA-256; der Status wird erst nach dem
+  Erzeugen der Datei gesetzt. Der Dateiname kommt vom Server.
+- Tests: `src/test/datevTest.ts` (Dateien Zeile fuer Zeile gegen die
+  Mustervorlagen) und der Verguetungs-Smoke-Test laufen in `npm test`.
+- **Sicherheit:** Pruefbericht und Export verlangen neben Verguetung auch
+  Lesen in Personal und Abwesenheit; die Dateien enthalten Bankverbindung,
+  Steuer-ID, SV-Nummer und Fehltage samt Krankheit. Kein HEAD auf dem
+  Export (er setzte den Status ohne Datei).
+- **Geaendert:** Gespeicherte Demonummern 1000001 und 10001 entfernt das
+  Update (Migration 403); die DATEV-Einstellungen haben eine eigene Route
+  `PUT /api/settings/datev`, die im Nur-Lese-Betrieb der Lizenz offen
+  bleibt wie der Export.
+- **Geaendert:** Fehltage wie im Urlaubskonto ohne Betriebsruhe, je Tag ein
+  Eintrag (Krankheit im Urlaub als Krankheit). Fehler sperren nur die
+  Datei, die sie betreffen, Hinweisdaten nennen nur Personen in der Datei,
+  die Krankenkasse einmal statt je Person.
+- **Geaendert:** Stundenloehner ohne Wochenstunden mit 40 Stunden wie im
+  Lauf (vorher 0), Rundung 15,5 h richtig, Warnung ohne Stunden auch in der
+  Vorgabe; Stundensatz in den Stammdaten immer, bei Lohn und Gehalt als
+  abweichender Faktor.
+- **Geaendert:** Personalnummern als Zahl verglichen und gegen alle Profile
+  geprueft; Personengruppe nur beim Neueintritt; Austritt auch ohne
+  Eintrittsdatum; Vertragsart am Monatsende; geaenderte Personalakte und
+  beendete Komponenten zaehlen als Aenderung, entfallene Festbezuege gehen
+  mit 0,00; Auslandsanschrift und ungueltige PLZ lassen die Anschrift
+  ganz stehen; Kuerzungen aller Felder werden gemeldet; Dateiname kommt
+  ueber CORS an; zusammengesetzte Umlaute (NFD) werden richtig kodiert.
+
 ### Dashboard aus Sicht der HR (09.10.2026)
 - **Neu:** Bereichsleiste ueber dem Dashboard: je Bereich die wichtigste Zahl
   (Abwesenheit: heute abwesend, „+n laut Antrag“) und ein Quadrat wie eine
