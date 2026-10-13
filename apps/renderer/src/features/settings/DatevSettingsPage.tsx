@@ -18,16 +18,16 @@ import {
   lohnartNumberKind,
   lohnartNumberProblem,
   LUG_COLUMNS,
-  type AbsenceType,
   type DatevFestbezuegeMode,
   type DatevLohnartKey,
   type DatevProgram,
   type LodasPositionKind,
 } from '@ohrganize/shared';
-import { ApiRequestError, api } from '../../api/client';
+import { ApiRequestError, api, retryUnlessForbidden } from '../../api/client';
 import { Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { useToast } from '../../components/Toast';
 import { Select } from '../../components/Select';
+import { useAbsenceTypes } from '../absences/api';
 
 /**
  * Einstellungen des DATEV-Lohnexports (Bereich `einstellungen`): Programm,
@@ -65,28 +65,74 @@ const SCALAR_KEYS = [
 ] as const;
 
 /**
- * Nur, was sich gegenueber dem Server geaendert hat: Ein zweiter
- * Arbeitsplatz, der inzwischen etwas anderes gespeichert hat, wird nicht mit
- * dem alten Stand dieser Seite ueberschrieben. Lohnarten, die noch nicht
- * gespeichert sind, gehen mit ihrem angezeigten Vorschlag mit: Erst
- * gespeichert gilt eine Nummer im Export.
+ * Eingaben dieser Seite: NUR die angefassten Felder, bei den Zuordnungen nur
+ * die angefassten Schluessel. Angezeigt wird der aktuelle Serverstand mit den
+ * Eingaben darueber (withEdits): Laedt der Server bei Fokus oder
+ * Neuverbindung neu, sieht man in allen anderen Feldern sofort, was ein
+ * zweiter Arbeitsplatz gespeichert hat, und das Speichern schickt nur das
+ * Angefasste, ueberschreibt also nichts davon.
  */
-function changesOf(form: DatevSettings, server: DatevSettings): Record<string, unknown> {
+type DatevEdits = Partial<Omit<DatevSettings, 'datevLohnarten' | 'datevAusfallschluessel'>> & {
+  datevLohnarten: Record<string, string>;
+  datevAusfallschluessel: Record<string, string>;
+};
+
+const NO_EDITS: DatevEdits = { datevLohnarten: {}, datevAusfallschluessel: {} };
+
+function hasEdits(edits: DatevEdits): boolean {
+  return (
+    SCALAR_KEYS.some((key) => edits[key] !== undefined) ||
+    Object.keys(edits.datevLohnarten).length > 0 ||
+    Object.keys(edits.datevAusfallschluessel).length > 0
+  );
+}
+
+function withEdits(server: DatevSettings, edits: DatevEdits): DatevSettings {
+  return {
+    ...server,
+    ...edits,
+    datevLohnarten: { ...server.datevLohnarten, ...edits.datevLohnarten },
+    datevAusfallschluessel: { ...server.datevAusfallschluessel, ...edits.datevAusfallschluessel },
+  };
+}
+
+/** Eingaben nach dem Speichern: alles, was seit dem Senden neu oder anders ist, bleibt stehen. */
+function withoutSent(current: DatevEdits, sent: DatevEdits): DatevEdits {
+  const next: DatevEdits = { datevLohnarten: {}, datevAusfallschluessel: {} };
+  for (const key of SCALAR_KEYS) {
+    if (current[key] !== undefined && current[key] !== sent[key]) (next as Record<string, unknown>)[key] = current[key];
+  }
+  for (const [k, v] of Object.entries(current.datevLohnarten)) {
+    if (v !== sent.datevLohnarten[k]) next.datevLohnarten[k] = v;
+  }
+  for (const [k, v] of Object.entries(current.datevAusfallschluessel)) {
+    if (v !== sent.datevAusfallschluessel[k]) next.datevAusfallschluessel[k] = v;
+  }
+  return next;
+}
+
+/**
+ * Was gespeichert wird: die Eingaben (Text getrimmt) und dazu jede Lohnart,
+ * die auf dem Server noch keine Nummer hat, mit ihrem angezeigten Vorschlag.
+ * Erst gespeichert gilt eine Nummer im Export.
+ */
+function changesOf(edits: DatevEdits, server: DatevSettings): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
   for (const key of SCALAR_KEYS) {
-    const value = typeof form[key] === 'string' ? (form[key] as string).trim() : form[key];
-    if (value !== server[key]) patch[key] = value;
+    const value = edits[key];
+    if (value === undefined) continue;
+    const normalized = typeof value === 'string' ? value.trim() : value;
+    if (normalized !== server[key]) patch[key] = normalized;
   }
   const lohnarten: Record<string, string> = {};
   for (const key of DATEV_LOHNART_KEYS) {
-    const value = (form.datevLohnarten[key] ?? DATEV_LOHNART_DEFAULTS[key]).trim();
-    if (server.datevLohnarten[key] !== value) lohnarten[key] = value;
+    const edited = edits.datevLohnarten[key];
+    if (edited !== undefined) lohnarten[key] = edited.trim();
+    else if (server.datevLohnarten[key] === undefined) lohnarten[key] = DATEV_LOHNART_DEFAULTS[key];
   }
   if (Object.keys(lohnarten).length) patch.datevLohnarten = lohnarten;
   const ausfall: Record<string, string> = {};
-  for (const [id, value] of Object.entries(form.datevAusfallschluessel)) {
-    if ((server.datevAusfallschluessel[id] ?? '') !== value.trim()) ausfall[id] = value.trim();
-  }
+  for (const [id, value] of Object.entries(edits.datevAusfallschluessel)) ausfall[id] = value.trim();
   if (Object.keys(ausfall).length) patch.datevAusfallschluessel = ausfall;
   return patch;
 }
@@ -97,28 +143,31 @@ export function DatevSettingsPage() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['settings'],
     queryFn: () => api.get<{ settings: DatevSettings }>('/api/settings'),
-    retry: (count, err) => !(err instanceof ApiRequestError && err.status === 403) && count < 2,
+    retry: retryUnlessForbidden,
   });
   // Die Abwesenheitsarten gehoeren zum Bereich `abwesenheit`; fehlt er der
   // Rolle, bleibt die Zuordnung der Ausfallschluessel ausgeblendet. Auch
   // inaktive Arten: Ihre genehmigten Abwesenheiten gehen weiter in den
   // Export und brauchen einen Schluessel (die Liste kommt aktive zuerst).
-  const types = useQuery({
-    queryKey: ['absences', 'types'],
-    queryFn: () => api.get<{ types: AbsenceType[] }>('/api/absences/types'),
-    select: (d) => d.types,
-    retry: (count, err) => !(err instanceof ApiRequestError && err.status === 403) && count < 2,
-  });
-  const [form, setForm] = useState<DatevSettings | null>(null);
-  const settings = form ?? data?.settings ?? null;
+  const types = useAbsenceTypes({ retry: retryUnlessForbidden });
+  const [edits, setEdits] = useState<DatevEdits>(NO_EDITS);
+  const settings = data ? withEdits(data.settings, edits) : null;
 
+  // Gespeichert wird der Stand beim Klick (`sent`). Danach erst nachladen,
+  // dann nur die gesendeten Eingaben verwerfen: sonst zeigte die Seite bis zur
+  // Antwort den alten Serverstand, und was waehrend des Speicherns getippt
+  // wurde, ginge verloren.
   const save = useMutation({
-    mutationFn: (s: DatevSettings) => api.put('/api/settings/datev', data ? changesOf(s, data.settings) : {}),
-    onSuccess: () => {
+    mutationFn: (sent: DatevEdits) =>
+      api.put<{ settings: DatevSettings }>('/api/settings/datev', data ? changesOf(sent, data.settings) : {}),
+    onSuccess: (res, sent) => {
+      toast.success('DATEV-Einstellungen gespeichert');
+      // Die Antwort traegt den gespeicherten Stand: sofort uebernehmen, auch
+      // wenn ein Nachladen danach scheitert (Verbindung, Sitzungsende).
+      qc.setQueryData(['settings'], res);
+      setEdits((current) => withoutSent(current, sent));
       qc.invalidateQueries({ queryKey: ['settings'] });
       qc.invalidateQueries({ queryKey: ['compensation'] });
-      setForm(null);
-      toast.success('DATEV-Einstellungen gespeichert');
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -139,7 +188,14 @@ export function DatevSettingsPage() {
   }
   if (isLoading || !settings) return <Spinner center />;
 
-  const set = (patch: Partial<DatevSettings>) => setForm({ ...settings, ...patch });
+  // Zuordnungen: der Aufrufer nennt nur den geaenderten Schluessel.
+  const set = (patch: Partial<DatevSettings>) =>
+    setEdits((e) => ({
+      ...e,
+      ...patch,
+      datevLohnarten: { ...e.datevLohnarten, ...patch.datevLohnarten },
+      datevAusfallschluessel: { ...e.datevAusfallschluessel, ...patch.datevAusfallschluessel },
+    }));
   const lodas = settings.datevProgramm === 'lodas';
   const lohnart = (key: DatevLohnartKey) => settings.datevLohnarten[key] ?? DATEV_LOHNART_DEFAULTS[key];
   // Dieselbe Regel wie Positionsplan und Pruefbericht (lohnartNumberKind in shared).
@@ -299,7 +355,7 @@ export function DatevSettingsPage() {
                         value={lohnart(key)}
                         aria-label={`Lohnart ${DATEV_LOHNART_LABELS[key]}`}
                         onChange={(e) =>
-                          set({ datevLohnarten: { ...settings.datevLohnarten, [key]: e.target.value } })
+                          set({ datevLohnarten: { [key]: e.target.value } })
                         }
                       />
                       {lohnartErrors.get(key) && <span className="hm-field__error">{lohnartErrors.get(key)}</span>}
@@ -358,7 +414,6 @@ export function DatevSettingsPage() {
                             onChange={(e) =>
                               set({
                                 datevAusfallschluessel: {
-                                  ...settings.datevAusfallschluessel,
                                   [String(t.id)]: e.target.value.toUpperCase(),
                                 },
                               })
@@ -378,8 +433,8 @@ export function DatevSettingsPage() {
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button
             className="hm-btn hm-btn--primary"
-            disabled={save.isPending || (!form && unsaved.length === 0) || invalid}
-            onClick={() => settings && save.mutate(settings)}
+            disabled={save.isPending || (!hasEdits(edits) && unsaved.length === 0) || invalid}
+            onClick={() => save.mutate(edits)}
           >
             Speichern
           </button>

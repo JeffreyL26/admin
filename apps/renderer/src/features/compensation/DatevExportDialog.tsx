@@ -77,7 +77,12 @@ export function DatevExportDialog({
   const relevant = report && file ? issuesForFile(report.issues, file.kind, personIds) : [];
   const errors = relevant.filter((i) => i.level === 'fehler');
   const warnings = relevant.filter((i) => i.level === 'warnung');
-  const lohnarten = report && file ? report.lohnarten_in_use.filter((l) => l.kinds.includes(file.kind)) : [];
+  const lohnarten =
+    report && file
+      ? report.lohnarten_in_use.filter(
+          (l) => l.kinds.includes(file.kind) && (!personIds || l.employee_ids.some((id) => personIds.has(id))),
+        )
+      : [];
   const personCount = file ? (personIds ? personIds.size : file.person_count) : 0;
   const blocked = runStatus === 'offen' || !report || !file || errors.length > 0 || personCount === 0;
 

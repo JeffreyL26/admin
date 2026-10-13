@@ -27,7 +27,6 @@ import {
   datevDatum,
   datevStunden,
   datevZeitraum,
-  DEFAULT_WEEKLY_HOURS,
   EMPLOYEE_TYPE_LABELS,
   HOURLY_MONTH_FACTOR,
   issuesForFile,
@@ -50,18 +49,23 @@ import {
   type TaxClass,
 } from '@ohrganize/shared';
 import type { DatevExportContext, DatevPerson } from './context.js';
-import { addressExportable, personLabel, pnrMode } from './check.js';
+import { addressExportable, ibanExportable, personLabel, pnrMode, svNummerExportable, taxIdExportable } from './check.js';
 import { encodeCp1252 } from './cp1252.js';
-import { bewegungenOf, fehltageOf, festbezuegeOf } from './positions.js';
+import { bewegungenOf, fehltageOf, festbezuegeChanged, festbezuegeOf } from './positions.js';
 import type { DatevFile, PayrollExporter } from './index.js';
 
 const SEP = ';';
 const QUOTE = '"';
 
-/** Textfeld: Zeilenumbrueche raus, innere Begrenzer zu Apostrophen, gekuerzt, in Begrenzern. */
+/**
+ * Textfeld: Zeilenumbrueche raus, innere Begrenzer zu Apostrophen, der
+ * Feldtrenner zum Komma (dieselbe Vorsicht wie bei der betrieblichen
+ * Personalnummer, isBetrieblichePnr: LODAS soll einen Satz nie an einem
+ * Zeichen im Text trennen), gekuerzt, in Begrenzern.
+ */
 function text(value: string | null | undefined, max: number): string {
   if (!value) return '';
-  const cleaned = value.replace(/[\r\n]+/g, ' ').replace(/"/g, "'").trim().slice(0, max);
+  const cleaned = value.replace(/[\r\n]+/g, ' ').replace(/"/g, "'").replace(/;/g, ',').trim().slice(0, max);
   return cleaned ? `${QUOTE}${cleaned}${QUOTE}` : '';
 }
 
@@ -157,8 +161,10 @@ export function renderLodasBewegungsdaten(ctx: DatevExportContext, report: Datev
     for (const b of bewegungenOf(ctx, p)) {
       if (b.type === 'stunden') {
         data.push(record(1, [zeitraum, who, LODAS_BS.stunden, datevStunden(b.hours), lohnart(ctx, b.key)]));
+        // Die Stunden kommen aus dem Lauf (Snapshot); die heutigen
+        // Wochenstunden koennen davon abweichen und bleiben deshalb weg.
         extra.push(
-          `${personLabel(p)} (${p.pnr}): ${datevStunden(b.hours)} Stunden sind Vertragsstunden (${p.weekly_hours ?? DEFAULT_WEEKLY_HOURS} h/Woche × ${String(HOURLY_MONTH_FACTOR).replace('.', ',')}), keine Ist-Stunden`,
+          `${personLabel(p)} (${p.pnr}): ${datevStunden(b.hours)} Stunden sind Vertragsstunden aus dem Abrechnungslauf (Wochenstunden × ${String(HOURLY_MONTH_FACTOR).replace('.', ',')}), keine Ist-Stunden`,
         );
       } else {
         const bs = b.type === 'nettoabzug' ? LODAS_BS.nettoabzug : LODAS_BS.bruttobezug;
@@ -178,18 +184,16 @@ export function renderLodasBewegungsdaten(ctx: DatevExportContext, report: Datev
 }
 
 /**
- * Personen, die der Stammdatenexport umfasst. „Aenderungen“ heisst: Eintritt,
- * Austritt oder Gehaltsaenderung im Monat, eine seit Monatsbeginn geaenderte
- * Personalakte (etwa eine genehmigte neue Bankverbindung) oder eine seit dem
- * Vormonat beendete Komponente.
+ * Personen, die der Stammdatenexport umfasst. „Aenderungen“ heisst: Austritt
+ * im Monat, eine seit Monatsbeginn geaenderte Personalakte (etwa eine
+ * genehmigte neue Bankverbindung) oder geaenderte Festbezuege
+ * (festbezuegeChanged: Eintritt, Gehaltsaenderung, erstmals angelegte oder
+ * seit dem Vormonat beendete Komponente).
  */
 export function stammdatenPersons(ctx: DatevExportContext, scope: DatevStammdatenScope): DatevPerson[] {
   if (scope === 'alle') return ctx.persons;
   return ctx.persons.filter(
-    (p) =>
-      p.changed_in_month ||
-      p.ended_recently ||
-      p.flags.some((f) => f === 'neueintritt' || f === 'austritt' || f === 'gehaltsaenderung'),
+    (p) => p.changed_in_month || p.flags.includes('austritt') || festbezuegeChanged(ctx, p),
   );
 }
 
@@ -235,14 +239,16 @@ export function renderLodasStammdaten(
         exportable ? (p.private_zip?.trim() ?? '') : '',
         text(exportable ? p.private_city : '', LODAS_LENGTH.ort),
         date(p.birth_date),
-        text(p.social_security_number ? normalizeSvNummer(p.social_security_number) : '', LODAS_LENGTH.sozialversicherung_nr),
+        text(svNummerExportable(p) ? normalizeSvNummer(p.social_security_number!) : '', LODAS_LENGTH.sozialversicherung_nr),
       ]),
     );
-    if (p.iban) {
+    // Wie die Anschrift: Was die Pruefziffer nicht besteht, bleibt leer, und
+    // LODAS behaelt den bisherigen Wert (Warnung im Pruefbericht).
+    if (ibanExportable(p)) {
       data.push(
         record(2, [
           who,
-          text(normalizeIban(p.iban), LODAS_LENGTH.iban),
+          text(normalizeIban(p.iban!), LODAS_LENGTH.iban),
           text(p.bic?.trim().toUpperCase() ?? '', LODAS_LENGTH.bic),
         ]),
       );
@@ -252,7 +258,13 @@ export function renderLodasStammdaten(
       const konf = p.church_tax ? (LODAS_KONFESSION[p.church_tax as ChurchTax] ?? '') : '';
       const kfb = p.child_allowances === null ? '' : p.child_allowances.toFixed(1).replace('.', ',');
       data.push(
-        record(3, [who, text(p.tax_id?.replace(/[\s/]/g, '') ?? '', LODAS_LENGTH.identifikationsnummer), stKlasse, kfb, konf]),
+        record(3, [
+          who,
+          text(taxIdExportable(p) ? p.tax_id!.replace(/[\s/]/g, '') : '', LODAS_LENGTH.identifikationsnummer),
+          stKlasse,
+          kfb,
+          konf,
+        ]),
       );
     }
     // Personengruppe nur beim Neueintritt: Bei bestehenden Personen bleibt

@@ -87,26 +87,52 @@ export function festbezuegeOf(ctx: DatevExportContext, p: DatevPerson): Festbezu
 }
 
 /**
- * Lohnarten, die eine Datei tatsaechlich traegt, je Schluessel mit den
- * Dateien und der Art der Nummer (lohnartNumberKind: Nettobe-/abzugsnummer
- * oder eigene Lohnart). Lohn und Gehalt kennt nur die Bewegungsdaten.
+ * Ob sich die Festbezuege einer Person im Monat geaendert haben koennen:
+ * Eintritt oder Gehaltsaenderung (Flags des Laufs), eine im Monat beginnende
+ * Komponente (eine erstmals angelegte Zulage hat keinen Vorgaenger und setzt
+ * deshalb kein Flag, die Personalakte bleibt dabei unberuehrt) oder eine seit
+ * dem Vormonat beendete. EINE Regel fuer den Umfang „nur Aenderungen“ der
+ * LODAS-Stammdaten und den Hinweis an Lohn und Gehalt.
  */
-export function lohnartUsage(
-  ctx: DatevExportContext,
-): Map<DatevLohnartKey, { kinds: Set<DatevExportKind>; number: 'nba' | 'lohnart' }> {
-  const usage = new Map<DatevLohnartKey, { kinds: Set<DatevExportKind>; number: 'nba' | 'lohnart' }>();
-  const note = (key: DatevLohnartKey, kind: DatevExportKind) => {
+export function festbezuegeChanged(ctx: DatevExportContext, p: DatevPerson): boolean {
+  const monthStart = `${ctx.run.month}-01`;
+  return (
+    p.ended_recently ||
+    p.flags.some((f) => f === 'neueintritt' || f === 'gehaltsaenderung') ||
+    p.components.some((c) => (c.valid_from ?? '') >= monthStart)
+  );
+}
+
+/** Eintrag je Lohnart-Schluessel: Dateien, Personen, Art der Nummer. */
+export interface LohnartUse {
+  kinds: Set<DatevExportKind>;
+  employees: Set<number>;
+  number: 'nba' | 'lohnart';
+}
+
+/**
+ * Lohnarten, die eine Datei tatsaechlich traegt, je Schluessel mit den
+ * Dateien, den Personen und der Art der Nummer (lohnartNumberKind:
+ * Nettobe-/abzugsnummer oder eigene Lohnart). Lohn und Gehalt kennt nur die
+ * Bewegungsdaten. Die Personen braucht der Pruefbericht, damit eine Nummer
+ * nur die Dateien sperrt, in denen jemand mit dieser Lohnart steht.
+ */
+export function lohnartUsage(ctx: DatevExportContext): Map<DatevLohnartKey, LohnartUse> {
+  const usage = new Map<DatevLohnartKey, LohnartUse>();
+  const note = (key: DatevLohnartKey, kind: DatevExportKind, employeeId: number) => {
     const entry = usage.get(key) ?? {
       kinds: new Set<DatevExportKind>(),
+      employees: new Set<number>(),
       number: lohnartNumberKind(key, ctx.settings.program, ctx.settings.festbezuege),
     };
     entry.kinds.add(kind);
+    entry.employees.add(employeeId);
     usage.set(key, entry);
   };
   for (const p of ctx.persons) {
-    for (const b of bewegungenOf(ctx, p)) note(b.key, 'bewegungsdaten');
+    for (const b of bewegungenOf(ctx, p)) note(b.key, 'bewegungsdaten', p.employee_id);
     if (ctx.settings.program === 'lodas') {
-      for (const f of festbezuegeOf(ctx, p)) note(f.key, 'stammdaten');
+      for (const f of festbezuegeOf(ctx, p)) note(f.key, 'stammdaten', p.employee_id);
     }
   }
   return usage;

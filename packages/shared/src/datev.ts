@@ -465,6 +465,13 @@ export interface DatevIssue {
    * Nettoabzugsnummer sperrt die Stammdaten, nicht die Bewegungsdaten).
    */
   kinds?: DatevExportKind[];
+  /**
+   * Personen, an denen eine Einstellungsmeldung haengt (eine Lohnart, die nur
+   * sie tragen): Sie betrifft nur Dateien mit mindestens einer davon, sonst
+   * sperrte eine Nummer, die nur Personen ausserhalb der Datei brauchen, die
+   * Stammdaten „nur Aenderungen“.
+   */
+  employee_ids?: number[];
 }
 
 export interface DatevCheckReport {
@@ -475,8 +482,14 @@ export interface DatevCheckReport {
   issues: DatevIssue[];
   error_count: number;
   warning_count: number;
-  /** Lohnartennummern, die der Lauf benutzt: Nummer je Schluessel und die Dateien, in denen sie steht. */
-  lohnarten_in_use: { key: DatevLohnartKey; label: string; number: string; kinds: DatevExportKind[] }[];
+  /** Lohnartennummern, die der Lauf benutzt: Nummer je Schluessel, die Dateien, in denen sie steht, und die Personen, die sie tragen. */
+  lohnarten_in_use: {
+    key: DatevLohnartKey;
+    label: string;
+    number: string;
+    kinds: DatevExportKind[];
+    employee_ids: number[];
+  }[];
 }
 
 /** Fehler sperren den Export; Warnungen stehen in den Hinweisdaten der Datei. */
@@ -489,9 +502,10 @@ export function summarizeIssues(issues: DatevIssue[]): { error_count: number; wa
 
 /**
  * Meldungen, die EINE Datei betreffen: passende Dateiart, und bei
- * Personenmeldungen nur Personen, die in der Datei stehen (`employeeIds`;
- * null = alle Personen des Laufs). Route (Sperre, Hinweisdaten) und Dialog
- * (Anzeige, Knopf) filtern damit gleich.
+ * Personenmeldungen (`employee_id`, `employee_ids`) nur solche zu Personen,
+ * die in der Datei stehen (`employeeIds`; null = alle Personen des Laufs).
+ * Route (Sperre, Hinweisdaten) und Dialog (Anzeige, Knopf) filtern damit
+ * gleich.
  */
 export function issuesForFile(
   issues: readonly DatevIssue[],
@@ -501,7 +515,8 @@ export function issuesForFile(
   return issues.filter(
     (i) =>
       (!i.kinds || i.kinds.includes(kind)) &&
-      (i.employee_id === undefined || employeeIds === null || employeeIds.has(i.employee_id)),
+      (i.employee_id === undefined || employeeIds === null || employeeIds.has(i.employee_id)) &&
+      (!i.employee_ids || employeeIds === null || i.employee_ids.some((id) => employeeIds.has(id))),
   );
 }
 

@@ -30,11 +30,17 @@ export function balanceExceededQuestion(details: BalanceExceededDetails, verb: s
   );
 }
 
-export function useAbsenceTypes() {
+/**
+ * Abwesenheitsarten. `retry` ueberschreibt die Vorgabe des QueryClient, etwa
+ * fuer Seiten anderer Bereiche, die eine 403 nicht wiederholen wollen
+ * (Einstellungen > DATEV-Lohnexport).
+ */
+export function useAbsenceTypes(options: { retry?: (failureCount: number, error: Error) => boolean } = {}) {
   return useQuery({
     queryKey: ['absences', 'types'],
     queryFn: () => api.get<{ types: AbsenceType[] }>('/api/absences/types'),
     select: (d) => d.types,
+    ...(options.retry ? { retry: options.retry } : {}),
   });
 }
 

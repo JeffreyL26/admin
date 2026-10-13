@@ -100,8 +100,12 @@ export interface DatevPerson {
   ended_kinds: string[];
   /** Darunter: seit Beginn des Vormonats beendet (zaehlt als Aenderung). */
   ended_recently: boolean;
-  /** Aus dem Snapshot des Laufs; `hours` traegt der Stundenlohn (Vertragsstunden, mit denen der Lauf rechnete). */
-  components: { kind: string; amount_cents: number; monthly_cents: number; hours?: number }[];
+  /**
+   * Aus dem Snapshot des Laufs; `hours` traegt der Stundenlohn (Vertragsstunden,
+   * mit denen der Lauf rechnete), `valid_from` den Beginn der Zeile (eine im
+   * Monat beginnende ohne Vorgaenger setzt kein Flag „Gehaltsaenderung“).
+   */
+  components: { kind: string; amount_cents: number; monthly_cents: number; hours?: number; valid_from?: string }[];
   bonuses: { id: number; kind: string; title: string; payout_cents: number }[];
   flags: string[];
   warnings: string[];
@@ -143,7 +147,7 @@ interface ItemRow extends StammFelder {
   /** PERSONNEL_KEY_SQL: Personalnummer, ersatzweise die Profil-ID. */
   pnr: string;
   has_personnel_number: number;
-  updated_at: string;
+  changed_in_month: number;
   country: CountryCode;
   bundesland: string;
 }
@@ -255,6 +259,9 @@ export function buildDatevContext(run: { id: number; month: string; status: stri
   // Monatsersten noch nicht.
   const refDate = 'CASE WHEN e.exit_date IS NOT NULL AND e.exit_date < ? THEN e.exit_date ELSE ? END';
   const db = getDb();
+  // updated_at ist datetime('now'), also UTC; der Monatsbeginn ist Ortszeit.
+  // datetime(?, 'utc') rechnet den lokalen Monatsersten in UTC um, sonst
+  // fehlten Aenderungen aus den ersten Stunden des Monats.
   const rows = db
     .prepare(
       `SELECT i.employee_id, i.components_json, i.bonuses_json, i.flags_json, i.warnings_json,
@@ -265,7 +272,8 @@ export function buildDatevContext(run: { id: number; month: string; status: stri
               e.private_street, e.private_zip, e.private_city, e.private_country,
               e.iban, e.bic, e.tax_id, e.tax_class, e.church_tax, e.child_allowances,
               e.social_security_number, e.health_insurance, e.employee_type, e.job_title,
-              e.hire_date, e.exit_date, e.weekly_hours, e.updated_at,
+              e.hire_date, e.exit_date, e.weekly_hours,
+              (e.updated_at >= datetime(?, 'utc')) AS changed_in_month,
               (SELECT c.contract_type FROM contracts c
                 WHERE c.employee_id = e.id
                   AND c.valid_from <= ${refDate}
@@ -275,7 +283,7 @@ export function buildDatevContext(run: { id: number; month: string; status: stri
        ${REGION_JOIN_SQL}
        WHERE i.run_id = ? ORDER BY e.last_name, e.first_name`,
     )
-    .all([...regionSelectParams(), end, end, end, end, run.id]) as ItemRow[];
+    .all([...regionSelectParams(), start, end, end, end, end, run.id]) as ItemRow[];
   const regions = new Map(rows.map((r) => [r.employee_id, { country: r.country, region: r.bundesland }]));
   const absences = absenceDays(run.id, run.month, regions);
   const ended = endedComponents(run.id, start);
@@ -287,7 +295,7 @@ export function buildDatevContext(run: { id: number; month: string; status: stri
       flags_json,
       warnings_json,
       has_personnel_number,
-      updated_at,
+      changed_in_month,
       country: _country,
       bundesland: _bundesland,
       ...stamm
@@ -302,7 +310,7 @@ export function buildDatevContext(run: { id: number; month: string; status: stri
     return {
       ...stamm,
       has_personnel_number: has_personnel_number === 1,
-      changed_in_month: updated_at >= start,
+      changed_in_month: changed_in_month === 1,
       ended_kinds: endedKinds.map((e) => e.kind),
       ended_recently: endedKinds.some((e) => e.last_to >= previousMonthStart),
       components,

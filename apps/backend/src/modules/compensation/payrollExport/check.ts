@@ -34,7 +34,7 @@ import {
   type EmployeeType,
 } from '@ohrganize/shared';
 import type { DatevExportContext, DatevPerson } from './context.js';
-import { lohnartUsage, positionKind } from './positions.js';
+import { fehltageOf, festbezuegeChanged, lohnartUsage, positionKind } from './positions.js';
 
 export const personLabel = (p: DatevPerson): string => `${p.last_name}, ${p.first_name}`;
 
@@ -49,14 +49,30 @@ export function addressExportable(p: DatevPerson): boolean {
   return !p.private_zip || isValidPlz(p.private_zip.trim());
 }
 
+/**
+ * Wie die Anschrift: Eine IBAN, Steuer-ID oder SV-Nummer, die ihre Pruefziffer
+ * nicht besteht, geht nicht hinaus. Das leere Feld laesst in LODAS den
+ * bisherigen Wert stehen, statt einen richtigen mit einem Tippfehler zu
+ * ueberschreiben; der Pruefbericht sagt es.
+ */
+export const ibanExportable = (p: DatevPerson): boolean => !!p.iban && isValidIban(p.iban);
+export const taxIdExportable = (p: DatevPerson): boolean => !!p.tax_id && isValidSteuerId(p.tax_id);
+export const svNummerExportable = (p: DatevPerson): boolean =>
+  !!p.social_security_number && isValidSvNummer(p.social_security_number);
+
 const BEWEGUNG: DatevExportKind[] = ['bewegungsdaten'];
 const STAMM: DatevExportKind[] = ['stammdaten'];
 
 export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
   const { settings } = ctx;
   const issues: DatevIssue[] = [];
-  const general = (level: DatevIssue['level'], message: string, kinds?: DatevExportKind[]) =>
-    issues.push({ level, message, ...(kinds ? { kinds } : {}) });
+  const general = (level: DatevIssue['level'], message: string, kinds?: DatevExportKind[], employeeIds?: Set<number>) =>
+    issues.push({
+      level,
+      message,
+      ...(kinds ? { kinds } : {}),
+      ...(employeeIds ? { employee_ids: [...employeeIds] } : {}),
+    });
   const personal = (level: DatevIssue['level'], p: DatevPerson, message: string, kinds?: DatevExportKind[]) =>
     issues.push({
       level,
@@ -75,8 +91,9 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
   }
 
   // Lohnarten: geprueft wird, was eine Datei tatsaechlich traegt, und der
-  // Fehler sperrt nur diese Datei. Eine Nummer, die keine Datei enthaelt,
-  // ist kein Fehler.
+  // Fehler sperrt nur diese Datei, und nur, wenn eine Person mit dieser
+  // Lohnart darin steht (Stammdaten „nur Aenderungen“). Eine Nummer, die
+  // keine Datei enthaelt, ist kein Fehler.
   const usage = lohnartUsage(ctx);
   for (const [key, use] of usage) {
     // Nur die GESPEICHERTE Nummer zaehlt; ein Vorschlag, den niemand
@@ -90,6 +107,7 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
           ? `Nettoabzugsnummer für „${DATEV_LOHNART_LABELS[key]}“ fehlt oder ist ungültig (1 bis 2 Ziffern; Einstellungen > DATEV-Lohnexport speichern)`
           : `Lohnartennummer für „${DATEV_LOHNART_LABELS[key]}“ fehlt oder ist ungültig (1 bis 4 Ziffern; Einstellungen > DATEV-Lohnexport speichern)`,
         [...use.kinds],
+        use.employees,
       );
     }
   }
@@ -100,6 +118,7 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
       'warnung',
       `${DATEV_LOHNART_LABELS[key]} geht ohne Vorzeichen; die Lohnart ${(settings.lohnarten[key] ?? '').trim() || '?'} muss im Lohnprogramm als Abzug vom Brutto angelegt sein`,
       [...use.kinds],
+      use.employees,
     );
   }
   const hourlyPersons = ctx.persons.filter((p) => p.components.some((c) => c.kind === 'stundenlohn'));
@@ -111,13 +130,11 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
     );
   }
   if (settings.program === 'lug' && settings.festbezuege === 'stammdaten') {
-    const changed = ctx.persons.filter(
-      (p) => p.ended_recently || p.flags.some((f) => f === 'neueintritt' || f === 'gehaltsaenderung'),
-    );
+    const changed = ctx.persons.filter((p) => festbezuegeChanged(ctx, p));
     if (changed.length > 0) {
       general(
         'warnung',
-        `Lohn und Gehalt bekommt keine Festbezüge aus oHRganize: ${changed.length} Neueintritte oder Gehaltsänderungen dieses Monats bitte im Lohnprogramm erfassen`,
+        `Lohn und Gehalt bekommt keine Festbezüge aus oHRganize: Neueintritte, Gehaltsänderungen und neue oder beendete Gehaltsbestandteile dieses Monats (${changed.length === 1 ? '1 Person' : `${changed.length} Personen`}) bitte im Lohnprogramm erfassen`,
         BEWEGUNG,
       );
     }
@@ -144,7 +161,9 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
         p,
         mode === 'betrieblich'
           ? 'Personalnummer muss 1 bis 20 Zeichen haben, ohne Semikolon und Anführungszeichen'
-          : 'Personalnummer muss aus 1 bis 5 Ziffern bestehen (oder betriebliche Personalnummer in den Einstellungen einschalten)',
+          : settings.program === 'lodas'
+            ? 'Personalnummer muss aus 1 bis 5 Ziffern bestehen (oder betriebliche Personalnummer in den Einstellungen einschalten)'
+            : 'Personalnummer muss aus 1 bis 5 Ziffern bestehen (Mitarbeiternummer in Lohn und Gehalt)',
       );
     }
     const same = (groups.get(keyOf(p.pnr)) ?? []).filter((o) => o !== p);
@@ -176,7 +195,8 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
     for (const b of p.bonuses) {
       if (b.payout_cents <= 0) personal('warnung', p, `Bonus „${b.title}“ mit 0,00 wird nicht übergeben`, BEWEGUNG);
     }
-    if (p.absences.some((a) => a.half) && settings.program === 'lodas') {
+    // Nur Fehltage, die mitgehen (mit Ausfallschluessel), wie die Hinweise des Adapters.
+    if (settings.program === 'lodas' && fehltageOf(ctx, p).some((a) => a.half)) {
       personal('warnung', p, 'Halbe Fehltage stehen im LODAS-Kalendarium als ganzer Tag (Hinweis in den Hinweisdaten)', BEWEGUNG);
     }
     const odd = cp1252Unencodable([p.first_name, p.last_name, p.private_street, p.private_city, p.job_title].filter(Boolean).join(' '));
@@ -188,13 +208,19 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
 
     // Stammdaten: nur LODAS bekommt sie.
     if (settings.program !== 'lodas') continue;
-    if (p.iban && !isValidIban(p.iban)) personal('warnung', p, 'IBAN ist ungültig (Prüfsumme)', STAMM);
+    // Ein Neueintritt hat in LODAS noch keinen bisherigen Wert, der stehen bliebe.
+    const notSent = p.flags.includes('neueintritt')
+      ? 'wird nicht übergeben; bitte im Lohnprogramm erfassen'
+      : 'wird nicht übergeben; LODAS behält den bisherigen Wert';
+    if (p.iban && !ibanExportable(p)) personal('warnung', p, `IBAN ist ungültig (Prüfsumme) und ${notSent}`, STAMM);
     if (!p.iban) personal('warnung', p, 'IBAN fehlt', STAMM);
     if (p.bic && !isValidBic(p.bic.trim())) personal('warnung', p, 'BIC hat nicht die Form von 8 oder 11 Zeichen', STAMM);
-    if (p.tax_id && !isValidSteuerId(p.tax_id)) personal('warnung', p, 'Steuer-ID ist ungültig (11 Ziffern mit Prüfziffer)', STAMM);
+    if (p.tax_id && !taxIdExportable(p)) {
+      personal('warnung', p, `Steuer-ID ist ungültig (11 Ziffern mit Prüfziffer) und ${notSent}`, STAMM);
+    }
     if (!p.tax_id) personal('warnung', p, 'Steuer-ID fehlt', STAMM);
-    if (p.social_security_number && !isValidSvNummer(p.social_security_number)) {
-      personal('warnung', p, 'SV-Nummer ist ungültig (12 Zeichen mit Prüfziffer)', STAMM);
+    if (p.social_security_number && !svNummerExportable(p)) {
+      personal('warnung', p, `SV-Nummer ist ungültig (12 Zeichen mit Prüfziffer) und ${notSent}`, STAMM);
     }
     if (!p.social_security_number) personal('warnung', p, 'SV-Nummer fehlt', STAMM);
     if (!p.birth_date) personal('warnung', p, 'Geburtsdatum fehlt', STAMM);
@@ -239,6 +265,7 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
       label: DATEV_LOHNART_LABELS[key],
       number: (settings.lohnarten[key] ?? '').trim(),
       kinds: [...use.kinds],
+      employee_ids: [...use.employees],
     })),
   };
 }

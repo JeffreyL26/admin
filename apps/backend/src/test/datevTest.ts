@@ -398,6 +398,59 @@ check(
   'Stammdaten: Austritt geht auch ohne Eintrittsdatum mit',
   renderLodasStammdaten(ctxExit, checkDatevExport(ctxExit), 'aenderungen').includes('5;42;;20.10.2026;;'),
 );
+const ctxNewKind = context({}, [
+  person({
+    flags: [],
+    components: [
+      { kind: 'grundgehalt', amount_cents: 520000, monthly_cents: 520000, valid_from: '2020-01-01' },
+      { kind: 'zulage_schicht', amount_cents: 15000, monthly_cents: 15000, valid_from: '2026-10-01' },
+    ],
+  }),
+]);
+check(
+  'Stammdaten „Aenderungen“: erstmals angelegte Zulage (ohne Flag, Personalakte unveraendert) ist dabei',
+  renderLodasStammdaten(ctxNewKind, checkDatevExport(ctxNewKind), 'aenderungen').includes('6;42;2;210;150,00;'),
+);
+// Eine Lohnart, die nur eine Person ausserhalb der Datei braucht, sperrt sie nicht.
+const ctxOutside = context({ lohnarten: { ...DATEV_LOHNART_DEFAULTS, abzug_sonstig: '' } }, [person({ flags: [] }), ben()]);
+const outsideReport = checkDatevExport(ctxOutside);
+check(
+  'Fehlende Nettoabzugsnummer nur bei Anna: sperrt die Stammdaten mit Anna, nicht die „Aenderungen“ ohne sie',
+  issuesForFile(outsideReport.issues, 'stammdaten', null).some((i) => i.level === 'fehler' && /Sonstiger Abzug/.test(i.message)) &&
+    !issuesForFile(outsideReport.issues, 'stammdaten', new Set([2])).some((i) => i.level === 'fehler'),
+  outsideReport.issues,
+);
+const ctxBadIds = context({}, [
+  person({ iban: 'DE02120300000000202015', tax_id: '86095742710', social_security_number: '15070649C104' }),
+]);
+const psdBadIds = renderLodasStammdaten(ctxBadIds, checkDatevExport(ctxBadIds), 'alle');
+check(
+  'Ungueltige IBAN, Steuer-ID und SV-Nummer gehen nicht hinaus (LODAS behaelt die bisherigen)',
+  !psdBadIds.includes('2;42;') && psdBadIds.includes('3;42;;3;1,5;11;') && psdBadIds.includes(';02.03.1988;;\r\n'),
+  psdBadIds,
+);
+const badIdsReport = checkDatevExport(
+  context({}, [
+    person({ iban: 'DE02120300000000202015' }),
+    ben({ pnr: '7', has_personnel_number: true, iban: 'DE02120300000000202015' }),
+  ]),
+);
+check(
+  'Ungueltige IBAN: Bestand behaelt den bisherigen Wert, Neueintritt muss im Lohnprogramm erfasst werden',
+  badIdsReport.issues.some((i) => i.employee_id === 1 && /IBAN ist ungültig.*bisherigen Wert/.test(i.message)) &&
+    badIdsReport.issues.some((i) => i.employee_id === 2 && /IBAN ist ungültig.*im Lohnprogramm erfassen/.test(i.message)),
+  badIdsReport.issues,
+);
+const ctxSemicolon = context({}, [person({ job_title: 'Entwicklung; Teamleitung' })]);
+check(
+  'Textfelder ohne Feldtrenner (Semikolon wird Komma)',
+  renderLodasStammdaten(ctxSemicolon, checkDatevExport(ctxSemicolon), 'alle').includes('4;42;;"Entwicklung, Teamleitung";'),
+);
+const ctxHalfUnmapped = context({ ausfallschluessel: {} });
+check(
+  'Halbe Fehltage ohne Ausfallschluessel: kein Hinweis zum Kalendarium (sie gehen nicht mit)',
+  !checkDatevExport(ctxHalfUnmapped).issues.some((i) => /Halbe Fehltage/.test(i.message)),
+);
 const psdNoFest = renderLodasStammdaten(ctxB, checkDatevExport(ctxB), 'alle').split('\r\n');
 check(
   'Festbezuege als Buchung: Stammdaten ohne Satzarten 6 und 8, Stundensatz (7) trotzdem',

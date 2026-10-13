@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import { moduleEnabled } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
-import { ApiRequestError, api } from '../../api/client';
+import { ApiRequestError, api, retryUnlessForbidden } from '../../api/client';
 import { REGIONS, REGION_TERM } from '../../lib/locale';
 import { Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { useToast } from '../../components/Toast';
@@ -41,7 +41,7 @@ export function SettingsPage() {
     queryFn: () => api.get<{ settings: Settings }>('/api/settings'),
     // Ein 403 (Rolle ohne Bereich `einstellungen`) ist endgueltig; ein
     // Wiederholen liesse den Spinner nur laenger drehen.
-    retry: (count, err) => !(err instanceof ApiRequestError && err.status === 403) && count < 2,
+    retry: retryUnlessForbidden,
   });
   // Regionen kommen vom Server (Land der Variante), damit die Auswahl nicht
   // an einer zweiten Liste im Client haengt. Bis die Antwort da ist, dient

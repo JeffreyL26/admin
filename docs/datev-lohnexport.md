@@ -222,9 +222,10 @@ Personalnummer oder Ersatz-Profil-ID, die ein anderes Profil als
 Personalnummer trägt; eine Gehaltskomponente, die der Export nicht kennt.
 
 **Warnungen** (in der Datei und im Dialog): fehlende Personalnummer
-(Profil-ID), IBAN fehlt oder ungültig (Prüfsumme), BIC-Form, Steuer-ID
-fehlt oder ungültig (Prüfziffer), SV-Nummer fehlt oder ungültig
-(Prüfziffer), Geburtsdatum, Eintrittsdatum, Steuerklasse, unvollständige
+(Profil-ID), IBAN fehlt oder ungültig (Prüfsumme, wird dann nicht
+übergeben), BIC-Form, Steuer-ID fehlt oder ungültig (Prüfziffer, wird dann
+nicht übergeben), SV-Nummer fehlt oder ungültig (Prüfziffer, wird dann
+nicht übergeben), Geburtsdatum, Eintrittsdatum, Steuerklasse, unvollständige
 Anschrift, Anschrift wird nicht übergeben (Ausland, Postleitzahl),
 Hausnummer nicht erkannt, Krankenkassen werden nicht übergeben (einmal),
 Neueintritt ohne Personengruppe, gekürzte Felder, Zeichen außerhalb von
@@ -246,10 +247,17 @@ fehlende Wochenstunden, Festbezüge bei Lohn und Gehalt, Minijob-Grenze.
   Fach 4); die Mustervorlage von 2016 nennt noch `konf#psd`. Meldet der
   Prüflauf den Feldnamen als unbekannt, ist das die Stelle.
 - Eine erstmals angelegte Zulage einer bestehenden Person setzt im Lauf
-  kein Flag „Gehaltsänderung“; beim Umfang „nur Änderungen“ ist die Person
-  trotzdem dabei, weil die Personalakte im Monat geändert wurde. Im Zweifel
-  „alle Personen“ exportieren; LODAS aktualisiert bestehende Festbezüge über
-  die feste Kennung.
+  kein Flag „Gehaltsänderung“ und ändert die Personalakte nicht; beim
+  Umfang „nur Änderungen“ ist die Person trotzdem dabei, weil eine
+  Komponente im Monat beginnt (`festbezuegeChanged` in `positions.ts`).
+  Im Zweifel „alle Personen“ exportieren; LODAS aktualisiert bestehende
+  Festbezüge über die feste Kennung.
+- Eine Lohnartennummer sperrt nur Dateien, in denen eine Person mit dieser
+  Lohnart steht: Fehlt sie nur Personen außerhalb der Stammdaten „nur
+  Änderungen“, geht diese Datei trotzdem.
+- IBAN, Steuer-ID und SV-Nummer, die ihre Prüfziffer nicht bestehen, gehen
+  wie eine Anschrift mit ungültiger Postleitzahl nicht mit: Das Feld bleibt
+  leer, LODAS behält den bisherigen Wert, der Prüfbericht warnt.
 - Entfallene Festbezüge gehen mit 0,00 unter ihrer Kennung mit (kein
   `[Entfernen]`); ein Festbezug, den das Lohnbüro unter einer anderen
   Kennung angelegt hat, bleibt davon unberührt.
