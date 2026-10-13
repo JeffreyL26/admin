@@ -9,8 +9,8 @@
  */
 import {
   cp1252Unencodable,
+  DATEV_ABZUG_UEBER_LOHNART,
   DATEV_LOHNART_LABELS,
-  datevExportKindsFor,
   isBetrieblichePnr,
   isLodasPnr,
   isValidBeraterNr,
@@ -79,17 +79,28 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
   // ist kein Fehler.
   const usage = lohnartUsage(ctx);
   for (const [key, use] of usage) {
+    // Nur die GESPEICHERTE Nummer zaehlt; ein Vorschlag, den niemand
+    // gespeichert hat, ist keine Zuordnung (datevSettingsFrom).
     const number = (settings.lohnarten[key] ?? '').trim();
-    const ok = use.nba ? isValidNettoabzugNr(number) : isValidLohnart(number);
+    const ok = use.number === 'nba' ? isValidNettoabzugNr(number) : isValidLohnart(number);
     if (!ok) {
       general(
         'fehler',
-        use.nba
-          ? `Nettoabzugsnummer für „${DATEV_LOHNART_LABELS[key]}“ fehlt oder ist ungültig (1 bis 2 Ziffern)`
-          : `Lohnartennummer für „${DATEV_LOHNART_LABELS[key]}“ fehlt oder ist ungültig (1 bis 4 Ziffern)`,
+        use.number === 'nba'
+          ? `Nettoabzugsnummer für „${DATEV_LOHNART_LABELS[key]}“ fehlt oder ist ungültig (1 bis 2 Ziffern; Einstellungen > DATEV-Lohnexport speichern)`
+          : `Lohnartennummer für „${DATEV_LOHNART_LABELS[key]}“ fehlt oder ist ungültig (1 bis 4 Ziffern; Einstellungen > DATEV-Lohnexport speichern)`,
         [...use.kinds],
       );
     }
+  }
+  for (const key of DATEV_ABZUG_UEBER_LOHNART) {
+    const use = usage.get(key);
+    if (!use) continue;
+    general(
+      'warnung',
+      `${DATEV_LOHNART_LABELS[key]} geht ohne Vorzeichen; die Lohnart ${(settings.lohnarten[key] ?? '').trim() || '?'} muss im Lohnprogramm als Abzug vom Brutto angelegt sein`,
+      [...use.kinds],
+    );
   }
   const hourlyPersons = ctx.persons.filter((p) => p.components.some((c) => c.kind === 'stundenlohn'));
   if (hourlyPersons.length > 0 && !settings.vertragsstunden) {
@@ -220,7 +231,6 @@ export function checkDatevExport(ctx: DatevExportContext): DatevCheckReport {
     program: settings.program,
     pnr_mode: mode,
     festbezuege: settings.festbezuege,
-    kinds: datevExportKindsFor(settings.program),
     issues,
     error_count,
     warning_count,

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import {
   ABSENCE_CATEGORY_LABELS,
+  DATEV_ABZUG_UEBER_LOHNART,
   DATEV_FESTBEZUEGE_MODE_LABELS,
   DATEV_LOHNART_DEFAULTS,
   DATEV_LOHNART_KEYS,
@@ -12,14 +13,16 @@ import {
   DATEV_PROGRAMS,
   isValidAusfallschluessel,
   isValidBeraterNr,
-  isValidLohnart,
   isValidMandantenNr,
-  isValidNettoabzugNr,
   LODAS_POSITION_KIND,
+  lohnartNumberKind,
+  lohnartNumberProblem,
+  LUG_COLUMNS,
   type AbsenceType,
   type DatevFestbezuegeMode,
   type DatevLohnartKey,
   type DatevProgram,
+  type LodasPositionKind,
 } from '@ohrganize/shared';
 import { ApiRequestError, api } from '../../api/client';
 import { Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
@@ -45,12 +48,48 @@ interface DatevSettings {
   datevAusfallschluessel: Record<string, string>;
 }
 
-const POSITION_HINT: Record<string, string> = {
+const POSITION_HINT: Record<LodasPositionKind, string> = {
   festbezug: 'Festbezug (monatlich)',
   stundenlohn: 'Stundensatz und Stunden',
   nettoabzug: 'Nettoabzug',
   einmalbezug: 'Einmalzahlung (Bruttobezug)',
 };
+
+const SCALAR_KEYS = [
+  'datevBeraterNr',
+  'datevMandantenNr',
+  'datevProgramm',
+  'datevBetrieblichePnr',
+  'datevFestbezuege',
+  'datevVertragsstunden',
+] as const;
+
+/**
+ * Nur, was sich gegenueber dem Server geaendert hat: Ein zweiter
+ * Arbeitsplatz, der inzwischen etwas anderes gespeichert hat, wird nicht mit
+ * dem alten Stand dieser Seite ueberschrieben. Lohnarten, die noch nicht
+ * gespeichert sind, gehen mit ihrem angezeigten Vorschlag mit: Erst
+ * gespeichert gilt eine Nummer im Export.
+ */
+function changesOf(form: DatevSettings, server: DatevSettings): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+  for (const key of SCALAR_KEYS) {
+    const value = typeof form[key] === 'string' ? (form[key] as string).trim() : form[key];
+    if (value !== server[key]) patch[key] = value;
+  }
+  const lohnarten: Record<string, string> = {};
+  for (const key of DATEV_LOHNART_KEYS) {
+    const value = (form.datevLohnarten[key] ?? DATEV_LOHNART_DEFAULTS[key]).trim();
+    if (server.datevLohnarten[key] !== value) lohnarten[key] = value;
+  }
+  if (Object.keys(lohnarten).length) patch.datevLohnarten = lohnarten;
+  const ausfall: Record<string, string> = {};
+  for (const [id, value] of Object.entries(form.datevAusfallschluessel)) {
+    if ((server.datevAusfallschluessel[id] ?? '') !== value.trim()) ausfall[id] = value.trim();
+  }
+  if (Object.keys(ausfall).length) patch.datevAusfallschluessel = ausfall;
+  return patch;
+}
 
 export function DatevSettingsPage() {
   const toast = useToast();
@@ -74,17 +113,7 @@ export function DatevSettingsPage() {
   const settings = form ?? data?.settings ?? null;
 
   const save = useMutation({
-    mutationFn: (s: DatevSettings) =>
-      api.put('/api/settings/datev', {
-        datevBeraterNr: s.datevBeraterNr.trim(),
-        datevMandantenNr: s.datevMandantenNr.trim(),
-        datevProgramm: s.datevProgramm,
-        datevBetrieblichePnr: s.datevBetrieblichePnr,
-        datevFestbezuege: s.datevFestbezuege,
-        datevVertragsstunden: s.datevVertragsstunden,
-        datevLohnarten: s.datevLohnarten,
-        datevAusfallschluessel: s.datevAusfallschluessel,
-      }),
+    mutationFn: (s: DatevSettings) => api.put('/api/settings/datev', data ? changesOf(s, data.settings) : {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['settings'] });
       qc.invalidateQueries({ queryKey: ['compensation'] });
@@ -113,19 +142,20 @@ export function DatevSettingsPage() {
   const set = (patch: Partial<DatevSettings>) => setForm({ ...settings, ...patch });
   const lodas = settings.datevProgramm === 'lodas';
   const lohnart = (key: DatevLohnartKey) => settings.datevLohnarten[key] ?? DATEV_LOHNART_DEFAULTS[key];
-  const lohnartError = (key: DatevLohnartKey): string | undefined => {
-    const v = lohnart(key).trim();
-    if (v === '') return undefined;
-    const netto = lodas && settings.datevFestbezuege === 'stammdaten' && LODAS_POSITION_KIND[key] === 'nettoabzug';
-    if (netto) return isValidNettoabzugNr(v) ? undefined : '1 bis 2 Ziffern';
-    return isValidLohnart(v) ? undefined : '1 bis 4 Ziffern';
-  };
+  // Dieselbe Regel wie Positionsplan und Pruefbericht (lohnartNumberKind in shared).
+  const lohnartErrors = new Map(
+    DATEV_LOHNART_KEYS.map((key) => [
+      key,
+      lohnartNumberProblem(lohnart(key), lohnartNumberKind(key, settings.datevProgramm, settings.datevFestbezuege)),
+    ]),
+  );
+  const unsaved = DATEV_LOHNART_KEYS.filter((key) => data && data.settings.datevLohnarten[key] === undefined);
   const beraterError = settings.datevBeraterNr.trim() && !isValidBeraterNr(settings.datevBeraterNr.trim()) ? '4 bis 7 Ziffern' : undefined;
   const mandantError = settings.datevMandantenNr.trim() && !isValidMandantenNr(settings.datevMandantenNr.trim()) ? '1 bis 5 Ziffern' : undefined;
   const invalid =
     !!beraterError ||
     !!mandantError ||
-    DATEV_LOHNART_KEYS.some((k) => lohnartError(k)) ||
+    [...lohnartErrors.values()].some(Boolean) ||
     Object.values(settings.datevAusfallschluessel).some((v) => v.trim() !== '' && !isValidAusfallschluessel(v.trim()));
 
   return (
@@ -137,7 +167,7 @@ export function DatevSettingsPage() {
       <div className="stack" style={{ maxWidth: 860 }}>
         <Card title="Lohnbüro">
           <div className="hm-form-grid">
-            <Field label="Lohnprogramm" span2 hint="LODAS bekommt Bewegungs- und Stammdaten; Lohn und Gehalt nur Bewegungsdaten (elf Spalten, Satzbeschreibung laut Dokumentation).">
+            <Field label="Lohnprogramm" span2 hint="LODAS bekommt Bewegungs- und Stammdaten; Lohn und Gehalt nur Bewegungsdaten (elf Spalten, Satzbeschreibung siehe unten).">
               <Select
                 className="hm-select"
                 value={settings.datevProgramm}
@@ -232,11 +262,13 @@ export function DatevSettingsPage() {
 
         <Card title="Lohnarten">
           <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginTop: 0 }}>
-            Die Nummern legt das Lohnbüro im Lohnprogramm fest; die Vorgaben hier sind nur ein Vorschlag.
-            Eine leere Nummer sperrt die Datei, in der die Position steht.
+            Die Nummern legt das Lohnbüro im Lohnprogramm fest; die Vorgaben hier sind nur ein Vorschlag und
+            gelten erst, wenn sie gespeichert sind. Eine fehlende Nummer sperrt die Datei, in der die Position
+            steht.
             {lodas && settings.datevFestbezuege === 'stammdaten' && (
               <> Der sonstige Abzug trägt die Nettobe-/abzugsnummer des Mandanten (1 bis 2 Ziffern).</>
             )}
+            {unsaved.length > 0 && <> {unsaved.length} Vorschläge sind noch nicht gespeichert.</>}
           </p>
           <div className="hm-table-wrap">
             <table className="hm-table">
@@ -250,8 +282,16 @@ export function DatevSettingsPage() {
               <tbody>
                 {DATEV_LOHNART_KEYS.map((key) => (
                   <tr key={key}>
-                    <td style={{ fontWeight: 600 }}>{DATEV_LOHNART_LABELS[key]}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{POSITION_HINT[LODAS_POSITION_KIND[key]]}</td>
+                    <td style={{ fontWeight: 600 }}>
+                      {DATEV_LOHNART_LABELS[key]}
+                      {unsaved.includes(key) && (
+                        <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> (Vorschlag, nicht gespeichert)</span>
+                      )}
+                    </td>
+                    <td style={{ color: 'var(--text-muted)' }}>
+                      {POSITION_HINT[LODAS_POSITION_KIND[key]]}
+                      {DATEV_ABZUG_UEBER_LOHNART.includes(key) && ', Lohnart als Abzug vom Brutto anlegen'}
+                    </td>
                     <td>
                       <input
                         className="hm-input"
@@ -262,7 +302,7 @@ export function DatevSettingsPage() {
                           set({ datevLohnarten: { ...settings.datevLohnarten, [key]: e.target.value } })
                         }
                       />
-                      {lohnartError(key) && <span className="hm-field__error">{lohnartError(key)}</span>}
+                      {lohnartErrors.get(key) && <span className="hm-field__error">{lohnartErrors.get(key)}</span>}
                     </td>
                   </tr>
                 ))}
@@ -338,15 +378,17 @@ export function DatevSettingsPage() {
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button
             className="hm-btn hm-btn--primary"
-            disabled={save.isPending || !form || invalid}
+            disabled={save.isPending || (!form && unsaved.length === 0) || invalid}
             onClick={() => settings && save.mutate(settings)}
           >
             Speichern
           </button>
         </div>
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-          Export und Prüfbericht: <Link to="/verguetung/abrechnung">Vergütung, Abrechnung</Link>. Aufbau der
-          Dateien und Einrichtung im Lohnprogramm: docs/datev-lohnexport.md.
+          Export und Prüfbericht: <Link to="/verguetung/abrechnung">Vergütung, Abrechnung</Link>. LODAS liest
+          den Aufbau aus der Datei selbst. Für Lohn und Gehalt legt das Lohnbüro einmalig im
+          ASCII-Import-Assistenten eine Satzbeschreibung an (Trennzeichen Strichpunkt, Zahlenkomma Komma, Datum
+          TT.MM.JJJJ) mit diesen elf Spalten: {LUG_COLUMNS.join(', ')}.
         </p>
       </div>
     </>

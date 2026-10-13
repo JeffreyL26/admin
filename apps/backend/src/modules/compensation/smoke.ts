@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
+import { DATEV_LOHNART_DEFAULTS } from '@ohrganize/shared';
 
 process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-comp-smoke-'));
 process.env.OHRGANIZE_LOG_LEVEL = 'silent';
@@ -490,18 +491,23 @@ check('Statuswechsel offen → geprueft', toChecked.statusCode === 200 && toChec
 const checkEmpty = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/datev-check`, headers: auth });
 const emptyReport = checkEmpty.json().report as { error_count: number; issues: { level: string; message: string; employee_id?: number }[]; pnr_mode: string };
 check(
-  'DATEV-Pruefbericht ohne Nummern: Fehler fuer Berater, Mandant und P-0042',
+  'DATEV-Pruefbericht ab Werk: Fehler fuer Berater, Mandant, nicht gespeicherte Lohnarten (Grundgehalt, Bonus) und P-0042',
   checkEmpty.statusCode === 200 &&
-    emptyReport.error_count === 3 &&
+    emptyReport.error_count === 5 &&
     emptyReport.issues.some((i) => i.level === 'fehler' && /Beraternummer/.test(i.message)) &&
     emptyReport.issues.some((i) => i.level === 'fehler' && /Mandantennummer/.test(i.message)) &&
+    emptyReport.issues.some((i) => i.level === 'fehler' && /Grundgehalt/.test(i.message)) &&
+    emptyReport.issues.some((i) => i.level === 'fehler' && /Einmalzahlung/.test(i.message)) &&
     emptyReport.issues.some((i) => i.level === 'fehler' && i.employee_id === e1 && /Personalnummer/.test(i.message)),
   emptyReport,
 );
 const blockedExport = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/export.datev`, headers: auth });
 check(
-  'Gesperrter Export → 409 DATEV_EXPORT_BLOCKED mit Bericht',
-  blockedExport.statusCode === 409 && blockedExport.json().error.code === 'DATEV_EXPORT_BLOCKED' && blockedExport.json().error.details.error_count === 3,
+  'Gesperrter Export → 409 DATEV_EXPORT_BLOCKED mit den Fehlern DIESER Datei (ohne die Grundgehalt-Lohnart der Stammdaten)',
+  blockedExport.statusCode === 409 &&
+    blockedExport.json().error.code === 'DATEV_EXPORT_BLOCKED' &&
+    blockedExport.json().error.details.error_count === 4 &&
+    !JSON.stringify(blockedExport.json().error.details.issues).includes('Grundgehalt'),
   blockedExport.json(),
 );
 check(
@@ -535,7 +541,8 @@ const settingsOk = await app.inject({
     datevBeraterNr: '28547',
     datevMandantenNr: '90909',
     datevBetrieblichePnr: true,
-    datevLohnarten: { abzug_sonstig: '12' },
+    // Lohnarten gelten erst gespeichert (kein stiller Rueckfall auf die Vorschlaege).
+    datevLohnarten: { ...DATEV_LOHNART_DEFAULTS, abzug_sonstig: '12' },
   },
 });
 check('Einstellungen: DATEV-Nummern und betriebliche Personalnummer gesetzt', settingsOk.statusCode === 200, settingsOk.json());
@@ -568,7 +575,7 @@ const authPayroll = { authorization: `Bearer ${payrollLogin.json().token as stri
 const checkNoPersonal = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/datev-check`, headers: authPayroll });
 const exportNoPersonal = await app.inject({
   method: 'GET',
-  url: `/api/compensation/payroll-runs/${runId}/export.datev?art=stammdaten&umfang=alle`,
+  url: `/api/compensation/payroll-runs/${runId}/export.datev?kind=stammdaten&scope=alle`,
   headers: authPayroll,
 });
 check(
@@ -648,7 +655,7 @@ check('Export setzt Status auf exportiert', runAfterExport.json().run.status ===
 
 const stammdaten = await app.inject({
   method: 'GET',
-  url: `/api/compensation/payroll-runs/${runId}/export.datev?art=stammdaten&umfang=alle`,
+  url: `/api/compensation/payroll-runs/${runId}/export.datev?kind=stammdaten&scope=alle`,
   headers: auth,
 });
 const stammBody = stammdaten.rawPayload.toString('latin1');
@@ -666,7 +673,7 @@ check('LODAS-Stammdaten: Neueintritt E2 mit Personengruppe 109', stammBody.inclu
 check('LODAS-Stammdaten: Stammdatenwarnung (IBAN) in den Hinweisdaten', stammBody.includes(`"Klein, Ben (${e2}): IBAN fehlt"`), stammBody);
 const stammChanges = await app.inject({
   method: 'GET',
-  url: `/api/compensation/payroll-runs/${runId}/export.datev?art=stammdaten`,
+  url: `/api/compensation/payroll-runs/${runId}/export.datev?kind=stammdaten`,
   headers: auth,
 });
 check(
@@ -691,7 +698,7 @@ check(
     lugBody.includes(`${e2};;;420;;;200,00;;;;`),
   lugBody,
 );
-const lugStamm = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/export.datev?art=stammdaten`, headers: auth });
+const lugStamm = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${runId}/export.datev?kind=stammdaten`, headers: auth });
 check('Lohn und Gehalt kennt keine Stammdaten → 400', lugStamm.statusCode === 400, lugStamm.json());
 await app.inject({ method: 'PUT', url: '/api/settings/datev', headers: auth, payload: { datevProgramm: 'lodas', datevFestbezuege: 'stammdaten' } });
 db.prepare('UPDATE employees SET personnel_number = ? WHERE id = ?').run('P-0042', e1);
@@ -744,9 +751,44 @@ check(
   csv.body.slice(0, 120),
 );
 check('CSV: Personalnummer in erster Spalte', csv.body.includes('P-0042;Muster;'), csv.body.slice(0, 200));
+check(
+  'CSV-Export hinterlaesst wie DATEV eine Pruefsumme im Audit',
+  !!db
+    .prepare(`SELECT 1 FROM audit_log WHERE action = 'payroll_run.export_file' AND entity_id = ? AND details LIKE '%"program":"csv"%' AND details LIKE '%sha256%'`)
+    .get(runId),
+);
 
 const exportedDiscard = await app.inject({ method: 'DELETE', url: `/api/compensation/payroll-runs/${runId}`, headers: auth });
 check('Exportierten Lauf verwerfen → 409', exportedDiscard.statusCode === 409);
+
+// Statuswechsel nur fuer die Monatsdatei und nur mit verguetung: bearbeiten.
+// Ein neuer Lauf fuer den Vormonat, geprueft, dann: Stammdaten (kein
+// Wechsel), Bewegungsdaten mit einer Lese-Rolle (kein Wechsel), mit
+// Bearbeitungsrecht (Wechsel).
+const statusRun = (await app.inject({ method: 'POST', url: '/api/compensation/payroll-runs', headers: auth, payload: { month: prevMonth } })).json().run.id as number;
+await app.inject({ method: 'POST', url: `/api/compensation/payroll-runs/${statusRun}/status`, headers: auth, payload: { status: 'geprueft' } });
+const statusOf = () => (db.prepare('SELECT status FROM payroll_runs WHERE id = ?').get(statusRun) as { status: string }).status;
+await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${statusRun}/export.datev?kind=stammdaten&scope=alle`, headers: auth });
+check('Stammdatenexport laesst den Lauf auf geprueft', statusOf() === 'geprueft', statusOf());
+const readerRole = Number(db.prepare(`INSERT INTO admin_roles (name) VALUES ('Lohn lesen')`).run().lastInsertRowid);
+db.prepare(
+  `INSERT INTO admin_role_permissions (role_id, area, level) VALUES (?, 'verguetung', 'lesen'), (?, 'personal', 'lesen'), (?, 'abwesenheit', 'lesen')`,
+).run(readerRole, readerRole, readerRole);
+db.prepare(
+  "INSERT INTO users (email, name, password_hash, role, admin_role_id) VALUES ('lohnlesen@test.de', 'Lohn Lesen', ?, 'admin', ?)",
+).run(bcrypt.hashSync('geheim123', 10), readerRole);
+const readerLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'lohnlesen@test.de', password: 'geheim123' } });
+const authReader = { authorization: `Bearer ${readerLogin.json().token as string}` };
+const readerExport = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${statusRun}/export.datev`, headers: authReader });
+check(
+  'Lese-Rolle bekommt die Datei, stellt den Lauf aber nicht um',
+  readerExport.statusCode === 200 && statusOf() === 'geprueft',
+  { status: readerExport.statusCode, run: statusOf() },
+);
+await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${statusRun}/export.datev`, headers: auth });
+check('Bewegungsdaten mit Bearbeitungsrecht setzen den Lauf auf exportiert', statusOf() === 'exportiert', statusOf());
+const headCsv = await app.inject({ method: 'HEAD', url: `/api/compensation/payroll-runs/${statusRun}/export.csv`, headers: auth });
+check('CSV-Export per HEAD wird nicht ausgefuehrt', headCsv.statusCode === 404, headCsv.statusCode);
 
 // ---------------- Freiberufler ----------------
 

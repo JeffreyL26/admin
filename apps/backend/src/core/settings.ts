@@ -1,4 +1,4 @@
-import { DATEV_LOHNART_DEFAULTS, type DatevFestbezuegeMode, type DatevProgram } from '@ohrganize/shared';
+import type { DatevFestbezuegeMode, DatevProgram } from '@ohrganize/shared';
 import { getDb } from '../db/db.js';
 
 // Das LAND der Installation steht bewusst NICHT hier: Es kommt aus der
@@ -38,7 +38,11 @@ export interface CompanySettings {
   datevFestbezuege: DatevFestbezuegeMode;
   /** Stundenloehner: Vertragsstunden (Wochenstunden mal 4,33) als Stunden uebergeben; ohne Zeiterfassung sonst nichts. */
   datevVertragsstunden: boolean;
-  /** Lohnartennummer je DatevLohnartKey; was fehlt, nimmt den Vorschlag aus DATEV_LOHNART_DEFAULTS. */
+  /**
+   * Lohnartennummer je DatevLohnartKey, nur was gespeichert ist. Die
+   * Vorschlaege (DATEV_LOHNART_DEFAULTS) belegen nur die Einstellungsseite
+   * vor; ein Schluessel ohne gespeicherte Nummer sperrt den Export.
+   */
   datevLohnarten: Record<string, string>;
   /** Ausfallschluessel je Abwesenheitsart (Schluessel: id als Text); ohne Eintrag wird die Art nicht uebergeben. */
   datevAusfallschluessel: Record<string, string>;
@@ -56,7 +60,7 @@ const defaults: CompanySettings = {
   datevBetrieblichePnr: false,
   datevFestbezuege: 'stammdaten',
   datevVertragsstunden: false,
-  datevLohnarten: DATEV_LOHNART_DEFAULTS,
+  datevLohnarten: {},
   datevAusfallschluessel: {},
 };
 

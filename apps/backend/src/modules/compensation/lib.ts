@@ -2,11 +2,18 @@ import { getDb } from '../../db/db.js';
 import { notFound, badRequest, conflict } from '../../core/errors.js';
 import { addDaysIso } from '../../core/dates.js';
 import {
-  DEFAULT_WEEKLY_HOURS,
-  HOURLY_MONTH_FACTOR,
+  hourlyMonthCents,
   SALARY_DEDUCTION_KINDS,
   type SalaryComponentKind,
 } from '@ohrganize/shared';
+
+/**
+ * Personalnummer als Schluessel fuer Exporte und Bescheinigungen: die
+ * gepflegte Nummer, ersatzweise (fehlend oder nur Leerzeichen) die
+ * Profil-ID. EINE Fassung fuer CSV, DATEV-Kontext und Bescheinigung; der
+ * Ausdruck braucht den Alias `e` fuer employees.
+ */
+export const PERSONNEL_KEY_SQL = "COALESCE(NULLIF(TRIM(e.personnel_number), ''), CAST(e.id AS TEXT))";
 
 /** Relevante Spalten der employees-Kerntabelle (nur lesend, Kontrakt 100_employees_core). */
 export interface EmployeeRow {
@@ -63,8 +70,11 @@ export function monthBounds(month: string): { start: string; end: string } {
 
 /**
  * Monatswert einer Komponente in Cent. VEREINFACHUNG (dokumentiert):
- * - stundenlohn: Cent/Stunde × Wochenstunden × 4,33 (Ø Wochen je Monat),
- *   kaufmännisch gerundet. Keine Ist-Stunden-Erfassung.
+ * - stundenlohn: Vertragsstunden des Monats (Wochenstunden × 4,33 auf zwei
+ *   Stellen, contractMonthHours) × Cent/Stunde, kaufmännisch gerundet. So
+ *   rechnet auch das Lohnbüro mit den Stunden, die der DATEV-Export
+ *   übergibt; Lauf und Lohnprogramm kommen auf denselben Cent. Keine
+ *   Ist-Stunden-Erfassung.
  * - Abzugsarten (bav_entgeltumwandlung, abzug_sonstig) gehen negativ ein.
  */
 export function monthlyCents(
@@ -72,10 +82,7 @@ export function monthlyCents(
   amountCents: number,
   weeklyHours: number | null,
 ): number {
-  const base =
-    kind === 'stundenlohn'
-      ? Math.round(amountCents * (weeklyHours ?? DEFAULT_WEEKLY_HOURS) * HOURLY_MONTH_FACTOR)
-      : amountCents;
+  const base = kind === 'stundenlohn' ? hourlyMonthCents(amountCents, weeklyHours) : amountCents;
   return (SALARY_DEDUCTION_KINDS as string[]).includes(kind) ? -base : base;
 }
 

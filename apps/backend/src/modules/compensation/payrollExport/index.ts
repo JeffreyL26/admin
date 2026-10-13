@@ -56,13 +56,3 @@ export function payrollExporter(id: string): PayrollExporter {
   if (!exporter) throw new Error(`Unbekannter Lohnexport-Adapter: ${id}`);
   return exporter;
 }
-
-/** Adapter eines Landes (Auswahl der Einstellungen, Pruefung der Route). */
-export function payrollExportersFor(country: CountryCode): PayrollExporter[] {
-  return Object.values(PAYROLL_EXPORTERS).filter((e) => e.country === country);
-}
-
-/** Betrag in Cent als Dezimaldarstellung mit Komma ('1234,56'), fuer den CSV-Export. */
-export function decimalComma(cents: number): string {
-  return (cents / 100).toFixed(2).replace('.', ',');
-}

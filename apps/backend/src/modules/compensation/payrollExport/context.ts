@@ -13,12 +13,7 @@
  * nicht je Person: better-sqlite3 laeuft synchron, waehrenddessen wartet
  * jede andere Anfrage, auch das Portal.
  */
-import {
-  DATEV_LOHNART_DEFAULTS,
-  type CountryCode,
-  type DatevFestbezuegeMode,
-  type DatevProgram,
-} from '@ohrganize/shared';
+import type { CountryCode, DatevFestbezuegeMode, DatevProgram } from '@ohrganize/shared';
 import { getDb } from '../../../db/db.js';
 import { type CompanySettings, getAllSettings } from '../../../core/settings.js';
 import { addDaysIso, eachDay, isWeekend } from '../../../core/dates.js';
@@ -29,7 +24,7 @@ import {
   REGION_SELECT_SQL,
   regionSelectParams,
 } from '../../absences/service.js';
-import { monthBounds } from '../lib.js';
+import { monthBounds, PERSONNEL_KEY_SQL } from '../lib.js';
 
 export interface DatevSettings {
   program: DatevProgram;
@@ -38,7 +33,7 @@ export interface DatevSettings {
   betrieblichePnr: boolean;
   festbezuege: DatevFestbezuegeMode;
   vertragsstunden: boolean;
-  /** Lohnartennummer je DatevLohnartKey ('' = nicht zugeordnet). */
+  /** Gespeicherte Lohnartennummer je DatevLohnartKey; fehlt ein Schluessel, ist er nicht zugeordnet (kein Rueckfall auf den Vorschlag). */
   lohnarten: Record<string, string>;
   /** Ausfallschluessel je Abwesenheitsart (Schluessel ist die id als Text). */
   ausfallschluessel: Record<string, string>;
@@ -53,7 +48,7 @@ export function datevSettingsFrom(s: CompanySettings): DatevSettings {
     betrieblichePnr: s.datevBetrieblichePnr,
     festbezuege: s.datevFestbezuege,
     vertragsstunden: s.datevVertragsstunden,
-    lohnarten: { ...DATEV_LOHNART_DEFAULTS, ...s.datevLohnarten },
+    lohnarten: { ...s.datevLohnarten },
     ausfallschluessel: s.datevAusfallschluessel,
     companyName: s.companyName,
   };
@@ -105,7 +100,8 @@ export interface DatevPerson {
   ended_kinds: string[];
   /** Darunter: seit Beginn des Vormonats beendet (zaehlt als Aenderung). */
   ended_recently: boolean;
-  components: { kind: string; amount_cents: number; monthly_cents: number }[];
+  /** Aus dem Snapshot des Laufs; `hours` traegt der Stundenlohn (Vertragsstunden, mit denen der Lauf rechnete). */
+  components: { kind: string; amount_cents: number; monthly_cents: number; hours?: number }[];
   bonuses: { id: number; kind: string; title: string; payout_cents: number }[];
   flags: string[];
   warnings: string[];
@@ -124,37 +120,32 @@ export interface DatevExportContext {
   generated_at: string;
 }
 
-interface ItemRow {
-  employee_id: number;
+/** Felder einer Person, die die Abfrage unveraendert aus `employees` liest. */
+type StammFelder = Omit<
+  DatevPerson,
+  | 'pnr'
+  | 'has_personnel_number'
+  | 'changed_in_month'
+  | 'ended_kinds'
+  | 'ended_recently'
+  | 'components'
+  | 'bonuses'
+  | 'flags'
+  | 'warnings'
+  | 'absences'
+>;
+
+interface ItemRow extends StammFelder {
   components_json: string;
   bonuses_json: string;
   flags_json: string;
   warnings_json: string;
-  personnel_number: string | null;
-  first_name: string;
-  last_name: string;
-  birth_date: string | null;
-  private_street: string | null;
-  private_zip: string | null;
-  private_city: string | null;
-  private_country: string | null;
-  iban: string | null;
-  bic: string | null;
-  tax_id: string | null;
-  tax_class: string | null;
-  church_tax: string | null;
-  child_allowances: number | null;
-  social_security_number: string | null;
-  health_insurance: string | null;
-  employee_type: string;
-  job_title: string | null;
-  hire_date: string | null;
-  exit_date: string | null;
-  weekly_hours: number | null;
+  /** PERSONNEL_KEY_SQL: Personalnummer, ersatzweise die Profil-ID. */
+  pnr: string;
+  has_personnel_number: number;
   updated_at: string;
   country: CountryCode;
   bundesland: string;
-  contract_type: string | null;
 }
 
 interface AbsenceRow {
@@ -268,7 +259,9 @@ export function buildDatevContext(run: { id: number; month: string; status: stri
     .prepare(
       `SELECT i.employee_id, i.components_json, i.bonuses_json, i.flags_json, i.warnings_json,
               ${REGION_SELECT_SQL},
-              e.personnel_number, e.first_name, e.last_name, e.birth_date,
+              ${PERSONNEL_KEY_SQL} AS pnr,
+              (NULLIF(TRIM(e.personnel_number), '') IS NOT NULL) AS has_personnel_number,
+              e.first_name, e.last_name, e.birth_date,
               e.private_street, e.private_zip, e.private_city, e.private_country,
               e.iban, e.bic, e.tax_id, e.tax_class, e.church_tax, e.child_allowances,
               e.social_security_number, e.health_insurance, e.employee_type, e.job_title,
@@ -288,57 +281,44 @@ export function buildDatevContext(run: { id: number; month: string; status: stri
   const ended = endedComponents(run.id, start);
   const unmapped = new Map<number, string>();
   const persons: DatevPerson[] = rows.map((r) => {
+    const {
+      components_json,
+      bonuses_json,
+      flags_json,
+      warnings_json,
+      has_personnel_number,
+      updated_at,
+      country: _country,
+      bundesland: _bundesland,
+      ...stamm
+    } = r;
     const days = absences.get(r.employee_id) ?? [];
     for (const d of days) {
       if (!settings.ausfallschluessel[String(d.type_id)]) unmapped.set(d.type_id, d.type_name);
     }
-    const components = JSON.parse(r.components_json) as DatevPerson['components'];
+    const components = JSON.parse(components_json) as DatevPerson['components'];
     const current = new Set(components.map((c) => c.kind));
     const endedKinds = (ended.get(r.employee_id) ?? []).filter((e) => !current.has(e.kind));
-    const ownNumber = r.personnel_number?.trim() ?? '';
     return {
-      employee_id: r.employee_id,
-      pnr: ownNumber || String(r.employee_id),
-      has_personnel_number: ownNumber !== '',
-      first_name: r.first_name,
-      last_name: r.last_name,
-      birth_date: r.birth_date,
-      private_street: r.private_street,
-      private_zip: r.private_zip,
-      private_city: r.private_city,
-      private_country: r.private_country,
-      iban: r.iban,
-      bic: r.bic,
-      tax_id: r.tax_id,
-      tax_class: r.tax_class,
-      church_tax: r.church_tax,
-      child_allowances: r.child_allowances,
-      social_security_number: r.social_security_number,
-      health_insurance: r.health_insurance,
-      employee_type: r.employee_type,
-      job_title: r.job_title,
-      hire_date: r.hire_date,
-      exit_date: r.exit_date,
-      weekly_hours: r.weekly_hours,
-      contract_type: r.contract_type,
-      changed_in_month: r.updated_at >= start,
+      ...stamm,
+      has_personnel_number: has_personnel_number === 1,
+      changed_in_month: updated_at >= start,
       ended_kinds: endedKinds.map((e) => e.kind),
       ended_recently: endedKinds.some((e) => e.last_to >= previousMonthStart),
       components,
-      bonuses: JSON.parse(r.bonuses_json),
-      flags: JSON.parse(r.flags_json),
-      warnings: JSON.parse(r.warnings_json),
+      bonuses: JSON.parse(bonuses_json),
+      flags: JSON.parse(flags_json),
+      warnings: JSON.parse(warnings_json),
       absences: days,
     };
   });
-  const inRun = new Set(rows.map((r) => r.employee_id));
-  const otherNumbers = (
-    db
-      .prepare(`SELECT id, personnel_number FROM employees WHERE personnel_number IS NOT NULL AND TRIM(personnel_number) <> ''`)
-      .all() as { id: number; personnel_number: string }[]
-  )
-    .filter((e) => !inRun.has(e.id))
-    .map((e) => ({ employee_id: e.id, personnel_number: e.personnel_number.trim() }));
+  const otherNumbers = db
+    .prepare(
+      `SELECT e.id AS employee_id, TRIM(e.personnel_number) AS personnel_number FROM employees e
+       WHERE NULLIF(TRIM(e.personnel_number), '') IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM payroll_items i WHERE i.run_id = ? AND i.employee_id = e.id)`,
+    )
+    .all(run.id) as { employee_id: number; personnel_number: string }[];
   return {
     run: { id: run.id, month: run.month, status: run.status },
     settings,

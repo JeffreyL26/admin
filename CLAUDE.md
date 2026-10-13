@@ -1015,10 +1015,18 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Laufs geprueft. **Rechte:** Pruefbericht und Export verlangen neben
   `verguetung` auch `personal: lesen` und `abwesenheit: lesen`
   (`assertDatevAccess` in payrollRoutes.ts), sonst waere der Export der
-  Umweg an beiden Bereichen vorbei. Kein HEAD auf dem Export. Die
-  Einstellungen schreibt nur `PUT /api/settings/datev` (in
-  `LICENSE_OPEN_ROUTES`, Zuordnungen werden zusammengefuehrt). Jeder Export
-  schreibt `auditStandalone('payroll_run.export_file')` mit SHA-256. Tests:
+  Umweg an beiden Bereichen vorbei. Den Lauf auf „exportiert“ setzen nur
+  Bewegungsdaten und CSV, und nur mit `verguetung: bearbeiten`
+  (`markExported`). Kein HEAD auf beiden Exporten. Query `kind`/`scope`.
+  Lohnartennummern gelten nur GESPEICHERT (`datevSettingsFrom` mischt keine
+  Vorschlaege ein; die Seite belegt mit `DATEV_LOHNART_DEFAULTS` nur vor),
+  die Art der Nummer bestimmt `lohnartNumberKind` (shared) fuer Seite,
+  Positionsplan und Pruefbericht. Der Stundenlohn: `hourlyMonthCents`
+  (shared) im Lauf, eingefrorene `hours` im Snapshot, dieselben Stunden im
+  Export. Die Einstellungen schreibt nur `PUT /api/settings/datev` (in
+  `LICENSE_OPEN_ROUTES`, Zuordnungen werden zusammengefuehrt, die Seite
+  schickt nur Geaendertes). Jeder Export, auch CSV, schreibt
+  `auditStandalone('payroll_run.export_file')` mit SHA-256. Tests:
   `src/test/datevTest.ts` (Dateien Zeile fuer Zeile) und
   `modules/compensation/smoke.ts`, beide in `npm test`.
 - **Auswahllisten ueber die API:** `GET /api/regions[?country=]` liefert

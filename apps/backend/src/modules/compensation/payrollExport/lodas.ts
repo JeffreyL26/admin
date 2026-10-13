@@ -28,6 +28,7 @@ import {
   datevStunden,
   datevZeitraum,
   DEFAULT_WEEKLY_HOURS,
+  EMPLOYEE_TYPE_LABELS,
   HOURLY_MONTH_FACTOR,
   issuesForFile,
   LODAS_ARBEITSVERHAELTNIS,
@@ -157,7 +158,7 @@ export function renderLodasBewegungsdaten(ctx: DatevExportContext, report: Datev
       if (b.type === 'stunden') {
         data.push(record(1, [zeitraum, who, LODAS_BS.stunden, datevStunden(b.hours), lohnart(ctx, b.key)]));
         extra.push(
-          `${personLabel(p)} (${p.pnr}): ${datevStunden(b.hours)} Stunden sind Vertragsstunden (${p.weekly_hours ?? DEFAULT_WEEKLY_HOURS} h/Woche x ${HOURLY_MONTH_FACTOR}), keine Ist-Stunden`,
+          `${personLabel(p)} (${p.pnr}): ${datevStunden(b.hours)} Stunden sind Vertragsstunden (${p.weekly_hours ?? DEFAULT_WEEKLY_HOURS} h/Woche × ${String(HOURLY_MONTH_FACTOR).replace('.', ',')}), keine Ist-Stunden`,
         );
       } else {
         const bs = b.type === 'nettoabzug' ? LODAS_BS.nettoabzug : LODAS_BS.bruttobezug;
@@ -274,12 +275,14 @@ export function renderLodasStammdaten(
     }
   }
   if (derivedPersgrs) {
-    const pairs = Object.entries(LODAS_PERSONENGRUPPE).map(([type, code]) => `${code} ${type}`).join(', ');
-    extra.push(`Personengruppe (persgrs) nur bei Neueintritten, abgeleitet aus der Beschaeftigungsart (${pairs}); Sonderfaelle bitte in LODAS pruefen`);
+    const pairs = Object.entries(LODAS_PERSONENGRUPPE)
+      .map(([type, code]) => `${code} ${EMPLOYEE_TYPE_LABELS[type as EmployeeType] ?? type}`)
+      .join(', ');
+    extra.push(`Personengruppe (persgrs) nur bei Neueintritten, abgeleitet aus der Beschäftigungsart (${pairs}); Sonderfälle bitte in LODAS prüfen`);
   }
   if (festbezuege) {
     const [y, m] = ctx.run.month.split('-');
-    extra.push(`Festbezuege, Stundensaetze und Nettoabzuege gelten ab ${m}/${y}; ein Betrag von 0,00 beendet einen entfallenen Festbezug; Betraege ohne Vorzeichen, die Lohnart entscheidet ueber Bezug oder Abzug`);
+    extra.push(`Festbezüge, Stundensätze und Nettoabzüge gelten ab ${m}/${y}; ein Betrag von 0,00 beendet einen entfallenen Festbezug; Beträge ohne Vorzeichen, die Lohnart entscheidet über Bezug oder Abzug`);
   }
   return lodasFile(ctx, report, 'stammdaten', persons, satzbeschreibung, data, extra);
 }

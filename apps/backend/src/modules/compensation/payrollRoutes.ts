@@ -6,6 +6,8 @@ import { AppError, parse, badRequest, conflict, forbidden, notFound } from '../.
 import { audit, auditStandalone } from '../../core/audit.js';
 import { permissionsFor } from '../../core/permissions.js';
 import {
+  centsToDecimal,
+  contractMonthHours,
   COUNTRY_LABELS,
   DATEV_EXPORT_KIND_LABELS,
   MINIJOB_LIMIT_CENTS,
@@ -18,7 +20,7 @@ import {
   type PayrollFlag,
 } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
-import { decimalComma, payrollExporter } from './payrollExport/index.js';
+import { payrollExporter } from './payrollExport/index.js';
 import { buildDatevContext } from './payrollExport/context.js';
 import { checkDatevExport } from './payrollExport/check.js';
 import {
@@ -27,6 +29,7 @@ import {
   goalPayoutCents,
   monthBounds,
   monthlyCents,
+  PERSONNEL_KEY_SQL,
   tableColumns,
   tableExists,
   type EmployeeRow,
@@ -269,11 +272,15 @@ function assembleMonth(month: string): AssembledItem[] {
     const rows = componentsByEmployee.get(e.id) ?? [];
     const byKind = new Map<string, SalaryComponentRow>();
     for (const r of rows) if (!byKind.has(r.kind)) byKind.set(r.kind, r);
+    // Der Stundenlohn friert seine Vertragsstunden mit ein: Der DATEV-Export
+    // uebergibt genau die Stunden, mit denen der Lauf gerechnet hat, auch
+    // wenn sich die Wochenstunden danach aendern.
     const components = [...byKind.values()].map((c) => ({
       kind: c.kind,
       amount_cents: c.amount_cents,
       monthly_cents: monthlyCents(c.kind, c.amount_cents, e.weekly_hours),
       valid_from: c.valid_from,
+      ...(c.kind === 'stundenlohn' ? { hours: contractMonthHours(e.weekly_hours) } : {}),
     }));
     const gross = components.reduce((s, c) => s + c.monthly_cents, 0);
 
@@ -356,7 +363,7 @@ function getItems(runId: number): (PayrollItemRow & { first_name: string; last_n
   return getDb()
     .prepare(
       `SELECT i.*, e.first_name, e.last_name, e.employee_type,
-              COALESCE(e.personnel_number, CAST(i.employee_id AS TEXT)) AS personnel_number
+              ${PERSONNEL_KEY_SQL} AS personnel_number
        FROM payroll_items i JOIN employees e ON e.id = i.employee_id
        WHERE i.run_id = ? ORDER BY e.last_name, e.first_name`,
     )
@@ -377,11 +384,19 @@ function itemToJson(i: PayrollItemRow & { first_name?: string; last_name?: strin
   };
 }
 
+/**
+ * Setzt einen geprueften Lauf auf 'exportiert'. Der Statuswechsel ist eine
+ * Bearbeitung: Ein Konto mit `verguetung: lesen` darf die Datei laden, den
+ * Lauf aber nicht umstellen (die Statusroute verlangt dafuer ebenfalls
+ * bearbeiten). Gerufen nur fuer Dateien, die die Abrechnung des Monats
+ * uebergeben (Bewegungsdaten, CSV), nicht fuer Stammdaten.
+ */
 function markExported(req: FastifyRequest, run: PayrollRunRow, format: string): void {
   if (run.status === 'offen') {
     throw conflict('Der Lauf muss vor dem Export geprüft werden');
   }
-  if (run.status !== 'exportiert') {
+  const mayEdit = permits(permissionsFor(req.user.admin_role_id ?? null).verguetung, 'bearbeiten');
+  if (run.status !== 'exportiert' && mayEdit) {
     // Statuswechsel und Audit-Eintrag in einem Commit.
     inTransaction(() => {
       getDb().prepare(`UPDATE payroll_runs SET status = 'exportiert' WHERE id = ?`).run(run.id);
@@ -393,6 +408,37 @@ function markExported(req: FastifyRequest, run: PayrollRunRow, format: string): 
       });
     });
   }
+}
+
+/**
+ * Beleg einer ausgegebenen Exportdatei: Name, Groesse, SHA-256. Ohne
+ * fachliche Aenderung, deshalb auditStandalone (CLAUDE.md, Audit); der
+ * Statuswechsel steht mit seinem eigenen Eintrag in markExported.
+ */
+function auditFile(
+  req: FastifyRequest,
+  run: PayrollRunRow,
+  file: {
+    program: string;
+    kind: string;
+    scope?: string;
+    filename: string;
+    content: Buffer;
+    persons: number;
+    warnings?: number;
+  },
+): void {
+  auditStandalone(req, 'payroll_run.export_file', 'payroll_run', run.id, {
+    month: run.month,
+    program: file.program,
+    kind: file.kind,
+    scope: file.scope,
+    filename: file.filename,
+    bytes: file.content.length,
+    sha256: createHash('sha256').update(file.content).digest('hex'),
+    persons: file.persons,
+    warnings: file.warnings,
+  });
 }
 
 export async function payrollRoutes(app: FastifyInstance): Promise<void> {
@@ -575,73 +621,73 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Lohnexport im Format des Lohnprogramms (Einstellung `datevProgramm`;
    * Registry je Land in payrollExport/). Der Pfad nennt weiterhin `datev`,
-   * weil Oberflaeche und Lesezeichen ihn so kennen. `art` waehlt
-   * Bewegungsdaten (Vorgabe) oder Stammdaten (nur LODAS), `umfang` bei
+   * weil Oberflaeche und Lesezeichen ihn so kennen. `kind` waehlt
+   * Bewegungsdaten (Vorgabe) oder Stammdaten (nur LODAS), `scope` bei
    * Stammdaten alle Personen oder nur die mit Neueintritt, Austritt,
    * Gehalts- oder Stammdatenaenderung. Fehler des Pruefberichts sperren die
    * Datei, die sie betreffen (409 mit diesen Meldungen), Warnungen stehen in
-   * der Datei. Der erste Export setzt den Lauf auf 'exportiert'
-   * (Voraussetzung: geprueft); jeder Export, auch ein wiederholter,
-   * hinterlaesst einen Audit-Eintrag mit der Pruefsumme der Datei, damit
-   * sich spaeter belegen laesst, was das Lohnbuero bekam. Kein HEAD: Er
-   * setzte den Status und schriebe eine Pruefsumme fuer eine Datei, die
-   * niemand bekommt.
+   * der Datei. Die Bewegungsdaten setzen den Lauf auf 'exportiert'
+   * (Voraussetzung: geprueft; nur mit verguetung: bearbeiten, siehe
+   * markExported), die Stammdaten nicht. Jeder Export, auch ein
+   * wiederholter, hinterlaesst einen Audit-Eintrag mit der Pruefsumme der
+   * Datei, damit sich spaeter belegen laesst, was das Lohnbuero bekam. Kein
+   * HEAD: Er setzte den Status und schriebe eine Pruefsumme fuer eine Datei,
+   * die niemand bekommt.
    */
   app.get(
     '/api/compensation/payroll-runs/:id/export.datev',
     { exposeHeadRoute: false },
     async (req, reply: FastifyReply) => {
-    assertDatevAccess(req);
-    const id = Number((req.params as { id: string }).id);
-    const query = parse(
-      z.object({
-        art: z.enum(['bewegungsdaten', 'stammdaten']).default('bewegungsdaten'),
-        umfang: z.enum(['aenderungen', 'alle']).default('aenderungen'),
-      }),
-      req.query,
-    );
-    const run = getRun(id);
-    if (run.status === 'offen') throw conflict('Der Lauf muss vor dem Export geprüft werden');
-    const ctx = buildDatevContext(run);
-    const report = checkDatevExport(ctx);
-    const exporter = exporterFor(ctx.settings.program);
-    if (!exporter.kinds.includes(query.art)) {
-      throw badRequest(`${exporter.label} kennt keine Datei „${DATEV_EXPORT_KIND_LABELS[query.art]}“`);
-    }
-    const inFile = exporter.persons(query.art, ctx, query.umfang);
-    const relevant = issuesForFile(report.issues, query.art, new Set(inFile.map((p) => p.employee_id)));
-    const errors = relevant.filter((i) => i.level === 'fehler');
-    if (errors.length > 0) {
-      throw new AppError(
-        409,
-        'DATEV_EXPORT_BLOCKED',
-        `Der DATEV-Export ist gesperrt: ${errors.length} Fehler im Prüfbericht`,
-        { ...report, issues: relevant, ...summarizeIssues(relevant) },
+      assertDatevAccess(req);
+      const id = Number((req.params as { id: string }).id);
+      const query = parse(
+        z.object({
+          kind: z.enum(['bewegungsdaten', 'stammdaten']).default('bewegungsdaten'),
+          scope: z.enum(['aenderungen', 'alle']).default('aenderungen'),
+        }),
+        req.query,
       );
-    }
-    const file = exporter.render(query.art, ctx, { scope: query.umfang, report });
-    markExported(req, run, exporter.id);
-    auditStandalone(req, 'payroll_run.export_file', 'payroll_run', run.id, {
-      month: run.month,
-      program: exporter.id,
-      kind: query.art,
-      scope: query.art === 'stammdaten' ? query.umfang : undefined,
-      filename: file.filename,
-      bytes: file.content.length,
-      sha256: createHash('sha256').update(file.content).digest('hex'),
-      persons: inFile.length,
-      warnings: relevant.length,
-    });
-    reply
-      .header('Content-Type', file.contentType)
-      .header('Content-Disposition', `attachment; filename="${file.filename}"`);
-    return reply.send(file.content);
+      const run = getRun(id);
+      if (run.status === 'offen') throw conflict('Der Lauf muss vor dem Export geprüft werden');
+      const ctx = buildDatevContext(run);
+      const report = checkDatevExport(ctx);
+      const exporter = exporterFor(ctx.settings.program);
+      if (!exporter.kinds.includes(query.kind)) {
+        throw badRequest(`${exporter.label} kennt keine Datei „${DATEV_EXPORT_KIND_LABELS[query.kind]}“`);
+      }
+      const inFile = exporter.persons(query.kind, ctx, query.scope);
+      const relevant = issuesForFile(report.issues, query.kind, new Set(inFile.map((p) => p.employee_id)));
+      const errors = relevant.filter((i) => i.level === 'fehler');
+      if (errors.length > 0) {
+        throw new AppError(
+          409,
+          'DATEV_EXPORT_BLOCKED',
+          `Der DATEV-Export ist gesperrt: ${errors.length} Fehler im Prüfbericht`,
+          { ...report, issues: relevant, ...summarizeIssues(relevant) },
+        );
+      }
+      const file = exporter.render(query.kind, ctx, { scope: query.scope, report });
+      if (query.kind === 'bewegungsdaten') markExported(req, run, exporter.id);
+      auditFile(req, run, {
+        program: exporter.id,
+        kind: query.kind,
+        scope: query.kind === 'stammdaten' ? query.scope : undefined,
+        filename: file.filename,
+        content: file.content,
+        persons: inFile.length,
+        warnings: relevant.length,
+      });
+      reply
+        .header('Content-Type', file.contentType)
+        .header('Content-Disposition', `attachment; filename="${file.filename}"`);
+      return reply.send(file.content);
     },
   );
 
-  // Generischer CSV-Export (UTF-8 mit BOM, Semikolon) — setzt Status auf
-  // 'exportiert' (Voraussetzung: geprüft).
-  app.get('/api/compensation/payroll-runs/:id/export.csv', async (req, reply: FastifyReply) => {
+  // Generischer CSV-Export (UTF-8 mit BOM, Semikolon): setzt Status auf
+  // 'exportiert' (Voraussetzung: geprüft) und hinterlaesst wie der
+  // DATEV-Export die Pruefsumme der Datei. Kein HEAD, aus demselben Grund.
+  app.get('/api/compensation/payroll-runs/:id/export.csv', { exposeHeadRoute: false }, async (req, reply: FastifyReply) => {
     const id = Number((req.params as { id: string }).id);
     const run = getRun(id);
     markExported(req, run, 'csv');
@@ -671,18 +717,21 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
           esc(i.last_name),
           esc(i.first_name),
           run.month,
-          decimalComma(i.gross_cents),
-          decimalComma(i.bonus_cents),
-          decimalComma(i.total_cents),
+          centsToDecimal(i.gross_cents),
+          centsToDecimal(i.bonus_cents),
+          centsToDecimal(i.total_cents),
           i.unpaid_absence_days,
           esc((JSON.parse(i.flags_json) as string[]).join(', ')),
           esc((JSON.parse(i.warnings_json) as string[]).join(', ')),
         ].join(';'),
       );
     }
+    const filename = `abrechnung_${run.month}.csv`;
+    const content = Buffer.from('﻿' + rows.join('\r\n') + '\r\n', 'utf8');
+    auditFile(req, run, { program: 'csv', kind: 'bewegungsdaten', filename, content, persons: items.length });
     reply
       .header('Content-Type', 'text/csv; charset=utf-8')
-      .header('Content-Disposition', `attachment; filename="abrechnung_${run.month}.csv"`);
-    return reply.send('﻿' + rows.join('\r\n') + '\r\n');
+      .header('Content-Disposition', `attachment; filename="${filename}"`);
+    return reply.send(content);
   });
 }

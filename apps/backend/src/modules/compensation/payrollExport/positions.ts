@@ -10,6 +10,7 @@ import {
   contractMonthHours,
   LODAS_FESTBEZUG_ID,
   LODAS_POSITION_KIND,
+  lohnartNumberKind,
   type DatevExportKind,
   type DatevLohnartKey,
 } from '@ohrganize/shared';
@@ -32,6 +33,17 @@ export function positionKind(kind: string) {
 }
 
 /**
+ * Vertragsstunden des Stundenlohns: die, mit denen der Lauf gerechnet hat
+ * (Snapshot), fuer Laeufe aus aelteren Fassungen ohne Snapshot aus den
+ * Wochenstunden mit derselben Regel.
+ */
+export function hourlyHours(p: DatevPerson): number | null {
+  const hourly = p.components.find((c) => c.kind === 'stundenlohn');
+  if (!hourly) return null;
+  return hourly.hours ?? contractMonthHours(p.weekly_hours);
+}
+
+/**
  * Bewegungsdaten einer Person: Einmalzahlungen (Boni ueber 0), Stunden bei
  * Vertragsstunden, und nur bei „Festbezuege als Buchung“ die
  * wiederkehrenden Bezuege und Abzuege.
@@ -47,7 +59,7 @@ export function bewegungenOf(ctx: DatevExportContext, p: DatevPerson): Bewegung[
   }
   const hourly = p.components.find((c) => c.kind === 'stundenlohn');
   if (hourly && ctx.settings.vertragsstunden) {
-    out.push({ type: 'stunden', key: 'stundenlohn', hours: contractMonthHours(p.weekly_hours), rateCents: hourly.amount_cents });
+    out.push({ type: 'stunden', key: 'stundenlohn', hours: hourlyHours(p)!, rateCents: hourly.amount_cents });
   }
   for (const b of p.bonuses) {
     if (b.payout_cents > 0) out.push({ type: 'bruttobezug', key: `bonus_${b.kind}` as DatevLohnartKey, cents: b.payout_cents });
@@ -76,21 +88,25 @@ export function festbezuegeOf(ctx: DatevExportContext, p: DatevPerson): Festbezu
 
 /**
  * Lohnarten, die eine Datei tatsaechlich traegt, je Schluessel mit den
- * Dateien und ob die Nummer dort eine Nettobe-/abzugsnummer (nba_nr, 1 bis 2
- * Stellen) ist. Lohn und Gehalt kennt nur die Bewegungsdaten.
+ * Dateien und der Art der Nummer (lohnartNumberKind: Nettobe-/abzugsnummer
+ * oder eigene Lohnart). Lohn und Gehalt kennt nur die Bewegungsdaten.
  */
-export function lohnartUsage(ctx: DatevExportContext): Map<DatevLohnartKey, { kinds: Set<DatevExportKind>; nba: boolean }> {
-  const usage = new Map<DatevLohnartKey, { kinds: Set<DatevExportKind>; nba: boolean }>();
-  const note = (key: DatevLohnartKey, kind: DatevExportKind, nba = false) => {
-    const entry = usage.get(key) ?? { kinds: new Set<DatevExportKind>(), nba: false };
+export function lohnartUsage(
+  ctx: DatevExportContext,
+): Map<DatevLohnartKey, { kinds: Set<DatevExportKind>; number: 'nba' | 'lohnart' }> {
+  const usage = new Map<DatevLohnartKey, { kinds: Set<DatevExportKind>; number: 'nba' | 'lohnart' }>();
+  const note = (key: DatevLohnartKey, kind: DatevExportKind) => {
+    const entry = usage.get(key) ?? {
+      kinds: new Set<DatevExportKind>(),
+      number: lohnartNumberKind(key, ctx.settings.program, ctx.settings.festbezuege),
+    };
     entry.kinds.add(kind);
-    entry.nba = entry.nba || nba;
     usage.set(key, entry);
   };
   for (const p of ctx.persons) {
     for (const b of bewegungenOf(ctx, p)) note(b.key, 'bewegungsdaten');
     if (ctx.settings.program === 'lodas') {
-      for (const f of festbezuegeOf(ctx, p)) note(f.key, 'stammdaten', f.type === 'nettoabzug');
+      for (const f of festbezuegeOf(ctx, p)) note(f.key, 'stammdaten');
     }
   }
   return usage;

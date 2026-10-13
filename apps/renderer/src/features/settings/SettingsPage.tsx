@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
+import { moduleEnabled } from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { ApiRequestError, api } from '../../api/client';
 import { REGIONS, REGION_TERM } from '../../lib/locale';
 import { Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
@@ -174,9 +176,14 @@ export function SettingsPage() {
           </div>
         </Card>
         <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-          Lohnprogramm, Berater- und Mandantennummer, Lohnarten und Ausfallschlüssel stehen unter{' '}
-          <Link to="/einstellungen/datev">DATEV-Lohnexport</Link>. Passwort, Darstellung und Seitenleiste
-          dieses Kontos finden Sie unter <Link to="/einstellungen/konto">Konto</Link>.
+          {moduleEnabled(VARIANT, 'compensation') && (
+            <>
+              Lohnprogramm, Berater- und Mandantennummer, Lohnarten und Ausfallschlüssel stehen unter{' '}
+              <Link to="/einstellungen/datev">DATEV-Lohnexport</Link>.{' '}
+            </>
+          )}
+          Passwort, Darstellung und Seitenleiste dieses Kontos finden Sie unter{' '}
+          <Link to="/einstellungen/konto">Konto</Link>.
         </p>
       </div>
     </>

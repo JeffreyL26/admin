@@ -157,3 +157,15 @@ export const DEFAULT_WEEKLY_HOURS = 40;
 export function contractMonthHours(weeklyHours: number | null | undefined): number {
   return Math.round((weeklyHours ?? DEFAULT_WEEKLY_HOURS) * Math.round(HOURLY_MONTH_FACTOR * 100)) / 100;
 }
+
+/**
+ * Monatsbetrag eines Stundenlohns in Cent: Vertragsstunden (zwei Stellen) ×
+ * Stundensatz, kaufmännisch gerundet, in ganzen Zahlen gerechnet (Hundertstel
+ * Stunden × Cent). So rechnet auch das Lohnprogramm mit den Stunden aus dem
+ * DATEV-Export: 38,5 h ergeben 166,71 h, × 13,50 € = 2.250,585 €, also
+ * 2.250,59 € in Lauf und Lohnbüro gleichermaßen.
+ */
+export function hourlyMonthCents(rateCents: number, weeklyHours: number | null | undefined): number {
+  const hundredths = Math.round(contractMonthHours(weeklyHours) * 100);
+  return Math.round((hundredths * rateCents) / 100);
+}

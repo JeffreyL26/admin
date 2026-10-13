@@ -11,6 +11,7 @@
 import {
   contractMonthHours,
   cp1252Unencodable,
+  hourlyMonthCents,
   DATEV_LOHNART_DEFAULTS,
   isBetrieblichePnr,
   isLodasPnr,
@@ -26,7 +27,7 @@ import {
 import { encodeCp1252 } from '../modules/compensation/payrollExport/cp1252.js';
 import { checkDatevExport } from '../modules/compensation/payrollExport/check.js';
 import { renderLodasBewegungsdaten, renderLodasStammdaten } from '../modules/compensation/payrollExport/lodas.js';
-import { renderLugBewegungsdaten } from '../modules/compensation/payrollExport/lug.js';
+import { lugExporter, renderLugBewegungsdaten } from '../modules/compensation/payrollExport/lug.js';
 import type { DatevExportContext, DatevPerson } from '../modules/compensation/payrollExport/context.js';
 
 let failures = 0;
@@ -64,6 +65,11 @@ check('Hausnummer mit abgesetztem Buchstaben (Hauptstr. 12 a)', JSON.stringify(s
 check('Personalnummer als Zahl verglichen (042 = 42)', pnrCompareKey('042', 'pnr') === pnrCompareKey('42', 'pnr') && pnrCompareKey('042', 'betrieblich') !== '42');
 check('Vertragsstunden 15,5 h kaufmaennisch gerundet (67,12)', contractMonthHours(15.5) === 67.12, contractMonthHours(15.5));
 check('Vertragsstunden ohne Wochenstunden wie im Lauf (40 h = 173,2)', contractMonthHours(null) === 173.2, contractMonthHours(null));
+check(
+  'Stundenlohn im Lauf = exportierte Stunden x Satz (38,5 h: 166,71 h x 13,50 = 2.250,59)',
+  hourlyMonthCents(1350, 38.5) === 225059 && hourlyMonthCents(1350, 15.5) === Math.round(6712 * 1350 / 100),
+  hourlyMonthCents(1350, 38.5),
+);
 
 // ---------------------------------------------------------------------------
 // Windows-1252
@@ -261,6 +267,29 @@ check(
   anschriften.issues.some((i) => i.employee_id === 6 && /Ort wird/.test(i.message)) &&
     anschriften.issues.some((i) => i.employee_id === 6 && /Berufsbezeichnung wird/.test(i.message)),
 );
+const unbestaetigt = checkDatevExport(context({ lohnarten: {} }));
+check(
+  'Lohnarten nur gespeichert gueltig: ohne gespeicherte Nummern sperren Grundgehalt, VWL, Abzug (Stammdaten) und Bonus (Bewegungsdaten)',
+  ['Grundgehalt', 'Vermögenswirksame', 'Sonstiger Abzug', 'Einmalzahlung'].every((name) =>
+    errorsOf(unbestaetigt).some((i) => i.message.includes(name)),
+  ),
+  errorsOf(unbestaetigt),
+);
+const bav = checkDatevExport(
+  context({}, [person({ components: [{ kind: 'bav_entgeltumwandlung', amount_cents: 20000, monthly_cents: -20000 }] })]),
+);
+check(
+  'bAV-Entgeltumwandlung: Hinweis, dass die Lohnart ein Abzug vom Brutto sein muss',
+  bav.issues.some((i) => i.level === 'warnung' && /Abzug vom Brutto/.test(i.message) && i.kinds?.join() === 'stammdaten'),
+  bav.issues,
+);
+const snapshot = context({ vertragsstunden: true }, [
+  ben({ pnr: '7', has_personnel_number: true, weekly_hours: 5, components: [{ kind: 'stundenlohn', amount_cents: 1350, monthly_cents: 40500, hours: 30 }] }),
+]);
+check(
+  'Vertragsstunden aus dem Lauf (Snapshot 30 h) statt aus den heutigen Wochenstunden',
+  renderLodasBewegungsdaten(snapshot, checkDatevExport(snapshot)).includes('1;01.10.2026;7;1;30,00;300;'),
+);
 const kasse = checkDatevExport(context({}, [person({ health_insurance: 'AOK Bayern' }), ben({ health_insurance: 'TK' })]));
 check(
   'Krankenkasse: EIN allgemeiner Hinweis statt einer Warnung je Person',
@@ -389,7 +418,7 @@ check('LuG: Fehltag mit Ausfallschluessel und Tagesanzahl', lug.includes('42;05.
 check('LuG: Vertragsstunden in Spalte 5, Stundensatz als abweichender Faktor', lug.includes('2;;;300;21,65;;;13,50;;;'), lug);
 check('LuG: kein Kopf, keine Abschnitte', !lug.some((l) => l.startsWith('[')));
 const lugReport = checkDatevExport(ctxLug);
-check('LuG: nur Bewegungsdaten als Datei', lugReport.kinds.join() === 'bewegungsdaten');
+check('LuG: nur Bewegungsdaten als Datei', lugExporter.kinds.join() === 'bewegungsdaten' && lugReport.error_count === 0);
 const lugNoHours = checkDatevExport(context({ program: 'lug' }));
 check('LuG ohne Vertragsstunden: Warnung zu Stundenlohn', lugNoHours.issues.some((i) => /Ist-Stunden/.test(i.message)));
 

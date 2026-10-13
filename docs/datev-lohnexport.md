@@ -38,14 +38,16 @@ samt Krankheit. Einer Rolle ohne diese Bereiche antwortet der Export mit
 | Beraternummer | 4 bis 7 Ziffern, Mandantennummer 1 bis 5 Ziffern. Beide kommen von der Steuerkanzlei. Ohne sie ist der Export gesperrt; ab Werk sind sie leer. Die Demowerte früherer Fassungen (1000001 und 10001), die die alte Einstellungsseite beim Speichern mitschrieb, entfernt das Update (Migration `403_datev_demo_numbers`). |
 | Betriebliche Personalnummer (nur LODAS) | Aus: Die Personalnummer der Personalakte muss die LODAS-Mitarbeiternummer sein (1 bis 5 Ziffern). An: Jede Personalnummer bis 20 Zeichen (etwa `P-0042`) ist der Schlüssel (`BetrieblichePNrVerwenden=Ja`), LODAS vergibt die Mitarbeiternummer selbst. Die Einstellung muss zum Mandanten in LODAS passen. |
 | Wiederkehrende Bezüge | **Stammdaten** (Vorgabe): Gehalt, Zulagen, Sachbezüge, VWL, bAV und sonstige Abzüge gehen als Festbezüge mit den Stammdaten, LODAS zahlt sie jeden Monat selbst; die Bewegungsdaten tragen nur Einmalzahlungen, Stunden und Fehltage. **Bewegungsdaten**: jeden Monat als Buchung. Das ist nur richtig, wenn das Lohnbüro keine Festbezüge pflegt, sonst zahlt es doppelt. |
-| Vertragsstunden übergeben | oHRganize kennt keine Ist-Stunden. Eingeschaltet stehen für Stundenlöhner Wochenstunden mal 4,33 als Stunden in der Datei (mit Hinweis; ohne Wochenstunden im Profil wie im Lauf 40); ausgeschaltet enthält die Datei keine Stunden, der Prüfbericht warnt. |
-| Lohnarten | Nummer je Position (Gehaltskomponenten und Bonusarten). Die Nummern legt das Lohnbüro fest; die Vorgaben sind Vorschläge. Eine leere Nummer sperrt die Datei, in der die Position steht, und nur diese. Der sonstige Abzug trägt bei LODAS mit Festbezügen über die Stammdaten die Nettobe-/abzugsnummer des Mandanten (1 bis 2 Ziffern). |
+| Vertragsstunden übergeben | oHRganize kennt keine Ist-Stunden. Eingeschaltet stehen für Stundenlöhner die Vertragsstunden des Laufs in der Datei (Wochenstunden mal 4,33 auf zwei Stellen, beim Anlegen des Laufs eingefroren; ohne Wochenstunden im Profil 40), mit Hinweis; ausgeschaltet enthält die Datei keine Stunden, der Prüfbericht warnt. Der Lauf rechnet den Stundenlohn als genau diese Stunden mal Satz, so dass Lauf und Lohnprogramm auf denselben Cent kommen. |
+| Lohnarten | Nummer je Position (Gehaltskomponenten und Bonusarten). Die Nummern legt das Lohnbüro fest; die Seite belegt die Felder mit Vorschlägen vor, **gelten tut eine Nummer erst gespeichert**. Eine fehlende Nummer sperrt die Datei, in der die Position steht, und nur diese; auch eine Position, die eine spätere Fassung neu einführt, fällt nicht still auf einen Vorschlag zurück. Der sonstige Abzug trägt bei LODAS mit Festbezügen über die Stammdaten die Nettobe-/abzugsnummer des Mandanten (1 bis 2 Ziffern). Die bAV-Entgeltumwandlung geht ohne Vorzeichen; ihre Lohnart muss im Lohnprogramm als Abzug vom Brutto angelegt sein (der Prüfbericht erinnert daran). |
 | Ausfallschlüssel | Je Abwesenheitsart (auch inaktive, deren Abwesenheiten noch abgerechnet werden) der Schlüssel des Lohnprogramms (etwa `U`, `K`, `UU`). Ohne Schlüssel bleibt die Art aus der Datei; der Prüfbericht nennt das. |
 
 Gespeichert wird über `PUT /api/settings/datev`. Die Route bleibt im
 Nur-Lese-Betrieb der Lizenz offen wie der Export selbst, sonst wäre ein
 gesperrter Export dort nicht mehr zu beheben. Lohnarten und
-Ausfallschlüssel werden mit dem Gespeicherten zusammengeführt.
+Ausfallschlüssel werden mit dem Gespeicherten zusammengeführt, und die Seite
+schickt nur, was sich geändert hat: Zwei Arbeitsplätze, die gleichzeitig an
+verschiedenen Feldern arbeiten, überschreiben sich nicht.
 
 Personalnummern, die keine Person trägt, ersetzt der Export durch die
 Profil-ID (mit Warnung). Trägt ein anderes Profil, auch ein
@@ -63,11 +65,16 @@ führt, führt sie für alle.
    `[Hinweisdaten]`, erscheint im Prüfprotokoll von LODAS), jeweils nur zu
    den Personen, die die Datei enthält. Dann die Datei wählen
    (Bewegungsdaten; bei LODAS auch Stammdaten mit Umfang) und herunterladen.
-4. Datei an das Lohnbüro geben. Der erste Export setzt den Lauf auf
-   „exportiert“; jeder Export, auch ein wiederholter, schreibt einen
-   Audit-Eintrag `payroll_run.export_file` mit Dateiname, Größe und
-   SHA-256-Prüfsumme, damit sich belegen lässt, welche Datei das Lohnbüro
-   bekam.
+4. Datei an das Lohnbüro geben. Der erste Export der Bewegungsdaten (oder
+   des CSV) setzt den Lauf auf „exportiert“, sofern das Konto Vergütung
+   bearbeiten darf; die Stammdaten lassen den Status stehen. Jeder Export,
+   auch ein wiederholter, auch das CSV, schreibt einen Audit-Eintrag
+   `payroll_run.export_file` mit Dateiname, Größe und SHA-256-Prüfsumme,
+   damit sich belegen lässt, welche Datei das Lohnbüro bekam.
+
+Der Export ist `GET /api/compensation/payroll-runs/:id/export.datev` mit
+`kind=bewegungsdaten|stammdaten` und bei Stammdaten `scope=aenderungen|alle`;
+der Prüfbericht ist `GET …/datev-check`.
 
 Stammdaten kommen aus der Personalakte zum Zeitpunkt des Exports (ein Lauf
 friert Beträge ein, nicht Adressen); Fehltage aus den genehmigten

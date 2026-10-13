@@ -6,6 +6,7 @@
 // Schnittstellenhandbuch LODAS (SSH, Fach 3 und 4), Hintergrund in
 // docs/datev-lohnexport.md.
 import type { BonusKind, SalaryComponentKind } from './compensation.js';
+import { centsToDecimal } from './common.js';
 import { SALARY_COMPONENT_KINDS, SALARY_COMPONENT_LABELS, BONUS_KIND_LABELS } from './compensation.js';
 import type { ChurchTax, EmployeeType, TaxClass } from './employees.js';
 
@@ -70,10 +71,13 @@ export const DATEV_LOHNART_LABELS: Record<DatevLohnartKey, string> = {
 /**
  * Vorschlaege fuer die Lohnartennummern. LODAS liefert keinen festen Katalog;
  * das Lohnbuero legt die eigenen Nummern fest, die Einstellungen muessen
- * dazu passen. Ein Schluessel ohne Nummer sperrt den Export (kein stiller
- * Rueckfall auf eine Sammelnummer). Der sonstige Abzug hat keinen
- * Vorschlag: In den LODAS-Stammdaten ist er eine Nettobe-/abzugsnummer des
- * Mandanten (1 bis 2 Stellen), die nur das Lohnbuero kennt.
+ * dazu passen. Die Einstellungsseite belegt ihre Felder damit vor; GELTEN
+ * tut eine Nummer erst, wenn sie gespeichert ist. Ein Schluessel ohne
+ * gespeicherte Nummer sperrt den Export (kein stiller Rueckfall auf einen
+ * Vorschlag oder eine Sammelnummer, auch nicht fuer eine Position, die eine
+ * spaetere Fassung neu einfuehrt). Der sonstige Abzug hat keinen Vorschlag:
+ * In den LODAS-Stammdaten ist er eine Nettobe-/abzugsnummer des Mandanten
+ * (1 bis 2 Stellen), die nur das Lohnbuero kennt.
  */
 export const DATEV_LOHNART_DEFAULTS: Record<DatevLohnartKey, string> = {
   grundgehalt: '200',
@@ -119,6 +123,16 @@ export const LODAS_POSITION_KIND: Record<DatevLohnartKey, LodasPositionKind> = {
   bonus_provision: 'einmalbezug',
   bonus_einmalzahlung: 'einmalbezug',
 };
+
+/**
+ * Positionen, die das Brutto MINDERN (SALARY_DEDUCTION_KINDS), aber ohne
+ * Vorzeichen uebergeben werden: Bezug oder Abzug entscheidet in LODAS und
+ * Lohn und Gehalt die Lohnart. Die bAV-Entgeltumwandlung geht als Festbezug
+ * bzw. Bruttobezug (BS 2) hinaus; ihre Lohnart muss im Lohnprogramm deshalb
+ * als Abzug vom Brutto angelegt sein, sonst zahlt das Lohnbuero sie aus.
+ * Der Pruefbericht erinnert daran, sobald sie vorkommt.
+ */
+export const DATEV_ABZUG_UEBER_LOHNART: DatevLohnartKey[] = ['bav_entgeltumwandlung'];
 
 /**
  * Bearbeitungsschluessel der LODAS-Bewegungsdaten (SSH Anhang A.1), nur die
@@ -237,6 +251,29 @@ export const isValidLohnart = (v: string): boolean => /^\d{1,4}$/.test(v);
 /** Nettobe-/abzugsnummer in den LODAS-Stammdaten (nba_nr): 1 bis 2 Ziffern. */
 export const isValidNettoabzugNr = (v: string): boolean => /^\d{1,2}$/.test(v);
 
+/**
+ * Was die Nummer eines Lohnart-Schluessels ist: in den LODAS-Stammdaten
+ * traegt der sonstige Abzug die Nettobe-/abzugsnummer des Mandanten (nba_nr,
+ * 1 bis 2 Stellen), sonst ist jede Nummer eine eigene Lohnart (la_eigene,
+ * 1 bis 4 Stellen). EINE Regel fuer Einstellungsseite, Positionsplan und
+ * Pruefbericht.
+ */
+export function lohnartNumberKind(
+  key: DatevLohnartKey,
+  program: DatevProgram,
+  festbezuege: DatevFestbezuegeMode,
+): 'nba' | 'lohnart' {
+  return program === 'lodas' && festbezuege === 'stammdaten' && LODAS_POSITION_KIND[key] === 'nettoabzug' ? 'nba' : 'lohnart';
+}
+
+/** Fehlertext zu einer Nummer, oder undefined, wenn sie passt. Leer ist hier kein Fehler (das sagt der Pruefbericht). */
+export function lohnartNumberProblem(value: string, kind: 'nba' | 'lohnart'): string | undefined {
+  const v = value.trim();
+  if (v === '') return undefined;
+  if (kind === 'nba') return isValidNettoabzugNr(v) ? undefined : '1 bis 2 Ziffern';
+  return isValidLohnart(v) ? undefined : '1 bis 4 Ziffern';
+}
+
 /** Ausfallschluessel: 1 bis 4 Buchstaben oder Ziffern (z. B. U, K, K6, UT). */
 export const isValidAusfallschluessel = (v: string): boolean => /^[A-Za-z0-9]{1,4}$/.test(v);
 
@@ -352,9 +389,9 @@ export function splitStreet(street: string): { name: string; number: string } {
   return { name: m[1]!.trim(), number: m[2]!.trim() };
 }
 
-/** Betrag in Cent als DATEV-Dezimalzahl mit Komma, ohne Tausenderpunkt, Vorzeichen entfernt. */
+/** Betrag in Cent als DATEV-Dezimalzahl mit Komma, ohne Tausenderpunkt, Vorzeichen entfernt (die Lohnart entscheidet). */
 export function datevBetrag(cents: number): string {
-  return (Math.abs(cents) / 100).toFixed(2).replace('.', ',');
+  return centsToDecimal(Math.abs(cents));
 }
 
 /** Stunden mit zwei Nachkommastellen und Komma. */
@@ -435,8 +472,6 @@ export interface DatevCheckReport {
   /** Schluesselfeld der LODAS-Saetze. */
   pnr_mode: 'pnr' | 'betrieblich';
   festbezuege: DatevFestbezuegeMode;
-  /** Welche Dateien das Programm liefert. */
-  kinds: DatevExportKind[];
   issues: DatevIssue[];
   error_count: number;
   warning_count: number;
@@ -470,10 +505,6 @@ export function issuesForFile(
   );
 }
 
-/** Welche Exportarten ein Programm kennt. */
-export function datevExportKindsFor(program: DatevProgram): DatevExportKind[] {
-  return program === 'lodas' ? ['bewegungsdaten', 'stammdaten'] : ['bewegungsdaten'];
-}
 
 /**
  * Spalten der Bewegungsdatei fuer Lohn und Gehalt in genau dieser Reihenfolge.

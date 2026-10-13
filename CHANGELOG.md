@@ -69,6 +69,21 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   mit 0,00; Auslandsanschrift und ungueltige PLZ lassen die Anschrift
   ganz stehen; Kuerzungen aller Felder werden gemeldet; Dateiname kommt
   ueber CORS an; zusammengesetzte Umlaute (NFD) werden richtig kodiert.
+- **Geaendert:** Lohnartennummern gelten erst gespeichert; die Vorschlaege
+  belegen nur die Einstellungsseite vor, die markiert, was noch nicht
+  gespeichert ist. Die Seite speichert nur Geaendertes. Hinweis zur
+  bAV-Entgeltumwandlung (Lohnart als Abzug vom Brutto anlegen).
+- **Geaendert:** Der Lauf rechnet Stundenloehne als Vertragsstunden (zwei
+  Stellen) mal Satz und friert die Stunden ein; der Export uebergibt genau
+  diese (Lauf und Lohnbuero auf denselben Cent).
+- **Geaendert:** Nur Bewegungsdaten und CSV setzen den Lauf auf
+  exportiert, und nur mit Verguetung bearbeiten; das CSV schreibt wie DATEV
+  eine Pruefsumme ins Audit; kein HEAD auf beiden Exporten.
+- **Geaendert:** Parameter des Exports heissen `kind` und `scope`; Dialog
+  sperrt eine Datei ohne Personen; Seite und Link des DATEV-Exports nur in
+  Ausgaben mit Verguetung; IBAN im Aenderungsantrag mit derselben Pruefung
+  (Pruefsumme) wie im Export; eine leere Personalnummer wird als keine
+  gespeichert.
 
 ### Dashboard aus Sicht der HR (09.10.2026)
 - **Neu:** Bereichsleiste ueber dem Dashboard: je Bereich die wichtigste Zahl

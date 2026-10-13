@@ -1680,7 +1680,14 @@ Feldnamen, die es in LODAS nicht gibt (`lohnart_nummer#bwd`,
 Bearbeitungsschluessel, und sie war UTF-8 statt ANSI. Sie buchte ausserdem
 jeden Monat das volle Gehalt als Bruttobezug; wo das Lohnbuero den
 Festbezug pflegt (der Normalfall in LODAS), haette ein Import doppelt
-gezahlt. Abzuege verloren ihr Vorzeichen und wurden zu Bezuegen. Nichts
+gezahlt. Der sonstige Abzug lief als gewoehnliche Buchung ohne
+Bearbeitungsschluessel, also wie ein Bezug (jetzt Nettoabzug, BS 3 bzw.
+Nettobe-/abzugsnummer). Die bAV-Entgeltumwandlung geht weiter ohne
+Vorzeichen als Festbezug bzw. Bruttobezug: In LODAS und Lohn und Gehalt
+entscheidet die Lohnart, ob sie das Brutto mindert, und ein negativer
+Betrag waere fuer beide Programme keine Entgeltumwandlung. Der
+Pruefbericht erinnert deshalb, dass ihre Lohnart als Abzug vom Brutto
+angelegt sein muss. Nichts
 davon fiel auf, weil kein Test die Zeilen pruefte und der Verguetungs-
 Smoke-Test nicht in `npm test` lief.
 
@@ -1739,8 +1746,34 @@ leeres Feld ueberschreibt in LODAS. Die Ableitung aus der
 Beschaeftigungsart haette bei jedem Export die Korrekturen des
 Lohnbueros (Altersrentner, Altersteilzeit) zurueckgesetzt.
 
+**Warum Lohnarten erst gespeichert gelten:** Die Vorschlaege (200
+Grundgehalt und so weiter) sind Nummern eines Beispielmandanten. Galten sie
+ohne Speichern, ging das Gehalt unter 200 hinaus, ohne dass jemand die
+Nummer je gesehen hatte, und eine Position, die eine spaetere Fassung neu
+einfuehrt, fiele still auf ihren Vorschlag zurueck. Die Seite belegt die
+Felder vor und markiert, was noch nicht gespeichert ist.
+
+**Warum der Lauf den Stundenlohn als Stunden mal Satz rechnet:** Das
+Lohnbuero rechnet mit den uebergebenen Stunden (zwei Stellen). Rechnete der
+Lauf mit ungerundeten Wochenstunden, lagen Lauf und Abrechnung Cent
+auseinander (38,5 h bei 13,50: 2.250,52 gegen 2.250,59). Die Stunden
+werden mit dem Lauf eingefroren, damit eine spaetere Aenderung der
+Wochenstunden die Datei nicht vom Lauf entfernt.
+
+**Warum nur die Bewegungsdaten den Status setzen, und nur mit
+Bearbeitungsrecht:** „Exportiert“ heisst, die Abrechnung des Monats ist
+uebergeben. Die Stammdaten sind das nicht. Und der Statuswechsel ist eine
+Bearbeitung; die Statusroute verlangte schon immer `bearbeiten`, der Export
+als GET nur `lesen`.
+
 **Offen:** Das Konfessionsfeld heisst nach der Feldbeschreibung
 `konf_an#psd`, die Mustervorlage von 2016 nennt `konf#psd`; ein Prueflauf
 beim ersten Kunden klaert das. Entfallene Festbezuege gehen mit 0,00 statt
 ueber `[Entfernen]`. Im Nur-Lese-Betrieb der Lizenz lassen sich die
-DATEV-Einstellungen aendern, doppelte Personalnummern aber nicht.
+DATEV-Einstellungen aendern, doppelte Personalnummern aber nicht. Die
+Ausfallschluessel haengen als Zuordnung in den Einstellungen an der id der
+Abwesenheitsart, nicht als Spalte an der Art (eine Spalte waere die
+Migration eines anderen Moduls); eine geloeschte Art hinterlaesst einen
+toten Eintrag ohne Wirkung. Der Export liest Stammdaten und Fehltage beim
+Export, nicht beim Anlegen des Laufs; die Pruefsumme im Audit belegt die
+Fassung.

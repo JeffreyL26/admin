@@ -1,5 +1,5 @@
-import { todayIsoLocal } from '@ohrganize/shared';
-import { API_BASE, getToken } from '../../api/client';
+import { centsToDecimal, todayIsoLocal } from '@ohrganize/shared';
+import { API_BASE, ApiRequestError, getToken } from '../../api/client';
 import type { BadgeTone } from '../../components/ui';
 
 /** '1.234,56' | '1234,56' | '1234.56' → Integer-Cent (null bei ungültig). */
@@ -14,7 +14,7 @@ export function parseEuroInput(input: string): number | null {
 /** Integer-Cent → Eingabewert '1234,56'. */
 export function centsToInput(cents: number | null | undefined): string {
   if (cents === null || cents === undefined) return '';
-  return (cents / 100).toFixed(2).replace('.', ',');
+  return centsToDecimal(cents);
 }
 
 /** 'YYYY-MM' → 'MM/JJJJ'. */
@@ -29,22 +29,12 @@ export function currentMonth(): string {
   return todayIsoLocal().slice(0, 7);
 }
 
-/** Fehler eines Exports samt `details` der Antwort (etwa der DATEV-Pruefbericht bei 409). */
-export class ExportError extends Error {
-  constructor(
-    message: string,
-    public status: number,
-    public code?: string,
-    public details?: unknown,
-  ) {
-    super(message);
-  }
-}
-
 /**
  * Datei-Download eines auth-pflichtigen GET-Endpunkts (Exporte). Den
- * Dateinamen bestimmt der Server (Content-Disposition); `fallbackFilename`
- * greift nur, wenn die Kopfzeile fehlt.
+ * Dateinamen bestimmt der Server (Content-Disposition, per CORS
+ * freigegeben); `fallbackFilename` greift nur, wenn die Kopfzeile fehlt.
+ * Fehler kommen als ApiRequestError wie bei jedem anderen Aufruf, mit
+ * `details` der Antwort (etwa dem DATEV-Pruefbericht bei 409).
  */
 export async function downloadAuthenticated(path: string, fallbackFilename: string): Promise<void> {
   const token = getToken();
@@ -53,10 +43,10 @@ export async function downloadAuthenticated(path: string, fallbackFilename: stri
   });
   if (!res.ok) {
     const json = await res.json().catch(() => null);
-    throw new ExportError(
-      json?.error?.message ?? `Export fehlgeschlagen (HTTP ${res.status})`,
+    throw new ApiRequestError(
       res.status,
-      json?.error?.code,
+      json?.error?.code ?? 'UNKNOWN',
+      json?.error?.message ?? `Export fehlgeschlagen (HTTP ${res.status})`,
       json?.error?.details,
     );
   }

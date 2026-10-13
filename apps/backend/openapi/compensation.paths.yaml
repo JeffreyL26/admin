@@ -160,8 +160,8 @@ paths:
       tags: [Vergütung]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
-        - { name: art, in: query, schema: { type: string, enum: [bewegungsdaten, stammdaten], default: bewegungsdaten } }
-        - { name: umfang, in: query, description: "Nur bei Stammdaten: alle Personen oder nur Neueintritte, Austritte und Gehaltsänderungen", schema: { type: string, enum: [aenderungen, alle], default: aenderungen } }
+        - { name: kind, in: query, description: "Bewegungsdaten setzen den Lauf auf exportiert (mit verguetung: bearbeiten), Stammdaten nicht", schema: { type: string, enum: [bewegungsdaten, stammdaten], default: bewegungsdaten } }
+        - { name: scope, in: query, description: "Nur bei Stammdaten: alle Personen oder nur Neueintritte, Austritte, Gehalts- und Stammdatenänderungen", schema: { type: string, enum: [aenderungen, alle], default: aenderungen } }
       responses:
         "200": { description: "Textdatei in Windows-1252 (text/plain; charset=windows-1252)" }
         "400": { description: Das Lohnprogramm kennt diese Datei nicht (Stammdaten nur bei LODAS) }

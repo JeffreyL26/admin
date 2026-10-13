@@ -11,12 +11,12 @@ import {
   type DatevIssue,
   type DatevStammdatenScope,
 } from '@ohrganize/shared';
-import { api } from '../../api/client';
+import { api, ApiRequestError } from '../../api/client';
 import { Badge, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { Select } from '../../components/Select';
 import { useToast } from '../../components/Toast';
-import { downloadAuthenticated, ExportError, formatMonth } from './lib';
+import { downloadAuthenticated, formatMonth } from './lib';
 
 interface CheckResponse {
   report: DatevCheckReport;
@@ -78,14 +78,15 @@ export function DatevExportDialog({
   const errors = relevant.filter((i) => i.level === 'fehler');
   const warnings = relevant.filter((i) => i.level === 'warnung');
   const lohnarten = report && file ? report.lohnarten_in_use.filter((l) => l.kinds.includes(file.kind)) : [];
-  const blocked = runStatus === 'offen' || !report || !file || errors.length > 0;
+  const personCount = file ? (personIds ? personIds.size : file.person_count) : 0;
+  const blocked = runStatus === 'offen' || !report || !file || errors.length > 0 || personCount === 0;
 
   const download = async () => {
     if (!file) return;
     setBusy(true);
     try {
-      const params = new URLSearchParams({ art: file.kind });
-      if (file.kind === 'stammdaten') params.set('umfang', scope);
+      const params = new URLSearchParams({ kind: file.kind });
+      if (file.kind === 'stammdaten') params.set('scope', scope);
       await downloadAuthenticated(
         `/api/compensation/payroll-runs/${runId}/export.datev?${params.toString()}`,
         `datev_${file.kind}_${month}.txt`,
@@ -96,7 +97,7 @@ export function DatevExportDialog({
       // Er waere noch aktiv und rechnete den ganzen Lauf fuer niemanden neu.
       queryClient.invalidateQueries({ queryKey: ['compensation'], predicate: (q) => q.queryKey[3] !== 'datev-check' });
     } catch (e) {
-      if (e instanceof ExportError && e.code === 'DATEV_EXPORT_BLOCKED') {
+      if (e instanceof ApiRequestError && e.code === 'DATEV_EXPORT_BLOCKED') {
         // Einstellungen oder Daten haben sich seit dem Bericht geaendert: neu laden, nicht raten.
         queryClient.invalidateQueries({ queryKey: checkKey });
       }
@@ -170,6 +171,7 @@ export function DatevExportDialog({
                 {file.kind === 'stammdaten' && scope === 'aenderungen'
                   ? `${file.changed_count ?? 0} von ${file.person_count} Personen`
                   : `${file.person_count} Personen`}
+                {personCount === 0 && ', nichts zu übergeben'}
               </span>
             </label>
             {file.kind === 'stammdaten' && (
