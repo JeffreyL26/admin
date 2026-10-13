@@ -4,6 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import {
   ABSENCE_CATEGORY_LABELS,
+  contractMonthHours,
+  datevStunden,
+  DEFAULT_WEEKLY_HOURS,
   DATEV_ABZUG_UEBER_LOHNART,
   DATEV_FESTBEZUEGE_MODE_LABELS,
   DATEV_LOHNART_DEFAULTS,
@@ -309,7 +312,10 @@ export function DatevSettingsPage() {
               <span className="hm-field__hint">
                 oHRganize kennt keine Ist-Stunden. Ausgeschaltet enthalten die Bewegungsdaten keine Stunden,
                 das Lohnbüro trägt sie aus der Zeiterfassung ein. Eingeschaltet stehen die Vertragsstunden in
-                der Datei und als Hinweis dabei; ohne Wochenstunden im Profil gilt wie im Abrechnungslauf 40.
+                der Datei, mit dem Hinweis, dass es keine Ist-Stunden sind. Fehlen im Profil die Wochenstunden,
+                rechnet der Export wie der Abrechnungslauf mit {DEFAULT_WEEKLY_HOURS} Stunden je Woche (
+                {datevStunden(contractMonthHours(null))} Stunden im Monat); der Prüfbericht nennt die betroffenen
+                Personen.
                 Den Stundensatz bekommt LODAS mit den Stammdaten, Lohn und Gehalt als abweichenden Faktor.
               </span>
             </div>
@@ -374,7 +380,8 @@ export function DatevSettingsPage() {
             Urlaubskonto: ohne Wochenenden, Feiertage und Betriebsruhe. Decken zwei Abwesenheiten denselben
             Tag (Krankheit im Urlaub), geht er einmal mit, als Krankheit. Die Schlüssel stehen im
             Lohnprogramm unter Ausfallschlüssel, etwa U für Urlaub oder K für Krankheit. Ohne Schlüssel bleibt
-            die Art aus der Datei; das steht dann als Warnung im Prüfbericht.
+            die Art aus der Datei; das steht dann als Warnung im Prüfbericht des DATEV-Exports (Vergütung ›
+            Abrechnung, Lauf öffnen, „DATEV-Export“).
           </p>
           {types.error instanceof ApiRequestError && types.error.status === 403 ? (
             <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
