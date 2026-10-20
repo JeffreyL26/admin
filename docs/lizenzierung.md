@@ -348,6 +348,54 @@ Zustand `expired` (nicht `trial`, siehe oben) — die Datei ist beim Anbieter
 Warnung oder Kulanz. Erst im Nur-Lese-Betrieb sehen sie einen neutralen
 Hinweis, dass Anträge und Änderungen vorübergehend nicht möglich sind.
 
+### 4.1 Direktkauf: Auslieferung ohne Testphase
+
+Nicht jede Auslieferung braucht eine Testphase. Die Testphase ist kein
+eigener Lizenztyp, sondern nur der Zustand `trial` einer Datenbank, die
+noch nie eine gültige Lizenzdatei gesehen hat. Liegt eine gültige Datei im
+Datenverzeichnis, ist der Zustand `valid`, und die Testphase spielt keine
+Rolle. Mit dieser ersten Lizenz setzt das Backend außerdem
+`installation.licensed_at`; eine Testphase gibt es für diese Installation
+danach nie wieder (siehe „Keine zweite Testphase“ in Abschnitt 2). Am Code
+ändert sich für einen Direktkauf nichts, er braucht nur die Lizenzdatei
+gleich bei der Einrichtung.
+
+**Weg A: ungebundene Lizenz vorab.** Die Datei wird vor der Installation
+ausgestellt, ohne Installations-ID:
+
+```bash
+OHRGANIZE_LICENSE_PASSPHRASE='…' npm run lizenz -- sign \
+  --key /pfad/zum/tresor/lizenz-privat-2026-09.pem --kid 2026-09 \
+  --customer "Musterfirma GmbH" --customer-id musterfirma \
+  --installation - --until 1j [--seats 50] \
+  --out /pfad/lizenz-musterfirma.ohrganize
+```
+
+Eingespielt wird sie in derselben Einrichtung:
+
+- Windows: `setup-server.ps1 … -LicenseFile <pfad>` (Schritt 7 wartet auf
+  das Backend und legt die Datei ab).
+- Linux: nach dem Anlegen der Instanz
+  `ohrganize-provision.sh lizenz <kunde> <datei>`.
+- Einzelplatz-App ohne Server: Einstellungen → Lizenz → Datei wählen.
+
+Der Server ist damit vom ersten Start an lizenziert, bis auf die Minuten
+zwischen Dienststart und Ablage der Datei. Nachteil: Die Datei nennt keine
+Installation; Register und Support ordnen sie nur über Kunde und Lizenz-ID
+zu.
+
+**Weg B: gebundene Lizenz nach der Installation.** Erst einrichten, dann
+die Installations-ID unter Einstellungen → Lizenz ablesen (oder
+`ohrganize-provision.sh id <kunde>`), die Lizenz mit
+`--installation <id>` ausstellen und wie oben einspielen. Das ist der
+sauberere Weg für Register und Support. Bis die Datei liegt, zeigt die
+Installation den Zustand `trial` mit Hinweisbanner für Admins; das sind
+in der Regel nur Minuten bis Stunden.
+
+**Prüfen:** Einstellungen → Lizenz zeigt „gültig“, Ablaufdatum und
+Plätze wie bestellt; `setup-server.ps1` meldet den Zustand am Ende seines
+Laufs selbst.
+
 ## 5. Vertrag — Stichworte für die anwaltliche Prüfung, keine Rechtsberatung
 
 Das technische Modell trägt nur, wenn der Vertrag dasselbe sagt. Punkte, die
