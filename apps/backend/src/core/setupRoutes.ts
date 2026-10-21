@@ -2,12 +2,16 @@ import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { ADMIN_AREAS, permits, type AdminArea, type SetupStatus } from '@ohrganize/shared';
 import { getDb } from '../db/db.js';
+import { forbidden } from './errors.js';
 import { permissionsFor } from './permissions.js';
 
 /**
  * Stand des Einrichtungs-Assistenten, abgeleitet aus den Daten (nur SELECTs).
- * Gespeichert wird nichts: Wer einen Schritt ueber die normalen Seiten erledigt,
- * sieht ihn im Assistenten trotzdem als erledigt.
+ * Wer einen Schritt ueber die normalen Seiten erledigt, sieht ihn im
+ * Assistenten trotzdem als erledigt. Gespeichert wird nur die Bestaetigung der
+ * Abwesenheitsarten (`setup_confirmations`), weil sie sich nicht aus den Daten
+ * ergibt; sie gilt fuer die ganze Installation, damit ein weiterer
+ * Arbeitsplatz nicht erneut fragt.
  *
  * SICHERHEIT: `/api/setup` steht in ALWAYS_ALLOWED (permissions.ts), der globale
  * Hook prueft hier also KEINEN Bereich. Wie beim Dashboard (dashboardRoutes.ts)
@@ -53,6 +57,8 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
 
     if (may('abwesenheit')) {
       status.absence_types_active = count(`SELECT COUNT(*) n FROM absence_types WHERE active = 1`);
+      status.absence_confirmed =
+        count(`SELECT COUNT(*) n FROM setup_confirmations WHERE step = 'abwesenheit'`) > 0;
     }
 
     if (may('benutzer')) {
@@ -79,5 +85,15 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return status;
+  });
+
+  // Schritt "abwesenheit" bestaetigt. Recht wie fuer den Schritt selbst
+  // (SETUP_STEPS: abwesenheit bearbeiten), geprueft hier, weil der globale Hook
+  // unter /api/setup keinen Bereich prueft. Idempotent und ohne Audit: Es
+  // aendert keine Fachdaten, nur ob der Assistent den Schritt noch anbietet.
+  app.post('/api/setup/absence-confirmed', async (req) => {
+    if (!permits(permissionsFor(req.user.admin_role_id).abwesenheit, 'bearbeiten')) throw forbidden();
+    getDb().prepare(`INSERT OR IGNORE INTO setup_confirmations (step) VALUES ('abwesenheit')`).run();
+    return { absence_confirmed: true };
   });
 }

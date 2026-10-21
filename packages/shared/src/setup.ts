@@ -8,7 +8,9 @@ import type { ModuleKey } from './variants/index.js';
  *
  * Der Fortschritt wird aus den Daten abgeleitet (GET /api/setup/status), nicht
  * gespeichert. Einzige Ausnahme ist der Schritt "abwesenheit": Die Arten sind
- * von Anfang an mitgeliefert, "erledigt" heisst dort nur "angeschaut".
+ * von Anfang an mitgeliefert, "erledigt" heisst dort nur "angeschaut". Die
+ * Bestaetigung haelt der Server fuer die Installation (`absence_confirmed`),
+ * nicht das Geraet.
  */
 
 export const SETUP_STEP_KEYS = [
@@ -62,6 +64,8 @@ export interface SetupStatus {
   employees_active?: number;
   employees_with_manager?: number;
   absence_types_active?: number;
+  /** Schritt "abwesenheit" auf irgendeinem Arbeitsplatz bestaetigt. */
+  absence_confirmed?: boolean;
   admin_users?: number;
   portal_users?: number;
   employees_without_account?: number;
@@ -69,7 +73,11 @@ export interface SetupStatus {
 
 /** Was nur dieses Geraet weiss (localStorage, je Konto). */
 export interface SetupLocalState {
-  /** Schritt "abwesenheit" angeschaut und bestaetigt. */
+  /**
+   * Schritt "abwesenheit" auf DIESEM Geraet bestaetigt. Zaehlt sofort, bis der
+   * Server `absence_confirmed` meldet; der Client traegt es dorthin nach (auch
+   * Bestaetigungen aus der Zeit, als nur das Geraet sie kannte).
+   */
   absenceConfirmed: boolean;
   /** Schritte, die jemand bewusst uebersprungen hat. */
   skipped: SetupStepKey[];
@@ -107,7 +115,7 @@ export function isStepDone(key: SetupStepKey, s: SetupStatus, local: SetupLocalS
     case 'vorgesetzte':
       return (s.employees_with_manager ?? 0) >= 1;
     case 'abwesenheit':
-      return local.absenceConfirmed;
+      return s.absence_confirmed === true || local.absenceConfirmed;
     case 'adminkonto':
       return (s.admin_users ?? 0) >= 2;
     case 'portal':

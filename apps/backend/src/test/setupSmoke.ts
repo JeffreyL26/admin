@@ -1,6 +1,7 @@
 /**
  * Prueft den Einrichtungs-Assistenten: GET /api/setup/status (Zaehlungen,
- * Rechte je Block, nichts wird geschrieben) und die reine Fortschrittslogik
+ * Rechte je Block, nichts wird geschrieben), die Bestaetigung der
+ * Abwesenheitsarten fuer die Installation und die reine Fortschrittslogik
  * aus packages/shared/src/setup.ts.
  *
  * Aufruf: tsx src/test/setupSmoke.ts (Teil von npm test)
@@ -38,6 +39,7 @@ check('Status frisch: nichts gespeichert, nichts angelegt',
   f.company_saved === false && f.departments === 0 && f.locations === 0 && f.employees_active === 0 &&
     f.employees_with_manager === 0, f);
 check('Status frisch: Seed-Abwesenheitsarten sind aktiv', f.absence_types_active > 0, f);
+check('Status frisch: Abwesenheitsarten noch nicht bestaetigt', f.absence_confirmed === false, f);
 check('Status frisch: genau ein Admin, kein Portal-Konto', f.admin_users === 1 && f.portal_users === 0, f);
 check('Status frisch: alle Bereiche lesbar', Array.isArray(f.allowed_areas) && f.allowed_areas.length >= 9, f);
 check('frische Installation wird erkannt', isFreshInstallation(f));
@@ -123,6 +125,21 @@ check('eingeschraenkte Rolle: gesperrte Bloecke fehlen, statt 0 zu sein',
     !('portal_users' in l) && !('employees_without_account' in l), l);
 check('eingeschraenkte Rolle: allowed_areas nennt nur personal',
   JSON.stringify(l.allowed_areas) === JSON.stringify(['personal']), l.allowed_areas);
+check('eingeschraenkte Rolle: absence_confirmed fehlt', !('absence_confirmed' in l), l);
+
+// ------------------------------------------- Bestaetigung der Abwesenheitsarten ---
+const limConfirm = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: limAuth });
+check('Bestaetigen ohne abwesenheit: bearbeiten → 403', limConfirm.statusCode === 403, limConfirm.body);
+check('nach 403 bleibt sie unbestaetigt', (await get('/api/setup/status')).json().absence_confirmed === false);
+const confirm1 = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: auth });
+const confirm2 = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: auth });
+check('Bestaetigen: 200, zweimal ohne Fehler', confirm1.statusCode === 200 && confirm2.statusCode === 200,
+  [confirm1.body, confirm2.body]);
+const confirmed = (await get('/api/setup/status')).json();
+check('Status meldet die Bestaetigung fuer die Installation', confirmed.absence_confirmed === true, confirmed);
+const fromServer = deriveSetupProgress(confirmed, { absenceConfirmed: false, skipped: [] }, ['abwesenheit']);
+check('Logik: Bestaetigung des Servers reicht, ohne lokalen Stand (weiterer Arbeitsplatz)',
+  fromServer.complete, fromServer);
 
 // Rolle nur mit "benutzer": Konten sichtbar, Belegschaftszahlen (personal) nicht.
 const role2 = await send('POST', '/api/admin/admin-roles', { name: 'Nur Benutzer lesen', permissions: { benutzer: 'lesen' } });

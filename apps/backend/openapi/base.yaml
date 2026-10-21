@@ -127,9 +127,24 @@ paths:
         allowed_areas nennt die lesbaren Bereiche. portal_users zaehlt jedes Konto mit
         Personalprofil (auch Admin-Konten, die sich damit im Portal anmelden
         koennen), ausser dem abfragenden Konto. employees_without_account
-        verlangt zusaetzlich das Leserecht auf personal. Gespeichert wird nichts.
+        verlangt zusaetzlich das Leserecht auf personal. absence_confirmed
+        (Block abwesenheit) meldet, ob der Schritt Abwesenheitsarten auf
+        irgendeinem Arbeitsplatz bestaetigt wurde. Gespeichert wird nichts.
       responses:
-        "200": { description: "{ allowed_areas, company_saved?, locations?, departments?, employees_active?, employees_with_manager?, absence_types_active?, admin_users?, portal_users?, employees_without_account? }" }
+        "200": { description: "{ allowed_areas, company_saved?, locations?, departments?, employees_active?, employees_with_manager?, absence_types_active?, absence_confirmed?, admin_users?, portal_users?, employees_without_account? }" }
+  /api/setup/absence-confirmed:
+    post:
+      summary: Schritt Abwesenheitsarten des Einrichtungs-Assistenten bestaetigen (fuer die Installation)
+      description: >-
+        Idempotent, ohne Audit (keine Fachdaten). Verlangt abwesenheit
+        bearbeiten, geprueft im Handler, weil /api/setup in ALWAYS_ALLOWED steht.
+      responses:
+        "200": { description: "{ absence_confirmed: true }" }
+        "403":
+          description: Kein Recht abwesenheit bearbeiten
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/holidays/{year}/{land}:
     get:
       summary: Gesetzliche Feiertage eines Jahres in einer Region

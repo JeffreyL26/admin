@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -93,6 +93,27 @@ export function useSetup(): SetupView {
         : EMPTY_PROGRESS,
     [status, local.absenceConfirmed, local.skipped, visibleKeys],
   );
+
+  // Bestaetigung der Abwesenheitsarten gilt fuer die Installation: Was dieses
+  // Geraet bestaetigt hat (eben im Schritt oder frueher, als nur das Geraet sie
+  // kannte), traegt es zum Server nach, damit kein weiterer Arbeitsplatz fragt.
+  // Scheitert es (etwa Nur-Lese-Lizenz), zaehlt es hier weiter lokal, und der
+  // naechste Status versucht es erneut. Ohne Toast: Niemand hat es angestossen.
+  const mayConfirm = can('abwesenheit', 'bearbeiten');
+  const owesConfirm =
+    local.bound && local.absenceConfirmed && mayConfirm && status?.absence_confirmed === false;
+  const confirming = useRef(false);
+  useEffect(() => {
+    if (!owesConfirm || confirming.current) return;
+    confirming.current = true;
+    api
+      .post('/api/setup/absence-confirmed')
+      .then(() => qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY }))
+      .catch(() => undefined)
+      .finally(() => {
+        confirming.current = false;
+      });
+  }, [owesConfirm, status, qc]);
 
   // Die Route aendert sich staendig, der Stand auch: Wer eine Abteilung auf der
   // normalen Seite anlegt, soll sie im Assistenten sofort erledigt sehen. Die

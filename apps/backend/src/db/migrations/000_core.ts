@@ -224,4 +224,19 @@ export const coreMigrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by) WHERE uploaded_by IS NOT NULL;
     `,
   },
+  {
+    // Bestaetigte Schritte des Einrichtungs-Assistenten, die sich nicht aus den
+    // Daten ableiten lassen (heute nur "abwesenheit": die Arten sind
+    // mitgeliefert, erledigt heisst angeschaut). Gilt fuer die Installation,
+    // nicht je Geraet, sonst fragte jeder weitere Arbeitsplatz erneut nach.
+    // Bewusst ohne Konto-Spalte: Beim Loeschen eines Kontos ist nichts
+    // nachzuziehen.
+    name: '007_setup_confirmations',
+    sql: `
+      CREATE TABLE setup_confirmations (
+        step TEXT PRIMARY KEY,
+        confirmed_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `,
+  },
 ];

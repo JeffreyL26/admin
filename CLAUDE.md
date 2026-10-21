@@ -470,8 +470,14 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Handler wie beim Dashboard, gesperrte Bloecke FEHLEN statt 0 zu sein),
   die Rechnung steht DOM-frei in `packages/shared/src/setup.ts`
   (`deriveSetupProgress`, Test `src/test/setupSmoke.ts`). Auf dem Geraet liegt
-  nur Pause, Ausblenden und "Abwesenheit bestaetigt"
-  (`ohrganize.setup.<Installation>.<user.id>`, `store.ts`; die Installation kommt als Hash aus dem Status, sonst erbte Konto 1 nach einem Datenbank-Reset den alten Stand). **Alle Texte stehen in
+  nur Pause und Ausblenden
+  (`ohrganize.setup.<Installation>.<user.id>`, `store.ts`; die Installation kommt als Hash aus dem Status, sonst erbte Konto 1 nach einem Datenbank-Reset den alten Stand).
+  "Abwesenheit bestaetigt" (der einzige Schritt ohne Datengrundlage) gilt fuer
+  die Installation: Tabelle `setup_confirmations` (Eintrag
+  `007_setup_confirmations` in `000_core.ts`), `POST /api/setup/absence-confirmed`
+  (`abwesenheit: bearbeiten`, im Handler geprueft), Statusfeld
+  `absence_confirmed`; der lokale Merker zaehlt nur bis dahin, `useSetup.ts`
+  traegt ihn nach. Sonst fragte jeder weitere Arbeitsplatz erneut. **Alle Texte stehen in
   `features/setup/copy.ts`** (Schluessel wie im abgestimmten Textartefakt,
   `t()` fuellt Platzhalter); neue Schritte tragen sich in `SETUP_STEPS`
   (shared), `STEP_COMPONENTS` (`steps.tsx`) und `copy.ts` ein. Die Schritte
