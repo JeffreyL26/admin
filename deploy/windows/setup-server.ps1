@@ -77,6 +77,31 @@ function Ok   { param([string]$Text) Write-Host "     ok  $Text" -ForegroundColo
 function Warn { param([string]$Text) Write-Host "     !!  $Text" -ForegroundColor Yellow }
 function Fail { param([string]$Text) throw "Abbruch: $Text" }
 
+<#
+  OHRGANIZE_VARIANT in der env-Datei setzen (Zeile ersetzen oder anhaengen,
+  UTF-8 ohne BOM). Mit der Zeile weisen Backend (config.ts) und Update-Skripte
+  ein Archiv der falschen Ausgabe ab, selbst bei gestopptem Dienst.
+#>
+function Set-EnvVariant {
+  param([string]$Path, [string]$Variant)
+  $lines = @(Get-Content -LiteralPath $Path)
+  $found = $false
+  $out = foreach ($l in $lines) {
+    if ($l -match '^\s*OHRGANIZE_VARIANT\s*=') { $found = $true; "OHRGANIZE_VARIANT=$Variant" } else { $l }
+  }
+  if (-not $found) { $out = @($out) + @('', '# Ausgabe (Variante), eingetragen von setup-server.ps1', "OHRGANIZE_VARIANT=$Variant") }
+  [IO.File]::WriteAllLines($Path, [string[]]$out, [Text.UTF8Encoding]::new($false))
+}
+
+<# Wert von OHRGANIZE_VARIANT aus der env-Datei; leer, wenn die Zeile fehlt. #>
+function Get-EnvVariant {
+  param([string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { return '' }
+  $line = Get-Content -LiteralPath $Path | Where-Object { $_ -match '^\s*OHRGANIZE_VARIANT\s*=' } | Select-Object -First 1
+  if (-not $line) { return '' }
+  return ($line -split '=', 2)[1].Trim()
+}
+
 function Assert-Admin {
   $id = [Security.Principal.WindowsIdentity]::GetCurrent()
   $pr = New-Object Security.Principal.WindowsPrincipal($id)
@@ -228,7 +253,7 @@ if (-not $NoCaddy) {
 # 2  Archiv pruefen und entpacken
 # ---------------------------------------------------------------------------
 Step 'Archiv pruefen und entpacken'
-$archiveFull = (Resolve-Path -LiteralPath $Archive).Path
+$archiveFull = (Resolve-Path -LiteralPath $Archive).ProviderPath
 if (-not $NoChecksum) {
   $sumFile = "$archiveFull.sha256"
   if (-not (Test-Path -LiteralPath $sumFile)) { Fail "Pruefsummendatei fehlt: $sumFile (liegt beim Anbieter neben dem Archiv; -NoChecksum ueberspringt die Pruefung bewusst)." }
@@ -240,6 +265,34 @@ if (-not $NoChecksum) {
   Warn 'Pruefsumme uebersprungen (-NoChecksum)'
 }
 Unblock-File -LiteralPath $archiveFull
+
+# Ausgabe des Archivs pruefen, BEVOR der Dienst angehalten und das
+# Programmverzeichnis ueberschrieben wird. Massstab ist die env-Datei, ohne
+# Eintrag dort das installierte Programm (VARIANTE.txt).
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archiveVariant = ''
+$zip = [IO.Compression.ZipFile]::OpenRead($archiveFull)
+try {
+  $variantEntry = $zip.GetEntry('VARIANTE.txt')
+  if ($variantEntry) {
+    $reader = New-Object IO.StreamReader($variantEntry.Open())
+    try { $archiveVariant = $reader.ReadToEnd().Trim() } finally { $reader.Dispose() }
+  }
+} finally {
+  $zip.Dispose()
+}
+if (-not $archiveVariant) { Fail 'Im Archiv fehlt VARIANTE.txt. Ohne Ausgabe wird nichts eingerichtet.' }
+$knownVariant = Get-EnvVariant $envFile
+$knownFrom = $envFile
+$installedVariantFile = Join-Path $InstallDir 'VARIANTE.txt'
+if (-not $knownVariant -and (Test-Path -LiteralPath $installedVariantFile)) {
+  $knownVariant = (Get-Content -LiteralPath $installedVariantFile -Raw).Trim()
+  $knownFrom = $installedVariantFile
+}
+if ($knownVariant -and $knownVariant -ne $archiveVariant) {
+  Fail "Hier ist die Ausgabe $knownVariant eingerichtet ($knownFrom), das Archiv ist $archiveVariant. Falsches Archiv, nichts veraendert."
+}
+Ok "Ausgabe des Archivs: $archiveVariant"
 
 if ($serviceOn) {
   $svc = Get-Service -Name 'oHRganize' -ErrorAction SilentlyContinue
@@ -304,8 +357,13 @@ if (-not (Test-Path -LiteralPath $envFile)) {
     else { $l }
   }
   [IO.File]::WriteAllLines($envFile, [string[]]$lines, [Text.UTF8Encoding]::new($false))
-  Ok "Angelegt: $envFile (CORS: $corsWanted)"
+  Set-EnvVariant $envFile $archiveVariant
+  Ok "Angelegt: $envFile (CORS: $corsWanted, Ausgabe: $archiveVariant)"
 } else {
+  if (-not (Get-EnvVariant $envFile)) {
+    Set-EnvVariant $envFile $archiveVariant
+    Ok "OHRGANIZE_VARIANT=$archiveVariant in $envFile nachgetragen"
+  }
   $cors = (Get-Content -LiteralPath $envFile | Where-Object { $_ -match '^OHRGANIZE_CORS_ORIGIN=' } | Select-Object -First 1)
   if ($cors -and $cors -like "*$Domain*" -and $cors -like '*ohrganize://app*') {
     Ok "Vorhanden, unveraendert: $envFile"

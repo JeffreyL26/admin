@@ -32,7 +32,7 @@
   nicht selbst zurueck: Den Zielordner kennt nur die geplante Aufgabe.
 
 .PARAMETER Archive
-  Pfad zum Release-Archiv (ohrganize-server-<variante>-<version>.zip).
+  Pfad zum Release-Archiv (ohrganize-server-de-<version>.zip).
 
 .PARAMETER DryRun
   Nur pruefen (Schritte 1 bis 4), nichts veraendern.
@@ -115,6 +115,46 @@ function Get-Health([int]$port) {
   }
 }
 
+<#
+  OHRGANIZE_VARIANT an die env-Datei haengen, falls sie fehlt (UTF-8 ohne BOM).
+  Nur bei vollstaendiger Datei: Fehlt OHRGANIZE_DATA_DIR, stimmt etwas
+  Grundsaetzliches nicht, und das Skript fasst die Datei nicht an.
+#>
+function Add-EnvVariant([string]$path, [string]$variant) {
+  if (-not (Test-Path -LiteralPath $path) -or -not (Read-EnvFile $path)['OHRGANIZE_DATA_DIR']) {
+    Write-Warn "Keine vollstaendige env-Datei unter $path (OHRGANIZE_DATA_DIR fehlt). OHRGANIZE_VARIANT=$variant bitte von Hand eintragen und install-service.ps1 ausfuehren."
+    return
+  }
+  $text = [IO.File]::ReadAllText($path)
+  $lines = @($text -split "\r?\n" | Where-Object { $_ -notmatch '^\s*OHRGANIZE_VARIANT\s*=' })
+  while ($lines.Count -gt 0 -and $lines[-1] -eq '') { $lines = @($lines | Select-Object -First ($lines.Count - 1)) }
+  $lines += @('', '# Ausgabe (Variante), eingetragen von update-server.ps1', "OHRGANIZE_VARIANT=$variant")
+  [IO.File]::WriteAllLines($path, [string[]]$lines, [Text.UTF8Encoding]::new($false))
+}
+
+<#
+  OHRGANIZE_VARIANT in der Dienstumgebung (NSSM, Registry AppEnvironmentExtra)
+  auf die Ausgabe des Archivs setzen. NSSM liest die env-Datei nicht selbst; ohne
+  diesen Abgleich startete das Backend mit einem alten oder fehlenden Wert, und
+  seine Startpruefung (OHRGANIZE_VARIANT gegen den Build) liefe ins Leere oder
+  wiese die richtige Fassung ab. Nur der eine Eintrag aendert sich, die uebrigen
+  Paare bleiben, wie install-service.ps1 sie gesetzt hat. Gibt den vorherigen
+  Stand zurueck (fuer die Ruecknahme) oder $null, wenn nichts zu tun war.
+#>
+function Sync-ServiceVariant([string]$variant) {
+  $paramKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
+  $before = @((Get-ItemProperty -LiteralPath $paramKey -Name AppEnvironmentExtra -ErrorAction SilentlyContinue).AppEnvironmentExtra | Where-Object { $_ })
+  if (-not ($before | Where-Object { $_ -like 'OHRGANIZE_DATA_DIR=*' })) {
+    Write-Warn "Die Dienstumgebung von $ServiceName nennt kein OHRGANIZE_DATA_DIR. Sie bleibt unveraendert; bitte install-service.ps1 ausfuehren."
+    return $null
+  }
+  $wanted = @($before | Where-Object { $_ -notlike 'OHRGANIZE_VARIANT=*' }) + @("OHRGANIZE_VARIANT=$variant")
+  if (($before -join "`n") -eq ($wanted -join "`n")) { return $null }
+  $set = Invoke-Native -File $NssmPath -Arguments (@('set', $ServiceName, 'AppEnvironmentExtra') + $wanted)
+  if ($set.Code -ne 0) { throw "NSSM hat die Dienstumgebung nicht uebernommen.`n$($set.Output)" }
+  return ,$before
+}
+
 function Wait-ForHealth([int]$port, [int]$seconds) {
   for ($i = 0; $i -lt $seconds; $i++) {
     if (Get-Health $port) { return $true }
@@ -174,7 +214,7 @@ function Wait-ForStart([int]$port, [int]$seconds) {
 
 Assert-Admin
 if (-not (Test-Path -LiteralPath $Archive)) { throw "Archiv $Archive nicht gefunden." }
-$Archive = (Resolve-Path -LiteralPath $Archive).Path
+$Archive = (Resolve-Path -LiteralPath $Archive).ProviderPath
 $archiveDir = Split-Path -Parent $Archive
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 
@@ -263,8 +303,20 @@ try {
   if ($envVariant -and $envVariant -ne $archiveVariant) {
     throw "Die env-Datei nennt die Ausgabe `"$envVariant`", das Archiv ist `"$archiveVariant`". Falsches Archiv - NICHT einspielen."
   }
+  # Ausgabe des installierten Programms (VARIANTE.txt). Ohne Eintrag in der
+  # env-Datei ist sie der Massstab, auch wenn der Dienst nicht laeuft; die Zeile
+  # wird vor dem Start nachgetragen (Add-EnvVariant). Bei einer Ruecknahme kommt
+  # sie zurueck, weil das Entpacken VARIANTE.txt ueberschreibt.
+  $installedVariantFile = Join-Path $InstallDir 'VARIANTE.txt'
+  $installedVariant = ''
+  if (Test-Path -LiteralPath $installedVariantFile) {
+    $installedVariant = (Get-Content -LiteralPath $installedVariantFile -Raw).Trim()
+  }
   if (-not $envVariant) {
-    Write-Warn "In $EnvFile steht kein OHRGANIZE_VARIANT. Bitte nachtragen: OHRGANIZE_VARIANT=$archiveVariant"
+    if ($installedVariant -and $installedVariant -ne $archiveVariant) {
+      throw "Installiert ist die Ausgabe `"$installedVariant`" ($installedVariantFile), das Archiv ist `"$archiveVariant`". Falsches Archiv - NICHT einspielen."
+    }
+    Write-Warn "In $EnvFile steht kein OHRGANIZE_VARIANT. Das Update traegt OHRGANIZE_VARIANT=$archiveVariant nach."
   }
 
   $port = 3001
@@ -395,6 +447,13 @@ try {
   New-Item -ItemType Directory -Path $WebDir -Force | Out-Null
   Copy-Item -Path (Join-Path $InstallDir 'apps\web\dist\*') -Destination $WebDir -Recurse -Force
 
+  if (-not $envVariant) {
+    Write-Step "OHRGANIZE_VARIANT=$archiveVariant in $EnvFile eintragen"
+    Add-EnvVariant $EnvFile $archiveVariant
+  }
+  $serviceEnvBefore = Sync-ServiceVariant $archiveVariant
+  if ($serviceEnvBefore) { Write-Step "Dienstumgebung: OHRGANIZE_VARIANT=$archiveVariant" }
+
   Write-Step "Dienst $ServiceName starten"
   Invoke-Native -File $NssmPath -Arguments @('start', $ServiceName) | Out-Null
 
@@ -409,6 +468,13 @@ try {
     if (Test-Path $appsBackup) {
       Remove-Item -LiteralPath $appsDir -Recurse -Force -ErrorAction SilentlyContinue
       Move-Item -LiteralPath $appsBackup -Destination $appsDir
+      # Ausgabe des alten Stands zurueck: Dienstumgebung und VARIANTE.txt.
+      if ($serviceEnvBefore) {
+        Invoke-Native -File $NssmPath -Arguments (@('set', $ServiceName, 'AppEnvironmentExtra') + $serviceEnvBefore) | Out-Null
+      }
+      if ($installedVariant) {
+        [IO.File]::WriteAllText($installedVariantFile, "$installedVariant`n", [Text.UTF8Encoding]::new($false))
+      }
       Invoke-Native -File $NssmPath -Arguments @('start', $ServiceName) | Out-Null
       if (Wait-ForHealth $port 45) {
         Write-Host 'Die alte Fassung laeuft wieder.' -ForegroundColor Yellow
