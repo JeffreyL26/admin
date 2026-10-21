@@ -1,7 +1,17 @@
-import { formatDate } from '@ohrganize/shared';
+import { formatDate, formatDateTime } from '@ohrganize/shared';
 import { LOCALE } from './locale.js';
 
 export { formatDate };
+
+/**
+ * Lokaler Kalendertag eines SQLite-Zeitstempels (UTC, wie datetime('now') ihn
+ * schreibt), etwa created_at und decided_at. Auf zehn Zeichen abgeschnitten
+ * zeigte er kurz nach Mitternacht den Vortag; formatDateTime rechnet in die
+ * lokale Zeit um ("TT.MM.JJJJ, HH:MM").
+ */
+export function formatLocalDay(sqliteUtc: string): string {
+  return formatDateTime(sqliteUtc).split(',')[0];
+}
 
 /** Heutiges Datum als ISO-String (lokale Zeitzone). */
 export function todayIso(): string {

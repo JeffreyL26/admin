@@ -5,7 +5,7 @@ import { useCancelRequest, useMyRequests } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, LoadError, Skeleton, StatusChip } from '../components/ui';
 import { useToast } from '../components/Toast';
-import { formatDate, formatDays, formatRange, todayIso } from '../lib/format';
+import { formatDate, formatDays, formatLocalDay, formatRange, todayIso } from '../lib/format';
 import { apiErrorMessage, READ_ONLY_NOTICE_ID } from '../lib/license';
 import { Select } from '../components/Select';
 
@@ -204,7 +204,7 @@ export function RequestsPage() {
                           zurückgezogen
                           {r.decided_at && (
                             <span style={{ display: 'block', fontSize: 'var(--text-xs)' }}>
-                              {formatDate(r.decided_at.slice(0, 10))}
+                              {formatLocalDay(r.decided_at)}
                             </span>
                           )}
                         </>
@@ -212,7 +212,7 @@ export function RequestsPage() {
                         <>
                           {r.decided_by_name ?? 'System'}
                           <span style={{ display: 'block', fontSize: 'var(--text-xs)' }}>
-                            {formatDate(r.decided_at.slice(0, 10))}
+                            {formatLocalDay(r.decided_at)}
                           </span>
                         </>
                       ) : (
