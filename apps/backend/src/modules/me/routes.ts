@@ -20,6 +20,7 @@ import {
   countAbsenceDays,
   createRequest,
   CREATED_BY_PROXY_SQL,
+  seamlessPredecessorSickNoteId,
   type AbsenceTypeRow,
 } from '../absences/service.js';
 import { assertReasonableSpan, requireEmployee } from './lib.js';
@@ -251,22 +252,10 @@ export const meModule: FastifyPluginAsync = async (app) => {
     }
 
     const sickNoteId = inTransaction(() => {
-      // Folgebescheinigung: Endet die juengste eigene, nicht stornierte
-      // Krankmeldung derselben Art genau am Vortag, setzt sie sich nahtlos
-      // fort. Das Portal fragt das nicht ab (die Person kennt den Begriff
-      // nicht); ohne die Verkettung begaenne fuer die HR eine neue
-      // AU-Kette und die Entgeltfortzahlung (42 Kalendertage) zaehlte falsch.
-      const previous = db()
-        .prepare(
-          `SELECT s.id FROM sick_notes s
-           JOIN absence_requests r ON r.id = s.absence_request_id
-           WHERE r.employee_id = ? AND r.status != 'storniert' AND s.child_sick = ?
-             AND r.date_to = ?
-           ORDER BY r.date_to DESC, s.id DESC LIMIT 1`,
-        )
-        .get([emp.id, body.child_sick ? 1 : 0, addDaysIso(body.date_from, -1)]) as
-        | { id: number }
-        | undefined;
+      // Folgebescheinigung: Das Portal fragt das nicht ab (die Person kennt
+      // den Begriff nicht), die nahtlose Fortsetzung wird verkettet
+      // (seamlessPredecessorSickNoteId in absences/service.ts).
+      const previousId = seamlessPredecessorSickNoteId(emp.id, !!body.child_sick, body.date_from);
       const requestId = createRequest(
         req,
         {
@@ -284,7 +273,7 @@ export const meModule: FastifyPluginAsync = async (app) => {
            VALUES (?, ?, ?, ?)`,
         )
         // Ausstellungspflicht am 3. Kalendertag der Erkrankung.
-        .run(requestId, addDaysIso(body.date_from, 2), body.child_sick ? 1 : 0, previous?.id ?? null);
+        .run(requestId, addDaysIso(body.date_from, 2), body.child_sick ? 1 : 0, previousId);
       const id = Number(result.lastInsertRowid);
       // Audit in derselben Transaktion wie Antrag und Krankmeldung.
       audit(req, 'create', 'sick_note', id, {
@@ -293,7 +282,7 @@ export const meModule: FastifyPluginAsync = async (app) => {
         date_to: body.date_to,
         child_sick: !!body.child_sick,
         self_service: true,
-        ...(previous ? { follow_up_of_id: previous.id } : {}),
+        ...(previousId ? { follow_up_of_id: previousId } : {}),
       });
       return { id };
     });

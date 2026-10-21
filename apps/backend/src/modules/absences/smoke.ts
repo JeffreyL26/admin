@@ -528,6 +528,38 @@ check(
   eLong.sick_pay_days_used === 54 && eLong.sick_pay_exceeded === true,
   eLong,
 );
+// HR-Erfassung ohne Angabe verkettet die nahtlose Fortsetzung wie das Portal
+// (seamlessPredecessorSickNoteId); ausdrücklich null bleibt Erstbescheinigung,
+// eine andere Art (Kind krank) setzt keine Kette fort.
+{
+  const first = await post('/api/absences/sick-notes', { employee_id: 2, date_from: '2026-09-07', date_to: '2026-09-08' });
+  const seamless = await post('/api/absences/sick-notes', { employee_id: 2, date_from: '2026-09-09', date_to: '2026-09-10' });
+  const explicitNone = await post('/api/absences/sick-notes', {
+    employee_id: 2,
+    date_from: '2026-09-11',
+    date_to: '2026-09-11',
+    follow_up_of_id: null,
+  });
+  const otherKind = await post('/api/absences/sick-notes', {
+    employee_id: 2,
+    date_from: '2026-09-12',
+    date_to: '2026-09-12',
+    child_sick: true,
+  });
+  check(
+    'HR-Krankmeldung ohne Angabe: nahtlose Fortsetzung wird Folgebescheinigung',
+    first.statusCode === 201 && seamless.statusCode === 201 && seamless.json().sick_note.follow_up_of_id === first.json().sick_note.id,
+    seamless.json(),
+  );
+  check(
+    'HR-Krankmeldung mit follow_up_of_id null bleibt Erstbescheinigung, andere Art verkettet nicht',
+    explicitNone.statusCode === 201 &&
+      explicitNone.json().sick_note.follow_up_of_id === null &&
+      otherKind.statusCode === 201 &&
+      otherKind.json().sick_note.follow_up_of_id === null,
+    { explicitNone: explicitNone.json(), otherKind: otherKind.json() },
+  );
+}
 
 // ---------------------------------------------------------------- Kalender ---
 // Ben ebenfalls 21. bis 25.12. im Urlaub → Team "Backend" (2 Mitglieder) zu 100 % abwesend;

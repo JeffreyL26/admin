@@ -4,7 +4,7 @@
  * Betriebsruhe, halbe Tage an Randtagen) und Urlaubssaldo-Berechnung.
  */
 import { getDb, inTransaction } from '../../db/db.js';
-import { eachDay, isWeekend, todayIso } from '../../core/dates.js';
+import { addDaysIso, eachDay, isWeekend, todayIso } from '../../core/dates.js';
 import { isHoliday } from '../../core/holidays.js';
 import { VARIANT } from '@variant-manifest';
 import { PORTAL_ABSENCE_CAPTURE, isOwnPersonDecision, type CountryCode, type RegionCode } from '@ohrganize/shared';
@@ -892,4 +892,25 @@ export function createRequest(
     });
     return id;
   });
+}
+
+/**
+ * Krankmeldung, die eine neue nahtlos fortsetzt: die juengste nicht stornierte
+ * derselben Person und derselben Art (Kind krank oder nicht), die genau am
+ * Vortag von `dateFrom` endet; sonst null. Ohne diese Verkettung begaenne eine
+ * neue AU-Kette, und die Entgeltfortzahlung (42 Kalendertage) zaehlte falsch.
+ * Portal und HR-Erfassung (ohne ausdrueckliche Angabe) verketten ueber diese
+ * eine Regel.
+ */
+export function seamlessPredecessorSickNoteId(employeeId: number, childSick: boolean, dateFrom: string): number | null {
+  const previous = getDb()
+    .prepare(
+      `SELECT s.id FROM sick_notes s
+       JOIN absence_requests r ON r.id = s.absence_request_id
+       WHERE r.employee_id = ? AND r.status != 'storniert' AND s.child_sick = ?
+         AND r.date_to = ?
+       ORDER BY r.date_to DESC, s.id DESC LIMIT 1`,
+    )
+    .get([employeeId, childSick ? 1 : 0, addDaysIso(dateFrom, -1)]) as { id: number } | undefined;
+  return previous?.id ?? null;
 }
