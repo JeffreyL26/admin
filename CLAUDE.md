@@ -1056,6 +1056,13 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 
 ## Konventionen
 
+- **Commits nennen ihre Kategorie-Issues:** am Ende der Betreffzeile als
+  `#N`, mehrere erlaubt (Beispiel: `Portal Gehalt: ... #2 #11`), auch bei
+  Merge-Commits. Die Issues im Repository sind Sammelkategorien, keine
+  Einzelaufgaben: #1 Neue Features, #2 Bugfixes, #3 Performance-Fixes,
+  #4 Design-Aenderungen, #5 Feature-Upgrades, #6 Feature-Downgrades,
+  #7 Architektur, #8 Lizenzen, #9 Kundenverwaltung, #10 Test,
+  #11 Textaenderungen. Gepushte Commits ohne Zuordnung bleiben, wie sie sind.
 - **Sprache:** UI-Texte Deutsch, Code-Bezeichner Englisch. API-Fehlermeldungen
   Deutsch (sie werden dem Nutzer direkt angezeigt).
 - **Datumswerte:** überall ISO-Strings `YYYY-MM-DD` (DB, API); Anzeige über
