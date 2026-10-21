@@ -75,7 +75,7 @@ const HILFE = `conspectus - Register und Werkzeug des Anbieters
   release liste
 
   rollout starten --release <variante-version> [--host <host> | --kunde <instanz>]
-                  [--probelauf] [--ohne-signatur]
+                  [--probelauf] [--ohne-signatur] [--linie-wechseln]
   rollout liste
 
   status --host <host> | --instanz <instanz> [--json] [--neue-installation <instanz>]

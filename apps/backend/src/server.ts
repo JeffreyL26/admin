@@ -6,6 +6,7 @@ import {
   MIN_CLIENT_VERSION,
   SERVER_VERSION_HEADER,
   channelOf,
+  portalWriteBlocked,
 } from '@ohrganize/shared';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
@@ -33,6 +34,7 @@ import {
 } from './core/license.js';
 import { licenseRoutes } from './core/licenseRoutes.js';
 import { assertFeatureAllowed } from './core/featureGate.js';
+import { trackRoutes } from './core/routeRegistry.js';
 import { registerModules } from './modules/index.js';
 import { errorText } from './core/errorText.js';
 
@@ -119,6 +121,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     connectionTimeout: 30_000,
     requestTimeout: 60_000,
   });
+  trackRoutes(app); // Kundenausgabe dronivo: Routenliste fuer src/test/smoke.ts (nur Quelltextbetrieb)
 
   for (const warning of config.startupWarnings) app.log.warn(warning);
   if (encryptionNote) app.log.warn(encryptionNote);
@@ -257,6 +260,14 @@ export async function buildServer(): Promise<FastifyInstance> {
     assertFeatureAllowed(req.method, route, effectiveFeatures());
 
     const selfService = route.startsWith('/api/me/') || route.startsWith('/api/auth/');
+    // Kundenausgabe dronivo (PORTAL_ABSENCE_CAPTURE): Abwesenheiten erfasst im
+    // Portal niemand. Offen sind nur die geprueften schreibenden Portalrouten
+    // (PORTAL_OPEN_WRITES), jede andere, auch eine neue aus main, antwortet 403
+    // (packages/shared/src/dronivo.ts). Nur fuer gefundene Routen: Ein
+    // unbekannter Pfad bleibt 404, statt nach fehlender Berechtigung auszusehen.
+    if (selfService && portalWriteBlocked(req.method, req.routeOptions.url ?? '')) {
+      throw forbidden('Dieser Bereich ist der HR-Administration vorbehalten');
+    }
     if (!selfService && req.user.role !== 'admin') {
       throw forbidden('Dieser Bereich ist der HR-Administration vorbehalten');
     }

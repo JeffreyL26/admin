@@ -117,6 +117,9 @@ export function formatDate(iso: string | null | undefined): string {
  * schreibt) → lokale Anzeige "TT.MM.JJJJ, HH:MM". Für Protokolle, bei denen
  * die Uhrzeit zählt (Bewertungsprotokoll). Ein bereits zeitzonenbehafteter
  * ISO-String wird unverändert interpretiert.
+ * Das Format mit Komma ist Vertrag: `formatLocalDay` im Portal
+ * (apps/web/src/lib/format.ts) nimmt den Teil davor als lokalen Kalendertag;
+ * apps/backend/src/test/smoke.ts prüft das Format.
  */
 export function formatDateTime(sqliteUtc: string | null | undefined): string {
   if (sqliteUtc === null || sqliteUtc === undefined || sqliteUtc === '') return '—';

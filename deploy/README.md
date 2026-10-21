@@ -483,15 +483,15 @@ Arbeitsplaetze brechen beim Start ab.
 
 ```bash
 # Was steckt im Archiv?
-unzip -p /pfad/ohrganize-server-<variante>-<version>.zip VARIANTE.txt
+unzip -p /pfad/ohrganize-server-de-<version>.zip VARIANTE.txt
 # Was laeuft gerade?
 curl -s http://127.0.0.1:3001/api/health | grep -o '"id":"[^"]*"'
 # Was steht in der Dienstumgebung?
 grep OHRGANIZE_VARIANT /etc/ohrganize/ohrganize.env
 ```
 
-Alle drei muessen denselben Wert nennen. Der Archivname traegt die Variante
-ebenfalls (`ohrganize-server-de-vollversion-1.2.0.zip`).
+Alle drei muessen denselben Wert nennen. Der Archivname nennt Land und
+Version samt Kundenkennung (`ohrganize-server-de-1.0.0-dronivo.zip`).
 
 Liegt neben dem Archiv ein `release.json` mit `release.json.sig`, wird zuerst
 die Signatur des Anbieters geprueft (Abschnitt 9.6).
@@ -504,10 +504,10 @@ systemctl start ohrganize-backup.service          # Sicherung VOR dem Update
 # /opt/ohrganize heraus meldet es „No such file“ und FAILED, obwohl das Archiv
 # in Ordnung ist. Die folgenden Schritte hängen mit && daran, damit nach einem
 # echten FAILED nichts entpackt wird.
-(cd /pfad && sha256sum -c ohrganize-server-<variante>-<version>.zip.sha256) \
+(cd /pfad && sha256sum -c ohrganize-server-de-<version>.zip.sha256) \
   && cd /opt/ohrganize \
   && rm -rf apps \
-  && unzip -o /pfad/ohrganize-server-<variante>-<version>.zip -d /opt/ohrganize \
+  && unzip -o /pfad/ohrganize-server-de-<version>.zip -d /opt/ohrganize \
   && npm ci --omit=dev
 # rm -rf apps: Altstand weg (node_modules bleibt), sonst sammeln sich alte
 # Portal-Assets an. npm ci: nur nötig, wenn better-sqlite3 gewechselt hat —

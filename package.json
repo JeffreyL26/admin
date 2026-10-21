@@ -1,6 +1,6 @@
 {
   "name": "ohrganize",
-  "version": "1.0.0",
+  "version": "1.0.0-dronivo",
   "private": true,
   "description": "oHRganize: HR-Verwaltung, wie Sie es brauchen",
   "workspaces": [
@@ -16,6 +16,7 @@
     "dev": "concurrently -n backend,renderer,web -c blue,green,magenta \"npm:dev:backend\" \"npm:dev:renderer\" \"npm:dev:web\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present && node scripts/test-deploy.mjs && node scripts/check-principles.mjs && node scripts/check-dashes.mjs --base HEAD",
+    "posttest": "node scripts/check-dronivo.mjs",
     "test:deploy": "node scripts/test-deploy.mjs",
     "seed": "npm run seed -w apps/backend",
     "seed:desktop": "npm run seed:desktop -w apps/backend --",

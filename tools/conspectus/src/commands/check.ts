@@ -6,7 +6,7 @@
  * Antworten sind sofort da. Damit sie stimmen, gehoert vorher ein
  * `conspectus status --host ...` bzw. `bericht importieren` dazu.
  */
-import { channelOf, compareVersions, formatDate, todayIsoLocal, daysBetweenIso } from '@ohrganize/shared';
+import { channelOf, compareVersions, customerTagOf, formatDate, todayIsoLocal, daysBetweenIso } from '@ohrganize/shared';
 import type { Args } from '../args.js';
 import { openRegister } from '../db.js';
 import { expiringLicense, instanceLicenses, type InstanceLicenses, type LizenzRow } from '../licenses.js';
@@ -140,8 +140,10 @@ export function sammleBefunde(tage = 30, licenses: Map<string, InstanceLicenses>
     // Eine stabile Instanz gegen das juengste stabile Release, eine Beta gegen
     // alle, denn auch das fertige Release loest sie ab. Der Kanal folgt aus der
     // Version, nicht aus der Spalte: Der Einzelbericht von status.cjs nennt keinen.
+    // Verglichen wird nur innerhalb der Release-Linie (Kundenbranch dronivo:
+    // 1.0.0-dronivo und 1.0.0 sind kein Update fuereinander).
     if (i.version) {
-      const neu = neuestesRelease(i.variante, channelOf(i.version) === 'beta');
+      const neu = neuestesRelease(i.variante, channelOf(i.version) === 'beta', customerTagOf(i.version));
       if (neu && compareVersions(i.version, neu.version) < 0) {
         befunde.push({
           schwere: 'hinweis',

@@ -258,6 +258,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: "Branch dronivo: Abwesenheiten erfasst nur die HR (PORTAL_ABSENCE_CAPTURE)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/me/leave-requests/{id}/cancel:
     post:
       summary: Eigenen, noch offenen Antrag zurückziehen
@@ -267,6 +272,11 @@ paths:
         "200": { description: "{ request } mit Status storniert" }
         "409":
           description: Antrag ist nicht mehr offen
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: "Branch dronivo: Abwesenheiten erfasst nur die HR (PORTAL_ABSENCE_CAPTURE)"
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -296,6 +306,11 @@ paths:
       summary: Krankmeldung einreichen (AU-Nachweis reicht die HR nach)
       responses:
         "201": { description: "{ sick_note } inkl. certificate_due_date" }
+        "403":
+          description: "Branch dronivo: Abwesenheiten erfasst nur die HR (PORTAL_ABSENCE_CAPTURE)"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/me/team-calendar:
     get:
       x-status: planned

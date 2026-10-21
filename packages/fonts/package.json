@@ -1,6 +1,6 @@
 {
   "name": "@ohrganize/fonts",
-  "version": "1.0.0",
+  "version": "1.0.0-dronivo",
   "private": true,
   "description": "Schriftdateien der oHRganize-Clients (Desktop-Renderer und Web-Portal).",
   "exports": {

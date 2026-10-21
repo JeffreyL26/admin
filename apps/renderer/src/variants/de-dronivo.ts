@@ -1,6 +1,6 @@
 // GENERIERT aus packages/shared/src/variants/registry.json durch scripts/variant-wiring.mjs.
 // Nicht von Hand aendern. Nach einer Aenderung am Register: npm run variants:gen
-// Variante: de-vollversion
+// Variante: de-dronivo
 import type { RouteObject } from 'react-router-dom';
 import { employeesRoutes } from '../features/employees/routes';
 import { recruitingRoutes } from '../features/recruiting/routes';
@@ -11,7 +11,7 @@ import { communicationRoutes } from '../features/communication/routes';
 import { adminRoutes } from '../features/admin/routes';
 import { leadershipRoutes } from '../features/leadership/routes';
 
-export * from './de-vollversion.manifest';
+export * from './de-dronivo.manifest';
 
 /** Seiten der Fachmodule dieser Variante (router.tsx haengt Dashboard und Einstellungen an). */
 export const variantRoutes: RouteObject[] = [

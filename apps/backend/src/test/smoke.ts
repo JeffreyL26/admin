@@ -10,6 +10,7 @@ process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganiz
 process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 
 const { buildServer } = await import('../server.js');
+const { registeredRoutes } = await import('../core/routeRegistry.js');
 const { closeDb, getDb } = await import('../db/db.js');
 const { firstAdminLogin, SMOKE_ADMIN_PASSWORD } = await import('./adminSession.js');
 const { config } = await import('../config.js');
@@ -20,9 +21,18 @@ const {
   CLIENT_VERSION_HEADER,
   SERVER_VERSION_HEADER,
   MIN_CLIENT_VERSION,
+  MIN_SERVER_VERSION,
+  CUSTOMER_TAG,
+  customerTagOf,
   channelOf,
   compareVersions,
+  formatDateTime,
+  formatVersion,
   isAtLeast,
+  PORTAL_ABSENCE_CAPTURE,
+  PORTAL_ABSENCE_WRITES,
+  PORTAL_OPEN_WRITES,
+  portalWriteBlocked,
 } = await import('@ohrganize/shared');
 
 let failures = 0;
@@ -59,6 +69,44 @@ check('Serverversion als Header', health.headers[SERVER_VERSION_HEADER] !== unde
 // Release ein Update-Skript als neuer ansieht.
 check('Health nennt den Kanal', health.json().channel === channelOf(health.json().version), health.json().channel);
 check('Vorabversion ist Kanal beta', channelOf('1.1.0-beta.1') === 'beta' && channelOf('1.1.0') === 'stable');
+// Kundenbranch dronivo: Nur alpha, beta und rc sind ein Testkanal; eine
+// Kundenkennung bleibt stable und zeigt sich mit Land in der Anzeige.
+check(
+  'Kundenkennung ist Kanal stable, rc und alpha sind beta',
+  channelOf('1.0.0-dronivo') === 'stable' && channelOf('1.0.0-rc.1') === 'beta' && channelOf('1.0.0-alpha') === 'beta',
+);
+check(
+  'Anzeige: Kundenausgabe mit Land, Beta wie bisher',
+  formatVersion('1.0.0-dronivo', 'DE') === 'Version de-1.0.0-dronivo' &&
+    formatVersion('1.1.0-beta.1', 'DE') === 'BETA 1.1.0' &&
+    formatVersion('1.0.1', 'DE') === 'Version 1.0.1',
+  [formatVersion('1.0.0-dronivo', 'DE'), formatVersion('1.1.0-beta.1', 'DE'), formatVersion('1.0.1', 'DE')],
+);
+// formatDateTime zeigt die Ortszeit als "TT.MM.JJJJ, HH:MM". Das Komma ist
+// Vertrag: formatLocalDay im Portal (apps/web/src/lib/format.ts) nimmt den
+// Teil davor als lokalen Kalendertag; ohne Komma stuenden dort still Datum und
+// Uhrzeit in jeder Datumsspalte. Erwartet wird die Ortszeit des Testrechners.
+{
+  const late = new Date('2026-07-14T22:30:00Z');
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  const expected =
+    `${pad2(late.getDate())}.${pad2(late.getMonth() + 1)}.${late.getFullYear()}, ` +
+    `${pad2(late.getHours())}:${pad2(late.getMinutes())}`;
+  check(
+    'formatDateTime: Ortszeit als "TT.MM.JJJJ, HH:MM" (Vertrag fuer formatLocalDay im Portal)',
+    formatDateTime('2026-07-14 22:30:00') === expected && formatDateTime('2026-07-14T22:30:00Z') === expected,
+    [formatDateTime('2026-07-14 22:30:00'), expected],
+  );
+}
+// Nicht gegen feste Nummern: Ein spaeteres Anheben der Mindestversion aus main
+// (mit Kennung uebernommen) bliebe sonst an diesem Test haengen.
+check(
+  'dronivo: Mindestversionen tragen die Kennung, der Server erfuellt MIN_SERVER_VERSION',
+  customerTagOf(MIN_CLIENT_VERSION) === CUSTOMER_TAG &&
+    customerTagOf(MIN_SERVER_VERSION) === CUSTOMER_TAG &&
+    isAtLeast(health.json().version, MIN_SERVER_VERSION),
+  [MIN_CLIENT_VERSION, MIN_SERVER_VERSION, health.json().version],
+);
 check('Vorabversion ist aelter als die fertige', compareVersions('1.1.0-beta.1', '1.1.0') < 0);
 check('beta.2 ist neuer als beta.1', compareVersions('1.1.0-beta.2', '1.1.0-beta.1') > 0);
 check('Nummern schlagen die Kennung', compareVersions('1.1.0-beta.1', '1.0.9') > 0);
@@ -183,6 +231,125 @@ const loginAs = (email: string, password: string, client?: string) =>
   app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password, ...(client ? { client } : {}) } });
 const refresh = (token: string) => app.inject({ method: 'POST', url: '/api/auth/refresh', headers: bearer(token) });
 const db = getDb();
+
+// Kundenbranch dronivo (PORTAL_ABSENCE_CAPTURE in packages/shared/src/dronivo.ts):
+// Die Portalsperre gehoert in npm test. Der Portal-Smoke (me/smoke.ts), der sie
+// ausfuehrlich prueft, laeuft dort nicht mit. Ein Portal-Konto MIT Profil
+// bekommt auf Antrag, Rueckzug und Krankmeldung 403, ohne dass etwas entsteht;
+// die HR-Erfassung fuer dieselbe Person bleibt offen. Die Testperson wird danach
+// wieder entfernt, damit sie keine spaetere Zaehlung beruehrt.
+if (!PORTAL_ABSENCE_CAPTURE) {
+  const employeeId = Number(
+    db
+      .prepare(
+        `INSERT INTO employees (first_name, last_name, email, status, hire_date, annual_leave_days)
+         VALUES ('Dora', 'Dronivo', 'dora.smoke@example.org', 'aktiv', '2020-01-01', 30)`,
+      )
+      .run().lastInsertRowid,
+  );
+  db.prepare("INSERT INTO users (email, name, password_hash, role, employee_id) VALUES (?, ?, ?, 'mitarbeiter', ?)").run([
+    'dora.smoke@example.org',
+    'Dora Dronivo',
+    await hashPassword('Portal-Kennwort-0815!'),
+    employeeId,
+  ]);
+  const doraToken = (await loginAs('dora.smoke@example.org', 'Portal-Kennwort-0815!', 'portal')).json().token as string;
+  const urlaubId = (db.prepare("SELECT id FROM absence_types WHERE name = 'Urlaub'").get() as { id: number }).id;
+  const hrCreated = await app.inject({
+    method: 'POST',
+    url: '/api/absences/requests',
+    headers: auth,
+    payload: { employee_id: employeeId, type_id: urlaubId, date_from: '2026-07-06', date_to: '2026-07-07' },
+  });
+  const countRequests = () =>
+    (db.prepare('SELECT COUNT(*) AS n FROM absence_requests WHERE employee_id = ?').get(employeeId) as { n: number }).n;
+  const before = countRequests();
+  const portalPost = (url: string, payload?: object) =>
+    app.inject({ method: 'POST', url, headers: bearer(doraToken), payload });
+  const blocked = [
+    await portalPost('/api/me/leave-requests', { type_id: urlaubId, date_from: '2026-07-13', date_to: '2026-07-14' }),
+    await portalPost(`/api/me/leave-requests/${hrCreated.json().request?.id}/cancel`),
+    await portalPost('/api/me/sick-notes', { date_from: '2026-07-20', date_to: '2026-07-21' }),
+  ];
+  const ownList = await app.inject({ method: 'GET', url: '/api/me/leave-requests', headers: bearer(doraToken) });
+  check(
+    'dronivo: HR erfasst fuer die Person, das Portal liest es',
+    hrCreated.statusCode === 201 && ownList.statusCode === 200 && ownList.json().requests.length === 1,
+    { hr: hrCreated.statusCode, list: ownList.statusCode },
+  );
+  check(
+    'dronivo: Antrag, Rueckzug und Krankmeldung im Portal 403, nichts angelegt oder storniert',
+    blocked.every((r) => r.statusCode === 403) &&
+      countRequests() === before &&
+      (db.prepare('SELECT status FROM absence_requests WHERE employee_id = ?').get(employeeId) as { status: string }).status ===
+        'beantragt',
+    blocked.map((r) => r.statusCode),
+  );
+  // Sperre an dem einen Punkt jeder Neuanlage (createRequest): jede /api/me-Route,
+  // auch eine kuenftige unter neuem Pfad; die HR-Erfassung bleibt offen.
+  const { assertNoPortalCapture } = await import('../modules/absences/service.js');
+  const blocksRoute = (url: string): boolean => {
+    try {
+      assertNoPortalCapture({ routeOptions: { url } } as unknown as Parameters<typeof assertNoPortalCapture>[0]);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+  check(
+    'dronivo: createRequest sperrt jede Portalroute, die HR-Erfassung nicht',
+    blocksRoute('/api/me/absences') &&
+      blocksRoute('/api/me/leave-requests') &&
+      !blocksRoute('/api/absences/requests') &&
+      !blocksRoute('/api/absences/sick-notes'),
+  );
+  // Jede schreibende Route unter /api/me ist eingeordnet: offen (PORTAL_OPEN_WRITES)
+  // oder Abwesenheitserfassung (PORTAL_ABSENCE_WRITES). Gelesen aus den
+  // registrierten Routen (core/routeRegistry.ts, ueber onRoute), damit auch
+  // Routen aus Plugins mit Praefix zaehlen, die check-dronivo.mjs im Quelltext
+  // nicht sieht. Eine neue Route aus main antwortet 403, bis sie in einer der
+  // Listen steht.
+  const meWrites = [
+    ...new Set(
+      (registeredRoutes(app) ?? [])
+        .filter((r) => r.url.startsWith('/api/me/') && r.method !== 'GET' && r.method !== 'HEAD')
+        .map((r) => `${r.method} ${r.url}`),
+    ),
+  ];
+  const classified = [...PORTAL_OPEN_WRITES, ...PORTAL_ABSENCE_WRITES];
+  check(
+    'dronivo: Routenliste gelesen',
+    meWrites.includes('POST /api/me/leave-requests/:id/cancel') && meWrites.includes('POST /api/me/change-requests'),
+    meWrites,
+  );
+  // Der Hook selbst sperrt Antrag, Rueckzug und Krankmeldung, nicht erst
+  // createRequest (den Rueckzug faengt sonst nichts). Gegenprobe zur Liste in
+  // packages/shared/src/dronivo.ts, damit keine davon still offen wird.
+  check(
+    'dronivo: Hook sperrt Antrag, Rueckzug und Krankmeldung selbst',
+    portalWriteBlocked('POST', '/api/me/leave-requests') &&
+      portalWriteBlocked('POST', '/api/me/leave-requests/:id/cancel') &&
+      portalWriteBlocked('POST', '/api/me/sick-notes') &&
+      !portalWriteBlocked('POST', '/api/me/change-requests'),
+  );
+  const unknownPath = await portalPost('/api/me/gibt-es-nicht', {});
+  check('dronivo: unbekannter Portalpfad bleibt 404 (nicht 403)', unknownPath.statusCode === 404, unknownPath.statusCode);
+  check(
+    'dronivo: jede schreibende Portalroute ist offen oder als Abwesenheitserfassung gesperrt',
+    meWrites.every((k) => classified.includes(k)),
+    meWrites.filter((k) => !classified.includes(k)),
+  );
+  check(
+    'dronivo: jede eingeordnete Portalroute gibt es (sonst ist eine umbenannte Route gesperrt)',
+    classified.every((k) => meWrites.includes(k)),
+    classified.filter((k) => !meWrites.includes(k)),
+  );
+  const openWrite = await portalPost('/api/me/change-requests', {});
+  check('dronivo: offene Portalroute erreicht ihren Handler (400 statt 403)', openWrite.statusCode === 400, openWrite.json());
+  db.prepare('DELETE FROM users WHERE email = ?').run('dora.smoke@example.org');
+  db.prepare('DELETE FROM absence_requests WHERE employee_id = ?').run(employeeId);
+  db.prepare('DELETE FROM employees WHERE id = ?').run(employeeId);
+}
 
 check('Passwortvergleich läuft im Worker-Thread', passwordWorkerActive());
 check('Laufzeiten: Vorgaben 1h (Portal) und 3d (Desktop)', config.tokenTtl === 3600 && config.desktopTokenTtl === 3 * 86400);

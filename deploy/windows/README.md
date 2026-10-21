@@ -377,8 +377,8 @@ das Gegenteil — siehe Abschnitt 8.)
 ## 6. Update
 
 **Schritt 0: Variante pruefen, bevor entpackt wird.** Jede Ausgabe
-(Land x Edition) ist ein eigener Build; der Archivname traegt sie
-(`ohrganize-server-de-vollversion-1.2.0.zip`). Ein Archiv der falschen
+(Land x Edition) ist ein eigener Build; der Archivname nennt Land und
+Version samt Kundenkennung (`ohrganize-server-de-1.0.0-dronivo.zip`). Ein Archiv der falschen
 Ausgabe ueber eine laufende Instanz entpackt heisst: Der Dienst startet nicht
 (das Backend prueft `OHRGANIZE_VARIANT` gegen die einkompilierte Variante)
 oder die Arbeitsplaetze brechen beim Start ab.
@@ -386,7 +386,7 @@ oder die Arbeitsplaetze brechen beim Start ab.
 ```powershell
 # Was steckt im Archiv? (in ein leeres Verzeichnis entpacken und nachsehen)
 $tmp = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ([guid]::NewGuid()))
-Expand-Archive 'C:\Temp\ohrganize-server-<variante>-<version>.zip' -DestinationPath $tmp -Force
+Expand-Archive 'C:\Temp\ohrganize-server-de-<version>.zip' -DestinationPath $tmp -Force
 Get-Content (Join-Path $tmp 'VARIANTE.txt')
 Get-Content (Join-Path $tmp 'release.json')
 Remove-Item $tmp -Recurse -Force
@@ -413,9 +413,9 @@ gehoert nicht auf ein Produktivsystem.
 nssm stop oHRganize
 Start-ScheduledTask -TaskName 'oHRganize-Sicherung'
 Set-Location 'C:\Program Files\oHRganize'
-(Get-FileHash 'C:\Temp\ohrganize-server-<variante>-<version>.zip' -Algorithm SHA256).Hash.ToLower()   # gegen .sha256 vergleichen
+(Get-FileHash 'C:\Temp\ohrganize-server-de-<version>.zip' -Algorithm SHA256).Hash.ToLower()   # gegen .sha256 vergleichen
 Remove-Item 'apps' -Recurse -Force                # Altstand weg (node_modules bleibt); sonst sammeln sich alte Portal-Assets an
-Expand-Archive 'C:\Temp\ohrganize-server-<variante>-<version>.zip' -DestinationPath 'C:\Program Files\oHRganize' -Force
+Expand-Archive 'C:\Temp\ohrganize-server-de-<version>.zip' -DestinationPath 'C:\Program Files\oHRganize' -Force
 npm ci --omit=dev                                 # nur nötig, wenn better-sqlite3 gewechselt hat — schadet nie
 node -e "new (require('better-sqlite3'))(':memory:'); console.log('better-sqlite3 ok')"
 Remove-Item 'C:\ProgramData\oHRganize\web\*' -Recurse -Force
@@ -464,7 +464,7 @@ zwei getrennten Datenbeständen.
 > (keine Adminrechte), Installer und Skript z. B. auf einem Stick:
 >
 > ```powershell
-> .\setup-workstation.ps1 -ApiBaseUrl 'https://musterfirma.ohrganize.com' -ServerPin 'sha256/…' -Installer '.\oHRganize-Setup-<Version>-<Variante>.exe'
+> .\setup-workstation.ps1 -ApiBaseUrl 'https://musterfirma.ohrganize.com' -ServerPin 'sha256/…' -Installer '.\oHRganize-Setup-de-<Version>.exe'
 > ```
 >
 > Es installiert die App still, wenn sie fehlt, schreibt die `config.json`
@@ -476,7 +476,7 @@ zwei getrennten Datenbeständen.
 > `-RemoveLocalData` räumt eine leere Erstanlage weg (Schritt 4 unten). Die
 > Schritte 1–4 sind dasselbe von Hand.
 
-1. Installer ausführen (`oHRganize-Setup-<Version>-<Variante>.exe` aus
+1. Installer ausführen (`oHRganize-Setup-de-<Version>.exe` aus
    `apps\desktop\release`). Danach die App **noch nicht öffnen**.
 2. Serveradresse hinterlegen — eine der beiden Quellen genügt:
 

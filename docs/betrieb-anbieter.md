@@ -272,16 +272,49 @@ Ein ungeprueftes Release wird nicht ausgerollt (`--ohne-signatur` uebergeht
 das bewusst). Schlaegt ein Host fehl, macht conspectus mit dem naechsten
 weiter und vermerkt den Fehlschlag samt Protokoll im Register.
 
+**Kundenausgabe (Branch dronivo):** Dronivo laeuft auf der eigenen Ausgabe
+`de-dronivo` mit Versionen `<x.y.z>-dronivo`, gebaut nur auf dem Branch
+`dronivo`. Instanz in conspectus mit `--variante de-dronivo` anlegen; Lizenzen
+bekommen daraus `edition: dronivo` (von Hand: `npm run lizenz -- sign` mit
+`--edition dronivo --country DE`). Archive, Installer und Lizenzen des
+Hauptprodukts weisen Update-Skripte, Backend, Desktop-App und Lizenzpruefung
+bei Dronivo ab, umgekehrt ebenso. Ein conspectus aus dem Branch behandelt die
+Kundenkennung zusaetzlich als eigene Release-Linie (`--kunde`,
+`--linie-wechseln`).
+
+Nur falls Dronivo vorher eine Installation der Ausgabe `de-vollversion` hatte
+(Windows-Server):
+
+1. Dienst anhalten (`nssm stop oHRganize`); sonst meldet /api/health noch die
+   alte Ausgabe, und update-server.ps1 bricht ab.
+2. In `C:\ProgramData\oHRganize\ohrganize.env` `OHRGANIZE_VARIANT=de-dronivo`
+   setzen.
+3. `update-server.ps1 -Archive ohrganize-server-de-<version>.zip` aus dem
+   Dronivo-Archiv ausfuehren. Es gleicht die Ausgabe auch in der
+   Dienstumgebung ab und nimmt sie bei einem Fehlstart zurueck.
+4. Auf jedem Arbeitsplatz `oHRganize-Setup-de-<version>.exe`
+   installieren (`setup-workstation.ps1 -Installer ...`). Bis dahin meldet die
+   alte App "zuerst das Server-Update einspielen": Nach Semver ist
+   1.0.0-dronivo aelter als 1.0.0. Das ist erwartet.
+5. Lizenz: Steht die Instanz schon mit `de-vollversion` im Register, nicht neu
+   anlegen. Den Bericht `node apps\backend\dist\status.cjs --data-dir
+   C:\ProgramData\oHRganize\data --json` vom Kunden holen und mit
+   `npm run conspectus -- bericht importieren bericht.json --instanz <id>`
+   einlesen (setzt die Variante auf `de-dronivo`), erst dann
+   `lizenz ausstellen`. Eine v2-Lizenz der Vollversion gilt auf der
+   Dronivo-Ausgabe nicht mehr.
+
 ---
 
 ## 5. Einzelkunde (eigener Server, eigener Arbeitsplatz)
 
-Verschickt werden je Ausgabe:
+Verschickt werden je Ausgabe (Namen wie auf dem Branch dronivo, Land und
+Version; auf main tragen sie Variante und Version):
 
-- `ohrganize-server-<variante>-<version>.zip` samt `.sha256`,
+- `ohrganize-server-de-<version>.zip` samt `.sha256`,
 - `release.json` und `release.json.sig` (damit der Kunde die Signatur pruefen
   kann),
-- `oHRganize-Setup-<version>-<variante>.exe` fuer die Arbeitsplaetze,
+- `oHRganize-Setup-de-<version>.exe` fuer die Arbeitsplaetze,
 - die Lizenzdatei, getrennt.
 
 **Immer die Ausgabe dazusagen.** Der Kunde prueft vor dem Entpacken

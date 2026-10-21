@@ -13,6 +13,8 @@ process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../../server.js');
 const { getDb, closeDb } = await import('../../db/db.js');
 const { firstAdminLogin } = await import('../../test/adminSession.js');
+// Kundenausgabe dronivo: Erfasst das Portal Abwesenheiten? (packages/shared/src/dronivo.ts)
+const { PORTAL_ABSENCE_CAPTURE } = await import('@ohrganize/shared');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -106,7 +108,23 @@ const preview = await empGet('/api/me/leave-preview?date_from=2026-04-27&date_to
 check('Vorschau: 4 Tage', preview.json().days_counted === 4, preview.json());
 
 // --------------------------------------------------------------------- Anträge ---
-const r1 = await empPost('/api/me/leave-requests', {
+/**
+ * Legt die Anträge an, auf denen die Prüfungen unten aufbauen: im Portal oder,
+ * in der Kundenausgabe ohne Portalerfassung (PORTAL_ABSENCE_CAPTURE, Branch
+ * dronivo), über die HR-Erfassung für dieselbe Person. Die gesperrten
+ * Portalrouten prüft dort der Block nach r1.
+ */
+const fileLeaveRequest = (employeeId: number, headers: Record<string, string>, payload: Record<string, unknown>) =>
+  PORTAL_ABSENCE_CAPTURE
+    ? app.inject({ method: 'POST', url: '/api/me/leave-requests', headers, payload })
+    : app.inject({
+        method: 'POST',
+        url: '/api/absences/requests',
+        headers: adminAuth,
+        payload: { ...payload, employee_id: employeeId },
+      });
+
+const r1 = await fileLeaveRequest(1, empAuth, {
   type_id: urlaub.id,
   date_from: '2026-04-27',
   date_to: '2026-05-01',
@@ -122,26 +140,50 @@ check(
 );
 const r1Id = r1.json().request.id as number;
 
-const overlap = await empPost('/api/me/leave-requests', {
-  type_id: urlaub.id,
-  date_from: '2026-04-29',
-  date_to: '2026-05-04',
-});
-check('Überlappender Antrag → 409', overlap.statusCode === 409, overlap.json());
+if (PORTAL_ABSENCE_CAPTURE) {
+  const overlap = await empPost('/api/me/leave-requests', {
+    type_id: urlaub.id,
+    date_from: '2026-04-29',
+    date_to: '2026-05-04',
+  });
+  check('Überlappender Antrag → 409', overlap.statusCode === 409, overlap.json());
 
-const badRange = await empPost('/api/me/leave-requests', {
-  type_id: urlaub.id,
-  date_from: '2026-06-10',
-  date_to: '2026-06-01',
-});
-check('Ende vor Beginn → 400', badRange.statusCode === 400);
+  const badRange = await empPost('/api/me/leave-requests', {
+    type_id: urlaub.id,
+    date_from: '2026-06-10',
+    date_to: '2026-06-01',
+  });
+  check('Ende vor Beginn → 400', badRange.statusCode === 400);
 
-const absurdSpan = await empPost('/api/me/leave-requests', {
-  type_id: urlaub.id,
-  date_from: '2026-01-01',
-  date_to: '9999-12-31',
-});
-check('Absurde Zeitspanne → 400 (DoS-Schutz)', absurdSpan.statusCode === 400, absurdSpan.json());
+  const absurdSpan = await empPost('/api/me/leave-requests', {
+    type_id: urlaub.id,
+    date_from: '2026-01-01',
+    date_to: '9999-12-31',
+  });
+  check('Absurde Zeitspanne → 400 (DoS-Schutz)', absurdSpan.statusCode === 400, absurdSpan.json());
+} else {
+  // Ohne Portalerfassung: Antrag, Rückzug (auch eines von der HR erfassten,
+  // offenen Antrags) und Krankmeldung antworten 403, bevor etwas entsteht.
+  const countRequests = () =>
+    (db.prepare('SELECT COUNT(*) AS n FROM absence_requests').get() as { n: number }).n;
+  const before = countRequests();
+  const blocked = [
+    await empPost('/api/me/leave-requests', { type_id: urlaub.id, date_from: '2026-06-22', date_to: '2026-06-23' }),
+    await empPost(`/api/me/leave-requests/${r1Id}/cancel`),
+    await empPost('/api/me/sick-notes', { date_from: '2026-06-01', date_to: '2026-06-03' }),
+  ];
+  check(
+    'Ohne Portalerfassung: Antrag, Rückzug und Krankmeldung im Portal → 403',
+    blocked.every((r) => r.statusCode === 403),
+    blocked.map((r) => r.statusCode),
+  );
+  const r1Row = db.prepare('SELECT status FROM absence_requests WHERE id = ?').get(r1Id) as { status: string };
+  check(
+    'Ohne Portalerfassung: nichts angelegt, der offene Antrag der HR bleibt offen',
+    countRequests() === before && r1Row.status === 'beantragt',
+    { before, after: countRequests(), status: r1Row.status },
+  );
+}
 const absurdPreview = await empGet('/api/me/leave-preview?date_from=2026-01-01&date_to=9999-12-31');
 check('Absurde Vorschau-Spanne → 400', absurdPreview.statusCode === 400);
 
@@ -153,6 +195,15 @@ check(
     list.json().requests[0].id === r1Id,
   list.json(),
 );
+if (!PORTAL_ABSENCE_CAPTURE) {
+  // Die Übersicht des Portals liest diese Liste weiter (Nächste Abwesenheit,
+  // Zuletzt entschieden) und nennt die HR als erfassende Stelle.
+  check(
+    'Ohne Portalerfassung: Liste zeigt den Antrag als von der HR erfasst',
+    list.json().requests[0]?.created_by_proxy === 1,
+    list.json().requests[0],
+  );
+}
 
 // Fremden Antrag (Ben) kann Anna weder sehen noch zurückziehen.
 const loginBen = await app.inject({
@@ -161,15 +212,12 @@ const loginBen = await app.inject({
   payload: { email: 'ben.berg@test.de', password: 'geheim123' },
 });
 const benAuth = { authorization: `Bearer ${loginBen.json().token as string}` };
-const rBen = await app.inject({
-  method: 'POST',
-  url: '/api/me/leave-requests',
-  headers: benAuth,
-  payload: { type_id: urlaub.id, date_from: '2026-06-15', date_to: '2026-06-19' },
-});
+const rBen = await fileLeaveRequest(2, benAuth, { type_id: urlaub.id, date_from: '2026-06-15', date_to: '2026-06-19' });
 const benReqId = rBen.json().request.id as number;
-const cancelForeign = await empPost(`/api/me/leave-requests/${benReqId}/cancel`);
-check('Fremden Antrag zurückziehen → 404', cancelForeign.statusCode === 404, cancelForeign.json());
+if (PORTAL_ABSENCE_CAPTURE) {
+  const cancelForeign = await empPost(`/api/me/leave-requests/${benReqId}/cancel`);
+  check('Fremden Antrag zurückziehen → 404', cancelForeign.statusCode === 404, cancelForeign.json());
+}
 const listAnna = await empGet('/api/me/leave-requests');
 check('Fremde Anträge tauchen nicht in der Liste auf', !listAnna.json().requests.some((r: { id: number }) => r.id === benReqId));
 
@@ -187,17 +235,19 @@ check(
   approved.status === 'genehmigt' && approved.decided_by_name === 'HR Administrator',
   approved,
 );
-const cancelApproved = await empPost(`/api/me/leave-requests/${r1Id}/cancel`);
-check('Genehmigten Antrag zurückziehen → 409', cancelApproved.statusCode === 409, cancelApproved.json());
+if (PORTAL_ABSENCE_CAPTURE) {
+  const cancelApproved = await empPost(`/api/me/leave-requests/${r1Id}/cancel`);
+  check('Genehmigten Antrag zurückziehen → 409', cancelApproved.statusCode === 409, cancelApproved.json());
 
-// Eigenen offenen Antrag zurückziehen.
-const r2 = await empPost('/api/me/leave-requests', {
-  type_id: urlaub.id,
-  date_from: '2026-09-14',
-  date_to: '2026-09-15',
-});
-const cancelOwn = await empPost(`/api/me/leave-requests/${r2.json().request.id}/cancel`);
-check('Eigenen offenen Antrag zurückziehen', cancelOwn.statusCode === 200 && cancelOwn.json().request.status === 'storniert');
+  // Eigenen offenen Antrag zurückziehen.
+  const r2 = await empPost('/api/me/leave-requests', {
+    type_id: urlaub.id,
+    date_from: '2026-09-14',
+    date_to: '2026-09-15',
+  });
+  const cancelOwn = await empPost(`/api/me/leave-requests/${r2.json().request.id}/cancel`);
+  check('Eigenen offenen Antrag zurückziehen', cancelOwn.statusCode === 200 && cancelOwn.json().request.status === 'storniert');
+}
 
 // ----------------------------------------------------------------------- Saldo ---
 const balance = await empGet('/api/me/leave-balance?year=2026');
@@ -211,55 +261,57 @@ check(
 );
 
 // -------------------------------------------------------------- Krankmeldungen ---
-const sick = await empPost('/api/me/sick-notes', {
-  date_from: '2026-06-01',
-  date_to: '2026-06-03',
-});
-const s = sick.json().sick_note;
-check(
-  'Krankmeldung → 201, auto-genehmigt, AU-Frist 3. Kalendertag',
-  sick.statusCode === 201 && s.request_status === 'genehmigt' && s.certificate_due_date === '2026-06-03',
-  sick.json(),
-);
-check('Erstbescheinigung ohne Vorgaenger (follow_up_of_id null)', s.follow_up_of_id === null, s);
-// Nahtlose Fortsetzung (Vortag = Ende der letzten Krankmeldung) wird
-// automatisch als Folgebescheinigung verkettet; mit Luecke beginnt eine neue Kette.
-const sickFollowUp = await empPost('/api/me/sick-notes', {
-  date_from: '2026-06-04',
-  date_to: '2026-06-05',
-});
-check(
-  'Krankmeldung ab dem Folgetag → follow_up_of_id zeigt auf die Erstbescheinigung',
-  sickFollowUp.statusCode === 201 && sickFollowUp.json().sick_note.follow_up_of_id === s.id,
-  sickFollowUp.json(),
-);
-const sickGap = await empPost('/api/me/sick-notes', {
-  date_from: '2026-06-08',
-  date_to: '2026-06-09',
-});
-check(
-  'Krankmeldung mit Luecke → keine Folgebescheinigung',
-  sickGap.statusCode === 201 && sickGap.json().sick_note.follow_up_of_id === null,
-  sickGap.json(),
-);
-const sickChild = await empPost('/api/me/sick-notes', {
-  date_from: '2026-06-10',
-  date_to: '2026-06-10',
-  child_sick: true,
-});
-check(
-  'Kind krank direkt nach eigener Erkrankung → keine Folgebescheinigung (andere Art)',
-  sickChild.statusCode === 201 && sickChild.json().sick_note.follow_up_of_id === null,
-  sickChild.json(),
-);
-const mySick = await empGet('/api/me/sick-notes');
-check('Eigene Krankmeldungen gelistet', mySick.json().sick_notes.some((n: { id: number }) => n.id === s.id));
-const adminSick = await app.inject({ method: 'GET', url: '/api/absences/sick-notes/missing', headers: adminAuth });
-check(
-  'HR sieht fehlende AU-Bescheinigung aus dem Portal',
-  adminSick.json().sick_notes.some((n: { id: number }) => n.id === s.id),
-  adminSick.json(),
-);
+if (PORTAL_ABSENCE_CAPTURE) {
+  const sick = await empPost('/api/me/sick-notes', {
+    date_from: '2026-06-01',
+    date_to: '2026-06-03',
+  });
+  const s = sick.json().sick_note;
+  check(
+    'Krankmeldung → 201, auto-genehmigt, AU-Frist 3. Kalendertag',
+    sick.statusCode === 201 && s.request_status === 'genehmigt' && s.certificate_due_date === '2026-06-03',
+    sick.json(),
+  );
+  check('Erstbescheinigung ohne Vorgaenger (follow_up_of_id null)', s.follow_up_of_id === null, s);
+  // Nahtlose Fortsetzung (Vortag = Ende der letzten Krankmeldung) wird
+  // automatisch als Folgebescheinigung verkettet; mit Luecke beginnt eine neue Kette.
+  const sickFollowUp = await empPost('/api/me/sick-notes', {
+    date_from: '2026-06-04',
+    date_to: '2026-06-05',
+  });
+  check(
+    'Krankmeldung ab dem Folgetag → follow_up_of_id zeigt auf die Erstbescheinigung',
+    sickFollowUp.statusCode === 201 && sickFollowUp.json().sick_note.follow_up_of_id === s.id,
+    sickFollowUp.json(),
+  );
+  const sickGap = await empPost('/api/me/sick-notes', {
+    date_from: '2026-06-08',
+    date_to: '2026-06-09',
+  });
+  check(
+    'Krankmeldung mit Luecke → keine Folgebescheinigung',
+    sickGap.statusCode === 201 && sickGap.json().sick_note.follow_up_of_id === null,
+    sickGap.json(),
+  );
+  const sickChild = await empPost('/api/me/sick-notes', {
+    date_from: '2026-06-10',
+    date_to: '2026-06-10',
+    child_sick: true,
+  });
+  check(
+    'Kind krank direkt nach eigener Erkrankung → keine Folgebescheinigung (andere Art)',
+    sickChild.statusCode === 201 && sickChild.json().sick_note.follow_up_of_id === null,
+    sickChild.json(),
+  );
+  const mySick = await empGet('/api/me/sick-notes');
+  check('Eigene Krankmeldungen gelistet', mySick.json().sick_notes.some((n: { id: number }) => n.id === s.id));
+  const adminSick = await app.inject({ method: 'GET', url: '/api/absences/sick-notes/missing', headers: adminAuth });
+  check(
+    'HR sieht fehlende AU-Bescheinigung aus dem Portal',
+    adminSick.json().sick_notes.some((n: { id: number }) => n.id === s.id),
+    adminSick.json(),
+  );
+}
 
 // ============================================================================
 // Ab hier: Selbstauskunft (Gehalt, Organigramm, Kalender, Dokumente) und
@@ -738,16 +790,18 @@ check(
   afterDeny.length === baseTypes.length - 1 && !afterDeny.some((t) => t.id === blockable.id),
   afterDeny.length,
 );
-const denyPost = await empPost('/api/me/leave-requests', {
-  type_id: blockable.id,
-  date_from: '2027-03-02',
-  date_to: '2027-03-03',
-});
-check(
-  'Gesperrte Art beantragen → 403 (Lese- und Schreibseite decken sich)',
-  denyPost.statusCode === 403,
-  denyPost.json(),
-);
+if (PORTAL_ABSENCE_CAPTURE) {
+  const denyPost = await empPost('/api/me/leave-requests', {
+    type_id: blockable.id,
+    date_from: '2027-03-02',
+    date_to: '2027-03-03',
+  });
+  check(
+    'Gesperrte Art beantragen → 403 (Lese- und Schreibseite decken sich)',
+    denyPost.statusCode === 403,
+    denyPost.json(),
+  );
+}
 db.prepare('DELETE FROM absence_type_employee_rules WHERE type_id = ?').run(blockable.id);
 
 // Rollen-Allowlist: nur eine Rolle, die Anna nicht hat.
@@ -804,23 +858,25 @@ check(
 db.prepare('DELETE FROM employee_roles WHERE employee_id = 1 AND role_id = ?').run(roleMinijob.id);
 db.prepare('UPDATE roles SET can_view_calendar = 1 WHERE id = ?').run(roleVollzeit.id);
 
-// D4: Krankmeldungen dürfen nie blockiert werden.
-const krankheitType = db
-  .prepare("SELECT id FROM absence_types WHERE category = 'krankheit' ORDER BY id LIMIT 1")
-  .get() as { id: number };
-db.prepare(
-  "INSERT INTO absence_type_employee_rules (type_id, employee_id, effect) VALUES (?, 1, 'deny')",
-).run(krankheitType.id);
-const sickDespiteDeny = await empPost('/api/me/sick-notes', {
-  date_from: '2027-04-05',
-  date_to: '2027-04-06',
-});
-check(
-  'Krankmeldung trotz deny-Regel → 201 (Kategorie krankheit ist ausgenommen)',
-  sickDespiteDeny.statusCode === 201,
-  sickDespiteDeny.json(),
-);
-db.prepare('DELETE FROM absence_type_employee_rules WHERE type_id = ?').run(krankheitType.id);
+if (PORTAL_ABSENCE_CAPTURE) {
+  // D4: Krankmeldungen dürfen nie blockiert werden.
+  const krankheitType = db
+    .prepare("SELECT id FROM absence_types WHERE category = 'krankheit' ORDER BY id LIMIT 1")
+    .get() as { id: number };
+  db.prepare(
+    "INSERT INTO absence_type_employee_rules (type_id, employee_id, effect) VALUES (?, 1, 'deny')",
+  ).run(krankheitType.id);
+  const sickDespiteDeny = await empPost('/api/me/sick-notes', {
+    date_from: '2027-04-05',
+    date_to: '2027-04-06',
+  });
+  check(
+    'Krankmeldung trotz deny-Regel → 201 (Kategorie krankheit ist ausgenommen)',
+    sickDespiteDeny.statusCode === 201,
+    sickDespiteDeny.json(),
+  );
+  db.prepare('DELETE FROM absence_type_employee_rules WHERE type_id = ?').run(krankheitType.id);
+}
 
 // ------------------------------------------------------------- Vier-Augen ---
 // Ben bekommt vorübergehend HR-Rechte — er ist damit ein HR-Konto MIT eigenem

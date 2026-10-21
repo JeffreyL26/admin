@@ -30,6 +30,8 @@ const { closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
 const { signLicensePayload } = await import('../core/licenseCodec.js');
 const { addDaysIso, todayIso } = await import('../core/dates.js');
+// Ausgabe des Builds: Eine v2-Lizenz fremder Ausgabe nimmt der Server nicht an.
+const { VARIANT } = await import('@variant-manifest');
 type LicensePayload = import('@ohrganize/shared').LicensePayload;
 type FeatureDef = import('@ohrganize/shared').FeatureDef;
 
@@ -109,7 +111,7 @@ const v1 = await put(license({}));
 check('v1-Lizenz angenommen', v1.statusCode === 200, v1.json());
 check('v1: Export offen, features null', (await exportCsv()).statusCode === 200 && v1.json().license.features === null);
 
-const v2None = await put(license({ v: 2, issued_at: addDaysIso(today, 1), edition: 'vollversion', country: 'DE', features: [] }));
+const v2None = await put(license({ v: 2, issued_at: addDaysIso(today, 1), edition: VARIANT.edition, country: VARIANT.country, features: [] }));
 check('v2 ohne Feature angenommen', v2None.statusCode === 200 && Array.isArray(v2None.json().license.features), v2None.json());
 const blocked = await exportCsv();
 check('v2 ohne Feature: Export 403 LICENSE_FEATURE_MISSING', blocked.statusCode === 403 && blocked.json().error?.code === 'LICENSE_FEATURE_MISSING', blocked.json());
@@ -118,11 +120,11 @@ check('v2 ohne Feature: andere Route bleibt offen', (await employees()).statusCo
 const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: auth });
 check('/api/auth/me liefert die Feature-Liste', Array.isArray(me.json().license?.features) && me.json().license.features.length === 0, me.json().license);
 
-const v2With = await put(license({ v: 2, issued_at: addDaysIso(today, 2), edition: 'vollversion', country: 'DE', features: ['test.export'] }));
+const v2With = await put(license({ v: 2, issued_at: addDaysIso(today, 2), edition: VARIANT.edition, country: VARIANT.country, features: ['test.export'] }));
 check('v2 mit Feature angenommen', v2With.statusCode === 200, v2With.json());
 check('v2 mit Feature: Export 200', (await exportCsv()).statusCode === 200);
 check('v2 mit Feature: Recruiting weiter gesperrt', (await app.inject({ method: 'GET', url: '/api/recruiting/jobs', headers: auth })).statusCode === 403);
-check('v2 mit unbekanntem Schluessel: Server ignoriert ihn', (await put(license({ v: 2, issued_at: addDaysIso(today, 3), edition: 'vollversion', country: 'DE', features: ['test.export', 'kunde.unbekannt.x'] }))).statusCode === 200);
+check('v2 mit unbekanntem Schluessel: Server ignoriert ihn', (await put(license({ v: 2, issued_at: addDaysIso(today, 3), edition: VARIANT.edition, country: VARIANT.country, features: ['test.export', 'kunde.unbekannt.x'] }))).statusCode === 200);
 
 await app.close();
 closeDb();

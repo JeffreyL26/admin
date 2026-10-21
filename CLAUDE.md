@@ -4,6 +4,109 @@ HR-Verwaltungssoftware für den deutschsprachigen Markt. Desktop-App (Electron) 
 HR-Administrator:innen und Mitarbeitenden-Web-Portal (Self-Service) auf demselben
 client-agnostischen Backend.
 
+## Kundenbranch dronivo (gilt nur auf diesem Branch)
+
+Auf ausdruecklichen Wunsch des Anbieters (21.10.2026) entsteht die Ausgabe
+fuer den Kunden Dronivo als eigener Branch `dronivo`, abweichend von der
+Regel "Kundenfunktionen als Feature, nie als Branch" weiter unten. Er bleibt
+dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
+`1.0.0-dronivo` (angezeigt als "Version de-1.0.0-dronivo"), Ausgabe
+(Variante) `de-dronivo`. Was den Branch von main unterscheidet:
+
+- **Ein Schalter, kein entfernter Code:** `PORTAL_ABSENCE_CAPTURE = false` in
+  `packages/shared/src/dronivo.ts`. Mitarbeitende erfassen im Portal keine
+  Abwesenheiten (Antrag, Rueckzug, Krankmeldung). Gesperrt an zwei Stellen:
+  `createRequest` (absences/service.ts, der eine Punkt jeder Neuanlage) weist
+  jede Anfrage einer `/api/me`-Route ab (`assertNoPortalCapture`, an der Route
+  der Anfrage; die HR-Erfassung unter `/api/absences` bleibt offen), und der
+  globale Hook in server.ts laesst unter `/api/me` nur die geprueften
+  schreibenden Routen in `PORTAL_OPEN_WRITES` durch und weist jede andere ab
+  (`portalWriteBlocked`, eine Freigabeliste: auch den Rueckzug, der
+  createRequest nicht durchlaeuft, und jede neue Portalroute aus main, bis
+  sie eingeordnet ist). Die Abwesenheitserfassung steht zusaetzlich in
+  `PORTAL_ABSENCE_WRITES`, damit sie nicht in die offene Liste rutscht. Die
+  Seiten unter `PORTAL_ABSENCE_PATHS` samt allem darunter fehlen in Navigation
+  und Router (`portalPathOpen`), die Uebersicht zeigt die Kachel "Stammdaten
+  aendern" statt des Urlaubskontos und keine Karte "Offene Antraege"; das
+  Desktop-Dashboard schreibt an keinen Antrag "Aus dem Portal beantragt.".
+  Release-Dateien tragen das Kennzeichen `de-1.0.0-dronivo` (`releaseLabel`
+  in scripts/dronivo-guard.mjs): `oHRganize-Setup-de-1.0.0-dronivo.exe`,
+  `ohrganize-server-de-1.0.0-dronivo.zip`. Jede abweichende
+  Stelle nennt den Schalter; `git grep PORTAL_ABSENCE_CAPTURE` findet alle.
+- **Eigene Ausgabe `de-dronivo` als Trennung von main:** Das Register auf
+  diesem Branch kennt NUR `de-dronivo` (Edition `dronivo`, Label
+  "Deutschland Dronivo"); `de-vollversion` laesst sich hier nicht bauen und
+  `de-dronivo` auf main nicht. Damit greifen die Verwechslungssperren, die
+  es auch auf main schon gibt: Update-Skripte vergleichen VARIANTE.txt mit
+  env-Datei und /api/health, das Backend startet nicht mit fremder
+  `OHRGANIZE_VARIANT`, die Desktop-App bricht an einem Server fremder
+  Ausgabe ab, eine Lizenz gilt nur fuer ihre Edition. Lizenzen fuer Dronivo
+  tragen `edition: dronivo` (conspectus leitet sie aus der Instanz ab).
+  Windows (wortgleich auch fuer main vorbereitet, Branch
+  `windows-ausgabe-env`; ein Merge von main bleibt dort konfliktfrei, bis auf
+  die Zeile mit dem Archivnamen in der Hilfe von `update-server.ps1`, die hier
+  `ohrganize-server-de-<version>.zip` nennt):
+  `setup-server.ps1` prueft die Ausgabe des Archivs vor dem Anhalten des
+  Dienstes und schreibt sie in die env-Datei (vorher fehlte sie dort);
+  `update-server.ps1` vergleicht ohne env-Eintrag mit dem installierten
+  VARIANTE.txt, traegt die Zeile nach, gleicht `OHRGANIZE_VARIANT` in der
+  Dienstumgebung (NSSM) bei jedem Update ab und nimmt beides bei einem
+  Fehlstart zurueck; beide vertragen Archive auf UNC-Pfaden.
+- **Version:** Jede Version ist genau `<x.y.z>-dronivo` (`CUSTOMER_TAG`); einen
+  Testkanal gibt es auf dem Branch nicht (`1.1.0-dronivo.beta.1` waere nach
+  Semver neuer als das fertige Release und gaelte als stable).
+  `MIN_CLIENT_VERSION`/`MIN_SERVER_VERSION` tragen die Kennung (nach Semver ist
+  x.y.z neuer als x.y.z-dronivo, sonst sperrten sich App und Server aus) und
+  liegen nicht unter denen von main. Kanal beta nur fuer alpha, beta und rc
+  (`CHANNEL_PRE_PATTERN` in packages/shared/src/version.ts, JavaScript-Gegenstueck
+  `CHANNEL_PRE` einmal in scripts/dronivo-guard.mjs, von release.mjs,
+  release-server.mjs und check-dronivo.mjs importiert). In
+  conspectus ist die Kundenkennung zusaetzlich eine eigene Release-Linie
+  (`customerTagOf`, `--linie-wechseln`), die Ausgabe trennt aber schon.
+- **Waechter (`scripts/dronivo-guard.mjs`, `scripts/check-dronivo.mjs`):**
+  `release.mjs`, `release-server.mjs` und `apps/desktop/scripts/dist.mjs` bauen
+  nur die eigene Ausgabe in der Form `<x.y.z>-dronivo`; die beiden
+  Release-Skripte fuehren vor jedem Schritt mit Wirkung `check-dronivo` aus
+  (`release.mjs` gegen die Zielversion), und `release-server.mjs` prueft auch
+  das mitgepackte Portal auf die Ausgabe. `check-dronivo` laeuft ausserdem als
+  `posttest` nach `npm test` und prueft: Register und Verdrahtung, Versionen
+  aller package.json und des Lockfiles (auch dessen Workspace-Eintraege),
+  Mindestversionen (Kennung, nicht ueber
+  der Version, nicht unter main an der Merge-Basis, waehrend eines Merges
+  nicht unter dem hereinkommenden Stand), CHANGELOG-Abschnitt,
+  Schalter, globalen Hook, die Sperre in `createRequest`, dass jede
+  schreibende `/api/me`-Route im Quelltext offen oder als
+  Abwesenheitserfassung eingeordnet ist und keine offene Abwesenheiten direkt
+  per SQL schreibt, JEDE Schalterstelle in Portal, Desktop, Windows-Skripten
+  und Release-Skripten, jeden Portalpfad (als fester Text, gesperrt oder in
+  `OPEN_PORTAL_PATHS`) und dass kein anderer Teil des Portals auf die
+  gesperrten Seiten zeigt oder die Abwesenheitserfassung schreibend nutzt,
+  dazu die Dateinamen der Release-Dateien (`releaseLabel` in dist.mjs,
+  release.mjs, release-server.mjs) und dass Doku, README und
+  setup-workstation.ps1 den Installer nicht mit Variante nennen (Schreibweise
+  von main, die ein Merge zurueckbraechte).
+  Zusaetzlich prueft src/test/smoke.ts im Lauf die drei gesperrten Routen,
+  eine offene und die Einordnung aller registrierten schreibenden
+  Portalrouten (auch aus Plugins mit Praefix; erfasst ueber
+  `core/routeRegistry.ts`, nur im Quelltextbetrieb, gebuendelt entfaellt es).
+- **Merge von main:** `git merge main` auf `dronivo`. Konflikte: Versionen in
+  den package.json und im Lockfile bleiben `<x.y.z>-dronivo`; erzeugte
+  Dateien `src/variants/de-vollversion.*` bleiben geloescht, danach
+  `npm run variants:gen`; das Register bleibt bei `de-dronivo` allein (neue
+  Module von main in dessen `modules` uebernehmen); Mindestversionen von main
+  mit Kennung uebernehmen; an jeder Schalterstelle die Abfrage behalten. Eine
+  neue Portalseite von main kommt in `OPEN_PORTAL_PATHS` (check-dronivo.mjs)
+  oder, wenn sie Abwesenheiten erfasst, unter `PORTAL_ABSENCE_PATHS`; eine
+  neue schreibende Portalroute nach Pruefung in `PORTAL_OPEN_WRITES`, sonst
+  in `PORTAL_ABSENCE_WRITES` (bis dahin antwortet sie 403). Danach
+  `npm test` (mit posttest) und `npx tsx apps/backend/src/modules/me/smoke.ts`;
+  neue Texte, die einen Urlaubsantrag oder eine Krankmeldung im Portal
+  versprechen, ueber den Schalter kuerzen. Ein Release baut `npm run release --
+  --version <x.y.z>-dronivo` auf diesem Branch (Variante ist die Vorgabe).
+- **Bestehende Installation der Ausgabe de-vollversion umstellen** (nur falls
+  Dronivo vorher das Hauptprodukt hatte): siehe docs/betrieb-anbieter.md,
+  Abschnitt "Kundenausgabe (Branch dronivo)".
+
 ## Unverhandelbare Prinzipien
 
 Jede Änderung (von Menschen, Claude oder anderen LLMs) wird gegen diese drei
@@ -934,7 +1037,8 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Kopieren; `npm run check:variant -- --variant <id>` prueft alle Bundles
   (Marker vorhanden, keine fremden Marker, Signaturen ausgeschlossener
   Module fehlen). Der Installer heisst
-  `oHRganize-Setup-<version>-<variante>.exe` (`apps/desktop/scripts/dist.mjs`
+  `oHRganize-Setup-<version>-<variante>.exe` (Branch dronivo:
+  `oHRganize-Setup-<land>-<version>.exe`, siehe oben; `apps/desktop/scripts/dist.mjs`
   setzt `OHRGANIZE_VARIANT` fuer electron-builder); `appId` und
   `productName` bleiben gleich, sonst spaltete sich `%APPDATA%\oHRganize`.
 - **Sichtbarkeit in den Clients:** `NAV_SECTIONS` ist die Sicht der
@@ -1334,8 +1438,9 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   ohne passenden Eintrag hält die Datei für unbrauchbar. Ablauf in
   docs/lizenzierung.md, Abschnitt 3.1.
 - **Kanal ist eine Funktion der Version, kein eigenes Feld.** `channelOf`
-  (`packages/shared/src/version.ts`): `1.2.0` ist `stable`, jede Version mit
-  Vorabkennung ist `beta`; `/api/health` meldet `channel`, die Titelleiste
+  (`packages/shared/src/version.ts`): `1.2.0` ist `stable`, eine Version mit
+  Vorabkennung alpha, beta oder rc ist `beta` (Branch dronivo: eine
+  Kundenkennung wie `1.0.0-dronivo` bleibt `stable`); `/api/health` meldet `channel`, die Titelleiste
   zeigt eine Beta als Abzeichen. **Falle:** `compareVersions` ordnet seither
   semver-richtig, also ist `1.1.0-beta.1` AELTER als `1.1.0` und
   `isAtLeast('1.1.0-beta.1', '1.1.0')` falsch. Soll eine Beta derselben
@@ -1353,7 +1458,8 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   `npm run release:server` (`scripts/release-server.mjs`) baut Backend und
   Portal EINER Variante (`--variant`, sonst `OHRGANIZE_VARIANT`, sonst die
   Vorgabe des Registers) und packt
-  `release/ohrganize-server-<variante>-<version>.zip` (Ablage ueber `--out`
+  `release/ohrganize-server-<variante>-<version>.zip` (Branch dronivo:
+  `ohrganize-server-<land>-<version>.zip`, siehe oben; Ablage ueber `--out`
   umlenkbar): nur `cli.cjs`, `backup.cjs` und die Betreiberwerkzeuge, sobald
   der Build sie erzeugt (minifiziert, **ohne** `.map`, die den Quelltext
   wieder lesbar machten), dazu `VARIANTE.txt` und ein unsigniertes `release.json`,

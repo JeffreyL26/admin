@@ -32,6 +32,10 @@ directories:
 # Varianten gleich: Sonst spaltete sich %APPDATA%\oHRganize (config.json,
 # Pin-Speicher, Einzelplatzdaten) je Variante auf, und NSIS aktualisierte
 # nicht mehr in place.
+# Kundenbranch dronivo: Diese Zeile gilt nur fuer einen Aufruf ohne
+# scripts/dist.mjs. dist.mjs ueberschreibt den Namen per -c.artifactName
+# (oHRganize-Setup-de-1.0.0-dronivo.exe, releaseLabel in
+# scripts/dronivo-guard.mjs); geaendert wird er dort.
 artifactName: oHRganize-Setup-${version}-${env.OHRGANIZE_VARIANT}.${ext}
 
 files:

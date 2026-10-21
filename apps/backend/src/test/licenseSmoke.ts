@@ -30,6 +30,8 @@ const { firstAdminLogin, SMOKE_ADMIN_PASSWORD } = await import('./adminSession.j
 const { signLicensePayload } = await import('../core/licenseCodec.js');
 const { invalidateLicenseCaches } = await import('../core/license.js');
 const { addDaysIso, todayIso } = await import('../core/dates.js');
+// Ausgabe des Builds: Eine v2-Lizenz fremder Ausgabe nimmt der Server nicht an.
+const { VARIANT } = await import('@variant-manifest');
 const { LICENSE_STATE_HEADER, LICENSE_FILE_NAME } = await import('@ohrganize/shared');
 type LicensePayload = import('@ohrganize/shared').LicensePayload;
 
@@ -204,29 +206,29 @@ check('Früher ausgestellte Datei wird abgelehnt', olderIssue.statusCode === 400
 // Das Modell "kostenfrei unbefristet" loest die befristete Datei ab: Neuer Ausstelltag reicht.
 const v2Free = await put(makeLicense({
   v: 2, installation_id: installationId, issued_at: today, valid_until: '2999-12-31', max_users: 10,
-  edition: 'vollversion', country: 'DE', terms: { billing: 'kostenfrei', interval: null, label: null },
+  edition: VARIANT.edition, country: VARIANT.country, terms: { billing: 'kostenfrei', interval: null, label: null },
   headline: 'Partnerlizenz Smoke GmbH', features: ['kunde.smoke.export'],
 }));
 check('v2-Datei (kostenfrei unbefristet) wird angenommen', v2Free.statusCode === 200 && v2Free.json().license?.state === 'valid', v2Free.json());
 {
   const l = v2Free.json().license ?? {};
-  check('v2-Felder sichtbar: edition, country, terms, headline, features', l.edition === 'vollversion' && l.country === 'DE' && l.terms?.billing === 'kostenfrei' && l.headline === 'Partnerlizenz Smoke GmbH' && Array.isArray(l.features) && l.features[0] === 'kunde.smoke.export', l);
+  check('v2-Felder sichtbar: edition, country, terms, headline, features', l.edition === VARIANT.edition && l.country === VARIANT.country && l.terms?.billing === 'kostenfrei' && l.headline === 'Partnerlizenz Smoke GmbH' && Array.isArray(l.features) && l.features[0] === 'kunde.smoke.export', l);
   check('v2 unbefristet: perpetual ohne Kulanz', l.perpetual === true && l.grace_until === null, l);
 }
 // Spaeter ausgestellt, aber kuerzer: wird angenommen (Abo loest kostenfrei ab).
 const v2Abo = await put(makeLicense({
   v: 2, installation_id: installationId, issued_at: addDaysIso(today, 1), valid_from: today, valid_until: addDaysIso(today, 365), max_users: 10,
-  edition: 'vollversion', country: 'DE', terms: { billing: 'abo', interval: 'jaehrlich', label: null },
+  edition: VARIANT.edition, country: VARIANT.country, terms: { billing: 'abo', interval: 'jaehrlich', label: null },
 }));
 check('Später ausgestellte, kürzere Lizenz wird angenommen (Monotonie nur über issued_at)', v2Abo.statusCode === 200 && v2Abo.json().license?.perpetual === false && v2Abo.json().license?.features === null, v2Abo.json());
 const v1WithV2Field = await put(signRaw({ v: 1, license_id: 'mix', kid: 'test', customer: 'X', customer_id: 'x', installation_id: installationId, kind: 'standard', issued_at: addDaysIso(today, 1), valid_from: today, valid_until: addDaysIso(today, 400), grace_days: 14, warn_days: 30, max_users: null, notice: null, edition: 'vollversion' }));
 check('v1 mit v2-Feld → 400, Meldung nennt v', v1WithV2Field.statusCode === 400 && /\(v\)/.test(v1WithV2Field.json().error?.message ?? ''), v1WithV2Field.json());
 const v2NoEdition = await put(signRaw({ v: 2, license_id: 'noed', kid: 'test', customer: 'X', customer_id: 'x', installation_id: installationId, kind: 'standard', issued_at: addDaysIso(today, 1), valid_from: today, valid_until: addDaysIso(today, 400), grace_days: 14, warn_days: 30, max_users: null, notice: null, country: 'DE' }));
 check('v2 ohne edition → 400', v2NoEdition.statusCode === 400 && /edition/.test(v2NoEdition.json().error?.message ?? ''), v2NoEdition.json());
-const v2BadFeature = await put(signRaw({ v: 2, license_id: 'badf', kid: 'test', customer: 'X', customer_id: 'x', installation_id: installationId, kind: 'standard', issued_at: addDaysIso(today, 1), valid_from: today, valid_until: addDaysIso(today, 400), grace_days: 14, warn_days: 30, max_users: null, notice: null, edition: 'vollversion', country: 'DE', features: ['Export'] }));
+const v2BadFeature = await put(signRaw({ v: 2, license_id: 'badf', kid: 'test', customer: 'X', customer_id: 'x', installation_id: installationId, kind: 'standard', issued_at: addDaysIso(today, 1), valid_from: today, valid_until: addDaysIso(today, 400), grace_days: 14, warn_days: 30, max_users: null, notice: null, edition: VARIANT.edition, country: VARIANT.country, features: ['Export'] }));
 check('v2 mit ungültigem Feature-Schlüssel → 400', v2BadFeature.statusCode === 400, v2BadFeature.json());
 const auditInstall = getDb().prepare(`SELECT details FROM audit_log WHERE action = 'license.install' ORDER BY id DESC LIMIT 1`).get() as { details: string };
-check('Audit beim Einspielen nennt v, edition, billing', /"v":2/.test(auditInstall.details) && /"edition":"vollversion"/.test(auditInstall.details) && /"billing":"abo"/.test(auditInstall.details), auditInstall);
+check('Audit beim Einspielen nennt v, edition, billing', /"v":2/.test(auditInstall.details) && auditInstall.details.includes(`"edition":"${VARIANT.edition}"`) && /"billing":"abo"/.test(auditInstall.details), auditInstall);
 
 // Dateiwechsel ohne Upload: Audit-Zeile mit user_id NULL.
 const auditBefore = (getDb().prepare(`SELECT COUNT(*) AS n FROM audit_log WHERE action = 'license.file_changed'`).get() as { n: number }).n;

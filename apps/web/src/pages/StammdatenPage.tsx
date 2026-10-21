@@ -1,9 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
-  EMPLOYEE_CHANGE_REQUEST_STATUS_LABELS,
   EMPLOYEE_SELF_EDITABLE_GROUP_LABELS,
   type EmployeeChangeRequest,
-  type EmployeeChangeRequestStatus,
   type EmployeeSelfEditableField,
   type MeProfile,
 } from '@ohrganize/shared';
@@ -15,31 +13,10 @@ import {
   useWithdrawChangeRequest,
 } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
-import { Card, EmptyState, Field, LoadError, Skeleton } from '../components/ui';
+import { Card, ChangeStatusChip, EmptyState, Field, LoadError, Skeleton } from '../components/ui';
 import { useToast } from '../components/Toast';
-import { formatDate } from '../lib/format';
+import { formatLocalDay } from '../lib/format';
 import { apiErrorMessage, PORTAL_READ_ONLY_NOTICE, READ_ONLY_NOTICE_ID } from '../lib/license';
-
-const STATUS_TONES: Record<EmployeeChangeRequestStatus, string> = {
-  beantragt: 'warning',
-  genehmigt: 'success',
-  abgelehnt: 'danger',
-  zurueckgezogen: 'neutral',
-};
-
-/**
- * Eigene Statuspille statt `StatusChip` aus components/ui: Die dortige
- * Komponente ist auf `AbsenceRequestStatus` typisiert und kennt den Zustand
- * „zurueckgezogen" nicht. Maße und Töne kommen aus denselben pt-chip-Klassen,
- * die Anzeige bleibt damit identisch.
- */
-function ChangeStatusChip({ status }: { status: EmployeeChangeRequestStatus }) {
-  return (
-    <span className={`pt-chip pt-chip--${STATUS_TONES[status] ?? 'neutral'}`}>
-      {EMPLOYEE_CHANGE_REQUEST_STATUS_LABELS[status] ?? status}
-    </span>
-  );
-}
 
 /** HTML-Eingabetyp je Feldart. `zip` bleibt Text — `number` erlaubt Vorzeichen
  *  und Exponenten und verliert führende Nullen. */
@@ -231,7 +208,7 @@ export function StammdatenPage() {
             <div className="pt-alert pt-alert--info" style={{ marginBottom: 18 }}>
               <div className="row row--between" style={{ gap: 12, alignItems: 'flex-start' }}>
                 <span>
-                  Ihr Antrag vom {formatDate(openRequest.created_at.slice(0, 10))} wird noch geprüft.
+                  Ihr Antrag vom {formatLocalDay(openRequest.created_at)} wird noch geprüft.
                   Solange er offen ist, ist dieses Formular gesperrt.
                   {/* Im Nur-Lese-Betrieb wäre die Aufforderung zum Zurückziehen leer —
                       der Knopf daneben ist gesperrt, der Grund steht in der Shell. */}
@@ -364,7 +341,7 @@ export function StammdatenPage() {
                   {(requests ?? []).map((r) => (
                     <tr key={r.id}>
                       <td style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
-                        {formatDate(r.created_at.slice(0, 10))}
+                        {formatLocalDay(r.created_at)}
                       </td>
                       <td>
                         <div className="stack" style={{ gap: 4 }}>
@@ -408,7 +385,7 @@ export function StammdatenPage() {
                         {r.decided_at ? (
                           <>
                             <span style={{ whiteSpace: 'nowrap' }}>
-                              {formatDate(r.decided_at.slice(0, 10))}
+                              {formatLocalDay(r.decided_at)}
                             </span>
                             {r.decision_note && (
                               <span

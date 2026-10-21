@@ -318,6 +318,43 @@ async function main(): Promise<void> {
   const nachLeerem = db.prepare("SELECT version FROM instanzen WHERE id = 'musterfirma'").get() as { version: string | null };
   check('Leere Health-Felder ueberschreiben die Version nicht', nachLeerem.version === '1.9.0', nachLeerem.version);
 
+  // --- Release-Linien (Kundenbranch dronivo) ----------------------------------
+  // Eine Kundenkennung ist eine eigene Linie derselben Variante, beide stable:
+  // Ein Release der einen ist nie Update der anderen (customerTagOf), und ein
+  // Rollout ueber Liniengrenzen geht nur ausdruecklich (pruefeReleaseLinie).
+  insertRelease.run('de-vollversion-1.12.0-dronivo', '1.12.0-dronivo', 'stable', 'de-vollversion');
+  insertRelease.run('de-vollversion-1.12.1-dronivo', '1.12.1-dronivo', 'stable', 'de-vollversion');
+  insertRelease.run('de-vollversion-1.13.0', '1.13.0', 'stable', 'de-vollversion');
+  setVersion('1.11.0', 'stable');
+  const hauptHinweis = versionHint('musterfirma');
+  check('Hauptprodukt bekommt nur Releases der eigenen Linie angeboten', hauptHinweis?.includes('stable-Release ist 1.13.0') === true, hauptHinweis);
+  setVersion('1.12.0-dronivo', 'stable');
+  const kundenHinweis = versionHint('musterfirma');
+  check('Kundenausgabe wird nur mit ihrer Linie verglichen', kundenHinweis?.includes('stable-Release ist 1.12.1-dronivo') === true, kundenHinweis);
+  setVersion('1.12.1-dronivo', 'stable');
+  check('Neueres Hauptprodukt ist kein Update der Kundenausgabe', versionHint('musterfirma') === undefined, versionHint('musterfirma'));
+
+  const { pruefeReleaseLinie } = await import('../commands/rollout.js');
+  const { releaseMuss } = await import('../commands/release.js');
+  const linienFehler = (releaseId: string, argv: string[]): string | null => {
+    try {
+      pruefeReleaseLinie(releaseMuss(releaseId), parseArgs(argv));
+      return null;
+    } catch (err) {
+      return err instanceof ConspectusError ? err.message : String(err);
+    }
+  };
+  const ohneKunde = linienFehler('de-vollversion-1.12.1-dronivo', []);
+  check('Rollout einer Kundenausgabe ohne --kunde abgelehnt', ohneKunde?.includes('--kunde <instanz>') === true, ohneKunde);
+  const hostMitKunde = linienFehler('de-vollversion-1.13.0', []);
+  check('Hauptprodukt auf Hosts mit Kundenausgabe nur je Instanz', hostMitKunde?.includes('musterfirma 1.12.1-dronivo') === true, hostMitKunde);
+  const fremdeLinie = linienFehler('de-vollversion-1.13.0', ['--kunde', 'musterfirma']);
+  check('Hauptprodukt auf die Kundeninstanz abgelehnt', fremdeLinie?.includes('--linie-wechseln') === true, fremdeLinie);
+  check('Eigene Linie auf die Kundeninstanz erlaubt', linienFehler('de-vollversion-1.12.1-dronivo', ['--kunde', 'musterfirma']) === null);
+  check('Linienwechsel mit --linie-wechseln erlaubt', linienFehler('de-vollversion-1.13.0', ['--kunde', 'musterfirma', '--linie-wechseln']) === null);
+  setVersion('1.9.0', '');
+  check('Hauptprodukt ohne Kundenausgabe auf dem Host erlaubt', linienFehler('de-vollversion-1.13.0', []) === null, linienFehler('de-vollversion-1.13.0', []));
+
   // --- Ausgestellte und laufende Lizenz -------------------------------------
   const { currentLicense, instanceLicenses } = await import('../licenses.js');
   const heute = todayIsoLocal();

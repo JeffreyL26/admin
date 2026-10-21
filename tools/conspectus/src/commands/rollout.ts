@@ -13,17 +13,60 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { customerTagOf } from '@ohrganize/shared';
 import type { Args } from '../args.js';
 import { ConspectusError, openRegister } from '../db.js';
 import { copyToRemote, runRemote, type HostTarget } from '../ssh.js';
 import { hostMuss, type HostRow } from './host.js';
-import { releaseMuss } from './release.js';
+import { releaseMuss, type ReleaseRow } from './release.js';
 import type { InstanzRow } from './instanz.js';
 
 interface ManifestArtifact {
   file: string;
   sha256: string;
   bytes: number;
+}
+
+/**
+ * Kundenbranch dronivo: Eine Kundenkennung (`1.0.0-dronivo`) ist eine eigene
+ * Release-Linie derselben Variante. ohrganize-update.sh ohne --kunde stellt
+ * jede Instanz der Variante auf dem Host um; ein Release der falschen Linie
+ * naehme einer Kundenausgabe ihre Anpassung oder gaebe sie allen anderen.
+ * Deshalb geht ein Release einer Kundenlinie nur je Instanz hinaus, und eine
+ * Instanz wechselt ihre Linie nur ausdruecklich (--linie-wechseln).
+ */
+export function pruefeReleaseLinie(release: ReleaseRow, args: Args): void {
+  if (args.flags.has('linie-wechseln')) return;
+  const { db } = openRegister();
+  const linie = customerTagOf(release.version);
+  const name = (l: string | null): string => (l === null ? 'Hauptprodukt' : `Kundenausgabe ${l}`);
+  if (args.values.kunde) {
+    const instanz = db.prepare('SELECT version FROM instanzen WHERE id = ?').get(args.values.kunde) as
+      | { version: string | null }
+      | undefined;
+    if (instanz?.version && customerTagOf(instanz.version) !== linie) {
+      throw new ConspectusError(
+        `Instanz "${args.values.kunde}" laeuft auf ${instanz.version} (${name(customerTagOf(instanz.version))}), ` +
+          `${release.id} gehoert zu ${name(linie)}. Einen Wechsel der Linie nur bewusst: --linie-wechseln`,
+      );
+    }
+    return;
+  }
+  if (linie !== null) {
+    throw new ConspectusError(`${release.id} ist eine Kundenausgabe (${linie}) und geht nur je Instanz hinaus: --kunde <instanz>`);
+  }
+  const instanzen = (
+    args.values.host
+      ? db.prepare('SELECT id, version FROM instanzen WHERE variante = ? AND host_id = ?').all(release.variante, args.values.host)
+      : db.prepare('SELECT id, version FROM instanzen WHERE variante = ? AND host_id IS NOT NULL').all(release.variante)
+  ) as { id: string; version: string | null }[];
+  const kunden = instanzen.filter((i) => i.version !== null && customerTagOf(i.version) !== null);
+  if (kunden.length > 0) {
+    throw new ConspectusError(
+      `Auf den Ziel-Hosts laufen Kundenausgaben (${kunden.map((i) => `${i.id} ${i.version}`).join(', ')}); ` +
+        'ohrganize-update.sh ohne --kunde stellte sie mit um. Die Instanzen einzeln ausrollen: --kunde <instanz>',
+    );
+  }
 }
 
 /** Das Server-Archiv aus den Artefakten des Manifests. */
@@ -77,10 +120,11 @@ export function rolloutCommand(sub: string, args: Args): void {
   const releaseId = args.values.release ?? args.positional[0];
   if (!releaseId) {
     throw new ConspectusError(
-      'Aufruf: conspectus rollout starten --release <variante-version> [--host <host> | --kunde <instanz>] [--probelauf]',
+      'Aufruf: conspectus rollout starten --release <variante-version> [--host <host> | --kunde <instanz>] [--probelauf] [--linie-wechseln]',
     );
   }
   const release = releaseMuss(releaseId);
+  pruefeReleaseLinie(release, args);
   if (!release.manifest) throw new ConspectusError(`Zu ${release.id} ist kein Manifest im Register.`);
   if (!release.signatur_geprueft && !args.flags.has('ohne-signatur')) {
     throw new ConspectusError(

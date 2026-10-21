@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { hasFeature, moduleEnabled, nameInitials, pathAllowedByFeatures, type ModuleKey } from '@ohrganize/shared';
+import { hasFeature, moduleEnabled, nameInitials, pathAllowedByFeatures, portalPathOpen, type ModuleKey } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { useAuth } from '../auth/AuthContext';
 import { ReadOnlyNotice } from '../components/ReadOnlyNotice';
@@ -46,6 +46,8 @@ function navItemAllowed(
   access: { calendar: boolean },
 ): boolean {
   if (!moduleEnabled(VARIANT, item.module)) return false;
+  // Kundenausgabe dronivo (PORTAL_ABSENCE_CAPTURE): Antraege und Krankmeldung gibt es im Portal nicht.
+  if (!portalPathOpen(item.to)) return false;
   if (item.feature && !hasFeature(features, item.feature)) return false;
   if (item.requires && !access[item.requires]) return false;
   return pathAllowedByFeatures(item.to, features, undefined, 'portalPaths');

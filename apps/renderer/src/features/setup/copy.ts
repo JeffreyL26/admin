@@ -8,6 +8,7 @@
  * werden. Keine en- oder em-Dashes in Texten (scripts/check-dashes.mjs).
  */
 
+import { PORTAL_ABSENCE_CAPTURE } from '@ohrganize/shared';
 import { fillPlaceholders } from '../../lib/localStore';
 
 export const COPY = {
@@ -148,8 +149,11 @@ export const COPY = {
   // ---- Schritt 7: Portal-Zugang ---------------------------------------------
   'step7.label': 'Portal-Zugang',
   'step7.title': 'Geben Sie Personen Zugang zum Portal',
-  'step7.why':
-    'Mit einem Portal-Konto beantragt die Person Urlaub über das Portal selber. Der Zugang ist auf eigene Daten beschränkt.',
+  // Kundenausgabe dronivo (packages/shared/src/dronivo.ts): Im Portal wird
+  // kein Urlaub beantragt; die Texte verlieren nur diesen Teil.
+  'step7.why': PORTAL_ABSENCE_CAPTURE
+    ? 'Mit einem Portal-Konto beantragt die Person Urlaub über das Portal selber. Der Zugang ist auf eigene Daten beschränkt.'
+    : 'Der Zugang ist auf eigene Daten beschränkt.',
   'step7.person': 'Person',
   'step7.person.hasAccess':
     'Portal-Zugang wurde bei der Kontoerstellung automatisch diesem Konto zugewiesen. Zugangsdaten sind dieselben.',
@@ -160,8 +164,12 @@ export const COPY = {
   'step7.where': 'Verwaltung → Benutzer & Rechte',
   'step7.milestone': 'Offen',
   'step7.win': 'Das Portal ist offen.',
-  'step7.result': '{name} kann sich anmelden und Urlaub selbst beantragen.',
-  'step7.result.many': '{names} können sich anmelden und Urlaub selbst beantragen.',
+  'step7.result': PORTAL_ABSENCE_CAPTURE
+    ? '{name} kann sich anmelden und Urlaub selbst beantragen.'
+    : '{name} kann sich anmelden.',
+  'step7.result.many': PORTAL_ABSENCE_CAPTURE
+    ? '{names} können sich anmelden und Urlaub selbst beantragen.'
+    : '{names} können sich anmelden.',
   'step7.unlock': 'Self-Service für Ihre Mitarbeitenden.',
 
   // ---- Erfolgsmoment (gemeinsame Teile) -------------------------------------
@@ -210,8 +218,9 @@ export const COPY = {
     'Der Name ist nur die Anzeige des Kontos, etwa in der Auflistung aller Konten und im Änderungsprotokoll. Der Login ist die E-Mail-Adresse.',
   'account.hint.profile.1':
     'Ein Admin-Konto kann auch ohne Personalprofil angelegt werden. Es existiert dann rein für administrative Zwecke. Soll eine Person gleichzeitig diese Rechte haben, ohne ständig zwischen den Konten wechseln zu müssen, ordnen Sie dem Admin-Konto ein Profil zu. Ein Anwendungsfall wären Personen in der Personalabteilung.',
-  'account.hint.profile.2':
-    'Mit zugewiesenem Personalprofil kann sich dasselbe Konto nämlich regulär im Portal anmelden, mit denselben Zugangsdaten. Es kann eigene Abwesenheiten und Änderungen beantragen. Dann gilt auch das Vier-Augen-Prinzip: Dieses Konto darf seine eigenen Anträge nicht genehmigen.',
+  'account.hint.profile.2': PORTAL_ABSENCE_CAPTURE
+    ? 'Mit zugewiesenem Personalprofil kann sich dasselbe Konto nämlich regulär im Portal anmelden, mit denselben Zugangsdaten. Es kann eigene Abwesenheiten und Änderungen beantragen. Dann gilt auch das Vier-Augen-Prinzip: Dieses Konto darf seine eigenen Anträge nicht genehmigen.'
+    : 'Mit zugewiesenem Personalprofil kann sich dasselbe Konto nämlich regulär im Portal anmelden, mit denselben Zugangsdaten. Es kann eigene Änderungen beantragen. Dann gilt auch das Vier-Augen-Prinzip: Dieses Konto darf seine eigenen Anträge nicht genehmigen.',
 
   // ---- Fehler und Sonderfaelle ----------------------------------------------
   'error.save': 'Das hat nicht geklappt: {reason}. Bitte versuchen Sie es erneut.',

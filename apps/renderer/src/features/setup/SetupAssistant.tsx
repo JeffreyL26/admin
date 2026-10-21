@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Lock } from 'lucide-react';
-import { SETUP_STEPS, nextOpenAfter, type SetupStepKey } from '@ohrganize/shared';
+import { PORTAL_ABSENCE_CAPTURE, SETUP_STEPS, nextOpenAfter, type SetupStepKey } from '@ohrganize/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { NAV_SECTIONS, navItemAllowedByFeatures } from '../../layout/nav';
 import { t } from './copy';
@@ -328,7 +328,8 @@ function Done() {
               </Link>
             ))}
           </div>
-          {all && (
+          {/* Kundenausgabe dronivo: Im Portal wird kein Urlaub beantragt, der Probeantrag entfällt. */}
+          {all && PORTAL_ABSENCE_CAPTURE && (
             <div className="hm-setup__trial">
               <span className="hm-setup__trial-label">{t('trial.label')}</span>
               <div>

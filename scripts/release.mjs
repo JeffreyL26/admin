@@ -45,6 +45,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  branchCheckProblem, channelOf as channelOfVersion, customerVariantProblem, customerVersionProblem, releaseLabel,
+} from './dronivo-guard.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -67,17 +70,19 @@ function step(title) {
 // ---------------------------------------------------------------------------
 // Version und Kanal
 // ---------------------------------------------------------------------------
-const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
-
+// Kanalregel aus scripts/dronivo-guard.mjs (eine Kundenkennung wie 1.0.0-dronivo bleibt stable).
 function channelOf(version) {
-  const m = SEMVER.exec(version);
-  if (!m) fail(`Version "${version}" ist keine Semver-Nummer (1.2.3 oder 1.2.3-beta.1).`);
-  return m[4] ? 'beta' : 'stable';
+  const channel = channelOfVersion(version);
+  if (!channel) fail(`Version "${version}" ist keine Semver-Nummer (1.2.3 oder 1.2.3-beta.1).`);
+  return channel;
 }
 
 const rootPkg = readJson(path.join(root, 'package.json'));
 const version = (argValue('--version') ?? rootPkg.version).trim();
 const channel = channelOf(version);
+// Kundenbranch dronivo: nur Versionen mit Kundenkennung (scripts/dronivo-guard.mjs).
+const customerProblem = customerVersionProblem(root, version);
+if (customerProblem) fail(customerProblem);
 const bumpVersion = version !== rootPkg.version;
 
 const registry = readJson(path.join(root, 'packages/shared/src/variants/registry.json'));
@@ -90,7 +95,14 @@ for (const id of variantIds) {
   if (!registry.variants.some((v) => v.id === id)) {
     fail(`Unbekannte Variante "${id}". Bekannt: ${registry.variants.map((v) => v.id).join(', ')}.`);
   }
+  // Kundenbranch dronivo: nur die eigene Ausgabe (scripts/dronivo-guard.mjs).
+  const variantProblem = customerVariantProblem(root, id);
+  if (variantProblem) fail(variantProblem);
 }
+// Kundenbranch dronivo: Regeln des Branches gegen die Zielversion, vor jedem
+// Schritt mit Wirkung (npm test ist fuer ein Release keine Pflicht).
+const branchProblem = branchCheckProblem(root, version);
+if (branchProblem) fail(branchProblem);
 const withDesktop = !argv.includes('--no-desktop');
 const doCommit = !argv.includes('--no-commit');
 const doTag = !argv.includes('--no-tag');
@@ -238,13 +250,14 @@ for (const variantId of variantIds) {
   node('scripts/release-server.mjs', ['--variant', variantId, '--out', outDir, '--no-build'], env);
 
   const artifacts = [];
-  const archive = path.join(outDir, `ohrganize-server-${variantId}-${version}.zip`);
+  // Kundenbranch dronivo: Dateinamen mit dem Kennzeichen de-1.0.0-dronivo (releaseLabel).
+  const archive = path.join(outDir, `ohrganize-server-${releaseLabel(root, version)}.zip`);
   if (!fs.existsSync(archive)) fail(`Server-Archiv fehlt: ${archive}`);
   artifacts.push(archive);
 
   if (withDesktop) {
     npm(['run', 'dist:win', '-w', 'apps/desktop'], env);
-    const installer = path.join(root, 'apps/desktop/release', `oHRganize-Setup-${version}-${variantId}.exe`);
+    const installer = path.join(root, 'apps/desktop/release', `oHRganize-Setup-${releaseLabel(root, version)}.exe`);
     if (!fs.existsSync(installer)) fail(`Installer fehlt: ${installer}`);
     const target = path.join(outDir, path.basename(installer));
     fs.copyFileSync(installer, target);

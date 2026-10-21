@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { compareVersions } from '@ohrganize/shared';
+import { channelOf, compareVersions, customerTagOf } from '@ohrganize/shared';
 import type { Args } from '../args.js';
 import { ConspectusError, openRegister } from '../db.js';
 
@@ -105,7 +105,7 @@ export function releaseCommand(sub: string, args: Args): void {
       ).run(
         id,
         m.version,
-        m.channel ?? (m.version.includes('-') ? 'beta' : 'stable'),
+        m.channel ?? channelOf(m.version),
         variante,
         m.commit ?? null,
         m.built_at ?? null,
@@ -156,12 +156,19 @@ export function releaseMuss(id: string): ReleaseRow {
   return row;
 }
 
-/** Jüngstes stabiles Release einer Variante, mit `mitBeta` das jüngste überhaupt. */
-export function neuestesRelease(variante: string, mitBeta: boolean): ReleaseRow | null {
+/**
+ * Jüngstes stabiles Release einer Variante, mit `mitBeta` das jüngste überhaupt,
+ * jeweils nur aus der Release-Linie `linie` (Kundenkennung wie `dronivo`, null =
+ * Hauptprodukt; `customerTagOf` in packages/shared/src/version.ts). Beide Linien
+ * tragen dieselbe Variante und sind stable, eine ist nie Update der anderen.
+ */
+export function neuestesRelease(variante: string, mitBeta: boolean, linie: string | null = null): ReleaseRow | null {
   const { db } = openRegister();
-  const rows = db
-    .prepare(`SELECT * FROM releases WHERE variante = ?${mitBeta ? '' : " AND kanal = 'stable'"}`)
-    .all(variante) as ReleaseRow[];
+  const rows = (
+    db
+      .prepare(`SELECT * FROM releases WHERE variante = ?${mitBeta ? '' : " AND kanal = 'stable'"}`)
+      .all(variante) as ReleaseRow[]
+  ).filter((r) => customerTagOf(r.version) === linie);
   // Nicht in SQL sortieren: Als Text laege 1.9.0 hinter 1.10.0.
   rows.sort((a, b) => compareVersions(a.version, b.version));
   return rows.length > 0 ? rows[rows.length - 1] : null;

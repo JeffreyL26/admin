@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Release-Archiv fuer den Serverbetrieb:
- * release/ohrganize-server-<variante>-<version>.zip
+ * release/ohrganize-server-<land>-<version>.zip (Branch dronivo, releaseLabel)
  *
  * Aufruf: npm run release:server [-- --variant <id>] [--out <verz>] [--no-build]
  *
@@ -45,6 +45,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import zlib from 'node:zlib';
+import {
+  branchCheckProblem, channelOf as channelOfVersion, customerVariantProblem, customerVersionProblem, releaseLabel,
+} from './dronivo-guard.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -71,6 +74,10 @@ const variant = registry.variants.find((v) => v.id === variantId);
 if (!variant) {
   fail(`Unbekannte Variante "${variantId}". Bekannt: ${registry.variants.map((v) => v.id).join(', ')}.`);
 }
+// Kundenbranch dronivo: nur die eigene Ausgabe, auch wenn OHRGANIZE_VARIANT
+// aus anderer Arbeit noch gesetzt ist (scripts/dronivo-guard.mjs).
+const customerVariant = customerVariantProblem(root, variantId);
+if (customerVariant) fail(customerVariant);
 // Alle Bauschritte sehen dieselbe Variante, auch wenn sie ueber --variant kam.
 process.env.OHRGANIZE_VARIANT = variantId;
 
@@ -106,6 +113,17 @@ function readJson(file) {
 const backendPkg = readJson(path.join(root, 'apps/backend/package.json'));
 const version = backendPkg.version;
 if (!version) fail('apps/backend/package.json hat keine version.');
+// Kundenbranch dronivo: kein Archiv ohne Kundenkennung (scripts/dronivo-guard.mjs).
+const customerProblem = customerVersionProblem(root, version);
+if (customerProblem) fail(customerProblem);
+const branchProblem = branchCheckProblem(root);
+if (branchProblem) fail(branchProblem);
+// Der Archivname traegt Land und Kennung (ohrganize-server-de-1.0.0-dronivo):
+// Zwei Ausgaben derselben Version duerfen sich im Downloadverzeichnis nicht
+// ueberschreiben, und wer eine Datei in der Hand hat, sieht am Namen, wohin sie
+// gehoert. Variante plus Version wie auf main naennte die Kennung doppelt
+// (releaseLabel in scripts/dronivo-guard.mjs).
+const baseName = `ohrganize-server-${releaseLabel(root, version)}`;
 
 if (!skipBuild) {
   runNpm(['run', 'build', '-w', 'apps/backend']);
@@ -259,11 +277,11 @@ function minVersions() {
 }
 const MIN_VERSIONS = minVersions();
 
-/** Kanal ist eine Funktion der Version, wie channelOf in shared/version.ts. */
+/** Kanal ist eine Funktion der Version; Regel aus scripts/dronivo-guard.mjs (Kundenkennung bleibt stable). */
 function channelOf(v) {
-  const m = /^\d+\.\d+\.\d+(?:-([0-9A-Za-z.-]+))?$/.exec(v.trim());
-  if (!m) fail(`Version "${v}" ist keine Semver-Nummer.`);
-  return m[1] ? 'beta' : 'stable';
+  const channel = channelOfVersion(v);
+  if (!channel) fail(`Version "${v}" ist keine Semver-Nummer.`);
+  return channel;
 }
 const channel = channelOf(version);
 const releaseInfo = {
@@ -328,6 +346,25 @@ for (const bundle of [inputs.cli, inputs.backup, ...inputs.tools]) {
     fail(`${path.relative(root, bundle)} traegt nicht den Marker der Variante ${variantId}. Bundle neu bauen.`);
   }
 }
+// Das Portal ebenso: apps/web/dist ueberlebt einen Branchwechsel, und
+// `npm run build` baut es nicht mit. Ein Portal anderer Ausgabe gaebe ihre
+// Seiten frei, ohne dass Server oder Update-Skripte es merkten.
+{
+  const assetsDir = path.join(inputs.webDist, 'assets');
+  const webText = (fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir) : [])
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => fs.readFileSync(path.join(assetsDir, f), 'utf8'))
+    .join('\n');
+  const foreign = [...new Set([...webText.matchAll(/OHRGANIZE_VARIANT:([a-z0-9-]+)/g)].map((m) => m[1]))].filter(
+    (id) => id !== variantId,
+  );
+  if (!webText.includes(marker) || foreign.length > 0) {
+    fail(
+      `apps/web/dist gehoert nicht (nur) zur Variante ${variantId}${foreign.length ? ` (gefunden: ${foreign.join(', ')})` : ''}. ` +
+        'Portal neu bauen: npm run build:web',
+    );
+  }
+}
 
 addFile('apps/backend/dist/cli.cjs', inputs.cli);
 addFile('apps/backend/dist/backup.cjs', inputs.backup);
@@ -360,7 +397,7 @@ eine laufende Instanz entpackt, startet der Dienst nicht (das Backend prueft
 OHRGANIZE_VARIANT gegen die einkompilierte Variante) oder die Arbeitsplaetze
 brechen beim Start ab. Vor dem Entpacken:
 
-  Linux:    unzip -p ohrganize-server-${variantId}-${version}.zip VARIANTE.txt
+  Linux:    unzip -p ${baseName}.zip VARIANTE.txt
   Windows:  (Get-Content .\\VARIANTE.txt) nach dem Entpacken in ein leeres Verzeichnis
 
 Der Wert muss zu OHRGANIZE_VARIANT der Instanz passen (env-Datei bzw.
@@ -369,8 +406,8 @@ variant.id meldet.
 
 SCHRITT 2 - Pruefsumme
 ----------------------
-  Linux:    sha256sum -c ohrganize-server-${variantId}-${version}.zip.sha256
-  Windows:  Get-FileHash .\\ohrganize-server-${variantId}-${version}.zip -Algorithm SHA256
+  Linux:    sha256sum -c ${baseName}.zip.sha256
+  Windows:  Get-FileHash .\\${baseName}.zip -Algorithm SHA256
 
 Liegt neben dem Archiv ein release.json samt release.json.sig, laesst sich die
 Signatur des Anbieters pruefen (Details in deploy/README.md, Abschnitt 9.6):
@@ -383,8 +420,8 @@ SCHRITT 3 - Entpacken
 Dieses Archiv wird OHNE Zwischenverzeichnis direkt in das Programmverzeichnis
 entpackt (Linux: /opt/ohrganize, Windows: C:\\Program Files\\oHRganize):
 
-  Linux:    unzip -o ohrganize-server-${variantId}-${version}.zip -d /opt/ohrganize
-  Windows:  Expand-Archive ohrganize-server-${variantId}-${version}.zip -DestinationPath 'C:\\Program Files\\oHRganize' -Force
+  Linux:    unzip -o ${baseName}.zip -d /opt/ohrganize
+  Windows:  Expand-Archive ${baseName}.zip -DestinationPath 'C:\\Program Files\\oHRganize' -Force
 
 Inhalt:
 
@@ -522,10 +559,6 @@ if (entries.length > 0xffff || offset + cdBuf.length > 0xffffffff) fail('Archiv 
 const zip = Buffer.concat([...parts, cdBuf, eocd]);
 const outDir = path.resolve(root, argValue('--out') ?? 'release');
 fs.mkdirSync(outDir, { recursive: true });
-// Der Archivname traegt Land und Edition: Zwei Ausgaben derselben Version
-// duerfen sich im Downloadverzeichnis nicht ueberschreiben, und wer eine
-// Datei in der Hand hat, sieht am Namen, wohin sie gehoert.
-const baseName = `ohrganize-server-${variantId}-${version}`;
 const outFile = path.join(outDir, `${baseName}.zip`);
 fs.writeFileSync(outFile, zip);
 const sha256 = crypto.createHash('sha256').update(zip).digest('hex');

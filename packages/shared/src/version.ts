@@ -30,13 +30,17 @@ export const SERVER_VERSION_HEADER = 'x-ohrganize-server-version';
  * bis jemand vor Ort war. Additive Änderungen (neues Feld, neue Route) sind
  * kein Grund.
  */
-export const MIN_CLIENT_VERSION = '1.0.0';
+// Kundenbranch dronivo: Die Ausgabe heisst 1.0.0-dronivo und ist nach Semver
+// AELTER als 1.0.0 (siehe Falle unten). Mit '1.0.0' als Mindestversion
+// sperrten sich App und Server der Ausgabe gegenseitig aus, auch im
+// Einzelplatzbetrieb.
+export const MIN_CLIENT_VERSION = '1.0.0-dronivo';
 
 /**
  * Ältester Server, mit dem die App arbeitet. Gegenstück zu
  * MIN_CLIENT_VERSION für den Fall, dass die App dem Server vorausgeeilt ist.
  */
-export const MIN_SERVER_VERSION = '1.0.0';
+export const MIN_SERVER_VERSION = '1.0.0-dronivo';
 
 /**
  * FALLE waehrend einer Beta: Seit die Ordnung Vorabkennungen kennt, ist
@@ -65,9 +69,31 @@ export const CHANNEL_LABELS: Record<Channel, string> = {
   beta: 'Beta',
 };
 
-/** Jede Version mit Vorabkennung gilt als beta, gleich wie die Kennung heisst. */
+/**
+ * Vorabkennungen eines Testkanals: `alpha`, `beta` und `rc`, jeweils mit oder
+ * ohne Zaehler (`beta.1`). Eine andere Kennung ist eine Kundenausgabe
+ * (`1.0.0-dronivo`) und bleibt stable. Das JavaScript-Gegenstueck fuer alle
+ * Skripte steht EINMAL in scripts/dronivo-guard.mjs; wer die Regel aendert,
+ * aendert sie dort mit, sonst widersprechen sich release.json und
+ * /api/health.
+ */
+const CHANNEL_PRE_PATTERN = /^(?:alpha|beta|rc)(?:[.\d-]|$)/i;
+
+/** Testkanal-Kennung (beta) gegen Kundenkennung (stable); siehe CHANNEL_PRE_PATTERN. */
 export function channelOf(version: string): Channel {
-  return parseVersion(version)?.pre ? 'beta' : 'stable';
+  const pre = parseVersion(version)?.pre;
+  return pre && CHANNEL_PRE_PATTERN.test(pre) ? 'beta' : 'stable';
+}
+
+/**
+ * Release-Linie einer Version: die Kundenkennung (`1.0.0-dronivo` → `dronivo`)
+ * oder null fuer das Hauptprodukt (`1.0.0`, `1.1.0-beta.1`). Beide Linien
+ * tragen dieselbe Variante und sind stable; ein Release der einen ist nie ein
+ * Update fuer die andere (conspectus check und rollout fragen hier nach).
+ */
+export function customerTagOf(version: string): string | null {
+  const pre = parseVersion(version)?.pre;
+  return pre && !CHANNEL_PRE_PATTERN.test(pre) ? (pre.split('.')[0] ?? pre).toLowerCase() : null;
 }
 
 export function isChannel(value: unknown): value is Channel {
@@ -122,8 +148,18 @@ function comparePre(a: string, b: string): number {
   return 0;
 }
 
-/** Anzeigeform: `1.0.0-beta.1` → „BETA 1.0.0", `1.0.1` → „Version 1.0.1". Maschinenlesbar bleibt Semver. */
-export function formatVersion(version: string): string {
+/**
+ * Anzeigeform: `1.0.0-beta.1` → „BETA 1.0.0", `1.0.1` → „Version 1.0.1".
+ * Eine Kundenausgabe nennt ihre Kennung hinten und, mit `country`, das Land
+ * vorn: `1.0.0-dronivo` mit `DE` → „Version de-1.0.0-dronivo". Maschinenlesbar
+ * bleibt Semver.
+ */
+export function formatVersion(version: string, country?: string): string {
+  const parsed = parseVersion(version);
+  if (parsed?.pre && !CHANNEL_PRE_PATTERN.test(parsed.pre)) {
+    const prefix = country ? `${country.toLowerCase()}-` : '';
+    return `Version ${prefix}${parsed.core.join('.')}-${parsed.pre}`;
+  }
   const match = /^(\d+\.\d+\.\d+)(?:-([a-zA-Z]+)[.\d-]*)?/.exec(version.trim());
   if (!match) return version;
   const [, core, tag] = match;

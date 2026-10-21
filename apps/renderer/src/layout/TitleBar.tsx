@@ -171,7 +171,7 @@ function AboutDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
           </div>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <span className="hm-badge hm-badge--blue">{formatVersion(version)}</span>
+          <span className="hm-badge hm-badge--blue">{formatVersion(version, VARIANT.country)}</span>
           {channelOf(version) === 'beta' && (
             <span className="hm-badge hm-badge--yellow">{CHANNEL_LABELS.beta}</span>
           )}

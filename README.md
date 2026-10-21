@@ -55,7 +55,7 @@ Satisfaction-Report.
 ## Windows-Installer bauen
 
 ```bash
-npm run dist:win       # → apps/desktop/release/oHRganize-Setup-<version>-<variante>.exe
+npm run dist:win       # → apps/desktop/release/oHRganize-Setup-de-<version>.exe (Branch dronivo)
 ```
 
 ## Struktur

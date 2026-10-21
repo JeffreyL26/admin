@@ -6,6 +6,18 @@ ihre Stammdaten und ihren Urlaubssaldo und beantragen Korrekturen an ihren
 Stammdaten. Die HR-Administration arbeitet weiterhin
 ausschließlich in der Desktop-App und entscheidet dort über die Anträge.
 
+**Branch dronivo (Kundenausgabe 1.0.0-dronivo, Ausgabe de-dronivo):** Mitarbeitende erfassen im
+Portal keine Abwesenheiten. Die Seiten Anträge, Neuer Antrag und
+Krankmeldung fehlen, die drei schreibenden Routen (`POST /api/me/leave-requests`,
+`POST /api/me/leave-requests/:id/cancel`, `POST /api/me/sick-notes`)
+antworten 403 (offen bleiben nur die geprueften schreibenden Routen in
+`PORTAL_OPEN_WRITES`), die Übersicht zeigt statt des Urlaubskontos die Kachel
+"Stammdaten ändern". Abwesenheiten und Krankmeldungen erfasst die HR in der
+Desktop-App; der Kalender und die Karten "Nächste Abwesenheit" und "Zuletzt
+entschieden" zeigen sie. Schalter: `PORTAL_ABSENCE_CAPTURE` in
+`packages/shared/src/dronivo.ts`. Bei der Abnahme (docs/inbetriebnahme.md)
+gilt als Antrag des Portal-Kontos ein Stammdaten-Änderungsantrag.
+
 ## Rollen- und Kontenmodell
 
 - `users` hat seit Migration `001_users_employee_link` eine Spalte

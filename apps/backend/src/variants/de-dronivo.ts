@@ -1,6 +1,6 @@
 // GENERIERT aus packages/shared/src/variants/registry.json durch scripts/variant-wiring.mjs.
 // Nicht von Hand aendern. Nach einer Aenderung am Register: npm run variants:gen
-// Variante: de-vollversion
+// Variante: de-dronivo
 import type { FastifyPluginAsync } from 'fastify';
 import { employeesModule } from '../modules/employees/routes.js';
 import { absencesModule } from '../modules/absences/routes.js';
@@ -16,7 +16,7 @@ import { meCommunicationRoutes } from '../modules/me/communicationRoutes.js';
 import { mePerformanceRoutes } from '../modules/me/performanceRoutes.js';
 import { leaderMeetingRoutes } from '../modules/leadership/meetingRoutes.js';
 
-export * from './de-vollversion.manifest.js';
+export * from './de-dronivo.manifest.js';
 
 /** Plugins dieser Variante in Registrierungsreihenfolge (modules/index.ts). */
 export const backendModules: FastifyPluginAsync[] = [

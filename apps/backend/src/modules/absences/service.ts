@@ -7,7 +7,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { eachDay, isWeekend, todayIso } from '../../core/dates.js';
 import { isHoliday } from '../../core/holidays.js';
 import { VARIANT } from '@variant-manifest';
-import { isOwnPersonDecision, type CountryCode, type RegionCode } from '@ohrganize/shared';
+import { PORTAL_ABSENCE_CAPTURE, isOwnPersonDecision, type CountryCode, type RegionCode } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import { AppError, badRequest, conflict, forbidden } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
@@ -703,6 +703,24 @@ export function assertNotOwnEmployee(
   if (isOwnPersonDecision(actorEmployeeId, employeeId)) throw forbidden(message);
 }
 
+/**
+ * Kundenausgabe dronivo (PORTAL_ABSENCE_CAPTURE, packages/shared/src/dronivo.ts):
+ * Im Portal erfasst niemand Abwesenheiten. Geprueft in createRequest, dem einen
+ * Punkt, durch den jede Neuanlage laeuft, an der Route der Anfrage: /api/me/*
+ * ist das Portal, die HR-Erfassung (/api/absences/*) bleibt offen. So trifft die
+ * Sperre auch einen Portalweg, den ein Merge von main unter neuem Pfad oder
+ * ueber eine Hilfsfunktion bringt. Der globale Hook in server.ts sperrt
+ * zusaetzlich jede schreibende Portalroute ausser den geprueften
+ * (PORTAL_OPEN_WRITES), also auch den Rueckzug, der createRequest nicht
+ * durchlaeuft.
+ */
+export function assertNoPortalCapture(req: Parameters<typeof audit>[0]): void {
+  const route = (req as { routeOptions?: { url?: string } }).routeOptions?.url ?? '';
+  if (!PORTAL_ABSENCE_CAPTURE && route.startsWith('/api/me/')) {
+    throw forbidden('Dieser Bereich ist der HR-Administration vorbehalten');
+  }
+}
+
 /** Herkunft eines Antrags: 1, wenn das anlegende Konto nicht der betroffenen Person gehoert. */
 export const CREATED_BY_PROXY_SQL = `
   CASE WHEN c.id IS NOT NULL AND (c.employee_id IS NULL OR c.employee_id != r.employee_id) THEN 1 ELSE 0 END
@@ -713,6 +731,7 @@ export function createRequest(
   body: CreateRequestBody,
   type: AbsenceTypeRow,
 ): number {
+  assertNoPortalCapture(req); // PORTAL_ABSENCE_CAPTURE (Kundenausgabe dronivo)
   const db = getDb();
   // Die Berechtigungsprüfung sitzt hier und nicht in den Routen, weil
   // createRequest der einzige gemeinsame Engpass aller vier Erfassungswege ist

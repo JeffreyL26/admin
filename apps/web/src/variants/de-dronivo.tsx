@@ -1,6 +1,6 @@
 // GENERIERT aus packages/shared/src/variants/registry.json durch scripts/variant-wiring.mjs.
 // Nicht von Hand aendern. Nach einer Aenderung am Register: npm run variants:gen
-// Variante: de-vollversion
+// Variante: de-dronivo
 import React from 'react';
 import type { RouteObject } from 'react-router-dom';
 import { RequestsPage } from '../pages/RequestsPage';
@@ -12,7 +12,7 @@ import { DevelopmentPage } from '../pages/DevelopmentPage';
 import { MeetingsPage } from '../pages/MeetingsPage';
 import { ColleaguesPage } from '../pages/ColleaguesPage';
 
-export * from './de-vollversion.manifest';
+export * from './de-dronivo.manifest';
 
 /** Seiten optionaler Module dieser Variante (App.tsx haengt die Basisseiten an). */
 export const portalRoutes: RouteObject[] = [

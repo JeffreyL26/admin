@@ -1,5 +1,10 @@
 import React from 'react';
-import { ABSENCE_STATUS_LABELS, type AbsenceRequestStatus } from '@ohrganize/shared';
+import {
+  ABSENCE_STATUS_LABELS,
+  EMPLOYEE_CHANGE_REQUEST_STATUS_LABELS,
+  type AbsenceRequestStatus,
+  type EmployeeChangeRequestStatus,
+} from '@ohrganize/shared';
 
 /** Flache Sektionskarte des Portals (Hairline statt Schatten). */
 export function Card({
@@ -74,6 +79,27 @@ export function StatusChip({ status }: { status: AbsenceRequestStatus }) {
   return (
     <span className={`pt-chip pt-chip--${STATUS_TONES[status] ?? 'neutral'}`}>
       {ABSENCE_STATUS_LABELS[status] ?? status}
+    </span>
+  );
+}
+
+const CHANGE_STATUS_TONES: Record<EmployeeChangeRequestStatus, string> = {
+  beantragt: 'warning',
+  genehmigt: 'success',
+  abgelehnt: 'danger',
+  zurueckgezogen: 'neutral',
+};
+
+/**
+ * Statuspille eines Stammdaten-Aenderungsantrags (Seite Stammdaten, Kachel der
+ * Uebersicht). Eigene Komponente, weil StatusChip auf AbsenceRequestStatus
+ * typisiert ist und den Zustand "zurueckgezogen" nicht kennt; Masse und Toene
+ * kommen aus denselben pt-chip-Klassen.
+ */
+export function ChangeStatusChip({ status }: { status: EmployeeChangeRequestStatus }) {
+  return (
+    <span className={`pt-chip pt-chip--${CHANGE_STATUS_TONES[status] ?? 'neutral'}`}>
+      {EMPLOYEE_CHANGE_REQUEST_STATUS_LABELS[status] ?? status}
     </span>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
+import { PORTAL_ABSENCE_CAPTURE } from '@ohrganize/shared';
 import { useAuth } from '../auth/AuthContext';
 import { ApiRequestError } from '../api/client';
 import { Field } from '../components/ui';
@@ -83,7 +84,8 @@ export function LoginPage() {
       <div className="login__content">
         <img className="login__logo" src="/logo-full.png" alt="oHRganize" />
         <p className="login__claim">
-          Alles, was Sie brauchen - an einem Ort. <span>Urlaub beantragen, krankmelden,
+          {/* Kundenausgabe dronivo: ohne Abwesenheitserfassung im Portal (packages/shared/src/dronivo.ts). */}
+          Alles, was Sie brauchen - an einem Ort. <span>{PORTAL_ABSENCE_CAPTURE && 'Urlaub beantragen, krankmelden, '}
           Stammdaten einsehen und mehr. Direkt an die Personalabteilung übermittelt.</span>
         </p>
         <form className="login-card" onSubmit={submit}>
@@ -131,7 +133,7 @@ export function LoginPage() {
         </form>
         <p className="login__foot">
           Gestellte Anträge landen ohne Umwege bei Ihrer Personalabteilung und werden dort geprüft.
-          Den Stand sehen Sie jederzeit unter "Anträge".
+          {PORTAL_ABSENCE_CAPTURE && ' Den Stand sehen Sie jederzeit unter "Anträge".'}
         </p>
       </div>
     </div>

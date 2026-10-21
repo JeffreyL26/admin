@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router-dom';
+import { portalPathOpen } from '@ohrganize/shared';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import { ToastProvider } from './components/Toast';
 import { PortalShell } from './layout/PortalShell';
@@ -104,7 +105,9 @@ const router = createBrowserRouter([
     // layout/PortalShell.tsx.
     children: [
       { path: '/', element: <OverviewPage /> },
-      ...portalRoutes,
+      // Kundenausgabe dronivo (PORTAL_ABSENCE_CAPTURE): ohne die Seiten der
+      // Abwesenheitserfassung; ihre Adressen landen beim Catch-all.
+      ...portalRoutes.filter((route) => portalPathOpen(route.path ?? '')),
       { path: '/stammdaten', element: <StammdatenPage /> },
       { path: '/dokumente', element: <DocumentsPage /> },
       { path: '/organigramm', element: <OrgPage /> },

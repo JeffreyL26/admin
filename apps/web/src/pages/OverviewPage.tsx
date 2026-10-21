@@ -1,14 +1,16 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { AbsenceRequest, MeCalendarEmployee } from '@ohrganize/shared';
-import { useMyBalance, useMyCalendar, useMyProfile, useMyRequests } from '../api/hooks';
+import { PORTAL_ABSENCE_CAPTURE, type AbsenceRequest, type MeCalendarEmployee } from '@ohrganize/shared';
+import { useMyBalance, useMyCalendar, useMyChangeRequests, useMyProfile, useMyRequests } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
-import { Card, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
+import { Card, ChangeStatusChip, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
 import { NoticeSection } from '../features/communication/NoticeCards';
 import {
   DASHBOARD_STYLE_LABELS, loadDashboardStyle, saveDashboardStyle, type DashboardStyle,
 } from '../lib/dashboardStyle';
-import { formatDate, formatDays, formatLongDate, formatRange, formatRequestDays, greeting, todayIso } from '../lib/format';
+import {
+  formatDate, formatDays, formatLocalDay, formatLongDate, formatRange, formatRequestDays, greeting, todayIso,
+} from '../lib/format';
 
 const STYLES = Object.keys(DASHBOARD_STYLE_LABELS) as DashboardStyle[];
 
@@ -83,6 +85,94 @@ function BalanceCard() {
         </Link>
         <Link to="/antraege" className="pt-btn pt-btn--quiet">
           Alle Anträge
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Kundenausgabe dronivo (packages/shared/src/dronivo.ts): Kachel an der Stelle
+ * des Urlaubskontos, im selben Aufbau (Kennzahl, Kontozeile, Hinweis, zwei
+ * Knöpfe). Sie zeigt den jüngsten Änderungsantrag; Daten und Texte stammen
+ * von der Seite Stammdaten ändern (dieselbe Abfrage, dieselben Wortlaute).
+ */
+function StammdatenCard() {
+  const { data: requests, isLoading, error } = useMyChangeRequests();
+
+  if (error) {
+    return (
+      <Card title="Stammdaten ändern" accent="--org-1">
+        <LoadError error={error} />
+      </Card>
+    );
+  }
+  if (isLoading || !requests) {
+    return (
+      <Card title="Stammdaten ändern" accent="--org-1">
+        <Skeleton width={130} height={44} />
+        <div style={{ marginTop: 18 }}>
+          <Skeleton width="80%" height={16} />
+        </div>
+      </Card>
+    );
+  }
+
+  // Die Route liefert die jüngsten Anträge zuerst. Ein offener Antrag ist
+  // immer der jüngste, denn solange er offen ist, entsteht kein neuer.
+  const latest = requests[0];
+
+  return (
+    <Card title="Stammdaten ändern" accent="--org-1">
+      {latest ? (
+        <>
+          <div className="row" style={{ alignItems: 'baseline', gap: 12 }}>
+            <span className="pt-big">{latest.fields.length}</span>
+            <span style={{ color: 'var(--text-secondary)' }}>
+              {/* "beantragt", nicht "geändert": Auch ein abgelehnter Antrag zeigt seine Felder. */}
+              {latest.fields.length === 1 ? 'beantragtes Feld' : 'beantragte Felder'}
+            </span>
+          </div>
+          <div className="pt-ledger" style={{ marginTop: 18 }}>
+            <div className="pt-ledger__item">
+              <span className="pt-label">Gestellt am</span>
+              <span className="pt-ledger__value">{formatLocalDay(latest.created_at)}</span>
+            </div>
+            <div className="pt-ledger__item">
+              <span className="pt-label">Status</span>
+              <span className="pt-ledger__value">
+                <ChangeStatusChip status={latest.status} />
+              </span>
+            </div>
+            {(latest.decided_at || latest.status === 'beantragt') && (
+              <div className="pt-ledger__item">
+                <span className="pt-label">Entscheidung</span>
+                <span className="pt-ledger__value">
+                  {latest.decided_at ? formatLocalDay(latest.decided_at) : 'ausstehend'}
+                </span>
+              </div>
+            )}
+          </div>
+          {latest.status === 'abgelehnt' && latest.decision_note && (
+            <p className="pt-alert pt-alert--danger" style={{ marginTop: 16 }}>
+              {latest.decision_note}
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <p style={{ fontWeight: 650 }}>Noch kein Änderungsantrag</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginTop: 4 }}>
+            Gestellte Anträge erscheinen hier mit ihrem Bearbeitungsstand.
+          </p>
+        </>
+      )}
+      <div className="row" style={{ marginTop: 20 }}>
+        <Link to="/stammdaten" className="pt-btn pt-btn--primary">
+          Änderung beantragen
+        </Link>
+        <Link to="/profil" className="pt-btn pt-btn--quiet">
+          Ihr Profil
         </Link>
       </div>
     </Card>
@@ -337,29 +427,34 @@ export function OverviewPage() {
 
       <div className="grid-overview">
         <div className="stack">
-          <BalanceCard />
-          <Card title="Offene Anträge" flush accent="--org-4">
-            {requestsError ? (
-              <div className="pt-card__body">
-                <LoadError error={requestsError} />
-              </div>
-            ) : requestsLoading ? (
-              <div className="pt-card__body">
-                <SkeletonRows rows={2} />
-              </div>
-            ) : open.length === 0 ? (
-              <EmptyState
-                title="Keine offenen Anträge"
-                hint="Neue Anträge erscheinen hier, bis Ihre Personalabteilung entschieden hat."
-              />
-            ) : (
-              <div style={{ marginTop: -1 }}>
-                {open.map((r) => (
-                  <RequestRow key={r.id} request={r} />
-                ))}
-              </div>
-            )}
-          </Card>
+          {/* Kundenausgabe dronivo: Stammdaten statt Urlaubskonto. "Offene Anträge"
+              entfällt dort mit der Antragsseite; die Karte zählte nur
+              Abwesenheitsanträge und widerspräche der Stammdaten-Kachel darüber. */}
+          {PORTAL_ABSENCE_CAPTURE ? <BalanceCard /> : <StammdatenCard />}
+          {PORTAL_ABSENCE_CAPTURE && (
+            <Card title="Offene Anträge" flush accent="--org-4">
+              {requestsError ? (
+                <div className="pt-card__body">
+                  <LoadError error={requestsError} />
+                </div>
+              ) : requestsLoading ? (
+                <div className="pt-card__body">
+                  <SkeletonRows rows={2} />
+                </div>
+              ) : open.length === 0 ? (
+                <EmptyState
+                  title="Keine offenen Anträge"
+                  hint="Neue Anträge erscheinen hier, bis Ihre Personalabteilung entschieden hat."
+                />
+              ) : (
+                <div style={{ marginTop: -1 }}>
+                  {open.map((r) => (
+                    <RequestRow key={r.id} request={r} />
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
         </div>
 
         <div className="stack">
@@ -420,7 +515,7 @@ export function OverviewPage() {
                     </div>
                     <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', marginTop: 4 }}>
                       {r.decided_by_name ? `${r.decided_by_name}, ` : ''}
-                      {r.decided_at ? formatDate(r.decided_at.slice(0, 10)) : ''}
+                      {r.decided_at ? formatLocalDay(r.decided_at) : ''}
                       {r.status === 'abgelehnt' && r.rejection_reason ? ` · ${r.rejection_reason}` : ''}
                     </p>
                   </div>

@@ -1777,3 +1777,84 @@ Migration eines anderen Moduls); eine geloeschte Art hinterlaesst einen
 toten Eintrag ohne Wirkung. Der Export liest Stammdaten und Fehltage beim
 Export, nicht beim Anlegen des Laufs; die Pruefsumme im Audit belegt die
 Fassung.
+
+## Kundenbranch dronivo statt Feature-Schluessel (nur auf dem Branch)
+
+**Entscheidung (Anbieter, 21.10.2026):** Der erste Kunde mit eigenem Wunsch,
+Dronivo, bekommt einen eigenen Branch `dronivo` mit Version `1.0.0-dronivo`.
+Mitarbeitende erfassen dort im Portal keine Abwesenheiten (Antrag, Rueckzug,
+Krankmeldung), Stammdaten-Aenderungsantraege bleiben; die HR erfasst
+Abwesenheiten in der Desktop-App wie bisher. Umgesetzt als Schalter
+`PORTAL_ABSENCE_CAPTURE` in `packages/shared/src/dronivo.ts`, den jede
+abweichende Stelle abfragt.
+
+**Warum gegen die Regel oben:** Der Anbieter hat zwischen Variante
+`de-dronivo`, Lizenz-Feature und Kundenbranch gewaehlt und sich bewusst fuer
+den Branch entschieden. Gegen das Lizenz-Feature sprach zudem: Das Gate
+unterscheidet keine HTTP-Methoden (die Liste der eigenen Abwesenheiten muss
+lesbar bleiben), und in der Testphase oder ohne gueltige Lizenz waere die
+Sperre aus.
+
+**Warum ein Schalter statt entfernten Codes:** Der Branch lebt neben main
+weiter. Ein Schalter haelt jede Abweichung in wenigen Zeilen, Merges von main
+treffen selten eine geaenderte Zeile, und sollte die Funktion spaeter doch
+ins Hauptprodukt wandern, ist der Schalter die Nahtstelle.
+
+**Warum eine Freigabeliste im Hook:** Gesperrt waren zuerst die bekannten
+Pfade der Erfassung. Eine Route, die main spaeter unter neuem Pfad bringt
+und die Abwesenheiten ueber eine Hilfsfunktion aendert, kam daran vorbei
+(`createRequest` sperrt nur Neuanlagen, eine Quelltextsuche sieht keine
+Hilfsfunktion). Seither sind unter `/api/me` nur die geprueften
+schreibenden Routen offen (`PORTAL_OPEN_WRITES`); eine neue antwortet 403,
+bis sie eingeordnet ist, und die Tests nennen sie. Im Zweifel fehlt also
+eine Funktion, statt dass die Sperre still wegfaellt.
+
+**Warum die Kanalregel mitgeht:** Mit "jede Vorabkennung ist beta" truege
+die Kundenausgabe ein Beta-Abzeichen und laege im Beta-Verzeichnis des
+Releases. Nur alpha, beta und rc sind seither ein Testkanal. Die
+Mindestversionen zeigen auf `1.0.0-dronivo`, weil diese Nummer nach Semver
+aelter ist als 1.0.0.
+
+**In Kauf genommen:** Jede Aenderung auf main muss nachgezogen werden, und
+ein Release von main ist fuer Dronivo kein Update: Es traegt dieselbe
+Variante `de-vollversion`, besteht also jede Variantenpruefung und naehme
+die Sperre still wieder heraus. Die Updates fuer Dronivo kommen deshalb nur
+vom Branch.
+
+**Nachtrag: eigene Ausgabe `de-dronivo` auf dem Branch.** Der Anbieter
+will den Branch dauerhaft und nur fuer diesen Kunden. Damit kein Update des
+Hauptprodukts die Sperre still entfernt, traegt der Branch eine eigene
+Variante `de-dronivo` (und nur diese). So greifen die Verwechslungssperren,
+die auch auf main schon gelten: VARIANTE.txt gegen env-Datei und Health in
+beiden Update-Skripten, `OHRGANIZE_VARIANT` gegen den Build im Backend, die
+Variante des Servers in der Desktop-App, die Edition in der Lizenz. Ein
+Update-Skript aus main weist ein Dronivo-Archiv ab und umgekehrt, sobald die
+env-Datei die Ausgabe nennt; ein Backend fremder Ausgabe startet nicht. Eine
+Luecke unter Windows war, dass die env-Datei dort keine Ausgabe trug; das
+schliessen setup-server.ps1 und update-server.ps1 auf dem Branch (Ausgabe in
+env-Datei und Dienstumgebung, Pruefung vor dem Anhalten des Dienstes).
+**Grenze:** Ein Archiv bringt seine eigenen Skripte mit. setup-server.ps1 aus
+einem main-Archiv prueft vor dem Entpacken nichts; bei Dronivo ueberschriebe
+es das Programm, und das Backend verweigerte danach den Start. Die Sperre
+fiele dabei nicht still weg, Dronivo stuende aber, bis das richtige Archiv
+eingerichtet ist. Deshalb kommt die Windows-Haertung wortgleich auch nach main
+(Branch `windows-ausgabe-env`, 21.10.2026): Danach prueft auch
+setup-server.ps1 aus einem main-Archiv die Ausgabe vor dem Anhalten des
+Dienstes und weist das Archiv bei Dronivo ab. Die Release-Linien unten sind nur noch die
+zweite Sicherung. `scripts/check-dronivo.mjs` (posttest und vor jedem Release)
+haelt die Regeln des Branches nach jedem Merge von main fest. Gesperrt wird an
+zwei Stellen: in createRequest jede Neuanlage ueber eine /api/me-Route (der
+eine Punkt jeder Erfassung, an der Route der Anfrage, sodass die HR-Erfassung
+offen bleibt) und im Hook in server.ts jede schreibende Portal-Anfrage unter
+den Abwesenheitspfaden (auch der Rueckzug).
+
+**Folge fuer conspectus:** Seit die Kundenkennung stable ist, laegen beide
+Linien im selben stabilen Bestand der Variante, und `check` empfaehle sie
+einander als Update (1.0.0 ist nach Semver neuer als 1.0.0-dronivo, ein
+1.0.1-dronivo neuer als 1.0.0). Deshalb ist die Kundenkennung eine eigene
+Release-Linie (`customerTagOf` in packages/shared/src/version.ts): `check`
+vergleicht nur innerhalb der Linie, und `rollout starten` verweigert jeden
+Rollout ueber die Liniengrenze ohne ausdrueckliche Angabe (`--kunde` fuer die
+Kundenlinie, `--linie-wechseln` fuer einen Wechsel). ohrganize-update.sh
+selbst bleibt unveraendert: Es kennt nur die Variante, und `neuestes_release`
+waehlt ohnehin nur x.y.z.

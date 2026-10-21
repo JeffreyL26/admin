@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import {
   AREA_MODULES, MEETING_OCCASION_LABELS, ONBOARDING_KIND_LABELS, comparePlanRows, daysInText, formatDateInText,
   formatRangeInText, moduleEnabled, todayIsoLocal, dashboardSourceStatus, isOwnPersonDecision, isOwnRequestDecision,
-  type DashboardSourceState,
+  PORTAL_ABSENCE_CAPTURE, type DashboardSourceState,
   type AbsenceRequest, type AbsenceRequestStatus, type AdminArea,
   type EmployeeChangeRequestForHr, type OnboardingProcess, type SickNote,
 } from '@ohrganize/shared';
@@ -546,11 +546,17 @@ export function useDashboardModel({ needsPlan = true }: { needsPlan?: boolean } 
       const halves = [r.half_day_start === 1 ? 'erster Tag halb' : '', r.half_day_end === 1 ? 'letzter Tag halb' : '']
         .filter(Boolean).join(', ');
       const note = (r.comment ?? '').trim();
+      // Kundenausgabe dronivo (PORTAL_ABSENCE_CAPTURE): Ohne Portalerfassung ist
+      // ein Antrag ohne Stellvertretung der selbst erfasste eigene einer HR-Person
+      // oder einer aus dem Portal von vor der Umstellung; die Herkunft bleibt dann offen.
+      const origin = r.created_by_proxy
+        ? ' Vom HR erfasst.'
+        : PORTAL_ABSENCE_CAPTURE ? ' Aus dem Portal beantragt.' : '';
       tasks.push({
         key: requestTaskKey(r.id), kind: 'request', tone: started ? 'overdue' : 'decide',
         actionable: doable('abwesenheit', isOwnPerson(r.employee_id)), employeeId: r.employee_id,
         person: nameOf(r.first_name, r.last_name), title,
-        meta: `${formatRangeInText(r.date_from, r.date_to, today)}, ${daysInText(r.days_counted, LOCALE, r.closure_covered === 1)}${halves ? ` (${halves})` : ''}. ${r.created_by_proxy ? 'Vom HR erfasst.' : 'Aus dem Portal beantragt.'}${note ? ` Kommentar: „${note}“` : ''}`,
+        meta: `${formatRangeInText(r.date_from, r.date_to, today)}, ${daysInText(r.days_counted, LOCALE, r.closure_covered === 1)}${halves ? ` (${halves})` : ''}.${origin}${note ? ` Kommentar: „${note}“` : ''}`,
         age, unit, weight: started ? (ended ? 760 : 900) : 100 - diffDays(r.date_from, today),
         progress: null, span: { from: r.date_from, to: r.date_to },
         actions: [

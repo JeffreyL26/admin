@@ -6,6 +6,64 @@ Das Format folgt "Keep a Changelog"; die Versionsnummer folgt Semver
 Version, die mit `scripts/release.mjs` gebaut wird, braucht hier einen
 eigenen Abschnitt.
 
+## 1.0.0-dronivo (2026-10-21)
+
+Kundenausgabe fuer Dronivo vom Branch `dronivo`, Ausgabe `de-dronivo`
+(Anzeige im Info-Dialog "Version de-1.0.0-dronivo", Installer
+`oHRganize-Setup-de-1.0.0-dronivo.exe`, Server-Archiv
+`ohrganize-server-de-1.0.0-dronivo.zip`). Grundlage ist main mit
+Commit 1995d7e; alles unter "Unveroeffentlicht" ist enthalten. Dazu:
+
+- **Geaendert:** Mitarbeitende erfassen im Portal keine Abwesenheiten mehr:
+  kein Antrag, kein Zurueckziehen, keine Krankmeldung. Die Seiten Antraege,
+  Neuer Antrag und Krankmeldung fehlen in Navigation und Router;
+  `POST /api/me/leave-requests`, `POST /api/me/leave-requests/:id/cancel` und
+  `POST /api/me/sick-notes` antworten 403. Abwesenheiten und Krankmeldungen
+  erfasst die HR in der Desktop-App wie bisher; Kalender und die Karten
+  "Naechste Abwesenheit" und "Zuletzt entschieden" zeigen sie weiter.
+- **Geaendert:** Auf der Portal-Uebersicht steht an der Stelle des
+  Urlaubskontos die Kachel "Stammdaten aendern" (juengster Aenderungsantrag
+  mit Status, Knoepfe "Aenderung beantragen" und "Ihr Profil"); die Karte
+  "Offene Antraege" entfaellt. Stammdaten-Aenderungsantraege bleiben, wie sie
+  sind.
+- **Geaendert:** Login-Seite des Portals und Einrichtungs-Assistent der
+  Desktop-App versprechen keinen Urlaubsantrag im Portal mehr; der
+  Probe-Urlaubsantrag am Ende des Assistenten entfaellt. Das
+  Desktop-Dashboard schreibt an keinen offenen Abwesenheitsantrag mehr "Aus
+  dem Portal beantragt.".
+- **Neu:** Eigene Ausgabe `de-dronivo` (Edition `dronivo`). Archive,
+  Installer und Lizenzen des Hauptprodukts werden bei Dronivo abgewiesen und
+  umgekehrt; Lizenzen fuer Dronivo tragen `edition: dronivo`.
+- **Geaendert:** Nur die Vorabkennungen alpha, beta und rc ergeben den Kanal
+  beta; eine Kundenkennung wie `dronivo` bleibt stable. Die Mindestversionen
+  fuer App und Server stehen auf 1.0.0-dronivo, weil diese Nummer nach Semver
+  aelter ist als 1.0.0. Release-Skripte und Installer-Bau bauen auf dem Branch
+  nur die Ausgabe `de-dronivo` in der Form `<x.y.z>-dronivo` und pruefen vorher
+  die Regeln des Branches; das Server-Archiv prueft auch das Portal auf die
+  Ausgabe.
+- **Geaendert:** Die Sperre sitzt in `createRequest` (jede Neuanlage ueber eine
+  `/api/me`-Route, auch unter kuenftigen Pfaden) und im globalen Hook: Er
+  laesst unter `/api/me` nur die geprueften schreibenden Routen durch
+  (`PORTAL_OPEN_WRITES`: Stammdaten-Aenderungsantraege, Ankuendigungen,
+  Umfragen, Dokumente), jede andere antwortet 403, auch der Rueckzug und
+  jede neue Portalroute, bis sie eingeordnet ist. Gesperrte Portalseiten
+  gelten samt Unterpfaden.
+- **Geaendert (Windows-Server):** `setup-server.ps1` schreibt die Ausgabe in
+  die env-Datei und prueft sie vor dem Anhalten des Dienstes;
+  `update-server.ps1` vergleicht ohne env-Eintrag mit dem installierten
+  Programm, traegt die Ausgabe nach, gleicht sie in der Dienstumgebung ab und
+  nimmt beides bei einem Fehlstart zurueck. Beide vertragen Archive auf
+  UNC-Pfaden.
+- **Geaendert (Anbieter):** conspectus behandelt die Kundenkennung als eigene
+  Release-Linie: `check` vergleicht nur innerhalb der Linie, `rollout
+  starten` schickt ein Release der Kundenlinie nur mit `--kunde` und
+  verweigert ein Release des Hauptprodukts auf Hosts mit Kundenausgabe ohne
+  `--kunde` sowie einen Linienwechsel ohne `--linie-wechseln`.
+- Tests: `npm test` prueft die Sperre der drei Portalrouten und die
+  Einordnung aller schreibenden Portalrouten (src/test/smoke.ts), als posttest die Regeln des Branches
+  (scripts/check-dronivo.mjs); `me/smoke.ts` laeuft mit gesperrter
+  Portalerfassung.
+
 ## Unveroeffentlicht
 
 Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
