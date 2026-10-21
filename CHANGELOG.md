@@ -12,6 +12,17 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Krankmeldungen: Folgebescheinigung auch bei HR-Erfassung (21.10.2026)
+- **Geaendert:** Erfasst die HR eine Krankmeldung, die nahtlos an eine
+  bestehende derselben Art anschliesst (Ende am Vortag, nicht storniert),
+  wird sie wie im Portal als Folgebescheinigung verkettet. Bisher geschah das
+  nur bei der Meldung im Portal; bei der HR-Erfassung begann ohne Auswahl
+  eine neue AU-Kette, und die Warnung nach 42 Kalendertagen
+  Entgeltfortzahlung blieb aus. Der Dialog waehlt die Fortsetzung vor, die
+  HR kann "keine (Erstbescheinigung)" waehlen (`follow_up_of_id: null`); eine
+  Anfrage ohne das Feld verkettet automatisch. Eine Regel fuer beide Wege:
+  `seamlessPredecessorSickNoteId` in `absences/service.ts`.
+
 ### Windows-Server: Ausgabe in env-Datei und Dienstumgebung (21.10.2026)
 - **Geaendert:** `setup-server.ps1` schreibt `OHRGANIZE_VARIANT` (aus
   `VARIANTE.txt` des Archivs) in `ohrganize.env` und prueft die Ausgabe eines

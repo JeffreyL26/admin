@@ -20,6 +20,7 @@ import {
   createRequest,
   CREATED_BY_PROXY_SQL,
   companyRegionDefaults,
+  seamlessPredecessorSickNoteId,
   recountRequestsOverlapping,
   regionForEmployee,
   regionSelectParams,
@@ -924,6 +925,13 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     assertMayLinkFiles(req, [body.certificate_file_id]);
 
     const sickNoteId = inTransaction(() => {
+      // Folgebescheinigung: ausdruecklich angegeben (auch null fuer eine neue
+      // Erkrankung, die nahtlos anschliesst) oder, ohne Angabe, die nahtlose
+      // Fortsetzung wie im Portal (seamlessPredecessorSickNoteId).
+      const followUpOfId =
+        body.follow_up_of_id !== undefined
+          ? body.follow_up_of_id
+          : seamlessPredecessorSickNoteId(body.employee_id, !!body.child_sick, body.date_from);
       const requestId = createRequest(
         req,
         {
@@ -947,7 +955,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
           // Ausstellungspflicht am 3. Kalendertag der Erkrankung.
           addDaysIso(body.date_from, 2),
           body.received_date ?? null,
-          body.follow_up_of_id ?? null,
+          followUpOfId ?? null,
           body.child_sick ? 1 : 0,
         );
       const id = Number(result.lastInsertRowid);
@@ -957,6 +965,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         date_from: body.date_from,
         date_to: body.date_to,
         child_sick: !!body.child_sick,
+        ...(followUpOfId ? { follow_up_of_id: followUpOfId } : {}),
       });
       return id;
     });

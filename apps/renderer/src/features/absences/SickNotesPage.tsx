@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
-import { formatDate, todayIsoLocal, SICK_PAY_LIMIT_DAYS, type SickNote } from '@ohrganize/shared';
+import { addDaysIso, formatDate, todayIsoLocal, SICK_PAY_LIMIT_DAYS, type SickNote } from '@ohrganize/shared';
 import { api, downloadFile, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
 import { Modal } from '../../components/Modal';
@@ -292,6 +292,8 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [dateTo, setDateTo] = useState('');
   const [childSick, setChildSick] = useState(false);
   const [followUpOf, setFollowUpOf] = useState<number | null>(null);
+  // Hat die HR die Folgebescheinigung selbst gewaehlt (auch "keine"), gilt ihre Wahl.
+  const [followUpTouched, setFollowUpTouched] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [receivedDate, setReceivedDate] = useState('');
   // Erstbescheinigungen nur der gewählten Person (alle Jahre) und nur bei
@@ -300,6 +302,17 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
   const { data: personNotes } = useSickNotes({ employeeId }, open && employeeId !== null);
   const employeeNotes = (personNotes ?? []).filter((n) => n.employee_id === employeeId);
   const previousNote = followUpOf === null ? null : (employeeNotes.find((n) => n.id === followUpOf) ?? null);
+  // Nahtlose Fortsetzung vorauswaehlen: dieselbe Regel wie das Backend ohne
+  // Angabe (seamlessPredecessorSickNoteId in absences/service.ts), damit die
+  // Entgeltfortzahlung (42 Kalendertage) ueber die ganze AU-Kette zaehlt.
+  const dayBefore = dateFrom ? addDaysIso(dateFrom, -1) : null;
+  const seamlessId =
+    employeeNotes
+      .filter((n) => n.date_to === dayBefore && n.child_sick === (childSick ? 1 : 0) && n.request_status !== 'storniert')
+      .sort((a, b) => b.id - a.id)[0]?.id ?? null;
+  useEffect(() => {
+    if (!followUpTouched) setFollowUpOf(seamlessId);
+  }, [seamlessId, followUpTouched]);
 
   const reset = () => {
     setEmployeeId(null);
@@ -307,6 +320,7 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
     setDateTo('');
     setChildSick(false);
     setFollowUpOf(null);
+    setFollowUpTouched(false);
     setFile(null);
     setReceivedDate('');
   };
@@ -357,7 +371,13 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
     >
       <div className="hm-form-grid">
         <Field label="Mitarbeiter:in" required span2>
-          <EmployeeSelect value={employeeId} onChange={setEmployeeId} />
+          <EmployeeSelect
+            value={employeeId}
+            onChange={(id) => {
+              setEmployeeId(id);
+              setFollowUpTouched(false);
+            }}
+          />
         </Field>
         <Field label="Krank von" required>
           <input className="hm-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -372,14 +392,17 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
         <Field
           label="Folgebescheinigung von"
           span2
-          hint="Nur bei nahtloser Fortsetzung einer bestehenden Krankmeldung."
+          hint="Nur bei nahtloser Fortsetzung einer bestehenden Krankmeldung. Schließt eine Krankmeldung derselben Art direkt an, ist sie vorausgewählt."
         >
           <div className="row" style={{ gap: 6 }}>
             <Select
               className="hm-select"
               style={{ flex: 1 }}
               value={followUpOf ?? ''}
-              onChange={(e) => setFollowUpOf(e.target.value ? Number(e.target.value) : null)}
+              onChange={(e) => {
+                setFollowUpOf(e.target.value ? Number(e.target.value) : null);
+                setFollowUpTouched(true);
+              }}
               disabled={!employeeId || employeeNotes.length === 0}
             >
               <option value="">— keine (Erstbescheinigung) —</option>
