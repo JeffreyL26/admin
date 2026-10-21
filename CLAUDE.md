@@ -1371,7 +1371,13 @@ API-Felder sind snake_case wie in der DB, Antworten benannte Objekte
   bewusst umschifft: `2>$null` an nativen Programmen wirft unter
   `$ErrorActionPreference = Stop` (deshalb `Invoke-Quiet`), und ein
   Funktionsparameter darf nicht `$Args` heißen (automatische Variable —
-  Argumente kommen leer an).
+  Argumente kommen leer an). Die Ausgabe steht auch unter Windows in der
+  env-Datei (`Set-EnvVariant` in setup-server.ps1, geprueft vor dem Anhalten
+  des Dienstes) und in der Dienstumgebung (`Sync-ServiceVariant` in
+  update-server.ps1, bei jedem Update abgeglichen und bei Fehlstart
+  zurueckgenommen); ein Archiv fremder Ausgabe kommt so auch bei gestopptem
+  Dienst nicht durch. Archivpfade ueber `.ProviderPath` aufloesen, sonst
+  scheitert .NET (ZipFile) an UNC-Pfaden.
   Gegenstück für den Arbeitsplatz: `deploy/windows/setup-workstation.ps1`
   (App still installieren, `config.json` ohne BOM mit Adresse und Pin,
   Erreichbarkeit, Start; `npm run dist:win` legt es neben den Installer).

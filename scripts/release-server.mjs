@@ -328,6 +328,25 @@ for (const bundle of [inputs.cli, inputs.backup, ...inputs.tools]) {
     fail(`${path.relative(root, bundle)} traegt nicht den Marker der Variante ${variantId}. Bundle neu bauen.`);
   }
 }
+// Das Portal ebenso: apps/web/dist ueberlebt einen Branchwechsel, und
+// `npm run build` baut es nicht mit. Ein Portal anderer Ausgabe gaebe ihre
+// Seiten frei, ohne dass Server oder Update-Skripte es merkten.
+{
+  const assetsDir = path.join(inputs.webDist, 'assets');
+  const webText = (fs.existsSync(assetsDir) ? fs.readdirSync(assetsDir) : [])
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => fs.readFileSync(path.join(assetsDir, f), 'utf8'))
+    .join('\n');
+  const foreign = [...new Set([...webText.matchAll(/OHRGANIZE_VARIANT:([a-z0-9-]+)/g)].map((m) => m[1]))].filter(
+    (id) => id !== variantId,
+  );
+  if (!webText.includes(marker) || foreign.length > 0) {
+    fail(
+      `apps/web/dist gehoert nicht (nur) zur Variante ${variantId}${foreign.length ? ` (gefunden: ${foreign.join(', ')})` : ''}. ` +
+        'Portal neu bauen: npm run build:web',
+    );
+  }
+}
 
 addFile('apps/backend/dist/cli.cjs', inputs.cli);
 addFile('apps/backend/dist/backup.cjs', inputs.backup);

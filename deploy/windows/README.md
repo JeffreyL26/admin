@@ -178,6 +178,8 @@ Copy-Item 'apps\web\dist\*' 'C:\ProgramData\oHRganize\web' -Recurse -Force
 New-Item -ItemType Directory 'C:\ProgramData\oHRganize' -Force
 Copy-Item 'deploy\windows\ohrganize.env.example' 'C:\ProgramData\oHRganize\ohrganize.env'
 notepad 'C:\ProgramData\oHRganize\ohrganize.env'
+#     Darin OHRGANIZE_VARIANT auf den Inhalt von VARIANTE.txt setzen
+#     (setup-server.ps1 macht das selbst).
 
 # 2.5 Dienst einrichten (setzt zuerst die NTFS-Rechte, dann den Dienst)
 .\deploy\windows\install-service.ps1
@@ -382,6 +384,16 @@ das Gegenteil — siehe Abschnitt 8.)
 Ausgabe ueber eine laufende Instanz entpackt heisst: Der Dienst startet nicht
 (das Backend prueft `OHRGANIZE_VARIANT` gegen die einkompilierte Variante)
 oder die Arbeitsplaetze brechen beim Start ab.
+
+`setup-server.ps1` und `update-server.ps1` nehmen diese Pruefung ab: Beide
+vergleichen die Ausgabe des Archivs vor dem Anhalten des Dienstes mit
+`OHRGANIZE_VARIANT` in `ohrganize.env`, ohne Eintrag dort mit dem
+installierten `VARIANTE.txt`. setup-server.ps1 schreibt die Zeile in die
+env-Datei; update-server.ps1 traegt sie nach, falls sie fehlt, setzt den Wert
+vor dem Start auch in der Dienstumgebung (NSSM) und nimmt beides zurueck, wenn
+die neue Fassung nicht startet. Wer von Hand aktualisiert, haelt
+`OHRGANIZE_VARIANT` in der env-Datei und fuehrt nach einer Aenderung
+`install-service.ps1` aus.
 
 ```powershell
 # Was steckt im Archiv? (in ein leeres Verzeichnis entpacken und nachsehen)

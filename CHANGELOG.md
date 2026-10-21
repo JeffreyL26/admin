@@ -12,6 +12,26 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Windows-Server: Ausgabe in env-Datei und Dienstumgebung (21.10.2026)
+- **Geaendert:** `setup-server.ps1` schreibt `OHRGANIZE_VARIANT` (aus
+  `VARIANTE.txt` des Archivs) in `ohrganize.env` und prueft die Ausgabe eines
+  Archivs, bevor es den Dienst anhaelt und entpackt: gegen die env-Datei, ohne
+  Eintrag dort gegen das installierte Programm. Bisher stand die Ausgabe auf
+  Windows-Servern nicht in der env-Datei, und bei gestopptem Dienst verglich
+  `update-server.ps1` nichts; ein Archiv fremder Ausgabe kam dann durch.
+- **Geaendert:** `update-server.ps1` vergleicht ohne env-Eintrag mit dem
+  installierten `VARIANTE.txt`, traegt die fehlende Zeile nach, setzt
+  `OHRGANIZE_VARIANT` vor dem Start in der Dienstumgebung (NSSM, nur dieser
+  Eintrag) und nimmt beides samt `VARIANTE.txt` zurueck, wenn die neue Fassung
+  nicht startet.
+- **Behoben:** Beide Skripte vertragen Archive auf UNC-Pfaden (`ProviderPath`
+  statt `Path`; .NET kennt das PowerShell-Praefix nicht).
+- **Geaendert:** `release-server.mjs` prueft auch das mitgepackte Portal auf
+  den Marker der Ausgabe: `apps/web/dist` ueberlebt einen Branchwechsel, und
+  `npm run build` baut das Portal nicht mit.
+- Vorlage `deploy/windows/ohrganize.env.example` mit der Zeile
+  `OHRGANIZE_VARIANT=`.
+
 ### DATEV-Lohnexport nach Schnittstellenhandbuch (12.10.2026)
 - **Geaendert:** Die LODAS-Datei folgt jetzt dem DATEV Schnittstellenhandbuch:
   Kopf mit Datumsformat und Stringbegrenzer statt eines erfundenen
