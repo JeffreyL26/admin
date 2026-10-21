@@ -17,7 +17,7 @@ import {
 import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, Field, LoadError, Skeleton } from '../components/ui';
 import { useToast } from '../components/Toast';
-import { formatDate } from '../lib/format';
+import { formatLocalDay } from '../lib/format';
 import { apiErrorMessage, PORTAL_READ_ONLY_NOTICE, READ_ONLY_NOTICE_ID } from '../lib/license';
 
 const STATUS_TONES: Record<EmployeeChangeRequestStatus, string> = {
@@ -231,7 +231,7 @@ export function StammdatenPage() {
             <div className="pt-alert pt-alert--info" style={{ marginBottom: 18 }}>
               <div className="row row--between" style={{ gap: 12, alignItems: 'flex-start' }}>
                 <span>
-                  Ihr Antrag vom {formatDate(openRequest.created_at.slice(0, 10))} wird noch geprüft.
+                  Ihr Antrag vom {formatLocalDay(openRequest.created_at)} wird noch geprüft.
                   Solange er offen ist, ist dieses Formular gesperrt.
                   {/* Im Nur-Lese-Betrieb wäre die Aufforderung zum Zurückziehen leer —
                       der Knopf daneben ist gesperrt, der Grund steht in der Shell. */}
@@ -364,7 +364,7 @@ export function StammdatenPage() {
                   {(requests ?? []).map((r) => (
                     <tr key={r.id}>
                       <td style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
-                        {formatDate(r.created_at.slice(0, 10))}
+                        {formatLocalDay(r.created_at)}
                       </td>
                       <td>
                         <div className="stack" style={{ gap: 4 }}>
@@ -408,7 +408,7 @@ export function StammdatenPage() {
                         {r.decided_at ? (
                           <>
                             <span style={{ whiteSpace: 'nowrap' }}>
-                              {formatDate(r.decided_at.slice(0, 10))}
+                              {formatLocalDay(r.decided_at)}
                             </span>
                             {r.decision_note && (
                               <span

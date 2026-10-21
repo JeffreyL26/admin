@@ -8,7 +8,9 @@ import { NoticeSection } from '../features/communication/NoticeCards';
 import {
   DASHBOARD_STYLE_LABELS, loadDashboardStyle, saveDashboardStyle, type DashboardStyle,
 } from '../lib/dashboardStyle';
-import { formatDate, formatDays, formatLongDate, formatRange, formatRequestDays, greeting, todayIso } from '../lib/format';
+import {
+  formatDate, formatDays, formatLocalDay, formatLongDate, formatRange, formatRequestDays, greeting, todayIso,
+} from '../lib/format';
 
 const STYLES = Object.keys(DASHBOARD_STYLE_LABELS) as DashboardStyle[];
 
@@ -420,7 +422,7 @@ export function OverviewPage() {
                     </div>
                     <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-xs)', marginTop: 4 }}>
                       {r.decided_by_name ? `${r.decided_by_name}, ` : ''}
-                      {r.decided_at ? formatDate(r.decided_at.slice(0, 10)) : ''}
+                      {r.decided_at ? formatLocalDay(r.decided_at) : ''}
                       {r.status === 'abgelehnt' && r.rejection_reason ? ` · ${r.rejection_reason}` : ''}
                     </p>
                   </div>

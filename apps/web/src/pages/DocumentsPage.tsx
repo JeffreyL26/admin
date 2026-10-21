@@ -16,7 +16,7 @@ import { useAuth } from '../auth/AuthContext';
 import { Card, EmptyState, Field, LoadError, SkeletonRows } from '../components/ui';
 import { IconClose, IconDocuments, type IconProps } from '../components/icons';
 import { useToast } from '../components/Toast';
-import { formatDate, todayIso } from '../lib/format';
+import { formatDate, formatLocalDay, todayIso } from '../lib/format';
 import { apiErrorMessage, PORTAL_READ_ONLY_NOTICE, READ_ONLY_NOTICE_ID } from '../lib/license';
 import { Select } from '../components/Select';
 
@@ -471,7 +471,7 @@ function DocumentRow({ doc, today }: { doc: MeDocument; today: string }) {
           {SOURCE_LABELS[doc.source] ?? doc.source}
         </span>
       </td>
-      <td style={{ whiteSpace: 'nowrap' }}>{formatDate(doc.created_at.slice(0, 10))}</td>
+      <td style={{ whiteSpace: 'nowrap' }}>{formatLocalDay(doc.created_at)}</td>
       <td style={{ whiteSpace: 'nowrap' }}>
         {doc.expiry_date ? (
           <span className="row" style={{ gap: 6 }}>
