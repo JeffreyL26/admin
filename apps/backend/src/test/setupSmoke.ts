@@ -141,6 +141,35 @@ const fromServer = deriveSetupProgress(confirmed, { absenceConfirmed: false, ski
 check('Logik: Bestaetigung des Servers reicht, ohne lokalen Stand (weiterer Arbeitsplatz)',
   fromServer.complete, fromServer);
 
+// Portal-Konto: der globale Hook laesst `mitarbeiter` nur an /api/auth und /api/me.
+const portalLogin = await app.inject({
+  method: 'POST', url: '/api/auth/login',
+  payload: { email: 'anna.portal@example.org', password: portal.json().initial_password, client: 'portal' },
+});
+const portalChange = await app.inject({
+  method: 'PUT', url: '/api/auth/password',
+  headers: { authorization: `Bearer ${portalLogin.json().token}` },
+  payload: { currentPassword: portal.json().initial_password, newPassword: pw },
+});
+check('Portal-Konto angemeldet', portalChange.statusCode === 200, portalChange.body);
+const portalConfirm = await app.inject({
+  method: 'POST', url: '/api/setup/absence-confirmed',
+  headers: { authorization: `Bearer ${portalChange.json().token}` },
+});
+check('Bestaetigen als Portal-Konto → 403', portalConfirm.statusCode === 403, portalConfirm.body);
+
+// Nur-Lese-Betrieb: Testphase abgelaufen. Die Route steht bewusst NICHT in
+// LICENSE_OPEN_ROUTES, der Client versucht es dort gar nicht erst.
+const { invalidateLicenseCaches } = await import('../core/license.js');
+const createdAt = (db.prepare('SELECT created_at FROM installation WHERE id = 1').get() as { created_at: string }).created_at;
+db.prepare(`UPDATE installation SET created_at = datetime('now', '-90 days') WHERE id = 1`).run();
+invalidateLicenseCaches();
+const readOnly = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: auth });
+check('Bestaetigen im Nur-Lese-Betrieb → 403 LICENSE_EXPIRED',
+  readOnly.statusCode === 403 && readOnly.json().error?.code === 'LICENSE_EXPIRED', readOnly.body);
+db.prepare('UPDATE installation SET created_at = ? WHERE id = 1').run(createdAt);
+invalidateLicenseCaches();
+
 // Rolle nur mit "benutzer": Konten sichtbar, Belegschaftszahlen (personal) nicht.
 const role2 = await send('POST', '/api/admin/admin-roles', { name: 'Nur Benutzer lesen', permissions: { benutzer: 'lesen' } });
 const lim2 = await send('POST', '/api/admin/users', {

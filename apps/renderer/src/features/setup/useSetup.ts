@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   SETUP_STEPS,
   deriveSetupProgress,
@@ -24,6 +24,25 @@ export function useSetupStatus(enabled = true) {
     queryFn: () => api.get<SetupStatus>('/api/setup/status'),
     enabled,
   });
+}
+
+/**
+ * Bestaetigt den Schritt "abwesenheit" fuer die ganze Installation
+ * (`setup_confirmations`), nicht nur fuer dieses Geraet, und laedt den Status neu.
+ * Eine laufende Anfrage wird geteilt: Der Schritt und der Nachtrag in useSetup
+ * loesen sonst im selben Moment beide aus.
+ */
+let confirmInFlight: Promise<void> | null = null;
+export function postAbsenceConfirmed(qc: QueryClient): Promise<void> {
+  confirmInFlight ??= (async () => {
+    try {
+      await api.post('/api/setup/absence-confirmed');
+      await qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY });
+    } finally {
+      confirmInFlight = null;
+    }
+  })();
+  return confirmInFlight;
 }
 
 export interface SetupView {
@@ -50,7 +69,7 @@ const EMPTY_PROGRESS: SetupProgress = {
  * Person verschlossen bleibt. Die eigentliche Sperre sitzt im Backend.
  */
 export function useSetup(): SetupView {
-  const { user, can, features } = useAuth();
+  const { user, can, features, license } = useAuth();
   const local = useSetupState();
   const qc = useQueryClient();
   const location = useLocation();
@@ -71,7 +90,7 @@ export function useSetup(): SetupView {
   const eligible = user?.role === 'admin' && visibleKeys.length > 0;
   // Der Status wird fuer jedes Admin-Konto geholt: Er liefert auch die Kennung
   // der Installation, an die sich der Stand der Seiten-Einfuehrungen haengt.
-  const { data: status } = useSetupStatus(user?.role === 'admin');
+  const { data: status, dataUpdatedAt: statusUpdatedAt } = useSetupStatus(user?.role === 'admin');
 
   // Der lokale Stand gilt erst, wenn Installation (aus dem Status) und Konto
   // feststehen; bis dahin bleibt `bound` falsch und nichts oeffnet sich.
@@ -94,26 +113,20 @@ export function useSetup(): SetupView {
     [status, local.absenceConfirmed, local.skipped, visibleKeys],
   );
 
-  // Bestaetigung der Abwesenheitsarten gilt fuer die Installation: Was dieses
-  // Geraet bestaetigt hat (eben im Schritt oder frueher, als nur das Geraet sie
-  // kannte), traegt es zum Server nach, damit kein weiterer Arbeitsplatz fragt.
-  // Scheitert es (etwa Nur-Lese-Lizenz), zaehlt es hier weiter lokal, und der
-  // naechste Status versucht es erneut. Ohne Toast: Niemand hat es angestossen.
-  const mayConfirm = can('abwesenheit', 'bearbeiten');
+  // Nachtrag: Der Schritt schreibt die Bestaetigung selbst (postAbsenceConfirmed).
+  // Kennt nur dieses Geraet sie (Bestaetigung aus der Zeit vor dem Serverfeld,
+  // oder das Schreiben im Schritt scheiterte), traegt es sie hier nach, damit
+  // kein weiterer Arbeitsplatz fragt. Bis dahin zaehlt sie lokal. Erneut
+  // versucht wird mit jedem Abruf des Status (`dataUpdatedAt`; die Daten selbst
+  // behalten bei gleichem Inhalt ihre Identitaet). Im Nur-Lese-Betrieb nicht:
+  // Der Server lehnte jeden Schreibzugriff ab. Ohne Toast, niemand hat es
+  // angestossen.
+  const mayConfirm = can('abwesenheit', 'bearbeiten') && license?.read_only !== true;
   const owesConfirm =
     local.bound && local.absenceConfirmed && mayConfirm && status?.absence_confirmed === false;
-  const confirming = useRef(false);
   useEffect(() => {
-    if (!owesConfirm || confirming.current) return;
-    confirming.current = true;
-    api
-      .post('/api/setup/absence-confirmed')
-      .then(() => qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY }))
-      .catch(() => undefined)
-      .finally(() => {
-        confirming.current = false;
-      });
-  }, [owesConfirm, status, qc]);
+    if (owesConfirm) postAbsenceConfirmed(qc).catch(() => undefined);
+  }, [owesConfirm, statusUpdatedAt, qc]);
 
   // Die Route aendert sich staendig, der Stand auch: Wer eine Abteilung auf der
   // normalen Seite anlegt, soll sie im Assistenten sofort erledigt sehen. Die

@@ -16,7 +16,7 @@ import { AccountDialog, InitialPasswordDialog, useAdminRoles } from '../admin/Ad
 import { t } from './copy';
 import { StepShell } from './StepShell';
 import { setupActions } from './store';
-import { SETUP_STATUS_KEY } from './useSetup';
+import { SETUP_STATUS_KEY, postAbsenceConfirmed } from './useSetup';
 import { useSetupContext } from './SetupProvider';
 import type { StepVars } from './stepMeta';
 
@@ -451,7 +451,10 @@ export function AbwesenheitStep() {
         label: t('step5.cta'),
         disabled: activeCount === 0,
         onClick: () => {
+          // Lokal sofort erledigt; fuer die Installation gespeichert wird es
+          // auf dem Server. Scheitert das, traegt useSetup es nach.
           setupActions.confirmAbsence();
+          postAbsenceConfirmed(qc).catch(() => undefined);
           finish({ count: activeCount });
         },
       }}
