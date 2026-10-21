@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
@@ -11,7 +11,7 @@ import {
   type SetupStepKey,
 } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
-import { api } from '../../api/client';
+import { ApiRequestError, api } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { bindSetupKey, useSetupState } from './store';
 import { bindToursKey } from '../tours/store';
@@ -29,20 +29,31 @@ export function useSetupStatus(enabled = true) {
 /**
  * Bestaetigt den Schritt "abwesenheit" fuer die ganze Installation
  * (`setup_confirmations`), nicht nur fuer dieses Geraet, und laedt den Status neu.
- * Eine laufende Anfrage wird geteilt: Der Schritt und der Nachtrag in useSetup
- * loesen sonst im selben Moment beide aus.
+ * Eine laufende Anfrage wird je QueryClient geteilt: Der Schritt und der
+ * Nachtrag in useSetup loesen sonst im selben Moment beide aus.
  */
-let confirmInFlight: Promise<void> | null = null;
+const confirmInFlight = new WeakMap<QueryClient, Promise<void>>();
 export function postAbsenceConfirmed(qc: QueryClient): Promise<void> {
-  confirmInFlight ??= (async () => {
+  const running = confirmInFlight.get(qc);
+  if (running) return running;
+  const request = (async () => {
     try {
       await api.post('/api/setup/absence-confirmed');
       await qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY });
     } finally {
-      confirmInFlight = null;
+      confirmInFlight.delete(qc);
     }
   })();
-  return confirmInFlight;
+  confirmInFlight.set(qc, request);
+  return request;
+}
+
+/** Darf dieses Konto die Bestaetigung jetzt schreiben? Recht des Schritts, keine Nur-Lese-Lizenz. */
+export function mayConfirmAbsence(
+  can: ReturnType<typeof useAuth>['can'],
+  license: ReturnType<typeof useAuth>['license'],
+): boolean {
+  return can('abwesenheit', 'bearbeiten') && license?.read_only !== true;
 }
 
 export interface SetupView {
@@ -120,13 +131,23 @@ export function useSetup(): SetupView {
   // versucht wird mit jedem Abruf des Status (`dataUpdatedAt`; die Daten selbst
   // behalten bei gleichem Inhalt ihre Identitaet). Im Nur-Lese-Betrieb nicht:
   // Der Server lehnte jeden Schreibzugriff ab. Ohne Toast, niemand hat es
-  // angestossen.
-  const mayConfirm = can('abwesenheit', 'bearbeiten') && license?.read_only !== true;
+  // angestossen. Ein 403 (etwa Rechte auf einem anderen Arbeitsplatz entzogen,
+  // bevor dieser Client es weiss) beendet die Versuche fuer Installation und
+  // Konto in dieser Sitzung, statt bei jedem Abruf erneut zu scheitern.
+  const confirmKey = local.bound && instance !== null && userId !== null ? `${instance}.${userId}` : null;
+  const refusedFor = useRef<string | null>(null);
   const owesConfirm =
-    local.bound && local.absenceConfirmed && mayConfirm && status?.absence_confirmed === false;
+    confirmKey !== null &&
+    refusedFor.current !== confirmKey &&
+    local.absenceConfirmed &&
+    mayConfirmAbsence(can, license) &&
+    status?.absence_confirmed === false;
   useEffect(() => {
-    if (owesConfirm) postAbsenceConfirmed(qc).catch(() => undefined);
-  }, [owesConfirm, statusUpdatedAt, qc]);
+    if (!owesConfirm) return;
+    postAbsenceConfirmed(qc).catch((err: unknown) => {
+      if (err instanceof ApiRequestError && err.status === 403) refusedFor.current = confirmKey;
+    });
+  }, [owesConfirm, confirmKey, statusUpdatedAt, qc]);
 
   // Die Route aendert sich staendig, der Stand auch: Wer eine Abteilung auf der
   // normalen Seite anlegt, soll sie im Assistenten sofort erledigt sehen. Die

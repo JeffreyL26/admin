@@ -130,6 +130,25 @@ check('eingeschraenkte Rolle: absence_confirmed fehlt', !('absence_confirmed' in
 // ------------------------------------------- Bestaetigung der Abwesenheitsarten ---
 const limConfirm = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: limAuth });
 check('Bestaetigen ohne abwesenheit: bearbeiten → 403', limConfirm.statusCode === 403, limConfirm.body);
+// Grenze der Pruefung: abwesenheit lesen genuegt nicht, verlangt ist bearbeiten.
+const roleRead = await send('POST', '/api/admin/admin-roles', { name: 'Abwesenheit lesen', permissions: { abwesenheit: 'lesen' } });
+const readUser = await send('POST', '/api/admin/users', {
+  email: 'abwesenheit.lesen@example.org', name: 'Abwesenheit Lesen', role: 'admin', admin_role_id: roleRead.json().admin_role.id,
+});
+const readLogin = await app.inject({
+  method: 'POST', url: '/api/auth/login',
+  payload: { email: 'abwesenheit.lesen@example.org', password: readUser.json().initial_password },
+});
+const readChange = await app.inject({
+  method: 'PUT', url: '/api/auth/password',
+  headers: { authorization: `Bearer ${readLogin.json().token}` },
+  payload: { currentPassword: readUser.json().initial_password, newPassword: pw },
+});
+const readAuth = { authorization: `Bearer ${readChange.json().token}` };
+check('Rolle mit abwesenheit lesen sieht absence_confirmed',
+  (await get('/api/setup/status', readAuth)).json().absence_confirmed === false);
+const readConfirm = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: readAuth });
+check('Bestaetigen mit abwesenheit lesen → 403', readConfirm.statusCode === 403, readConfirm.body);
 check('nach 403 bleibt sie unbestaetigt', (await get('/api/setup/status')).json().absence_confirmed === false);
 const confirm1 = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: auth });
 const confirm2 = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: auth });

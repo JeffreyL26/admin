@@ -16,7 +16,7 @@ import { AccountDialog, InitialPasswordDialog, useAdminRoles } from '../admin/Ad
 import { t } from './copy';
 import { StepShell } from './StepShell';
 import { setupActions } from './store';
-import { SETUP_STATUS_KEY, postAbsenceConfirmed } from './useSetup';
+import { SETUP_STATUS_KEY, mayConfirmAbsence, postAbsenceConfirmed } from './useSetup';
 import { useSetupContext } from './SetupProvider';
 import type { StepVars } from './stepMeta';
 
@@ -417,6 +417,7 @@ export function VorgesetzteStep() {
 
 export function AbwesenheitStep() {
   const qc = useQueryClient();
+  const { can, license } = useAuth();
   const finish = useFinish('abwesenheit');
   const onError = useSaveError();
   const { data: types } = useAbsenceTypes();
@@ -452,9 +453,10 @@ export function AbwesenheitStep() {
         disabled: activeCount === 0,
         onClick: () => {
           // Lokal sofort erledigt; fuer die Installation gespeichert wird es
-          // auf dem Server. Scheitert das, traegt useSetup es nach.
+          // auf dem Server (nicht im Nur-Lese-Betrieb, dort lehnte er ab).
+          // Scheitert das, traegt useSetup es nach.
           setupActions.confirmAbsence();
-          postAbsenceConfirmed(qc).catch(() => undefined);
+          if (mayConfirmAbsence(can, license)) postAbsenceConfirmed(qc).catch(() => undefined);
           finish({ count: activeCount });
         },
       }}
