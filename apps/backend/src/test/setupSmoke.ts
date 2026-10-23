@@ -16,6 +16,7 @@ process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../server.js');
 const { getDb, closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
+const { resetForReseed } = await import('../seed/forceReset.js');
 const {
   deriveSetupProgress, isFreshInstallation, SETUP_STEPS, MODULE_KEYS, setupCardStep, setupLauncherVisible, setupWelcomeDue,
   setupClaimOwed, setupStatusWatched, setupDialogYields, visibleSetupStepKeys,
@@ -200,6 +201,19 @@ check('Startkonto uebernimmt vorlaeufig: 200, Antwort self',
 const zweitView = await ownerOf(zweitAuth);
 check('fuer ein persoenliches Konto gilt die Einrichtung des Startkontos als frei',
   zweitView.assistant_owner === 'none' && zweitView.assistant_claimable === true, zweitView);
+check('Startkonto erkannt am Kennzeichen, genau ein Konto traegt es',
+  (db.prepare('SELECT COUNT(*) n FROM users WHERE is_start_account = 1').get() as { n: number }).n === 1 &&
+    (db.prepare('SELECT is_start_account s FROM users WHERE id = ?').get(self.id) as { s: number }).s === 1);
+// Mit Personalprofil nutzt eine Person das Startkonto selbst (ein Kunde behaelt
+// es): Dann haelt es die Einrichtung wie jedes persoenliche Konto.
+const ownProfile = await mk('Eva', 'Inhaberin');
+check('Testvoraussetzung: ein Personalprofil ohne Konto', ownProfile.statusCode === 201, ownProfile.body);
+const ownProfileId = ownProfile.json().employee.id as number;
+db.prepare('UPDATE users SET employee_id = ? WHERE id = ?').run([ownProfileId, self.id]);
+check('Startkonto mit Personalprofil haelt die Einrichtung fest: fuer andere other',
+  (await ownerOf(zweitAuth)).assistant_owner === 'other');
+db.prepare('UPDATE users SET employee_id = NULL WHERE id = ?').run(self.id);
+db.prepare('DELETE FROM employees WHERE id = ?').run(ownProfileId);
 
 const claim1 = await started(zweitAuth);
 const claim2 = await started(zweitAuth);
@@ -240,27 +254,29 @@ check('Kontoloeschung leert user_id',
 check('nach dem Loeschen ist die Einrichtung wieder frei', (await ownerOf(auth)).assistant_owner === 'none');
 
 // Neu seeden (seed.ts --force) loescht Konten direkt per SQL, nicht ueber die
-// Kontoloeschung: Ohne setup_confirmations in seiner Tabellenliste scheiterte
-// das am Fremdschluessel, sobald ein Konto Eigentuemer ist. Nachgestellt mit
-// einem Wegwerf-Konto als Eigentuemer, in einer Transaktion, die zurueckrollt.
-const seedSource = fs.readFileSync(path.join(import.meta.dirname, '..', 'seed', 'seed.ts'), 'utf8');
-check('seed.ts leert setup_confirmations beim Neuseeden', /'setup_confirmations'/.test(seedSource));
+// Kontoloeschung: Ohne das Loesen des Eigentuemers scheiterte das am
+// Fremdschluessel. Geprueft werden genau die Schritte des Seeds
+// (seed/forceReset.ts) mit einem Wegwerf-Konto als Eigentuemer, in einer
+// Transaktion, die zurueckrollt.
 const tmpOwner = db
   .prepare("INSERT INTO users (email, name, password_hash, role) VALUES ('seed.probe@example.org', 'Probe', 'x', 'admin')")
   .run().lastInsertRowid;
 db.prepare(`UPDATE setup_confirmations SET user_id = ? WHERE step = 'assistent'`).run(tmpOwner);
-let seedOrderOk = false;
+let seedRan = false;
+let seedError = '';
+let absenceKept = false;
 try {
   db.transaction(() => {
-    db.prepare('DELETE FROM setup_confirmations').run();
-    db.prepare("DELETE FROM users WHERE email = 'seed.probe@example.org'").run();
-    seedOrderOk = true;
+    resetForReseed();
+    seedRan = true;
+    absenceKept = db.prepare(`SELECT 1 FROM setup_confirmations WHERE step = 'abwesenheit'`).get() !== undefined;
     throw new Error('zurueckrollen');
   })();
-} catch {
-  // gewollt: nur die Reihenfolge pruefen, nichts behalten
+} catch (err) {
+  if (!seedRan) seedError = String(err);
 }
-check('Reihenfolge des Seeds loescht Konten trotz Eigentuemer ohne Fremdschluesselfehler', seedOrderOk);
+check('Neu seeden loest den Eigentuemer und loescht die Konten ohne Fremdschluesselfehler', seedRan, seedError);
+check('Neu seeden behaelt die Bestaetigung der Abwesenheitsarten', absenceKept);
 db.prepare(`UPDATE setup_confirmations SET user_id = NULL WHERE step = 'assistent'`).run();
 db.prepare("DELETE FROM users WHERE email = 'seed.probe@example.org'").run();
 
@@ -295,6 +311,9 @@ invalidateLicenseCaches();
 const readOnly = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: auth });
 check('Bestaetigen im Nur-Lese-Betrieb → 403 LICENSE_EXPIRED',
   readOnly.statusCode === 403 && readOnly.json().error?.code === 'LICENSE_EXPIRED', readOnly.body);
+const readOnlyStatus = (await get('/api/setup/status')).json();
+check('Nur-Lese-Betrieb: Status meldet kein Uebernehmen-Duerfen',
+  readOnlyStatus.assistant_owner === 'none' && readOnlyStatus.assistant_claimable === false, readOnlyStatus);
 const readOnlyStarted = await app.inject({ method: 'POST', url: '/api/setup/started', headers: auth });
 check('Uebernehmen im Nur-Lese-Betrieb → 403 LICENSE_EXPIRED',
   readOnlyStarted.statusCode === 403 && readOnlyStarted.json().error?.code === 'LICENSE_EXPIRED', readOnlyStarted.body);
@@ -382,14 +401,15 @@ check('Nachladen beim Menuewechsel: solange offen und nicht ausgeblendet, auch f
     setupStatusWatched(progMid, { ...viewNew, welcomed: true, cardDismissed: true }) &&
     !setupStatusWatched(progMid, { ...viewNew, cardDismissed: true }) &&
     !setupStatusWatched(all, viewNew));
-const dialogOpen = { open: true, reopened: false };
-check('Dialog tritt zurueck, wenn ein anderes Konto uebernimmt und er von selbst kam',
-  setupDialogYields(asOwner('other'), dialogOpen) &&
-    !setupDialogYields(asOwner('self'), dialogOpen) &&
-    !setupDialogYields(asOwner('none'), dialogOpen));
-check('Dialog bleibt, wenn er bewusst geoeffnet wurde oder geschlossen ist',
-  !setupDialogYields(asOwner('other'), { open: true, reopened: true }) &&
-    !setupDialogYields(asOwner('other'), { open: false, reopened: false }));
+const welcomeOpen = { open: true, view: 'welcome' };
+check('Dialog tritt zurueck, wenn ein anderes Konto uebernimmt und noch das Willkommen zeigt',
+  setupDialogYields(asOwner('other'), welcomeOpen) &&
+    !setupDialogYields(asOwner('self'), welcomeOpen) &&
+    !setupDialogYields(asOwner('none'), welcomeOpen));
+check('Dialog bleibt, sobald ein Schritt laeuft (Eingaben gingen sonst verloren) oder wenn er geschlossen ist',
+  !setupDialogYields(asOwner('other'), { open: true, view: 'step' }) &&
+    !setupDialogYields(asOwner('other'), { open: true, view: 'done' }) &&
+    !setupDialogYields(asOwner('other'), { open: false, view: 'welcome' }));
 const allAreas = () => true;
 check('Schritte: Vollzugriff in der Vollversion sieht alle sieben',
   visibleSetupStepKeys(allAreas, { modules: [...MODULE_KEYS] }, null).length === 7);

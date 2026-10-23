@@ -253,4 +253,18 @@ export const coreMigrations: Migration[] = [
         ON setup_confirmations(user_id) WHERE user_id IS NOT NULL;
     `,
   },
+  {
+    // Startkonto der Installation (ensureDefaultAdmin) als Kennzeichen statt
+    // am Namen: Die Adresse admin@ohrganize.de laesst sich nach dem Loeschen
+    // neu vergeben, ein solches Konto ist dann ein gewoehnliches. Es haelt den
+    // Einrichtungs-Assistenten nur vorlaeufig (core/setupRoutes.ts,
+    // holdsProvisionally). Bestehende Installationen: ensureDefaultAdmin legt
+    // das Konto als allererstes an, also zaehlt es nur mit der kleinsten ID.
+    name: '009_start_account',
+    sql: `
+      ALTER TABLE users ADD COLUMN is_start_account INTEGER NOT NULL DEFAULT 0;
+      UPDATE users SET is_start_account = 1
+       WHERE email = 'admin@ohrganize.de' AND id = (SELECT MIN(id) FROM users);
+    `,
+  },
 ];

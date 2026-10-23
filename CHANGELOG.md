@@ -23,8 +23,11 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   jedem seiner Arbeitsplaetze; das Ausblenden der Karte gilt weiter nur fuer
   das eigene Geraet. Wird das Konto geloescht oder verliert es alle
   Assistentenschritte (Rollenwechsel), ist die Einrichtung wieder frei. Das
-  Startkonto `admin@ohrganize.de` haelt sie nur vorlaeufig, bis ein
-  persoenliches Konto sie uebernimmt. Ueber die Befehlspalette (Strg+K, Suche nach
+  Startkonto der Installation haelt sie nur vorlaeufig, bis ein
+  persoenliches Konto sie uebernimmt; erkannt wird es an einem Kennzeichen
+  beim Anlegen (Migration `009_start_account`), nicht an der Adresse
+  `admin@ohrganize.de`, und mit Personalprofil zaehlt es wie jedes
+  persoenliche Konto. Ueber die Befehlspalette (Strg+K, Suche nach
   "Einrichtung") bleibt der Assistent fuer alle erreichbar. Migration
   `008_setup_owner`, `POST /api/setup/started`, Statusfelder
   `assistant_owner` und `assistant_claimable`; Merker, die nur ein Geraet
@@ -33,11 +36,13 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   Funktion fuer Client und Backend (`visibleSetupStepKeys`), die Regeln fuer
   Karte, Willkommen und Uebernahme stehen DOM-frei in `shared/setup.ts` und
   sind im Setup-Test abgedeckt. Uebernimmt ein anderes Konto, waehrend der
-  Dialog von selbst offen ist (zwei Anmeldungen zugleich), tritt er zurueck;
-  der Status wird beim Menuewechsel auch fuer Nicht-Eigentuemer nachgeladen,
-  damit eine wieder freie Einrichtung ohne Neustart erscheint. Der Seed
-  (`--force`) leert `setup_confirmations`, sonst scheiterte das Loeschen der
-  Konten am Fremdschluessel.
+  Dialog noch das Willkommen zeigt (zwei Anmeldungen zugleich), tritt er
+  zurueck; ein laufender Schritt bleibt samt Eingaben stehen. Der Status wird
+  beim Menuewechsel auch fuer Nicht-Eigentuemer nachgeladen, damit eine
+  wieder freie Einrichtung ohne Neustart erscheint, und meldet im
+  Nur-Lese-Betrieb kein Uebernehmen-Duerfen. Der Seed (`--force`) loest den
+  Eigentuemer vor dem Loeschen der Konten (sonst scheiterte er am
+  Fremdschluessel) und behaelt die Bestaetigung der Abwesenheitsarten.
 
 ### Krankmeldungen: Folgebescheinigung auch bei HR-Erfassung (21.10.2026)
 - **Geaendert:** Erfasst die HR eine Krankmeldung, die nahtlos an eine
