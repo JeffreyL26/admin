@@ -595,7 +595,11 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   geloescht) haelt sie nur vorlaeufig: Fuer jedes andere Konto gilt sie dann
   als frei. Die Regeln stehen DOM-frei in `shared/setup.ts`
   (`setupCardStep`, `setupLauncherVisible`, `setupWelcomeDue`,
-  `setupClaimOwed`, `setupStatusWatched`), welche Schritte ein Konto sieht in
+  `setupClaimOwed`, `setupStatusWatched`, `setupDialogYields`: ein von selbst
+  geoeffneter Dialog tritt zurueck, sobald ein anderes Konto uebernimmt; der
+  Status wird beim Menuewechsel auch fuer Nicht-Eigentuemer nachgeladen,
+  Prinzip 3). Der Seed (`--force`) leert `setup_confirmations` vor den
+  Konten, sonst scheiterte er am Fremdschluessel. Welche Schritte ein Konto sieht in
   `visibleSetupStepKeys` (Client und Backend gleich). **Alle Texte stehen in
   `features/setup/copy.ts`** (Schluessel wie im abgestimmten Textartefakt,
   `t()` fuellt Platzhalter); neue Schritte tragen sich in `SETUP_STEPS`

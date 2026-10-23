@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect } from 'react';
-import { setupWelcomeDue } from '@ohrganize/shared';
+import { setupDialogYields, setupWelcomeDue } from '@ohrganize/shared';
 import { setupActions, useSetupState } from './store';
 import { useSetup, type SetupView } from './useSetup';
 
@@ -16,6 +16,8 @@ export function useSetupContext(): SetupView {
  * Shell (Dialog, Launcher, Seitenleiste, Dashboard-Karte). Oeffnet den
  * Willkommensdialog genau einmal, und nur, wenn die Installation noch leer ist
  * und kein anderes Konto die Einrichtung uebernommen hat (setupWelcomeDue).
+ * Uebernimmt ein anderes Konto, waehrend der Dialog von selbst offen ist,
+ * tritt er zurueck (setupDialogYields).
  */
 export function SetupProvider({ children }: { children: React.ReactNode }) {
   const view = useSetup();
@@ -24,9 +26,9 @@ export function SetupProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // `bound`: erst, wenn der Stand dieser Installation und dieses Kontos geladen ist.
-    if (eligible && status && local.bound && setupWelcomeDue(status, local)) {
-      setupActions.showWelcome();
-    }
+    if (!status || !local.bound) return;
+    if (eligible && setupWelcomeDue(status, local)) setupActions.showWelcome();
+    else if (setupDialogYields(status, local)) setupActions.minimize();
   }, [eligible, status, local]);
 
   return <SetupContext.Provider value={view}>{children}</SetupContext.Provider>;

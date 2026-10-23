@@ -280,20 +280,27 @@ export function setupClaimOwed(status: SetupStatus, view: SetupViewState): boole
 }
 
 /**
- * Lohnt das Nachladen des Status beim Seitenwechsel? Nur, solange Assistent
- * oder Karte etwas zeigen koennen: nicht nach dem Abschluss, nicht nach dem
- * Ausblenden, und gar nicht, wenn ein anderes Konto uebernommen hat (dann
- * zeigen weder Karte noch Launcher etwas). Ohne Status (noch nicht geladen)
- * gilt beides als moeglich.
+ * Lohnt das Nachladen des Status beim Seitenwechsel? Solange Assistent oder
+ * Karte etwas zeigen koennen: nicht nach dem Abschluss, nicht nach dem
+ * Ausblenden auf diesem Geraet. Auch dann, wenn gerade ein anderes Konto
+ * uebernommen hat: Wird dessen Konto geloescht oder verliert es die Rechte,
+ * muss die Karte hier nach einem Menuewechsel erscheinen (Prinzip 3, synchrone
+ * Daten), und die Abfrage sitzt im SetupProvider, der nie neu eingehaengt wird.
  */
-export function setupStatusWatched(
-  status: SetupStatus | undefined,
-  progress: SetupProgress,
-  view: SetupViewState,
+export function setupStatusWatched(progress: SetupProgress, view: SetupViewState): boolean {
+  return !progress.complete && (view.welcomed || !view.cardDismissed);
+}
+
+/**
+ * Bleibt der offene Dialog stehen? Nicht, wenn ein ANDERES Konto die
+ * Einrichtung uebernommen hat und der Dialog nur von selbst kam (Willkommen
+ * bei leerer Firma, zwei Anmeldungen zugleich): Sonst arbeiteten beide die
+ * Schritte parallel ab und legten etwa Abteilungen doppelt an. Wer den
+ * Assistenten bewusst ueber die Befehlspalette oeffnet (`reopened`), behaelt ihn.
+ */
+export function setupDialogYields(
+  status: Pick<SetupStatus, 'assistant_owner'>,
+  view: Pick<SetupViewState, 'open'> & { reopened: boolean },
 ): boolean {
-  return (
-    !progress.complete &&
-    (status === undefined || setupOfferedTo(status)) &&
-    (view.welcomed || !view.cardDismissed)
-  );
+  return view.open && !view.reopened && !setupOfferedTo(status);
 }
