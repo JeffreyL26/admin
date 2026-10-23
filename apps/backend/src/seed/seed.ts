@@ -24,7 +24,7 @@ import bcrypt from 'bcryptjs';
 import { getDb, closeDb, inTransaction } from '../db/db.js';
 import { migrate } from '../db/migrate.js';
 import { ensureDefaultAdmin } from '../core/auth.js';
-import { resetForReseed } from './forceReset.js';
+import { StartAccountMissingError, resetForReseed } from './forceReset.js';
 import { storeFile } from '../core/files.js';
 import { RESPONSE_ID_LIMIT } from '../modules/communication/surveyService.js';
 import { holidaysForYear } from '../core/holidays.js';
@@ -43,8 +43,8 @@ const FORCE = process.argv.includes('--force');
 // vor einem versehentlichen Lauf. Auf einem frisch installierten Kundenserver
 // ist die Datenbank aber leer: Der Lauf ginge durch und legte die öffentlich
 // dokumentierten Demo-Konten (ohrganize2026 / portal2026) an — mit --force
-// zusätzlich unter Verlust aller Fachdaten und aller Konten außer
-// admin@ohrganize.de.
+// zusätzlich unter Verlust aller Fachdaten und aller Konten außer dem
+// Startkonto der Installation (users.is_start_account).
 //
 // Kriterium: Das Backend leitet sein Datenverzeichnis ohne OHRGANIZE_DATA_DIR
 // aus dem Repository ab (apps/backend/data) — das ist der Dev-Fall. Wer die
@@ -82,7 +82,7 @@ if (
       'Das Datenverzeichnis zeigt nicht auf die Entwicklungsdatenbank, sondern auf eine',
       'echte Installation. Dieses Skript legt dort Konten mit den öffentlich',
       'dokumentierten Demo-Passwörtern an (ohrganize2026 / portal2026) — mit --force löscht',
-      'es zuvor sämtliche Fachdaten und alle Benutzerkonten außer admin@ohrganize.de.',
+      'es zuvor sämtliche Fachdaten und alle Benutzerkonten außer dem Startkonto der Installation.',
       '',
       'Konten auf einem Produktivsystem entstehen unter "Verwaltung → Benutzer & Rechte"',
       '(POST /api/admin/users); das Passwort erzeugt dort der Server. Ablauf:',
@@ -108,7 +108,13 @@ if (employeeCount > 0 && !FORCE) {
 }
 
 if (FORCE) {
-  inTransaction(() => resetForReseed());
+  try {
+    inTransaction(() => resetForReseed());
+  } catch (err) {
+    if (!(err instanceof StartAccountMissingError)) throw err;
+    console.error(err.message);
+    process.exit(1);
+  }
   console.log('Bestehende Fachdaten gelöscht (--force).');
 }
 

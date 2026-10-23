@@ -493,7 +493,8 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `ensureDefaultAdmin`, bestehende Installationen `markStartAccount` in
   Migration `009_start_account`, hoechstens eins per eindeutigem Teilindex;
   NICHT die Adresse `admin@ohrganize.de`, die nach dem Loeschen neu vergeben
-  werden kann, auch der Seed behaelt es am Kennzeichen; wird
+  werden kann, auch der Seed behaelt es am Kennzeichen und bricht ohne es
+  vor dem Leeren ab; wird
   nach der Inbetriebnahme geloescht) haelt sie nur vorlaeufig, solange es mit
   keinem Personalprofil verknuepft ist: Fuer jedes andere Konto gilt sie dann
   als frei. `assistant_claimable` ist im Nur-Lese-Betrieb falsch, wie der
