@@ -81,13 +81,34 @@ function mayClaim(account: SetupAccount | undefined): account is SetupAccount {
  * Behaelt ein Kunde es bewusst, uebernimmt das erste persoenliche Konto, das
  * den Assistenten kennenlernt.
  */
-function ownerFor(ownerId: number | null | undefined, viewer: SetupAccount | undefined): SetupOwner {
-  if (ownerId === null || ownerId === undefined || !viewer) return 'none';
-  if (ownerId === viewer.id) return mayClaim(viewer) ? 'self' : 'none';
-  const owner = loadAccount(ownerId);
+function ownerFor(owner: SetupAccount | undefined, viewer: SetupAccount | undefined): SetupOwner {
+  if (!owner || !viewer) return 'none';
+  if (owner.id === viewer.id) return mayClaim(viewer) ? 'self' : 'none';
   if (!mayClaim(owner)) return 'none';
   if (isStartAccount(owner) && !isStartAccount(viewer)) return 'none';
   return 'other';
+}
+
+/**
+ * Beide Merker samt Konto des Eigentuemers in EINER Abfrage (der Status wird
+ * bei jedem Fokus geholt). `owner` fehlt, wenn niemand uebernommen hat oder
+ * das Konto geloescht wurde (user_id NULL).
+ */
+function loadMarks(): { absenceConfirmed: boolean; owner: SetupAccount | undefined } {
+  const rows = getDb()
+    .prepare(
+      `SELECT sc.step, u.id, u.email, u.role, u.admin_role_id
+       FROM setup_confirmations sc LEFT JOIN users u ON u.id = sc.user_id`,
+    )
+    .all() as ({ step: string } & { [K in keyof SetupAccount]: SetupAccount[K] | null })[];
+  const assistant = rows.find((r) => r.step === 'assistent');
+  return {
+    absenceConfirmed: rows.some((r) => r.step === 'abwesenheit'),
+    owner:
+      assistant && assistant.id !== null && assistant.email !== null && assistant.role !== null
+        ? { id: assistant.id, email: assistant.email, role: assistant.role, admin_role_id: assistant.admin_role_id }
+        : undefined,
+  };
 }
 
 export async function setupRoutes(app: FastifyInstance): Promise<void> {
@@ -105,17 +126,12 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
       .digest('hex')
       .slice(0, 16);
 
-    // Beide Merker in einer Abfrage; die Tabelle hat hoechstens eine Zeile je Merker.
-    const marks = new Map(
-      (db.prepare('SELECT step, user_id FROM setup_confirmations').all() as { step: string; user_id: number | null }[]).map(
-        (m) => [m.step, m.user_id],
-      ),
-    );
+    const marks = loadMarks();
 
     // Uebernehmen-Duerfen zaehlt nur, solange die Einrichtung frei ist; sonst
     // spart sich der haeufig abgerufene Status die Pruefung.
     const viewer = loadAccount(req.user.id);
-    const owner = ownerFor(marks.get('assistent'), viewer);
+    const owner = ownerFor(marks.owner, viewer);
     const status: SetupStatus = {
       allowed_areas: ADMIN_AREAS.filter(may),
       instance,
@@ -143,7 +159,7 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
 
     if (may('abwesenheit')) {
       status.absence_types_active = count(`SELECT COUNT(*) n FROM absence_types WHERE active = 1`);
-      status.absence_confirmed = marks.has('abwesenheit');
+      status.absence_confirmed = marks.absenceConfirmed;
     }
 
     if (may('benutzer')) {
@@ -195,18 +211,14 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
     const viewer = loadAccount(req.user.id);
     if (!mayClaim(viewer)) throw forbidden();
     const db = getDb();
-    const current = () =>
-      (db.prepare(`SELECT user_id FROM setup_confirmations WHERE step = 'assistent'`).get() as
-        | { user_id: number | null }
-        | undefined)?.user_id;
     const owner = inTransaction(() => {
-      if (ownerFor(current(), viewer) === 'none') {
+      if (ownerFor(loadMarks().owner, viewer) === 'none') {
         db.prepare(
           `INSERT INTO setup_confirmations (step, user_id) VALUES ('assistent', ?)
            ON CONFLICT(step) DO UPDATE SET user_id = excluded.user_id, confirmed_at = datetime('now')`,
         ).run(viewer.id);
       }
-      return ownerFor(current(), viewer);
+      return ownerFor(loadMarks().owner, viewer);
     });
     return { assistant_owner: owner };
   });

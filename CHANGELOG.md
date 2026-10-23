@@ -32,7 +32,12 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 - **Geaendert:** Welche Schritte ein Konto im Assistenten sieht, rechnet eine
   Funktion fuer Client und Backend (`visibleSetupStepKeys`), die Regeln fuer
   Karte, Willkommen und Uebernahme stehen DOM-frei in `shared/setup.ts` und
-  sind im Setup-Test abgedeckt.
+  sind im Setup-Test abgedeckt. Uebernimmt ein anderes Konto, waehrend der
+  Dialog von selbst offen ist (zwei Anmeldungen zugleich), tritt er zurueck;
+  der Status wird beim Menuewechsel auch fuer Nicht-Eigentuemer nachgeladen,
+  damit eine wieder freie Einrichtung ohne Neustart erscheint. Der Seed
+  (`--force`) leert `setup_confirmations`, sonst scheiterte das Loeschen der
+  Konten am Fremdschluessel.
 
 ### Krankmeldungen: Folgebescheinigung auch bei HR-Erfassung (21.10.2026)
 - **Geaendert:** Erfasst die HR eine Krankmeldung, die nahtlos an eine

@@ -135,6 +135,10 @@ if (FORCE) {
     'employee_change_request_fields', 'employee_change_requests',
     'employees', 'teams', 'departments', 'locations',
     'audit_log', 'files',
+    // Merker des Einrichtungs-Assistenten: verweist mit user_id auf ein Konto
+    // (Eigentuemer), sonst scheiterte das Loeschen der Konten unten am
+    // Fremdschluessel. Ein neu geseedeter Stand beginnt ohne Eigentuemer.
+    'setup_confirmations',
   ];
   inTransaction(() => {
     for (const t of tables) db.prepare(`DELETE FROM ${t}`).run();

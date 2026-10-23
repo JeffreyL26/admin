@@ -18,7 +18,7 @@ const { getDb, closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
 const {
   deriveSetupProgress, isFreshInstallation, SETUP_STEPS, MODULE_KEYS, setupCardStep, setupLauncherVisible, setupWelcomeDue,
-  setupClaimOwed, setupStatusWatched, visibleSetupStepKeys,
+  setupClaimOwed, setupStatusWatched, setupDialogYields, visibleSetupStepKeys,
 } = await import('@ohrganize/shared');
 
 let failures = 0;
@@ -239,6 +239,31 @@ check('Kontoloeschung leert user_id',
     .user_id === null);
 check('nach dem Loeschen ist die Einrichtung wieder frei', (await ownerOf(auth)).assistant_owner === 'none');
 
+// Neu seeden (seed.ts --force) loescht Konten direkt per SQL, nicht ueber die
+// Kontoloeschung: Ohne setup_confirmations in seiner Tabellenliste scheiterte
+// das am Fremdschluessel, sobald ein Konto Eigentuemer ist. Nachgestellt mit
+// einem Wegwerf-Konto als Eigentuemer, in einer Transaktion, die zurueckrollt.
+const seedSource = fs.readFileSync(path.join(import.meta.dirname, '..', 'seed', 'seed.ts'), 'utf8');
+check('seed.ts leert setup_confirmations beim Neuseeden', /'setup_confirmations'/.test(seedSource));
+const tmpOwner = db
+  .prepare("INSERT INTO users (email, name, password_hash, role) VALUES ('seed.probe@example.org', 'Probe', 'x', 'admin')")
+  .run().lastInsertRowid;
+db.prepare(`UPDATE setup_confirmations SET user_id = ? WHERE step = 'assistent'`).run(tmpOwner);
+let seedOrderOk = false;
+try {
+  db.transaction(() => {
+    db.prepare('DELETE FROM setup_confirmations').run();
+    db.prepare("DELETE FROM users WHERE email = 'seed.probe@example.org'").run();
+    seedOrderOk = true;
+    throw new Error('zurueckrollen');
+  })();
+} catch {
+  // gewollt: nur die Reihenfolge pruefen, nichts behalten
+}
+check('Reihenfolge des Seeds loescht Konten trotz Eigentuemer ohne Fremdschluesselfehler', seedOrderOk);
+db.prepare(`UPDATE setup_confirmations SET user_id = NULL WHERE step = 'assistent'`).run();
+db.prepare("DELETE FROM users WHERE email = 'seed.probe@example.org'").run();
+
 // Portal-Konto: der globale Hook laesst `mitarbeiter` nur an /api/auth und /api/me.
 const portalLogin = await app.inject({
   method: 'POST', url: '/api/auth/login',
@@ -352,11 +377,19 @@ check('Uebernahme: faellig, wer den Assistenten kennt, solange sie frei ist und 
     !setupClaimOwed(asOwner('none'), { ...viewNew, cardDismissed: true }) &&
     !setupClaimOwed(asOwner('self'), { ...viewNew, welcomed: true }) &&
     !setupClaimOwed({ ...asOwner('none'), assistant_claimable: false }, { ...viewNew, welcomed: true }));
-check('Nachladen: nicht, wenn ein anderes Konto uebernommen hat; ohne Status ja',
-  !setupStatusWatched(asOwner('other'), progMid, viewNew) &&
-    !setupStatusWatched(asOwner('other'), progMid, { ...viewNew, welcomed: true }) &&
-    setupStatusWatched(asOwner('self'), progMid, { ...viewNew, welcomed: true }) &&
-    setupStatusWatched(undefined, progMid, viewNew) && !setupStatusWatched(asOwner('none'), all, viewNew));
+check('Nachladen beim Menuewechsel: solange offen und nicht ausgeblendet, auch fuer Nicht-Eigentuemer (Prinzip 3)',
+  setupStatusWatched(progMid, viewNew) &&
+    setupStatusWatched(progMid, { ...viewNew, welcomed: true, cardDismissed: true }) &&
+    !setupStatusWatched(progMid, { ...viewNew, cardDismissed: true }) &&
+    !setupStatusWatched(all, viewNew));
+const dialogOpen = { open: true, reopened: false };
+check('Dialog tritt zurueck, wenn ein anderes Konto uebernimmt und er von selbst kam',
+  setupDialogYields(asOwner('other'), dialogOpen) &&
+    !setupDialogYields(asOwner('self'), dialogOpen) &&
+    !setupDialogYields(asOwner('none'), dialogOpen));
+check('Dialog bleibt, wenn er bewusst geoeffnet wurde oder geschlossen ist',
+  !setupDialogYields(asOwner('other'), { open: true, reopened: true }) &&
+    !setupDialogYields(asOwner('other'), { open: false, reopened: false }));
 const allAreas = () => true;
 check('Schritte: Vollzugriff in der Vollversion sieht alle sieben',
   visibleSetupStepKeys(allAreas, { modules: [...MODULE_KEYS] }, null).length === 7);

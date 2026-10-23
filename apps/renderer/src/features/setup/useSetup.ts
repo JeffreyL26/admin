@@ -184,7 +184,7 @@ export function useSetup(): SetupView {
   // normalen Seite anlegt, soll sie im Assistenten sofort erledigt sehen. Die
   // Abfrage besteht nur aus Zaehlungen, laeuft aber nur, solange der Assistent oder
   // seine Karte etwas anzeigen koennen (setupStatusWatched in shared).
-  const watching = eligible && setupStatusWatched(status, progress, local);
+  const watching = eligible && setupStatusWatched(progress, local);
   useEffect(() => {
     if (watching) qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY });
   }, [location.pathname, watching, qc]);
