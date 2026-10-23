@@ -1,5 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import { setupCardVisible } from '@ohrganize/shared';
 import { Tooltip } from '../../components/Tooltip';
 import { t } from './copy';
 import { stepText } from './stepMeta';
@@ -11,15 +12,13 @@ import { useSetupContext } from './SetupProvider';
  * persoenlichen Hinweise (PersonalNotices) bewusst keine Widget-Kachel: Sie
  * erscheint nur mit Inhalt und verschwindet mit dem letzten Schritt. Wer den
  * Assistenten schon im Launcher fuehrt, braucht die Karte nicht doppelt.
- * Hat schon ein Konto die Einrichtung uebernommen (assistant_started, auf
- * irgendeinem Arbeitsplatz), erscheint sie nicht: Sonst bekaeme jede neue
- * HR-Person bei der ersten Anmeldung den Stand der Einrichtung vorgesetzt.
+ * Hat ein ANDERES Konto die Einrichtung uebernommen, erscheint sie nicht
+ * (setupCardVisible in shared).
  */
 export function SetupDashboardCard() {
   const { eligible, status, progress } = useSetupContext();
   const s = useSetupState();
-  if (!eligible || !status || !s.bound || progress.total === 0 || progress.complete) return null;
-  if (s.cardDismissed || s.open || s.welcomed || status.assistant_started) return null;
+  if (!eligible || !status || !s.bound || !setupCardVisible(status, progress, s)) return null;
   const next = progress.next;
   if (!next) return null;
   const pct = Math.round((progress.doneCount / progress.total) * 100);

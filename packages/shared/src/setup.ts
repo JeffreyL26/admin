@@ -1,5 +1,6 @@
 import type { AdminArea } from './admin.js';
-import type { ModuleKey } from './variants/index.js';
+import { pathAllowedByFeatures } from './features.js';
+import { moduleEnabled, type ModuleKey, type VariantManifest } from './variants/index.js';
 
 /**
  * Einrichtungs-Assistent: Schritte und Fortschritt, ohne DOM, damit Backend-Test
@@ -59,13 +60,18 @@ export interface SetupStatus {
    */
   instance: string;
   /**
-   * Hat schon ein Konto die Einrichtung uebernommen (Willkommen gesehen, den
-   * Assistenten geoeffnet oder die Karte ausgeblendet), egal auf welchem
-   * Arbeitsplatz? Dann bieten Karte und Willkommensdialog sie keinem weiteren
-   * Konto mehr an; erreichbar bleibt der Assistent ueber die Befehlspalette.
-   * Ohne Bereichsbindung, es sagt nichts ueber Fachdaten.
+   * Wer die Einrichtung uebernommen hat, aus Sicht des abfragenden Kontos
+   * (siehe SetupOwner). Ohne Bereichsbindung und ohne Konto-ID: Es sagt nichts
+   * ueber Fachdaten und nicht, WER es ist.
    */
-  assistant_started: boolean;
+  assistant_owner: SetupOwner;
+  /**
+   * Kann das abfragende Konto die Einrichtung uebernehmen? Nur mit mindestens
+   * einem sichtbaren Schritt (visibleSetupStepKeys) und nicht als Startkonto
+   * des Betreibers (admin@ohrganize.de), das nach der Inbetriebnahme geloescht
+   * wird. Dieselbe Pruefung wie POST /api/setup/started.
+   */
+  assistant_claimable: boolean;
   company_saved?: boolean;
   locations?: number;
   departments?: number;
@@ -78,6 +84,16 @@ export interface SetupStatus {
   portal_users?: number;
   employees_without_account?: number;
 }
+
+/**
+ * Uebernahme der Einrichtung, gespeichert je Installation MIT Konto (Zeile
+ * `assistent` in `setup_confirmations`): `none` = noch niemand (oder das Konto
+ * wurde geloescht), `self` = das abfragende Konto, `other` = ein anderes.
+ * Uebernommen hat, wer den Assistenten kennengelernt hat (Willkommen gesehen
+ * oder geoeffnet, lokaler Merker `welcomed`); das Ausblenden der Karte zaehlt
+ * NICHT, es gilt nur fuer das eigene Geraet.
+ */
+export type SetupOwner = 'none' | 'self' | 'other';
 
 /** Was nur dieses Geraet weiss (localStorage, je Konto). */
 export interface SetupLocalState {
@@ -180,4 +196,83 @@ export function nextOpenAfter(progress: SetupProgress, after: SetupStepKey): Set
  */
 export function isFreshInstallation(s: SetupStatus): boolean {
   return s.company_saved === false && s.departments === 0 && s.employees_active === 0;
+}
+
+/**
+ * Schritte, die ein Konto im Assistenten sieht: Bereich bearbeitbar
+ * (`mayEdit`, im Client `can`, im Backend areaOpen), Modul in der Variante,
+ * Pfad von der Lizenz freigegeben. Client (useSetup) und Backend (Recht zur
+ * Uebernahme) rufen dieselbe Funktion, sonst laege die Grenze an zwei Stellen.
+ */
+export function visibleSetupStepKeys(
+  mayEdit: (area: AdminArea) => boolean,
+  variant: Pick<VariantManifest, 'modules'>,
+  features: readonly string[] | null | undefined,
+): SetupStepKey[] {
+  return SETUP_STEPS.filter(
+    (d) => mayEdit(d.area) && moduleEnabled(variant, d.module) && pathAllowedByFeatures(d.navPath, features),
+  ).map((d) => d.key);
+}
+
+/** Lokaler Zustand, an dem die Sichtbarkeit haengt (renderer features/setup/store.ts). */
+export interface SetupViewState {
+  /** Willkommen gesehen oder Assistent geoeffnet (ab dann gibt es den Launcher). */
+  welcomed: boolean;
+  /** Dialog offen. */
+  open: boolean;
+  /** Karte auf diesem Geraet ausgeblendet. */
+  cardDismissed: boolean;
+}
+
+/**
+ * Bieten Karte und Willkommen die Einrichtung diesem Konto an? Nicht, wenn ein
+ * ANDERES Konto sie uebernommen hat: Sonst bekaeme jede neue HR-Person bei der
+ * ersten Anmeldung den Stand der Einrichtung vorgesetzt. Das eigene Konto
+ * bekommt sie auf jedem Arbeitsplatz wieder angeboten.
+ */
+export function setupOfferedTo(status: Pick<SetupStatus, 'assistant_owner'>): boolean {
+  return status.assistant_owner !== 'other';
+}
+
+/** Oeffnet sich der Willkommensdialog von selbst? Nur bei leerer Firma, einmal je Konto und Geraet. */
+export function setupWelcomeDue(status: SetupStatus, view: SetupViewState): boolean {
+  return !view.welcomed && setupOfferedTo(status) && isFreshInstallation(status);
+}
+
+/** Erscheint die Dashboard-Karte? Wer den Launcher hat, braucht sie nicht doppelt. */
+export function setupCardVisible(status: SetupStatus, progress: SetupProgress, view: SetupViewState): boolean {
+  return (
+    progress.total > 0 &&
+    !progress.complete &&
+    progress.next !== null &&
+    !view.cardDismissed &&
+    !view.open &&
+    !view.welcomed &&
+    setupOfferedTo(status)
+  );
+}
+
+/**
+ * Soll dieses Konto die Uebernahme melden? Wer den Assistenten kennengelernt
+ * hat, solange niemand uebernommen hat und das Konto es darf. Traegt auch
+ * Merker nach, die nur das Geraet kennt (gesetzt vor diesem Serverfeld).
+ */
+export function setupClaimOwed(status: SetupStatus, view: SetupViewState): boolean {
+  return view.welcomed && status.assistant_owner === 'none' && status.assistant_claimable;
+}
+
+/**
+ * Lohnt das Nachladen des Status beim Seitenwechsel? Nur, solange Assistent
+ * oder Karte etwas zeigen koennen: nicht nach dem Abschluss, nicht nach dem
+ * Ausblenden, die Karte nicht, wenn ein anderes Konto uebernommen hat. Ohne
+ * Status (noch nicht geladen) gilt die Karte als moeglich.
+ */
+export function setupStatusWatched(
+  status: SetupStatus | undefined,
+  progress: SetupProgress,
+  view: SetupViewState,
+): boolean {
+  return (
+    !progress.complete && (view.welcomed || (!view.cardDismissed && (status === undefined || setupOfferedTo(status))))
+  );
 }

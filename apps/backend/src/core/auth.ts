@@ -184,6 +184,13 @@ function issueIat(sessionsValidFrom: number | null | undefined): number {
  *     dem Konfigurationsmanagement oder für automatisierte Tests), dann ohne
  *     Wechselzwang — das Passwort ist nirgends veröffentlicht.
  */
+/**
+ * Startkonto einer frischen Installation. Es gehoert dem Betreiber und wird
+ * nach der Inbetriebnahme geloescht (docs/inbetriebnahme.md, Abschnitt 5);
+ * deshalb uebernimmt es nie den Einrichtungs-Assistenten (core/setupRoutes.ts).
+ */
+export const DEFAULT_ADMIN_EMAIL = 'admin@ohrganize.de';
+
 export function ensureDefaultAdmin(): void {
   const db = getDb();
   const count = (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
@@ -197,7 +204,7 @@ export function ensureDefaultAdmin(): void {
 
   db.prepare(
     'INSERT INTO users (email, name, password_hash, must_change_password) VALUES (?, ?, ?, ?)',
-  ).run('admin@ohrganize.de', 'HR Administrator', bcrypt.hashSync(password, 10), provided ? 0 : 1);
+  ).run(DEFAULT_ADMIN_EMAIL, 'HR Administrator', bcrypt.hashSync(password, 10), provided ? 0 : 1);
 
   if (provided) return;
 

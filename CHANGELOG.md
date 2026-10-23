@@ -74,13 +74,21 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 - **Behoben:** Jedes weitere HR-Konto bekam bei der ersten Anmeldung die
   Dashboard-Karte "Einrichtung" mit Fortschrittsbalken (bei leerer Firma den
   Willkommensdialog), solange die Einrichtung der Firma offen war, auf jedem
-  Arbeitsplatz erneut. Ob ein Konto die Einrichtung uebernommen hat
-  (Willkommen gesehen, Assistent geoeffnet, Karte ausgeblendet), gilt jetzt
-  fuer die Installation: Zeile `assistent` in `setup_confirmations`,
-  `POST /api/setup/started`, Statusfeld `assistant_started`. Danach zeigen
-  Karte und Willkommen ihn keinem weiteren Konto; ueber die Befehlspalette
-  (Strg+K, Suche nach "Einrichtung") bleibt der Assistent fuer alle erreichbar. Merker, die nur
-  ein Geraet kennt, traegt der Client beim naechsten Start nach.
+  Arbeitsplatz erneut. Jetzt merkt sich der Server, WELCHES Konto die
+  Einrichtung uebernommen hat: das erste, das den Assistenten kennenlernt
+  (Willkommen gesehen oder geoeffnet), nie das Startkonto
+  `admin@ohrganize.de`. Karte und Willkommen erscheinen danach nur diesem
+  Konto, dafuer auf jedem seiner Arbeitsplaetze; das Ausblenden der Karte
+  gilt weiter nur fuer das eigene Geraet. Wird das Konto geloescht, ist die
+  Einrichtung wieder frei. Ueber die Befehlspalette (Strg+K, Suche nach
+  "Einrichtung") bleibt der Assistent fuer alle erreichbar. Migration
+  `008_setup_owner`, `POST /api/setup/started`, Statusfelder
+  `assistant_owner` und `assistant_claimable`; Merker, die nur ein Geraet
+  kennt, traegt der Client beim naechsten Start nach.
+- **Geaendert:** Welche Schritte ein Konto im Assistenten sieht, rechnet eine
+  Funktion fuer Client und Backend (`visibleSetupStepKeys`), die Regeln fuer
+  Karte, Willkommen und Uebernahme stehen DOM-frei in `shared/setup.ts` und
+  sind im Setup-Test abgedeckt.
 
 ### Krankmeldungen: Folgebescheinigung auch bei HR-Erfassung (21.10.2026)
 - **Geaendert:** Erfasst die HR eine Krankmeldung, die nahtlos an eine

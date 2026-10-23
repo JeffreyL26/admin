@@ -16,7 +16,10 @@ process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../server.js');
 const { getDb, closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
-const { deriveSetupProgress, isFreshInstallation, SETUP_STEPS } = await import('@ohrganize/shared');
+const {
+  deriveSetupProgress, isFreshInstallation, SETUP_STEPS, MODULE_KEYS, setupCardVisible, setupWelcomeDue,
+  setupClaimOwed, setupStatusWatched, visibleSetupStepKeys,
+} = await import('@ohrganize/shared');
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -40,7 +43,8 @@ check('Status frisch: nichts gespeichert, nichts angelegt',
     f.employees_with_manager === 0, f);
 check('Status frisch: Seed-Abwesenheitsarten sind aktiv', f.absence_types_active > 0, f);
 check('Status frisch: Abwesenheitsarten noch nicht bestaetigt', f.absence_confirmed === false, f);
-check('Status frisch: noch kein Konto hat die Einrichtung uebernommen', f.assistant_started === false, f);
+check('Status frisch: noch kein Konto hat die Einrichtung uebernommen', f.assistant_owner === 'none', f);
+check('Startkonto des Betreibers kann die Einrichtung nicht uebernehmen', f.assistant_claimable === false, f);
 check('Status frisch: genau ein Admin, kein Portal-Konto', f.admin_users === 1 && f.portal_users === 0, f);
 check('Status frisch: alle Bereiche lesbar', Array.isArray(f.allowed_areas) && f.allowed_areas.length >= 9, f);
 check('frische Installation wird erkannt', isFreshInstallation(f));
@@ -162,22 +166,58 @@ check('Logik: Bestaetigung des Servers reicht, ohne lokalen Stand (weiterer Arbe
   fromServer.complete, fromServer);
 
 // ------------------------------------------------- Uebernahme der Einrichtung ---
-// Ein Konto hat die Einrichtung uebernommen: Karte und Willkommen erscheinen fuer
-// kein weiteres Konto. Das Feld haengt an keinem Bereich, jede Rolle sieht es.
-check('eingeschraenkte Rolle sieht assistant_started',
-  (await get('/api/setup/status', limAuth)).json().assistant_started === false);
-const limStarted = await app.inject({ method: 'POST', url: '/api/setup/started', headers: limAuth });
+// Wer den Assistenten kennenlernt, uebernimmt die Einrichtung, solange sie frei
+// ist. Karte und Willkommen erscheinen danach nur noch diesem Konto. Das Feld
+// haengt an keinem Bereich, jede Rolle sieht es (aus der eigenen Sicht).
+async function loginAs(email: string, initial: string) {
+  const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: initial } });
+  const change = await app.inject({
+    method: 'PUT', url: '/api/auth/password',
+    headers: { authorization: `Bearer ${login.json().token}` },
+    payload: { currentPassword: initial, newPassword: pw },
+  });
+  return { authorization: `Bearer ${change.json().token}` };
+}
+const zweitAuth = await loginAs('zweit.konto@example.org', acc.json().initial_password);
+const markusAuth = await loginAs('markus.admin@example.org', adminWithProfile.json().initial_password);
+const started = (headers: { authorization: string }) => app.inject({ method: 'POST', url: '/api/setup/started', headers });
+const ownerOf = async (headers: { authorization: string }) => (await get('/api/setup/status', headers)).json();
+
+const limOwner = await ownerOf(limAuth);
+check('eingeschraenkte Rolle sieht assistant_owner, darf aber nicht uebernehmen',
+  limOwner.assistant_owner === 'none' && limOwner.assistant_claimable === false, limOwner);
+const limStarted = await started(limAuth);
 check('Uebernehmen ohne bearbeitbaren Schritt (nur personal lesen) → 403', limStarted.statusCode === 403, limStarted.body);
-const readStarted = await app.inject({ method: 'POST', url: '/api/setup/started', headers: readAuth });
+const readStarted = await started(readAuth);
 check('Uebernehmen mit abwesenheit lesen → 403', readStarted.statusCode === 403, readStarted.body);
-check('nach 403 hat niemand uebernommen', (await get('/api/setup/status')).json().assistant_started === false);
-const started1 = await app.inject({ method: 'POST', url: '/api/setup/started', headers: auth });
-const started2 = await app.inject({ method: 'POST', url: '/api/setup/started', headers: auth });
-check('Uebernehmen: 200, zweimal ohne Fehler', started1.statusCode === 200 && started2.statusCode === 200,
-  [started1.body, started2.body]);
-check('Uebernahme gilt fuer die Installation, auch fuer andere Konten',
-  (await get('/api/setup/status')).json().assistant_started === true &&
-    (await get('/api/setup/status', limAuth)).json().assistant_started === true);
+const bootStarted = await started(auth);
+check('Uebernehmen als Startkonto des Betreibers → 403 (es wird nach der Inbetriebnahme geloescht)',
+  bootStarted.statusCode === 403, bootStarted.body);
+check('nach den 403 hat niemand uebernommen', (await ownerOf(zweitAuth)).assistant_owner === 'none');
+check('Admin mit Vollzugriff darf uebernehmen', (await ownerOf(zweitAuth)).assistant_claimable === true);
+
+const claim1 = await started(zweitAuth);
+const claim2 = await started(zweitAuth);
+check('Uebernehmen: 200, zweimal ohne Fehler, Antwort self',
+  claim1.statusCode === 200 && claim2.statusCode === 200 && claim2.json().assistant_owner === 'self',
+  [claim1.body, claim2.body]);
+check('Uebernahme ist an das Konto gebunden: self fuer es, other fuer alle anderen',
+  (await ownerOf(zweitAuth)).assistant_owner === 'self' &&
+    (await ownerOf(markusAuth)).assistant_owner === 'other' &&
+    (await ownerOf(limAuth)).assistant_owner === 'other' &&
+    (await ownerOf(auth)).assistant_owner === 'other');
+const markusClaim = await started(markusAuth);
+check('ein zweites Konto uebernimmt nicht: 200, Antwort other',
+  markusClaim.statusCode === 200 && markusClaim.json().assistant_owner === 'other', markusClaim.body);
+check('Eigentuemer bleibt das erste Konto', (await ownerOf(zweitAuth)).assistant_owner === 'self');
+
+// Konto geloescht: Die Kontoloeschung setzt user_id auf NULL, die Einrichtung ist wieder frei.
+const zweitId = acc.json().user?.id ?? acc.json().account?.id;
+const del = await app.inject({ method: 'DELETE', url: `/api/admin/users/${zweitId}`, headers: auth });
+check('Eigentuemer-Konto loeschen', del.statusCode === 200 || del.statusCode === 204, del.body);
+check('nach dem Loeschen ist die Einrichtung wieder frei', (await ownerOf(markusAuth)).assistant_owner === 'none');
+const markusClaim2 = await started(markusAuth);
+check('danach uebernimmt das naechste Konto', markusClaim2.json().assistant_owner === 'self', markusClaim2.body);
 
 // Portal-Konto: der globale Hook laesst `mitarbeiter` nur an /api/auth und /api/me.
 const portalLogin = await app.inject({
@@ -256,6 +296,46 @@ check('Logik: uebersprungener Schritt wird beim naechsten Vorschlag ausgelassen'
 const some = deriveSetupProgress(l, { absenceConfirmed: false, skipped: [] }, ['abteilungen', 'mitarbeitende', 'vorgesetzte']);
 check('Logik: nur sichtbare Schritte zaehlen, Nummern beginnen bei 1',
   some.total === 3 && some.steps[0].n === 1 && some.steps[2].n === 3 && some.doneCount === 3, some);
+
+// ------------------------------------------------- Sichtbarkeit (shared) ---
+const viewNew = { welcomed: false, open: false, cardDismissed: false };
+const asOwner = (o: 'none' | 'self' | 'other') => ({ ...mid, assistant_owner: o, assistant_claimable: true });
+const progMid = deriveSetupProgress(mid, { absenceConfirmed: false, skipped: [] }, keys);
+check('Sichtbarkeit: Karte fuer ein neues Konto, solange niemand uebernommen hat',
+  setupCardVisible(asOwner('none'), progMid, viewNew));
+check('Sichtbarkeit: Karte fuer den Eigentuemer auf einem weiteren Geraet',
+  setupCardVisible(asOwner('self'), progMid, viewNew));
+check('Sichtbarkeit: keine Karte, wenn ein anderes Konto uebernommen hat',
+  !setupCardVisible(asOwner('other'), progMid, viewNew));
+check('Sichtbarkeit: keine Karte nach Ausblenden oder mit Launcher',
+  !setupCardVisible(asOwner('none'), progMid, { ...viewNew, cardDismissed: true }) &&
+    !setupCardVisible(asOwner('none'), progMid, { ...viewNew, welcomed: true }));
+check('Sichtbarkeit: keine Karte, wenn alles erledigt ist',
+  !setupCardVisible(asOwner('none'), all, viewNew));
+const freshFor = (o: 'none' | 'self' | 'other') => ({ ...f, assistant_owner: o, assistant_claimable: true });
+check('Willkommen: bei leerer Firma fuer jedes Konto, solange niemand uebernommen hat (auch nach dem Startkonto)',
+  setupWelcomeDue(freshFor('none'), viewNew) && setupWelcomeDue(freshFor('self'), viewNew));
+check('Willkommen: nicht, wenn ein anderes Konto uebernommen hat, nicht zweimal, nicht bei Daten',
+  !setupWelcomeDue(freshFor('other'), viewNew) && !setupWelcomeDue(freshFor('none'), { ...viewNew, welcomed: true }) &&
+    !setupWelcomeDue(asOwner('none'), viewNew));
+check('Uebernahme: faellig, wer den Assistenten kennt, solange sie frei ist und das Konto darf',
+  setupClaimOwed(asOwner('none'), { ...viewNew, welcomed: true }) &&
+    !setupClaimOwed(asOwner('none'), viewNew) &&
+    !setupClaimOwed(asOwner('none'), { ...viewNew, cardDismissed: true }) &&
+    !setupClaimOwed(asOwner('self'), { ...viewNew, welcomed: true }) &&
+    !setupClaimOwed({ ...asOwner('none'), assistant_claimable: false }, { ...viewNew, welcomed: true }));
+check('Nachladen: nicht fuer die Karte, wenn ein anderes Konto uebernommen hat; ohne Status ja',
+  !setupStatusWatched(asOwner('other'), progMid, viewNew) &&
+    setupStatusWatched(asOwner('other'), progMid, { ...viewNew, welcomed: true }) &&
+    setupStatusWatched(undefined, progMid, viewNew) && !setupStatusWatched(asOwner('none'), all, viewNew));
+const allAreas = () => true;
+check('Schritte: Vollzugriff in der Vollversion sieht alle sieben',
+  visibleSetupStepKeys(allAreas, { modules: [...MODULE_KEYS] }, null).length === 7);
+check('Schritte: ohne Modul me entfaellt der Portal-Schritt',
+  !visibleSetupStepKeys(allAreas, { modules: MODULE_KEYS.filter((m) => m !== 'me') }, null).includes('portal'));
+check('Schritte: nur Bereich personal bearbeitbar ergibt die drei Personal-Schritte',
+  JSON.stringify(visibleSetupStepKeys((a) => a === 'personal', { modules: [...MODULE_KEYS] }, null)) ===
+    JSON.stringify(['abteilungen', 'mitarbeitende', 'vorgesetzte']));
 
 closeDb();
 if (failures) {
