@@ -16,8 +16,8 @@ export function useSetupContext(): SetupView {
  * Shell (Dialog, Launcher, Seitenleiste, Dashboard-Karte). Oeffnet den
  * Willkommensdialog genau einmal, und nur, wenn die Installation noch leer ist
  * und kein anderes Konto die Einrichtung uebernommen hat (setupWelcomeDue).
- * Uebernimmt ein anderes Konto, waehrend der Dialog von selbst offen ist,
- * tritt er zurueck (setupDialogYields).
+ * Uebernimmt ein anderes Konto, waehrend der Dialog noch das Willkommen zeigt,
+ * tritt er zurueck (setupDialogYields); ein laufender Schritt bleibt.
  */
 export function SetupProvider({ children }: { children: React.ReactNode }) {
   const view = useSetup();

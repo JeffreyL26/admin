@@ -171,6 +171,16 @@ function issueIat(sessionsValidFrom: number | null | undefined): number {
 // --------------------------------------------------------------------------
 
 /**
+ * Adresse des Startkontos einer frischen Installation. Es gehoert dem Betreiber
+ * und wird nach der Inbetriebnahme geloescht (docs/inbetriebnahme.md,
+ * Abschnitt 5). Erkannt wird es am Kennzeichen `users.is_start_account`, nicht
+ * an der Adresse, die danach neu vergeben werden kann; es haelt den
+ * Einrichtungs-Assistenten nur vorlaeufig (core/setupRoutes.ts,
+ * holdsProvisionally).
+ */
+export const DEFAULT_ADMIN_EMAIL = 'admin@ohrganize.de';
+
+/**
  * Legt den Standard-Admin an, falls noch keine Benutzer existieren.
  *
  * Das Konto hat `admin_role_id = NULL` und damit Vollzugriff. Ein fest
@@ -184,14 +194,6 @@ function issueIat(sessionsValidFrom: number | null | undefined): number {
  *     dem Konfigurationsmanagement oder für automatisierte Tests), dann ohne
  *     Wechselzwang — das Passwort ist nirgends veröffentlicht.
  */
-/**
- * Startkonto einer frischen Installation. Es gehoert dem Betreiber und wird
- * nach der Inbetriebnahme geloescht (docs/inbetriebnahme.md, Abschnitt 5);
- * deshalb haelt es den Einrichtungs-Assistenten nur vorlaeufig, bis ein
- * persoenliches Konto ihn uebernimmt (core/setupRoutes.ts, ownerFor).
- */
-export const DEFAULT_ADMIN_EMAIL = 'admin@ohrganize.de';
-
 export function ensureDefaultAdmin(): void {
   const db = getDb();
   const count = (db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
@@ -204,7 +206,7 @@ export function ensureDefaultAdmin(): void {
   const password = provided ?? crypto.randomBytes(12).toString('base64url');
 
   db.prepare(
-    'INSERT INTO users (email, name, password_hash, must_change_password) VALUES (?, ?, ?, ?)',
+    'INSERT INTO users (email, name, password_hash, must_change_password, is_start_account) VALUES (?, ?, ?, ?, 1)',
   ).run(DEFAULT_ADMIN_EMAIL, 'HR Administrator', bcrypt.hashSync(password, 10), provided ? 0 : 1);
 
   if (provided) return;
@@ -229,7 +231,7 @@ export function ensureDefaultAdmin(): void {
         '',
         '='.repeat(72),
         'oHRganize: Erstinbetriebnahme, Standard-Admin angelegt',
-        '  Benutzer: admin@ohrganize.de',
+        `  Benutzer: ${DEFAULT_ADMIN_EMAIL}`,
         `  Passwort: steht in ${config.initialPasswordPath} (nur fuer den Dienstbenutzer lesbar)`,
         '  Abholen:  ohrganize-provision.sh passwort <kunde>',
         '  Das Passwort wird beim ersten Login zwingend geaendert; danach die Datei loeschen.',
@@ -248,7 +250,7 @@ export function ensureDefaultAdmin(): void {
       '',
       '='.repeat(72),
       'oHRganize: Erstinbetriebnahme — Standard-Admin angelegt',
-      '  Benutzer: admin@ohrganize.de',
+      `  Benutzer: ${DEFAULT_ADMIN_EMAIL}`,
       `  Passwort: ${password}`,
       `  ${fileHint}`,
       '  Das Passwort wird beim ersten Login zwingend geändert; danach die Datei löschen.',

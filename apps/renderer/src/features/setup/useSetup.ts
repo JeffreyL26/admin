@@ -172,10 +172,11 @@ export function useSetup(): SetupView {
   // Uebernahme melden (setupClaimOwed in shared): Wer den Assistenten
   // kennengelernt hat, uebernimmt die Einrichtung, solange sie frei ist; danach
   // bieten Karte und Willkommen sie keinem anderen Konto an. Ein Weg fuer alle
-  // Ausloeser, auch fuer Merker aus der Zeit, als nur das Geraet sie kannte.
+  // Ausloeser, auch fuer Merker aus der Zeit, als nur das Geraet sie kannte. Den
+  // Nur-Lese-Betrieb prueft der Server schon in `assistant_claimable`.
   useOwedSetupMark(
     '/api/setup/started',
-    eligible && status !== undefined && license?.read_only !== true && setupClaimOwed(status, local),
+    eligible && status !== undefined && setupClaimOwed(status, local),
     markKey,
     statusUpdatedAt,
   );

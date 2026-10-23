@@ -67,8 +67,9 @@ export interface SetupStatus {
   assistant_owner: SetupOwner;
   /**
    * Kann das abfragende Konto die Einrichtung jetzt uebernehmen? Nur, solange
-   * `assistant_owner` `none` ist, und nur mit mindestens einem sichtbaren
-   * Schritt (visibleSetupStepKeys). Dieselbe Pruefung wie POST /api/setup/started.
+   * `assistant_owner` `none` ist, nur mit mindestens einem sichtbaren Schritt
+   * (visibleSetupStepKeys) und nicht im Nur-Lese-Betrieb der Lizenz. Dieselbe
+   * Pruefung wie POST /api/setup/started; Clients pruefen nichts dazu.
    */
   assistant_claimable: boolean;
   company_saved?: boolean;
@@ -88,8 +89,9 @@ export interface SetupStatus {
  * Uebernahme der Einrichtung, gespeichert je Installation MIT Konto (Zeile
  * `assistent` in `setup_confirmations`): `none` = frei, `self` = das abfragende
  * Konto, `other` = ein anderes. Frei heisst auch: Konto geloescht, Eigentuemer
- * hat keinen Assistentenschritt mehr, oder nur das Startkonto des Betreibers
- * haelt sie (aus Sicht jedes anderen Kontos; core/setupRoutes.ts, ownerFor).
+ * hat keinen Assistentenschritt mehr, oder das Startkonto des Betreibers haelt
+ * sie nur vorlaeufig (Kennzeichen `users.is_start_account`, ohne
+ * Personalprofil; aus Sicht jedes anderen Kontos, core/setupRoutes.ts).
  * Uebernommen hat, wer den Assistenten kennengelernt hat (Willkommen gesehen
  * oder geoeffnet, lokaler Merker `welcomed`); das Ausblenden der Karte zaehlt
  * NICHT, es gilt nur fuer das eigene Geraet.
@@ -292,15 +294,17 @@ export function setupStatusWatched(progress: SetupProgress, view: SetupViewState
 }
 
 /**
- * Bleibt der offene Dialog stehen? Nicht, wenn ein ANDERES Konto die
- * Einrichtung uebernommen hat und der Dialog nur von selbst kam (Willkommen
- * bei leerer Firma, zwei Anmeldungen zugleich): Sonst arbeiteten beide die
- * Schritte parallel ab und legten etwa Abteilungen doppelt an. Wer den
- * Assistenten bewusst ueber die Befehlspalette oeffnet (`reopened`), behaelt ihn.
+ * Tritt der offene Dialog zurueck? Ja, wenn ein ANDERES Konto die Einrichtung
+ * uebernommen hat, solange er noch das Willkommen zeigt (`view` des Dialogs;
+ * zwei Anmeldungen zugleich bei leerer Firma): Sonst arbeiteten beide die
+ * Schritte parallel ab und legten etwa Abteilungen doppelt an. Laeuft schon
+ * ein Schritt, bleibt er stehen, egal wie er geoeffnet wurde (Karte, Launcher,
+ * Befehlspalette): Dort stehen womoeglich Eingaben, die beim Schliessen
+ * verloren gingen.
  */
 export function setupDialogYields(
   status: Pick<SetupStatus, 'assistant_owner'>,
-  view: Pick<SetupViewState, 'open'> & { reopened: boolean },
+  view: Pick<SetupViewState, 'open'> & { view: string },
 ): boolean {
-  return view.open && !view.reopened && !setupOfferedTo(status);
+  return view.open && view.view === 'welcome' && !setupOfferedTo(status);
 }

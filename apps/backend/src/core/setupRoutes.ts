@@ -11,9 +11,8 @@ import {
 } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { getDb, inTransaction } from '../db/db.js';
-import { DEFAULT_ADMIN_EMAIL } from './auth.js';
 import { forbidden } from './errors.js';
-import { effectiveFeatures } from './license.js';
+import { effectiveFeatures, licenseStatusPublic } from './license.js';
 import { permissionsFor } from './permissions.js';
 
 /**
@@ -34,33 +33,32 @@ import { permissionsFor } from './permissions.js';
  * Client als "kein Recht".
  */
 
+/** Was Rechte und Uebernahme vom Konto brauchen (req.user oder Eigentuemer). */
 interface SetupAccount {
   id: number;
-  email: string;
   role: string;
-  admin_role_id: number | null;
+  admin_role_id?: number | null;
 }
 
-function loadAccount(id: number): SetupAccount | undefined {
-  return getDb().prepare('SELECT id, email, role, admin_role_id FROM users WHERE id = ?').get(id) as
-    | SetupAccount
-    | undefined;
-}
-
-/** Startkonto des Betreibers (E-Mail-Adressen lassen sich nicht aendern). */
-function isStartAccount(account: SetupAccount): boolean {
-  return account.email.toLowerCase() === DEFAULT_ADMIN_EMAIL;
+/** Eigentuemer der Einrichtung, dazu was ueber "nur vorlaeufig" entscheidet. */
+interface SetupOwnerAccount extends SetupAccount {
+  employee_id: number | null;
+  is_start_account: number;
 }
 
 /**
  * Darf das Konto die Einrichtung uebernehmen oder behalten? Admin-Konto mit
  * mindestens einem Schritt, den es im Assistenten sieht (dieselbe Funktion wie
- * der Client: Recht, Variante, Lizenzfeature). Wird gegen das aktuelle Konto
- * geprueft, nicht gegen das Token: Eine geaenderte Rolle wirkt sofort.
+ * der Client: Recht, Variante, Lizenzfeature). Fuer das abfragende Konto
+ * reicht `req.user`: Der globale Hook liest es bei jeder Anfrage frisch aus
+ * `users`, eine geaenderte Rolle wirkt also sofort. `permissions` gibt der
+ * Statushandler herein, der sie fuer seine Bloecke ohnehin berechnet.
  */
-function mayClaim(account: SetupAccount | undefined): account is SetupAccount {
-  if (!account || account.role !== 'admin') return false;
-  const permissions = permissionsFor(account.admin_role_id);
+function mayClaim(
+  account: Pick<SetupAccount, 'role' | 'admin_role_id'>,
+  permissions = permissionsFor(account.admin_role_id),
+): boolean {
+  if (account.role !== 'admin') return false;
   const features = effectiveFeatures();
   return (
     visibleSetupStepKeys(
@@ -72,20 +70,30 @@ function mayClaim(account: SetupAccount | undefined): account is SetupAccount {
 }
 
 /**
- * Wem gehoert die Einrichtung aus Sicht von `viewer`? Ein Eigentuemer zaehlt
- * nur, solange er sie noch uebernehmen duerfte: Bekommt sein Konto eine Rolle
- * ohne Assistentenschritt, ist sie wieder frei, sonst saehe sie niemand mehr.
- * Das Startkonto des Betreibers haelt sie nur vorlaeufig: Fuer jedes andere
- * Konto gilt sie dann als frei, damit die HR sie nach der Inbetriebnahme
- * uebernimmt (das Startkonto wird danach geloescht, docs/inbetriebnahme.md 5).
- * Behaelt ein Kunde es bewusst, uebernimmt das erste persoenliche Konto, das
- * den Assistenten kennenlernt.
+ * Haelt der Eigentuemer die Einrichtung nur vorlaeufig? Das Startkonto des
+ * Betreibers (Kennzeichen `is_start_account` aus ensureDefaultAdmin, Migration
+ * `009_start_account`; nicht die Adresse, die nach dem Loeschen neu vergeben
+ * werden kann) wird nach der Inbetriebnahme geloescht (docs/inbetriebnahme.md
+ * 5), damit die HR sie dann uebernimmt. Ist es mit einem Personalprofil
+ * verknuepft, nutzt es eine Person selbst (ein Kunde behaelt es), und es zaehlt
+ * wie jedes persoenliche Konto.
  */
-function ownerFor(owner: SetupAccount | undefined, viewer: SetupAccount | undefined): SetupOwner {
-  if (!owner || !viewer) return 'none';
-  if (owner.id === viewer.id) return mayClaim(viewer) ? 'self' : 'none';
-  if (!mayClaim(owner)) return 'none';
-  if (isStartAccount(owner) && !isStartAccount(viewer)) return 'none';
+function holdsProvisionally(owner: SetupOwnerAccount): boolean {
+  return owner.is_start_account === 1 && owner.employee_id === null;
+}
+
+/**
+ * Wem gehoert die Einrichtung aus Sicht des Kontos `viewerId`
+ * (`viewerMayClaim`: mayClaim dieses Kontos)? Ein Eigentuemer zaehlt nur,
+ * solange er sie noch uebernehmen duerfte: Bekommt sein Konto eine Rolle ohne
+ * Assistentenschritt, ist sie wieder frei, sonst saehe sie niemand mehr. Haelt
+ * das Startkonto sie nur vorlaeufig, gilt sie fuer jedes andere Konto als frei
+ * (es gibt hoechstens ein Startkonto, ein anderes Konto ist also nie selbst eins).
+ */
+function ownerFor(owner: SetupOwnerAccount | undefined, viewerId: number, viewerMayClaim: boolean): SetupOwner {
+  if (!owner) return 'none';
+  if (owner.id === viewerId) return viewerMayClaim ? 'self' : 'none';
+  if (holdsProvisionally(owner) || !mayClaim(owner)) return 'none';
   return 'other';
 }
 
@@ -94,19 +102,26 @@ function ownerFor(owner: SetupAccount | undefined, viewer: SetupAccount | undefi
  * bei jedem Fokus geholt). `owner` fehlt, wenn niemand uebernommen hat oder
  * das Konto geloescht wurde (user_id NULL).
  */
-function loadMarks(): { absenceConfirmed: boolean; owner: SetupAccount | undefined } {
+function loadMarks(): { absenceConfirmed: boolean; owner: SetupOwnerAccount | undefined } {
   const rows = getDb()
     .prepare(
-      `SELECT sc.step, u.id, u.email, u.role, u.admin_role_id
+      `SELECT sc.step, u.id, u.role, u.admin_role_id, u.employee_id, u.is_start_account
        FROM setup_confirmations sc LEFT JOIN users u ON u.id = sc.user_id`,
     )
-    .all() as ({ step: string } & { [K in keyof SetupAccount]: SetupAccount[K] | null })[];
+    .all() as ({ step: string } & Omit<SetupOwnerAccount, 'id'> & { id: number | null })[];
   const assistant = rows.find((r) => r.step === 'assistent');
   return {
     absenceConfirmed: rows.some((r) => r.step === 'abwesenheit'),
+    // Ohne Konto (LEFT JOIN ohne Treffer) sind alle Kontofelder NULL.
     owner:
-      assistant && assistant.id !== null && assistant.email !== null && assistant.role !== null
-        ? { id: assistant.id, email: assistant.email, role: assistant.role, admin_role_id: assistant.admin_role_id }
+      assistant && assistant.id !== null
+        ? {
+            id: assistant.id,
+            role: assistant.role,
+            admin_role_id: assistant.admin_role_id,
+            employee_id: assistant.employee_id,
+            is_start_account: assistant.is_start_account,
+          }
         : undefined,
   };
 }
@@ -127,16 +142,15 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
       .slice(0, 16);
 
     const marks = loadMarks();
-
-    // Uebernehmen-Duerfen zaehlt nur, solange die Einrichtung frei ist; sonst
-    // spart sich der haeufig abgerufene Status die Pruefung.
-    const viewer = loadAccount(req.user.id);
-    const owner = ownerFor(marks.owner, viewer);
+    const viewerMayClaim = mayClaim(req.user, permissions);
+    const owner = ownerFor(marks.owner, req.user.id, viewerMayClaim);
     const status: SetupStatus = {
       allowed_areas: ADMIN_AREAS.filter(may),
       instance,
       assistant_owner: owner,
-      assistant_claimable: owner === 'none' && mayClaim(viewer),
+      // Dieselbe Pruefung wie POST /api/setup/started, samt Nur-Lese-Betrieb
+      // (dort 403 LICENSE_EXPIRED): Kein Client muss sie nachbauen.
+      assistant_claimable: owner === 'none' && viewerMayClaim && !licenseStatusPublic().read_only,
     };
 
     if (may('einstellungen')) {
@@ -201,24 +215,24 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
   // Das Konto hat den Assistenten kennengelernt (Willkommen gesehen oder
   // geoeffnet) und uebernimmt die Einrichtung, sofern sie aus seiner Sicht frei
   // ist (ownerFor: niemand, geloeschtes Konto, Eigentuemer ohne Recht mehr, oder
-  // nur das Startkonto). Danach bieten Karte und Willkommen sie nur noch diesem
+  // nur vorlaeufig beim Startkonto). Danach bieten Karte und Willkommen sie nur noch diesem
   // Konto an. Recht wie fuer den Assistenten (mayClaim), geprueft hier, weil der
   // globale Hook unter /api/setup keinen Bereich prueft. Pruefen und Schreiben in
   // einer Transaktion, damit zwei gleichzeitige Uebernahmen nicht beide
   // gewinnen. Idempotent und ohne Audit: Es aendert keine Fachdaten, nur wem die
   // Karte erscheint. Die Antwort nennt den Stand danach.
   app.post('/api/setup/started', async (req) => {
-    const viewer = loadAccount(req.user.id);
-    if (!mayClaim(viewer)) throw forbidden();
+    if (!mayClaim(req.user)) throw forbidden();
+    const viewerId = req.user.id;
     const db = getDb();
     const owner = inTransaction(() => {
-      if (ownerFor(loadMarks().owner, viewer) === 'none') {
+      if (ownerFor(loadMarks().owner, viewerId, true) === 'none') {
         db.prepare(
           `INSERT INTO setup_confirmations (step, user_id) VALUES ('assistent', ?)
            ON CONFLICT(step) DO UPDATE SET user_id = excluded.user_id, confirmed_at = datetime('now')`,
-        ).run(viewer.id);
+        ).run(viewerId);
       }
-      return ownerFor(loadMarks().owner, viewer);
+      return ownerFor(loadMarks().owner, viewerId, true);
     });
     return { assistant_owner: owner };
   });

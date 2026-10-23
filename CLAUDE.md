@@ -590,16 +590,23 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Karte, Willkommen und Launcher erscheinen danach nur dem Eigentuemer, dafuer
   auf jedem seiner Arbeitsplaetze. Wieder frei ist die Einrichtung, wenn sein
   Konto geloescht wird oder keinen Assistentenschritt mehr hat (geprueft gegen
-  das aktuelle Konto, `ownerFor` in `setupRoutes.ts`). Das Startkonto
-  `admin@ohrganize.de` (`DEFAULT_ADMIN_EMAIL`, wird nach der Inbetriebnahme
-  geloescht) haelt sie nur vorlaeufig: Fuer jedes andere Konto gilt sie dann
-  als frei. Die Regeln stehen DOM-frei in `shared/setup.ts`
+  das aktuelle Konto, `ownerFor` in `setupRoutes.ts`; die Rechte des
+  abfragenden Kontos kommen aus `req.user`, das der globale Hook frisch
+  liest). Das Startkonto (Kennzeichen `users.is_start_account` aus
+  `ensureDefaultAdmin`, Migration `009_start_account`, NICHT die Adresse
+  `admin@ohrganize.de`, die nach dem Loeschen neu vergeben werden kann; wird
+  nach der Inbetriebnahme geloescht) haelt sie nur vorlaeufig, solange es mit
+  keinem Personalprofil verknuepft ist: Fuer jedes andere Konto gilt sie dann
+  als frei. `assistant_claimable` ist im Nur-Lese-Betrieb falsch, wie der
+  POST (403). Die Regeln stehen DOM-frei in `shared/setup.ts`
   (`setupCardStep`, `setupLauncherVisible`, `setupWelcomeDue`,
-  `setupClaimOwed`, `setupStatusWatched`, `setupDialogYields`: ein von selbst
-  geoeffneter Dialog tritt zurueck, sobald ein anderes Konto uebernimmt; der
-  Status wird beim Menuewechsel auch fuer Nicht-Eigentuemer nachgeladen,
-  Prinzip 3). Der Seed (`--force`) leert `setup_confirmations` vor den
-  Konten, sonst scheiterte er am Fremdschluessel. Welche Schritte ein Konto sieht in
+  `setupClaimOwed`, `setupStatusWatched`, `setupDialogYields`: ein Dialog,
+  der noch das Willkommen zeigt, tritt zurueck, sobald ein anderes Konto
+  uebernimmt, ein laufender Schritt bleibt stehen; der Status wird beim
+  Menuewechsel auch fuer Nicht-Eigentuemer nachgeladen, Prinzip 3). Der Seed
+  (`--force`, Schritte in `seed/forceReset.ts`, vom Setup-Test gegen einen
+  Eigentuemer geprueft) loest den Eigentuemer vor dem Loeschen der Konten,
+  sonst scheiterte er am Fremdschluessel. Welche Schritte ein Konto sieht in
   `visibleSetupStepKeys` (Client und Backend gleich). **Alle Texte stehen in
   `features/setup/copy.ts`** (Schluessel wie im abgestimmten Textartefakt,
   `t()` fuellt Platzhalter); neue Schritte tragen sich in `SETUP_STEPS`

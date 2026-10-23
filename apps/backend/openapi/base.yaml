@@ -151,13 +151,14 @@ paths:
       description: >-
         Frei heisst, noch kein Konto hat uebernommen, dessen Konto wurde
         geloescht oder hat keinen Assistentenschritt mehr, oder nur das
-        Startkonto admin@ohrganize.de haelt sie (vorlaeufig, fuer jedes andere
-        Konto frei). Danach meldet der Status diesem Konto assistant_owner self
+        Startkonto der Installation haelt sie (Kennzeichen is_start_account,
+        ohne Personalprofil; vorlaeufig, fuer jedes andere Konto frei). Danach meldet der Status diesem Konto assistant_owner self
         und allen anderen other; Dashboard-Karte, Willkommensdialog und Launcher
         erscheinen dann nur noch ihm. Idempotent, ohne Audit (keine Fachdaten).
         Verlangt ein Admin-Konto mit mindestens einem sichtbaren
         Assistentenschritt (Recht bearbeiten, Variante, Lizenzfeature), geprueft
-        im Handler, weil /api/setup in ALWAYS_ALLOWED steht.
+        im Handler, weil /api/setup in ALWAYS_ALLOWED steht. Im Nur-Lese-Betrieb
+        403 LICENSE_EXPIRED; der Status meldet dann assistant_claimable false.
       responses:
         "200": { description: "{ assistant_owner: self | other }" }
         "403":
