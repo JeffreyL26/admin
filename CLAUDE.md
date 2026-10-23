@@ -477,7 +477,13 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `007_setup_confirmations` in `000_core.ts`), `POST /api/setup/absence-confirmed`
   (`abwesenheit: bearbeiten`, im Handler geprueft), Statusfeld
   `absence_confirmed`; der lokale Merker zaehlt nur bis dahin, `useSetup.ts`
-  traegt ihn nach. Sonst fragte jeder weitere Arbeitsplatz erneut. **Alle Texte stehen in
+  traegt ihn nach. Sonst fragte jeder weitere Arbeitsplatz erneut. Ebenso
+  fuer die Installation gilt, dass ein Konto die Einrichtung uebernommen hat
+  (Zeile `assistent` in `setup_confirmations`, `POST /api/setup/started`,
+  Statusfeld `assistant_started`, gesetzt sobald ein Konto Willkommen sieht,
+  den Assistenten oeffnet oder die Karte ausblendet): Danach zeigen
+  Dashboard-Karte und Willkommen ihn keinem weiteren Konto, sonst bekaeme jede
+  neue HR-Person bei der ersten Anmeldung den Stand vorgesetzt. **Alle Texte stehen in
   `features/setup/copy.ts`** (Schluessel wie im abgestimmten Textartefakt,
   `t()` fuellt Platzhalter); neue Schritte tragen sich in `SETUP_STEPS`
   (shared), `STEP_COMPONENTS` (`steps.tsx`) und `copy.ts` ein. Die Schritte

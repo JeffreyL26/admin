@@ -40,6 +40,7 @@ check('Status frisch: nichts gespeichert, nichts angelegt',
     f.employees_with_manager === 0, f);
 check('Status frisch: Seed-Abwesenheitsarten sind aktiv', f.absence_types_active > 0, f);
 check('Status frisch: Abwesenheitsarten noch nicht bestaetigt', f.absence_confirmed === false, f);
+check('Status frisch: noch kein Konto hat die Einrichtung uebernommen', f.assistant_started === false, f);
 check('Status frisch: genau ein Admin, kein Portal-Konto', f.admin_users === 1 && f.portal_users === 0, f);
 check('Status frisch: alle Bereiche lesbar', Array.isArray(f.allowed_areas) && f.allowed_areas.length >= 9, f);
 check('frische Installation wird erkannt', isFreshInstallation(f));
@@ -160,6 +161,24 @@ const fromServer = deriveSetupProgress(confirmed, { absenceConfirmed: false, ski
 check('Logik: Bestaetigung des Servers reicht, ohne lokalen Stand (weiterer Arbeitsplatz)',
   fromServer.complete, fromServer);
 
+// ------------------------------------------------- Uebernahme der Einrichtung ---
+// Ein Konto hat die Einrichtung uebernommen: Karte und Willkommen erscheinen fuer
+// kein weiteres Konto. Das Feld haengt an keinem Bereich, jede Rolle sieht es.
+check('eingeschraenkte Rolle sieht assistant_started',
+  (await get('/api/setup/status', limAuth)).json().assistant_started === false);
+const limStarted = await app.inject({ method: 'POST', url: '/api/setup/started', headers: limAuth });
+check('Uebernehmen ohne bearbeitbaren Schritt (nur personal lesen) → 403', limStarted.statusCode === 403, limStarted.body);
+const readStarted = await app.inject({ method: 'POST', url: '/api/setup/started', headers: readAuth });
+check('Uebernehmen mit abwesenheit lesen → 403', readStarted.statusCode === 403, readStarted.body);
+check('nach 403 hat niemand uebernommen', (await get('/api/setup/status')).json().assistant_started === false);
+const started1 = await app.inject({ method: 'POST', url: '/api/setup/started', headers: auth });
+const started2 = await app.inject({ method: 'POST', url: '/api/setup/started', headers: auth });
+check('Uebernehmen: 200, zweimal ohne Fehler', started1.statusCode === 200 && started2.statusCode === 200,
+  [started1.body, started2.body]);
+check('Uebernahme gilt fuer die Installation, auch fuer andere Konten',
+  (await get('/api/setup/status')).json().assistant_started === true &&
+    (await get('/api/setup/status', limAuth)).json().assistant_started === true);
+
 // Portal-Konto: der globale Hook laesst `mitarbeiter` nur an /api/auth und /api/me.
 const portalLogin = await app.inject({
   method: 'POST', url: '/api/auth/login',
@@ -176,6 +195,11 @@ const portalConfirm = await app.inject({
   headers: { authorization: `Bearer ${portalChange.json().token}` },
 });
 check('Bestaetigen als Portal-Konto → 403', portalConfirm.statusCode === 403, portalConfirm.body);
+const portalStarted = await app.inject({
+  method: 'POST', url: '/api/setup/started',
+  headers: { authorization: `Bearer ${portalChange.json().token}` },
+});
+check('Uebernehmen als Portal-Konto → 403', portalStarted.statusCode === 403, portalStarted.body);
 
 // Nur-Lese-Betrieb: Testphase abgelaufen. Die Route steht bewusst NICHT in
 // LICENSE_OPEN_ROUTES, der Client versucht es dort gar nicht erst.
@@ -186,6 +210,9 @@ invalidateLicenseCaches();
 const readOnly = await app.inject({ method: 'POST', url: '/api/setup/absence-confirmed', headers: auth });
 check('Bestaetigen im Nur-Lese-Betrieb → 403 LICENSE_EXPIRED',
   readOnly.statusCode === 403 && readOnly.json().error?.code === 'LICENSE_EXPIRED', readOnly.body);
+const readOnlyStarted = await app.inject({ method: 'POST', url: '/api/setup/started', headers: auth });
+check('Uebernehmen im Nur-Lese-Betrieb → 403 LICENSE_EXPIRED',
+  readOnlyStarted.statusCode === 403 && readOnlyStarted.json().error?.code === 'LICENSE_EXPIRED', readOnlyStarted.body);
 db.prepare('UPDATE installation SET created_at = ? WHERE id = 1').run(createdAt);
 invalidateLicenseCaches();
 

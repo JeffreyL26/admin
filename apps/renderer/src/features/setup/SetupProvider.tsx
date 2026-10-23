@@ -14,7 +14,8 @@ export function useSetupContext(): SetupView {
 /**
  * Haelt Status und Fortschritt des Einrichtungs-Assistenten fuer die ganze
  * Shell (Dialog, Launcher, Seitenleiste, Dashboard-Karte). Oeffnet den
- * Willkommensdialog genau einmal, und nur, wenn die Installation noch leer ist.
+ * Willkommensdialog genau einmal, und nur, wenn die Installation noch leer ist
+ * und noch kein Konto die Einrichtung uebernommen hat (assistant_started).
  */
 export function SetupProvider({ children }: { children: React.ReactNode }) {
   const view = useSetup();
@@ -23,7 +24,14 @@ export function SetupProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // `bound`: erst, wenn der Stand dieser Installation und dieses Kontos geladen ist.
-    if (eligible && status && local.bound && !local.welcomed && isFreshInstallation(status)) {
+    if (
+      eligible &&
+      status &&
+      local.bound &&
+      !local.welcomed &&
+      !status.assistant_started &&
+      isFreshInstallation(status)
+    ) {
       setupActions.showWelcome();
     }
   }, [eligible, status, local.bound, local.welcomed]);

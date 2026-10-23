@@ -12,6 +12,18 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Einrichtungs-Assistent: Karte nur fuer das Konto, das einrichtet (23.10.2026)
+- **Behoben:** Jedes weitere HR-Konto bekam bei der ersten Anmeldung die
+  Dashboard-Karte "Einrichtung" mit Fortschrittsbalken (bei leerer Firma den
+  Willkommensdialog), solange die Einrichtung der Firma offen war, auf jedem
+  Arbeitsplatz erneut. Ob ein Konto die Einrichtung uebernommen hat
+  (Willkommen gesehen, Assistent geoeffnet, Karte ausgeblendet), gilt jetzt
+  fuer die Installation: Zeile `assistent` in `setup_confirmations`,
+  `POST /api/setup/started`, Statusfeld `assistant_started`. Danach zeigen
+  Karte und Willkommen ihn keinem weiteren Konto; ueber die Befehlspalette
+  (Strg+K, Suche nach "Einrichtung") bleibt der Assistent fuer alle erreichbar. Merker, die nur
+  ein Geraet kennt, traegt der Client beim naechsten Start nach.
+
 ### Krankmeldungen: Folgebescheinigung auch bei HR-Erfassung (21.10.2026)
 - **Geaendert:** Erfasst die HR eine Krankmeldung, die nahtlos an eine
   bestehende derselben Art anschliesst (Ende am Vortag, nicht storniert),

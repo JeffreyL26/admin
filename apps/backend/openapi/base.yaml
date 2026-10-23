@@ -131,7 +131,7 @@ paths:
         (Block abwesenheit) meldet, ob der Schritt Abwesenheitsarten auf
         irgendeinem Arbeitsplatz bestaetigt wurde. Gespeichert wird nichts.
       responses:
-        "200": { description: "{ allowed_areas, company_saved?, locations?, departments?, employees_active?, employees_with_manager?, absence_types_active?, absence_confirmed?, admin_users?, portal_users?, employees_without_account? }" }
+        "200": { description: "{ allowed_areas, instance, assistant_started, company_saved?, locations?, departments?, employees_active?, employees_with_manager?, absence_types_active?, absence_confirmed?, admin_users?, portal_users?, employees_without_account? }" }
   /api/setup/absence-confirmed:
     post:
       summary: Schritt Abwesenheitsarten des Einrichtungs-Assistenten bestaetigen (fuer die Installation)
@@ -142,6 +142,22 @@ paths:
         "200": { description: "{ absence_confirmed: true }" }
         "403":
           description: Kein Recht abwesenheit bearbeiten
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/setup/started:
+    post:
+      summary: Ein Konto hat die Einrichtung uebernommen (fuer die Installation)
+      description: >-
+        Danach melden alle Konten assistant_started, und Dashboard-Karte und
+        Willkommensdialog erscheinen fuer kein weiteres Konto. Idempotent, ohne
+        Audit (keine Fachdaten). Verlangt bearbeiten in mindestens einem Bereich
+        eines Assistentenschritts, geprueft im Handler, weil /api/setup in
+        ALWAYS_ALLOWED steht.
+      responses:
+        "200": { description: "{ assistant_started: true }" }
+        "403":
+          description: Kein Schritt des Assistenten bearbeitbar
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

@@ -225,9 +225,10 @@ export const coreMigrations: Migration[] = [
     `,
   },
   {
-    // Bestaetigte Schritte des Einrichtungs-Assistenten, die sich nicht aus den
-    // Daten ableiten lassen (heute nur "abwesenheit": die Arten sind
-    // mitgeliefert, erledigt heisst angeschaut). Gilt fuer die Installation,
+    // Merker des Einrichtungs-Assistenten, die sich nicht aus den Daten
+    // ableiten lassen: "abwesenheit" (die Arten sind mitgeliefert, erledigt
+    // heisst angeschaut) und "assistent" (ein Konto hat die Einrichtung
+    // uebernommen, core/setupRoutes.ts). Gilt fuer die Installation,
     // nicht je Geraet, sonst fragte jeder weitere Arbeitsplatz erneut nach.
     // Bewusst ohne Konto-Spalte: Beim Loeschen eines Kontos ist nichts
     // nachzuziehen.
