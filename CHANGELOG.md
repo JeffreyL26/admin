@@ -76,11 +76,13 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   Willkommensdialog), solange die Einrichtung der Firma offen war, auf jedem
   Arbeitsplatz erneut. Jetzt merkt sich der Server, WELCHES Konto die
   Einrichtung uebernommen hat: das erste, das den Assistenten kennenlernt
-  (Willkommen gesehen oder geoeffnet), nie das Startkonto
-  `admin@ohrganize.de`. Karte und Willkommen erscheinen danach nur diesem
-  Konto, dafuer auf jedem seiner Arbeitsplaetze; das Ausblenden der Karte
-  gilt weiter nur fuer das eigene Geraet. Wird das Konto geloescht, ist die
-  Einrichtung wieder frei. Ueber die Befehlspalette (Strg+K, Suche nach
+  (Willkommen gesehen oder geoeffnet). Karte, Willkommen und der Knopf
+  "Einrichtung fortsetzen" erscheinen danach nur diesem Konto, dafuer auf
+  jedem seiner Arbeitsplaetze; das Ausblenden der Karte gilt weiter nur fuer
+  das eigene Geraet. Wird das Konto geloescht oder verliert es alle
+  Assistentenschritte (Rollenwechsel), ist die Einrichtung wieder frei. Das
+  Startkonto `admin@ohrganize.de` haelt sie nur vorlaeufig, bis ein
+  persoenliches Konto sie uebernimmt. Ueber die Befehlspalette (Strg+K, Suche nach
   "Einrichtung") bleibt der Assistent fuer alle erreichbar. Migration
   `008_setup_owner`, `POST /api/setup/started`, Statusfelder
   `assistant_owner` und `assistant_claimable`; Merker, die nur ein Geraet

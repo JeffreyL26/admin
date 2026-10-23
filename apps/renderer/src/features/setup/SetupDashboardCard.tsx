@@ -1,6 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import { setupCardVisible } from '@ohrganize/shared';
+import { setupCardStep } from '@ohrganize/shared';
 import { Tooltip } from '../../components/Tooltip';
 import { t } from './copy';
 import { stepText } from './stepMeta';
@@ -13,13 +13,12 @@ import { useSetupContext } from './SetupProvider';
  * erscheint nur mit Inhalt und verschwindet mit dem letzten Schritt. Wer den
  * Assistenten schon im Launcher fuehrt, braucht die Karte nicht doppelt.
  * Hat ein ANDERES Konto die Einrichtung uebernommen, erscheint sie nicht
- * (setupCardVisible in shared).
+ * (setupCardStep in shared).
  */
 export function SetupDashboardCard() {
   const { eligible, status, progress } = useSetupContext();
   const s = useSetupState();
-  if (!eligible || !status || !s.bound || !setupCardVisible(status, progress, s)) return null;
-  const next = progress.next;
+  const next = eligible && status && s.bound ? setupCardStep(status, progress, s) : null;
   if (!next) return null;
   const pct = Math.round((progress.doneCount / progress.total) * 100);
 

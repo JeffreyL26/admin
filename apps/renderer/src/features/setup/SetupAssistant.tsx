@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Lock } from 'lucide-react';
-import { PORTAL_ABSENCE_CAPTURE, SETUP_STEPS, nextOpenAfter, type SetupStepKey } from '@ohrganize/shared';
+import { PORTAL_ABSENCE_CAPTURE, SETUP_STEPS, nextOpenAfter, setupLauncherVisible, type SetupStepKey } from '@ohrganize/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { NAV_SECTIONS, navItemAllowedByFeatures } from '../../layout/nav';
 import { t } from './copy';
@@ -51,10 +51,7 @@ export function SetupLayer() {
   }, [dialogOpen]);
 
   if (!eligible || !status || !s.bound || progress.total === 0) return null;
-  if (!s.open) {
-    const show = s.welcomed && !(progress.complete && s.doneSeen);
-    return show ? <SetupLauncher /> : null;
-  }
+  if (!s.open) return setupLauncherVisible(status, progress, s) ? <SetupLauncher /> : null;
   return <SetupDialog />;
 }
 

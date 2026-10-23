@@ -187,7 +187,8 @@ function issueIat(sessionsValidFrom: number | null | undefined): number {
 /**
  * Startkonto einer frischen Installation. Es gehoert dem Betreiber und wird
  * nach der Inbetriebnahme geloescht (docs/inbetriebnahme.md, Abschnitt 5);
- * deshalb uebernimmt es nie den Einrichtungs-Assistenten (core/setupRoutes.ts).
+ * deshalb haelt es den Einrichtungs-Assistenten nur vorlaeufig, bis ein
+ * persoenliches Konto ihn uebernimmt (core/setupRoutes.ts, ownerFor).
  */
 export const DEFAULT_ADMIN_EMAIL = 'admin@ohrganize.de';
 

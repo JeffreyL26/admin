@@ -17,7 +17,7 @@ const { buildServer } = await import('../server.js');
 const { getDb, closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
 const {
-  deriveSetupProgress, isFreshInstallation, SETUP_STEPS, MODULE_KEYS, setupCardVisible, setupWelcomeDue,
+  deriveSetupProgress, isFreshInstallation, SETUP_STEPS, MODULE_KEYS, setupCardStep, setupLauncherVisible, setupWelcomeDue,
   setupClaimOwed, setupStatusWatched, visibleSetupStepKeys,
 } = await import('@ohrganize/shared');
 
@@ -44,7 +44,7 @@ check('Status frisch: nichts gespeichert, nichts angelegt',
 check('Status frisch: Seed-Abwesenheitsarten sind aktiv', f.absence_types_active > 0, f);
 check('Status frisch: Abwesenheitsarten noch nicht bestaetigt', f.absence_confirmed === false, f);
 check('Status frisch: noch kein Konto hat die Einrichtung uebernommen', f.assistant_owner === 'none', f);
-check('Startkonto des Betreibers kann die Einrichtung nicht uebernehmen', f.assistant_claimable === false, f);
+check('Status frisch: das Startkonto kann (vorlaeufig) uebernehmen', f.assistant_claimable === true, f);
 check('Status frisch: genau ein Admin, kein Portal-Konto', f.admin_users === 1 && f.portal_users === 0, f);
 check('Status frisch: alle Bereiche lesbar', Array.isArray(f.allowed_areas) && f.allowed_areas.length >= 9, f);
 check('frische Installation wird erkannt', isFreshInstallation(f));
@@ -190,34 +190,54 @@ const limStarted = await started(limAuth);
 check('Uebernehmen ohne bearbeitbaren Schritt (nur personal lesen) → 403', limStarted.statusCode === 403, limStarted.body);
 const readStarted = await started(readAuth);
 check('Uebernehmen mit abwesenheit lesen → 403', readStarted.statusCode === 403, readStarted.body);
-const bootStarted = await started(auth);
-check('Uebernehmen als Startkonto des Betreibers → 403 (es wird nach der Inbetriebnahme geloescht)',
-  bootStarted.statusCode === 403, bootStarted.body);
 check('nach den 403 hat niemand uebernommen', (await ownerOf(zweitAuth)).assistant_owner === 'none');
-check('Admin mit Vollzugriff darf uebernehmen', (await ownerOf(zweitAuth)).assistant_claimable === true);
+
+// Startkonto des Betreibers: haelt die Einrichtung nur vorlaeufig. Fuer jedes
+// andere Konto bleibt sie frei, das erste persoenliche Konto uebernimmt.
+const bootClaim = await started(auth);
+check('Startkonto uebernimmt vorlaeufig: 200, Antwort self',
+  bootClaim.statusCode === 200 && bootClaim.json().assistant_owner === 'self', bootClaim.body);
+const zweitView = await ownerOf(zweitAuth);
+check('fuer ein persoenliches Konto gilt die Einrichtung des Startkontos als frei',
+  zweitView.assistant_owner === 'none' && zweitView.assistant_claimable === true, zweitView);
 
 const claim1 = await started(zweitAuth);
 const claim2 = await started(zweitAuth);
-check('Uebernehmen: 200, zweimal ohne Fehler, Antwort self',
+check('persoenliches Konto uebernimmt vom Startkonto: 200, zweimal, Antwort self',
   claim1.statusCode === 200 && claim2.statusCode === 200 && claim2.json().assistant_owner === 'self',
   [claim1.body, claim2.body]);
-check('Uebernahme ist an das Konto gebunden: self fuer es, other fuer alle anderen',
+check('Uebernahme ist an das Konto gebunden: self fuer es, other fuer alle anderen (auch das Startkonto)',
   (await ownerOf(zweitAuth)).assistant_owner === 'self' &&
     (await ownerOf(markusAuth)).assistant_owner === 'other' &&
     (await ownerOf(limAuth)).assistant_owner === 'other' &&
     (await ownerOf(auth)).assistant_owner === 'other');
+check('solange jemand uebernommen hat, meldet der Status kein Uebernehmen-Duerfen',
+  (await ownerOf(markusAuth)).assistant_claimable === false);
 const markusClaim = await started(markusAuth);
 check('ein zweites Konto uebernimmt nicht: 200, Antwort other',
   markusClaim.statusCode === 200 && markusClaim.json().assistant_owner === 'other', markusClaim.body);
-check('Eigentuemer bleibt das erste Konto', (await ownerOf(zweitAuth)).assistant_owner === 'self');
+const bootClaim2 = await started(auth);
+check('das Startkonto holt sie nicht zurueck: Antwort other', bootClaim2.json().assistant_owner === 'other', bootClaim2.body);
 
-// Konto geloescht: Die Kontoloeschung setzt user_id auf NULL, die Einrichtung ist wieder frei.
-const zweitId = acc.json().user?.id ?? acc.json().account?.id;
-const del = await app.inject({ method: 'DELETE', url: `/api/admin/users/${zweitId}`, headers: auth });
-check('Eigentuemer-Konto loeschen', del.statusCode === 200 || del.statusCode === 204, del.body);
-check('nach dem Loeschen ist die Einrichtung wieder frei', (await ownerOf(markusAuth)).assistant_owner === 'none');
+// Eigentuemer verliert seine Assistentenschritte (Rolle nur personal lesen): wieder frei.
+const zweitId = acc.json().user.id as number;
+const demote = await send('PATCH', `/api/admin/users/${zweitId}`, { admin_role_id: role.json().admin_role.id });
+check('Eigentuemer bekommt eine Rolle ohne Assistentenschritt', demote.statusCode === 200, demote.body);
+const afterDemote = await ownerOf(zweitAuth);
+check('Eigentuemer ohne Recht: fuer ihn frei, aber nicht uebernehmbar',
+  afterDemote.assistant_owner === 'none' && afterDemote.assistant_claimable === false, afterDemote);
+check('Eigentuemer ohne Recht: fuer andere wieder frei', (await ownerOf(markusAuth)).assistant_owner === 'none');
 const markusClaim2 = await started(markusAuth);
 check('danach uebernimmt das naechste Konto', markusClaim2.json().assistant_owner === 'self', markusClaim2.body);
+
+// Konto geloescht: Die Kontoloeschung setzt user_id auf NULL, die Einrichtung ist wieder frei.
+const markusId = adminWithProfile.json().user.id as number;
+const del = await app.inject({ method: 'DELETE', url: `/api/admin/users/${markusId}`, headers: auth });
+check('Eigentuemer-Konto loeschen', del.statusCode === 200 || del.statusCode === 204, del.body);
+check('Kontoloeschung leert user_id',
+  (db.prepare(`SELECT user_id FROM setup_confirmations WHERE step = 'assistent'`).get() as { user_id: number | null })
+    .user_id === null);
+check('nach dem Loeschen ist die Einrichtung wieder frei', (await ownerOf(auth)).assistant_owner === 'none');
 
 // Portal-Konto: der globale Hook laesst `mitarbeiter` nur an /api/auth und /api/me.
 const portalLogin = await app.inject({
@@ -301,17 +321,25 @@ check('Logik: nur sichtbare Schritte zaehlen, Nummern beginnen bei 1',
 const viewNew = { welcomed: false, open: false, cardDismissed: false };
 const asOwner = (o: 'none' | 'self' | 'other') => ({ ...mid, assistant_owner: o, assistant_claimable: true });
 const progMid = deriveSetupProgress(mid, { absenceConfirmed: false, skipped: [] }, keys);
-check('Sichtbarkeit: Karte fuer ein neues Konto, solange niemand uebernommen hat',
-  setupCardVisible(asOwner('none'), progMid, viewNew));
+check('Sichtbarkeit: Karte fuer ein neues Konto, solange niemand uebernommen hat, mit dem naechsten Schritt',
+  setupCardStep(asOwner('none'), progMid, viewNew) === progMid.next && progMid.next !== null);
 check('Sichtbarkeit: Karte fuer den Eigentuemer auf einem weiteren Geraet',
-  setupCardVisible(asOwner('self'), progMid, viewNew));
+  setupCardStep(asOwner('self'), progMid, viewNew) !== null);
 check('Sichtbarkeit: keine Karte, wenn ein anderes Konto uebernommen hat',
-  !setupCardVisible(asOwner('other'), progMid, viewNew));
+  setupCardStep(asOwner('other'), progMid, viewNew) === null);
 check('Sichtbarkeit: keine Karte nach Ausblenden oder mit Launcher',
-  !setupCardVisible(asOwner('none'), progMid, { ...viewNew, cardDismissed: true }) &&
-    !setupCardVisible(asOwner('none'), progMid, { ...viewNew, welcomed: true }));
+  setupCardStep(asOwner('none'), progMid, { ...viewNew, cardDismissed: true }) === null &&
+    setupCardStep(asOwner('none'), progMid, { ...viewNew, welcomed: true }) === null);
 check('Sichtbarkeit: keine Karte, wenn alles erledigt ist',
-  !setupCardVisible(asOwner('none'), all, viewNew));
+  setupCardStep(asOwner('none'), all, viewNew) === null);
+const viewLaunch = { ...viewNew, welcomed: true, doneSeen: false };
+check('Launcher: fuer das Konto, das den Assistenten kennt, nicht fuer einen Nicht-Eigentuemer',
+  setupLauncherVisible(asOwner('self'), progMid, viewLaunch) && setupLauncherVisible(asOwner('none'), progMid, viewLaunch) &&
+    !setupLauncherVisible(asOwner('other'), progMid, viewLaunch));
+check('Launcher: nicht ohne Kennenlernen, nicht nach gesehenem Abschluss',
+  !setupLauncherVisible(asOwner('self'), progMid, { ...viewLaunch, welcomed: false }) &&
+    !setupLauncherVisible(asOwner('self'), all, { ...viewLaunch, doneSeen: true }) &&
+    setupLauncherVisible(asOwner('self'), all, viewLaunch));
 const freshFor = (o: 'none' | 'self' | 'other') => ({ ...f, assistant_owner: o, assistant_claimable: true });
 check('Willkommen: bei leerer Firma fuer jedes Konto, solange niemand uebernommen hat (auch nach dem Startkonto)',
   setupWelcomeDue(freshFor('none'), viewNew) && setupWelcomeDue(freshFor('self'), viewNew));
@@ -324,9 +352,10 @@ check('Uebernahme: faellig, wer den Assistenten kennt, solange sie frei ist und 
     !setupClaimOwed(asOwner('none'), { ...viewNew, cardDismissed: true }) &&
     !setupClaimOwed(asOwner('self'), { ...viewNew, welcomed: true }) &&
     !setupClaimOwed({ ...asOwner('none'), assistant_claimable: false }, { ...viewNew, welcomed: true }));
-check('Nachladen: nicht fuer die Karte, wenn ein anderes Konto uebernommen hat; ohne Status ja',
+check('Nachladen: nicht, wenn ein anderes Konto uebernommen hat; ohne Status ja',
   !setupStatusWatched(asOwner('other'), progMid, viewNew) &&
-    setupStatusWatched(asOwner('other'), progMid, { ...viewNew, welcomed: true }) &&
+    !setupStatusWatched(asOwner('other'), progMid, { ...viewNew, welcomed: true }) &&
+    setupStatusWatched(asOwner('self'), progMid, { ...viewNew, welcomed: true }) &&
     setupStatusWatched(undefined, progMid, viewNew) && !setupStatusWatched(asOwner('none'), all, viewNew));
 const allAreas = () => true;
 check('Schritte: Vollzugriff in der Vollversion sieht alle sieben',
