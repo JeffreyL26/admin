@@ -13,15 +13,13 @@ import { announceSkip } from '../tours/skipEvent';
  * (GET /api/setup/status, shared/setup.ts) und kann deshalb nicht driften.
  */
 
-/** Zustaende des Dialogs; die Regeln in shared (setupDialogYields) lesen denselben Typ. */
-export type SetupView = SetupDialogView;
-
 interface Persisted {
   /** Willkommen gesehen oder Assistent bewusst geoeffnet: ab dann gibt es den Launcher. */
   welcomed: boolean;
   /** Dialog offen (sonst Launcher). */
   open: boolean;
-  view: SetupView;
+  /** Zustand des Dialogs; die Regeln in shared (setupDialogYields) lesen denselben Typ. */
+  view: SetupDialogView;
   current: SetupStepKey | null;
   skipped: SetupStepKey[];
   absenceConfirmed: boolean;

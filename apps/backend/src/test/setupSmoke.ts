@@ -16,7 +16,7 @@ process.env.OHRGANIZE_LOG_LEVEL = 'silent';
 const { buildServer } = await import('../server.js');
 const { getDb, closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
-const { resetForReseed } = await import('../seed/forceReset.js');
+const { resetForReseed, StartAccountMissingError } = await import('../seed/forceReset.js');
 const { markStartAccount } = await import('../db/migrations/000_core.js');
 const {
   deriveSetupProgress, isFreshInstallation, SETUP_STEPS, MODULE_KEYS, setupCardStep, setupLauncherVisible, setupWelcomeDue,
@@ -223,8 +223,10 @@ try {
     migratedMarks = flagged();
     try {
       db.prepare('UPDATE users SET is_start_account = 1 WHERE id = ?').run(otherAccount);
-    } catch {
-      secondStartRefused = true;
+    } catch (err) {
+      // Nur die Sperre des Teilindex zaehlt, kein anderer Fehler.
+      secondStartRefused = (err as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE';
+      if (!secondStartRefused) markError = String(err);
     }
     // Startkonto geloescht (hier: umbenannt), Adresse neu vergeben: groessere ID.
     db.prepare('UPDATE users SET is_start_account = 0').run();
@@ -316,6 +318,27 @@ try {
 }
 check('Neu seeden loest den Eigentuemer und loescht die Konten ohne Fremdschluesselfehler', seedRan, seedError);
 check('Neu seeden behaelt die Bestaetigung der Abwesenheitsarten', absenceKept);
+// Ohne Startkonto liesse das Leeren kein Konto uebrig: Abbruch, bevor etwas
+// geloescht ist (in einer Transaktion, die zurueckrollt).
+const usersBefore = (db.prepare('SELECT COUNT(*) n FROM users').get() as { n: number }).n;
+let missingStartRefused = false;
+let usersAfterRefusal = -1;
+try {
+  db.transaction(() => {
+    db.prepare('UPDATE users SET is_start_account = 0').run();
+    try {
+      resetForReseed();
+    } catch (err) {
+      missingStartRefused = err instanceof StartAccountMissingError;
+    }
+    usersAfterRefusal = (db.prepare('SELECT COUNT(*) n FROM users').get() as { n: number }).n;
+    throw new Error('zurueckrollen');
+  })();
+} catch {
+  // gewollt: nur pruefen, nichts behalten
+}
+check('Neu seeden ohne Startkonto bricht ab, bevor ein Konto geloescht ist',
+  missingStartRefused && usersAfterRefusal === usersBefore, [missingStartRefused, usersAfterRefusal, usersBefore]);
 db.prepare(`UPDATE setup_confirmations SET user_id = NULL WHERE step = 'assistent'`).run();
 db.prepare("DELETE FROM users WHERE email = 'seed.probe@example.org'").run();
 

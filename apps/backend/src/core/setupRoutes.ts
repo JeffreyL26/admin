@@ -6,6 +6,7 @@ import {
   permits,
   visibleSetupStepKeys,
   type AdminArea,
+  type AdminPermissions,
   type SetupOwner,
   type SetupStatus,
 } from '@ohrganize/shared';
@@ -56,7 +57,7 @@ interface SetupOwnerAccount extends SetupAccount {
  */
 function mayClaim(
   account: Pick<SetupAccount, 'role' | 'admin_role_id'>,
-  permissions?: ReturnType<typeof permissionsFor>,
+  permissions?: AdminPermissions,
 ): boolean {
   if (account.role !== 'admin') return false;
   // Erst nach der Rollenpruefung: Fuer ein Portal-Konto waere die Abfrage umsonst.

@@ -1,15 +1,32 @@
 /**
  * Leert vor `npm run seed -- --force` alle Fachdaten und alle Konten bis auf
- * das Startkonto (users.is_start_account). Eigene Datei, damit der Setup-Test (src/test/setupSmoke.ts)
- * genau diese Schritte gegen einen Stand mit Eigentuemer des Assistenten
+ * das Startkonto (users.is_start_account). Eigene Datei, damit der Setup-Test
+ * (src/test/setupSmoke.ts) genau diese Schritte gegen einen Stand mit Eigentuemer des Assistenten
  * pruefen kann; seed.ts selbst laeuft beim Import los. Ohne eigene
  * Transaktion: seed.ts ruft es in `inTransaction`, der Test in einer, die er
  * zurueckrollt.
  */
 import { getDb } from '../db/db.js';
 
+/**
+ * Kein Konto traegt das Kennzeichen (etwa Startkonto frueher geloescht): Das
+ * Leeren liesse kein Konto uebrig, und ensureDefaultAdmin lief schon vorher.
+ * Geworfen, bevor etwas geloescht ist; seed.ts meldet es und bricht ab.
+ */
+export class StartAccountMissingError extends Error {
+  constructor() {
+    super(
+      'Abbruch: Kein Startkonto gefunden (users.is_start_account). Neu seeden loeschte sonst alle Konten, ' +
+        'danach koennte sich niemand mehr anmelden. Nichts wurde geloescht. Fuer einen frischen Stand das ' +
+        'Datenverzeichnis apps/backend/data entfernen und "npm run seed" ausfuehren.',
+    );
+    this.name = 'StartAccountMissingError';
+  }
+}
+
 export function resetForReseed(): void {
   const db = getDb();
+  if (!db.prepare('SELECT 1 FROM users WHERE is_start_account = 1').get()) throw new StartAccountMissingError();
   // Reihenfolge egal: FKs kaskadieren größtenteils; Rest explizit.
   const tables = [
     // Recruiting (Kinder → Eltern; recruiting_stages bleibt, da per Migration geseedet)
