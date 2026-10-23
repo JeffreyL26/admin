@@ -149,17 +149,19 @@ paths:
     post:
       summary: Das abfragende Konto uebernimmt die Einrichtung, sofern sie frei ist
       description: >-
-        Frei heisst, noch kein Konto hat uebernommen oder dessen Konto wurde
-        geloescht. Danach meldet der Status diesem Konto assistant_owner self und
-        allen anderen other; Dashboard-Karte und Willkommensdialog erscheinen
-        dann nur noch ihm. Idempotent, ohne Audit (keine Fachdaten). Verlangt
-        mindestens einen sichtbaren Assistentenschritt (Recht bearbeiten,
-        Variante, Lizenzfeature) und nicht das Startkonto admin@ohrganize.de,
-        geprueft im Handler, weil /api/setup in ALWAYS_ALLOWED steht.
+        Frei heisst, noch kein Konto hat uebernommen, dessen Konto wurde
+        geloescht oder hat keinen Assistentenschritt mehr, oder nur das
+        Startkonto admin@ohrganize.de haelt sie (vorlaeufig, fuer jedes andere
+        Konto frei). Danach meldet der Status diesem Konto assistant_owner self
+        und allen anderen other; Dashboard-Karte, Willkommensdialog und Launcher
+        erscheinen dann nur noch ihm. Idempotent, ohne Audit (keine Fachdaten).
+        Verlangt ein Admin-Konto mit mindestens einem sichtbaren
+        Assistentenschritt (Recht bearbeiten, Variante, Lizenzfeature), geprueft
+        im Handler, weil /api/setup in ALWAYS_ALLOWED steht.
       responses:
         "200": { description: "{ assistant_owner: self | other }" }
         "403":
-          description: Kein sichtbarer Schritt oder Startkonto des Betreibers
+          description: Kein sichtbarer Assistentenschritt
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

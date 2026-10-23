@@ -483,13 +483,16 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Statusfelder `assistant_owner` (`none`/`self`/`other` aus Sicht des Kontos)
   und `assistant_claimable`. Uebernommen hat das erste Konto, das den
   Assistenten kennenlernt (lokaler Merker `welcomed`: Willkommen gesehen oder
-  geoeffnet), NICHT das Ausblenden der Karte (gilt nur fuer das Geraet) und
-  nie das Startkonto `admin@ohrganize.de` (`DEFAULT_ADMIN_EMAIL`, wird nach der
-  Inbetriebnahme geloescht). Karte und Willkommen erscheinen danach nur dem
-  Eigentuemer, dafuer auf jedem seiner Arbeitsplaetze; wird sein Konto
-  geloescht, ist die Einrichtung wieder frei. Die Regeln stehen DOM-frei in
-  `shared/setup.ts` (`setupCardVisible`, `setupWelcomeDue`, `setupClaimOwed`,
-  `setupStatusWatched`), welche Schritte ein Konto sieht in
+  geoeffnet), NICHT das Ausblenden der Karte (gilt nur fuer das Geraet).
+  Karte, Willkommen und Launcher erscheinen danach nur dem Eigentuemer, dafuer
+  auf jedem seiner Arbeitsplaetze. Wieder frei ist die Einrichtung, wenn sein
+  Konto geloescht wird oder keinen Assistentenschritt mehr hat (geprueft gegen
+  das aktuelle Konto, `ownerFor` in `setupRoutes.ts`). Das Startkonto
+  `admin@ohrganize.de` (`DEFAULT_ADMIN_EMAIL`, wird nach der Inbetriebnahme
+  geloescht) haelt sie nur vorlaeufig: Fuer jedes andere Konto gilt sie dann
+  als frei. Die Regeln stehen DOM-frei in `shared/setup.ts`
+  (`setupCardStep`, `setupLauncherVisible`, `setupWelcomeDue`,
+  `setupClaimOwed`, `setupStatusWatched`), welche Schritte ein Konto sieht in
   `visibleSetupStepKeys` (Client und Backend gleich). **Alle Texte stehen in
   `features/setup/copy.ts`** (Schluessel wie im abgestimmten Textartefakt,
   `t()` fuellt Platzhalter); neue Schritte tragen sich in `SETUP_STEPS`

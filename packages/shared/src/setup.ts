@@ -66,10 +66,9 @@ export interface SetupStatus {
    */
   assistant_owner: SetupOwner;
   /**
-   * Kann das abfragende Konto die Einrichtung uebernehmen? Nur mit mindestens
-   * einem sichtbaren Schritt (visibleSetupStepKeys) und nicht als Startkonto
-   * des Betreibers (admin@ohrganize.de), das nach der Inbetriebnahme geloescht
-   * wird. Dieselbe Pruefung wie POST /api/setup/started.
+   * Kann das abfragende Konto die Einrichtung jetzt uebernehmen? Nur, solange
+   * `assistant_owner` `none` ist, und nur mit mindestens einem sichtbaren
+   * Schritt (visibleSetupStepKeys). Dieselbe Pruefung wie POST /api/setup/started.
    */
   assistant_claimable: boolean;
   company_saved?: boolean;
@@ -87,8 +86,10 @@ export interface SetupStatus {
 
 /**
  * Uebernahme der Einrichtung, gespeichert je Installation MIT Konto (Zeile
- * `assistent` in `setup_confirmations`): `none` = noch niemand (oder das Konto
- * wurde geloescht), `self` = das abfragende Konto, `other` = ein anderes.
+ * `assistent` in `setup_confirmations`): `none` = frei, `self` = das abfragende
+ * Konto, `other` = ein anderes. Frei heisst auch: Konto geloescht, Eigentuemer
+ * hat keinen Assistentenschritt mehr, oder nur das Startkonto des Betreibers
+ * haelt sie (aus Sicht jedes anderen Kontos; core/setupRoutes.ts, ownerFor).
  * Uebernommen hat, wer den Assistenten kennengelernt hat (Willkommen gesehen
  * oder geoeffnet, lokaler Merker `welcomed`); das Ausblenden der Karte zaehlt
  * NICHT, es gilt nur fuer das eigene Geraet.
@@ -239,17 +240,34 @@ export function setupWelcomeDue(status: SetupStatus, view: SetupViewState): bool
   return !view.welcomed && setupOfferedTo(status) && isFreshInstallation(status);
 }
 
-/** Erscheint die Dashboard-Karte? Wer den Launcher hat, braucht sie nicht doppelt. */
-export function setupCardVisible(status: SetupStatus, progress: SetupProgress, view: SetupViewState): boolean {
-  return (
+/**
+ * Schritt, den die Dashboard-Karte anbietet, oder null, wenn sie nicht
+ * erscheint. Wer den Launcher hat, braucht sie nicht doppelt.
+ */
+export function setupCardStep(status: SetupStatus, progress: SetupProgress, view: SetupViewState): SetupStepKey | null {
+  const shown =
     progress.total > 0 &&
     !progress.complete &&
-    progress.next !== null &&
     !view.cardDismissed &&
     !view.open &&
     !view.welcomed &&
-    setupOfferedTo(status)
-  );
+    setupOfferedTo(status);
+  return shown ? progress.next : null;
+}
+
+/**
+ * Erscheint der Launcher unten rechts? Fuer das Konto, das den Assistenten
+ * kennt, bis der Abschluss gesehen ist; nicht, wenn ein ANDERES Konto die
+ * Einrichtung uebernommen hat (sonst bliebe der Knopf etwa nach zwei
+ * gleichzeitigen Anmeldungen bei leerer Firma fuer immer stehen). Fehlt das
+ * Feld (aeltere Fassung des Servers), bleibt es wie bisher.
+ */
+export function setupLauncherVisible(
+  status: Pick<SetupStatus, 'assistant_owner'>,
+  progress: SetupProgress,
+  view: SetupViewState & { doneSeen: boolean },
+): boolean {
+  return view.welcomed && !(progress.complete && view.doneSeen) && setupOfferedTo(status);
 }
 
 /**
@@ -264,8 +282,9 @@ export function setupClaimOwed(status: SetupStatus, view: SetupViewState): boole
 /**
  * Lohnt das Nachladen des Status beim Seitenwechsel? Nur, solange Assistent
  * oder Karte etwas zeigen koennen: nicht nach dem Abschluss, nicht nach dem
- * Ausblenden, die Karte nicht, wenn ein anderes Konto uebernommen hat. Ohne
- * Status (noch nicht geladen) gilt die Karte als moeglich.
+ * Ausblenden, und gar nicht, wenn ein anderes Konto uebernommen hat (dann
+ * zeigen weder Karte noch Launcher etwas). Ohne Status (noch nicht geladen)
+ * gilt beides als moeglich.
  */
 export function setupStatusWatched(
   status: SetupStatus | undefined,
@@ -273,6 +292,8 @@ export function setupStatusWatched(
   view: SetupViewState,
 ): boolean {
   return (
-    !progress.complete && (view.welcomed || (!view.cardDismissed && (status === undefined || setupOfferedTo(status))))
+    !progress.complete &&
+    (status === undefined || setupOfferedTo(status)) &&
+    (view.welcomed || !view.cardDismissed)
   );
 }

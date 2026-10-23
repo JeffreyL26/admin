@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import {
   ADMIN_AREAS,
   areaOpen,
@@ -10,7 +10,7 @@ import {
   type SetupStatus,
 } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
-import { getDb } from '../db/db.js';
+import { getDb, inTransaction } from '../db/db.js';
 import { DEFAULT_ADMIN_EMAIL } from './auth.js';
 import { forbidden } from './errors.js';
 import { effectiveFeatures } from './license.js';
@@ -34,29 +34,60 @@ import { permissionsFor } from './permissions.js';
  * Client als "kein Recht".
  */
 
-/**
- * Darf das Konto die Einrichtung uebernehmen? Mindestens ein Schritt, den es im
- * Assistenten sieht (dieselbe Funktion wie der Client: Recht, Variante,
- * Lizenzfeature), und nicht das Startkonto des Betreibers.
- */
-function mayClaim(req: FastifyRequest): boolean {
-  const permissions = permissionsFor(req.user.admin_role_id);
-  const features = effectiveFeatures();
-  const visible = visibleSetupStepKeys(
-    (area) => areaOpen(VARIANT, area, permissions[area], 'bearbeiten'),
-    VARIANT,
-    features === 'all' ? null : [...features],
-  );
-  if (visible.length === 0) return false;
-  const row = getDb().prepare('SELECT email FROM users WHERE id = ?').get(req.user.id) as
-    | { email: string }
-    | undefined;
-  return row !== undefined && row.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL;
+interface SetupAccount {
+  id: number;
+  email: string;
+  role: string;
+  admin_role_id: number | null;
 }
 
-function ownerFor(ownerId: number | null | undefined, userId: number): SetupOwner {
-  if (ownerId === null || ownerId === undefined) return 'none';
-  return ownerId === userId ? 'self' : 'other';
+function loadAccount(id: number): SetupAccount | undefined {
+  return getDb().prepare('SELECT id, email, role, admin_role_id FROM users WHERE id = ?').get(id) as
+    | SetupAccount
+    | undefined;
+}
+
+/** Startkonto des Betreibers (E-Mail-Adressen lassen sich nicht aendern). */
+function isStartAccount(account: SetupAccount): boolean {
+  return account.email.toLowerCase() === DEFAULT_ADMIN_EMAIL;
+}
+
+/**
+ * Darf das Konto die Einrichtung uebernehmen oder behalten? Admin-Konto mit
+ * mindestens einem Schritt, den es im Assistenten sieht (dieselbe Funktion wie
+ * der Client: Recht, Variante, Lizenzfeature). Wird gegen das aktuelle Konto
+ * geprueft, nicht gegen das Token: Eine geaenderte Rolle wirkt sofort.
+ */
+function mayClaim(account: SetupAccount | undefined): account is SetupAccount {
+  if (!account || account.role !== 'admin') return false;
+  const permissions = permissionsFor(account.admin_role_id);
+  const features = effectiveFeatures();
+  return (
+    visibleSetupStepKeys(
+      (area) => areaOpen(VARIANT, area, permissions[area], 'bearbeiten'),
+      VARIANT,
+      features === 'all' ? null : [...features],
+    ).length > 0
+  );
+}
+
+/**
+ * Wem gehoert die Einrichtung aus Sicht von `viewer`? Ein Eigentuemer zaehlt
+ * nur, solange er sie noch uebernehmen duerfte: Bekommt sein Konto eine Rolle
+ * ohne Assistentenschritt, ist sie wieder frei, sonst saehe sie niemand mehr.
+ * Das Startkonto des Betreibers haelt sie nur vorlaeufig: Fuer jedes andere
+ * Konto gilt sie dann als frei, damit die HR sie nach der Inbetriebnahme
+ * uebernimmt (das Startkonto wird danach geloescht, docs/inbetriebnahme.md 5).
+ * Behaelt ein Kunde es bewusst, uebernimmt das erste persoenliche Konto, das
+ * den Assistenten kennenlernt.
+ */
+function ownerFor(ownerId: number | null | undefined, viewer: SetupAccount | undefined): SetupOwner {
+  if (ownerId === null || ownerId === undefined || !viewer) return 'none';
+  if (ownerId === viewer.id) return mayClaim(viewer) ? 'self' : 'none';
+  const owner = loadAccount(ownerId);
+  if (!mayClaim(owner)) return 'none';
+  if (isStartAccount(owner) && !isStartAccount(viewer)) return 'none';
+  return 'other';
 }
 
 export async function setupRoutes(app: FastifyInstance): Promise<void> {
@@ -81,11 +112,15 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
       ),
     );
 
+    // Uebernehmen-Duerfen zaehlt nur, solange die Einrichtung frei ist; sonst
+    // spart sich der haeufig abgerufene Status die Pruefung.
+    const viewer = loadAccount(req.user.id);
+    const owner = ownerFor(marks.get('assistent'), viewer);
     const status: SetupStatus = {
       allowed_areas: ADMIN_AREAS.filter(may),
       instance,
-      assistant_owner: ownerFor(marks.get('assistent'), req.user.id),
-      assistant_claimable: mayClaim(req),
+      assistant_owner: owner,
+      assistant_claimable: owner === 'none' && mayClaim(viewer),
     };
 
     if (may('einstellungen')) {
@@ -148,23 +183,31 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // Das Konto hat den Assistenten kennengelernt (Willkommen gesehen oder
-  // geoeffnet) und uebernimmt die Einrichtung, sofern sie noch frei ist: Danach
-  // bieten Karte und Willkommen sie nur noch diesem Konto an (assistant_owner).
-  // Frei ist sie auch, wenn das Konto geloescht wurde (user_id NULL). Recht wie
-  // fuer den Assistenten (mayClaim), geprueft hier, weil der globale Hook unter
-  // /api/setup keinen Bereich prueft. Idempotent und ohne Audit: Es aendert keine
-  // Fachdaten, nur wem die Karte erscheint. Die Antwort nennt den Stand danach.
+  // geoeffnet) und uebernimmt die Einrichtung, sofern sie aus seiner Sicht frei
+  // ist (ownerFor: niemand, geloeschtes Konto, Eigentuemer ohne Recht mehr, oder
+  // nur das Startkonto). Danach bieten Karte und Willkommen sie nur noch diesem
+  // Konto an. Recht wie fuer den Assistenten (mayClaim), geprueft hier, weil der
+  // globale Hook unter /api/setup keinen Bereich prueft. Pruefen und Schreiben in
+  // einer Transaktion, damit zwei gleichzeitige Uebernahmen nicht beide
+  // gewinnen. Idempotent und ohne Audit: Es aendert keine Fachdaten, nur wem die
+  // Karte erscheint. Die Antwort nennt den Stand danach.
   app.post('/api/setup/started', async (req) => {
-    if (!mayClaim(req)) throw forbidden();
+    const viewer = loadAccount(req.user.id);
+    if (!mayClaim(viewer)) throw forbidden();
     const db = getDb();
-    db.prepare(
-      `INSERT INTO setup_confirmations (step, user_id) VALUES ('assistent', ?)
-       ON CONFLICT(step) DO UPDATE SET user_id = excluded.user_id, confirmed_at = datetime('now')
-       WHERE setup_confirmations.user_id IS NULL`,
-    ).run(req.user.id);
-    const owner = db.prepare(`SELECT user_id FROM setup_confirmations WHERE step = 'assistent'`).get() as
-      | { user_id: number | null }
-      | undefined;
-    return { assistant_owner: ownerFor(owner?.user_id, req.user.id) };
+    const current = () =>
+      (db.prepare(`SELECT user_id FROM setup_confirmations WHERE step = 'assistent'`).get() as
+        | { user_id: number | null }
+        | undefined)?.user_id;
+    const owner = inTransaction(() => {
+      if (ownerFor(current(), viewer) === 'none') {
+        db.prepare(
+          `INSERT INTO setup_confirmations (step, user_id) VALUES ('assistent', ?)
+           ON CONFLICT(step) DO UPDATE SET user_id = excluded.user_id, confirmed_at = datetime('now')`,
+        ).run(viewer.id);
+      }
+      return ownerFor(current(), viewer);
+    });
+    return { assistant_owner: owner };
   });
 }
