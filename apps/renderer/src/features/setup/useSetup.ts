@@ -48,6 +48,27 @@ export function postAbsenceConfirmed(qc: QueryClient): Promise<void> {
   return request;
 }
 
+/**
+ * Meldet dem Server, dass ein Konto die Einrichtung uebernommen hat
+ * (`assistant_started`). Danach bieten Dashboard-Karte und Willkommen sie
+ * keinem weiteren Konto an, auf keinem Arbeitsplatz. Geteilt wie oben.
+ */
+const startedInFlight = new WeakMap<QueryClient, Promise<void>>();
+function postAssistantStarted(qc: QueryClient): Promise<void> {
+  const running = startedInFlight.get(qc);
+  if (running) return running;
+  const request = (async () => {
+    try {
+      await api.post('/api/setup/started');
+      await qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY });
+    } finally {
+      startedInFlight.delete(qc);
+    }
+  })();
+  startedInFlight.set(qc, request);
+  return request;
+}
+
 /** Darf dieses Konto die Bestaetigung jetzt schreiben? Recht des Schritts, keine Nur-Lese-Lizenz. */
 export function mayConfirmAbsence(
   can: ReturnType<typeof useAuth>['can'],
@@ -149,11 +170,37 @@ export function useSetup(): SetupView {
     });
   }, [owesConfirm, confirmKey, statusUpdatedAt, qc]);
 
+  // Uebernahme melden: Wer den Willkommensdialog gesehen, den Assistenten
+  // geoeffnet oder die Karte ausgeblendet hat (alles setzt einen lokalen
+  // Merker), hat die Einrichtung uebernommen oder abgelehnt. Das gilt dann fuer
+  // die Installation, sonst bekaeme jedes weitere Konto auf jedem Arbeitsplatz
+  // die Karte erneut. Ein Effekt fuer alle Wege; er traegt auch Merker nach,
+  // die nur das Geraet kennt (gesetzt vor diesem Serverfeld). Regeln fuer
+  // Nur-Lese und 403 wie beim Nachtrag oben.
+  const startedRefusedFor = useRef<string | null>(null);
+  const owesStarted =
+    confirmKey !== null &&
+    eligible &&
+    startedRefusedFor.current !== confirmKey &&
+    (local.welcomed || local.cardDismissed) &&
+    license?.read_only !== true &&
+    status?.assistant_started === false;
+  useEffect(() => {
+    if (!owesStarted) return;
+    postAssistantStarted(qc).catch((err: unknown) => {
+      if (err instanceof ApiRequestError && err.status === 403) startedRefusedFor.current = confirmKey;
+    });
+  }, [owesStarted, confirmKey, statusUpdatedAt, qc]);
+
   // Die Route aendert sich staendig, der Stand auch: Wer eine Abteilung auf der
   // normalen Seite anlegt, soll sie im Assistenten sofort erledigt sehen. Die
   // Abfrage besteht nur aus Zaehlungen, laeuft aber nur, solange der Assistent oder
-  // seine Karte etwas anzeigen: nicht nach dem Abschluss, nicht nach dem Ausblenden.
-  const watching = eligible && !progress.complete && (local.welcomed || !local.cardDismissed);
+  // seine Karte etwas anzeigen: nicht nach dem Abschluss, nicht nach dem
+  // Ausblenden, die Karte auch nicht mehr, sobald ein Konto uebernommen hat.
+  const watching =
+    eligible &&
+    !progress.complete &&
+    (local.welcomed || (!local.cardDismissed && status?.assistant_started !== true));
   useEffect(() => {
     if (watching) qc.invalidateQueries({ queryKey: SETUP_STATUS_KEY });
   }, [location.pathname, watching, qc]);

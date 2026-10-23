@@ -58,6 +58,14 @@ export interface SetupStatus {
    * ersetzten Datenbank trifft Konto 1 sonst auf den Stand der alten.
    */
   instance: string;
+  /**
+   * Hat schon ein Konto die Einrichtung uebernommen (Willkommen gesehen, den
+   * Assistenten geoeffnet oder die Karte ausgeblendet), egal auf welchem
+   * Arbeitsplatz? Dann bieten Karte und Willkommensdialog sie keinem weiteren
+   * Konto mehr an; erreichbar bleibt der Assistent ueber die Befehlspalette.
+   * Ohne Bereichsbindung, es sagt nichts ueber Fachdaten.
+   */
+  assistant_started: boolean;
   company_saved?: boolean;
   locations?: number;
   departments?: number;
