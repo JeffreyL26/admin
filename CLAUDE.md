@@ -593,8 +593,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   das aktuelle Konto, `ownerFor` in `setupRoutes.ts`; die Rechte des
   abfragenden Kontos kommen aus `req.user`, das der globale Hook frisch
   liest). Das Startkonto (Kennzeichen `users.is_start_account` aus
-  `ensureDefaultAdmin`, Migration `009_start_account`, NICHT die Adresse
-  `admin@ohrganize.de`, die nach dem Loeschen neu vergeben werden kann; wird
+  `ensureDefaultAdmin`, bestehende Installationen `markStartAccount` in
+  Migration `009_start_account`, hoechstens eins per eindeutigem Teilindex;
+  NICHT die Adresse `admin@ohrganize.de`, die nach dem Loeschen neu vergeben
+  werden kann, auch der Seed behaelt es am Kennzeichen; wird
   nach der Inbetriebnahme geloescht) haelt sie nur vorlaeufig, solange es mit
   keinem Personalprofil verknuepft ist: Fuer jedes andere Konto gilt sie dann
   als frei. `assistant_claimable` ist im Nur-Lese-Betrieb falsch, wie der

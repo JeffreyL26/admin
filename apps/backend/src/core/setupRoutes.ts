@@ -56,13 +56,15 @@ interface SetupOwnerAccount extends SetupAccount {
  */
 function mayClaim(
   account: Pick<SetupAccount, 'role' | 'admin_role_id'>,
-  permissions = permissionsFor(account.admin_role_id),
+  permissions?: ReturnType<typeof permissionsFor>,
 ): boolean {
   if (account.role !== 'admin') return false;
+  // Erst nach der Rollenpruefung: Fuer ein Portal-Konto waere die Abfrage umsonst.
+  const rights = permissions ?? permissionsFor(account.admin_role_id);
   const features = effectiveFeatures();
   return (
     visibleSetupStepKeys(
-      (area) => areaOpen(VARIANT, area, permissions[area], 'bearbeiten'),
+      (area) => areaOpen(VARIANT, area, rights[area], 'bearbeiten'),
       VARIANT,
       features === 'all' ? null : [...features],
     ).length > 0
@@ -88,7 +90,8 @@ function holdsProvisionally(owner: SetupOwnerAccount): boolean {
  * solange er sie noch uebernehmen duerfte: Bekommt sein Konto eine Rolle ohne
  * Assistentenschritt, ist sie wieder frei, sonst saehe sie niemand mehr. Haelt
  * das Startkonto sie nur vorlaeufig, gilt sie fuer jedes andere Konto als frei
- * (es gibt hoechstens ein Startkonto, ein anderes Konto ist also nie selbst eins).
+ * (es gibt hoechstens ein Startkonto, eindeutiger Teilindex in Migration
+ * `009_start_account`; ein anderes Konto ist also nie selbst eins).
  */
 function ownerFor(owner: SetupOwnerAccount | undefined, viewerId: number, viewerMayClaim: boolean): SetupOwner {
   if (!owner) return 'none';
