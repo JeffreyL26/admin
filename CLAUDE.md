@@ -477,13 +477,20 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `007_setup_confirmations` in `000_core.ts`), `POST /api/setup/absence-confirmed`
   (`abwesenheit: bearbeiten`, im Handler geprueft), Statusfeld
   `absence_confirmed`; der lokale Merker zaehlt nur bis dahin, `useSetup.ts`
-  traegt ihn nach. Sonst fragte jeder weitere Arbeitsplatz erneut. Ebenso
-  fuer die Installation gilt, dass ein Konto die Einrichtung uebernommen hat
-  (Zeile `assistent` in `setup_confirmations`, `POST /api/setup/started`,
-  Statusfeld `assistant_started`, gesetzt sobald ein Konto Willkommen sieht,
-  den Assistenten oeffnet oder die Karte ausblendet): Danach zeigen
-  Dashboard-Karte und Willkommen ihn keinem weiteren Konto, sonst bekaeme jede
-  neue HR-Person bei der ersten Anmeldung den Stand vorgesetzt. **Alle Texte stehen in
+  traegt ihn nach. Sonst fragte jeder weitere Arbeitsplatz erneut. **Wer die
+  Einrichtung uebernommen hat**, haelt der Server je Konto: Zeile `assistent`
+  mit `user_id` (Migration `008_setup_owner`), `POST /api/setup/started`,
+  Statusfelder `assistant_owner` (`none`/`self`/`other` aus Sicht des Kontos)
+  und `assistant_claimable`. Uebernommen hat das erste Konto, das den
+  Assistenten kennenlernt (lokaler Merker `welcomed`: Willkommen gesehen oder
+  geoeffnet), NICHT das Ausblenden der Karte (gilt nur fuer das Geraet) und
+  nie das Startkonto `admin@ohrganize.de` (`DEFAULT_ADMIN_EMAIL`, wird nach der
+  Inbetriebnahme geloescht). Karte und Willkommen erscheinen danach nur dem
+  Eigentuemer, dafuer auf jedem seiner Arbeitsplaetze; wird sein Konto
+  geloescht, ist die Einrichtung wieder frei. Die Regeln stehen DOM-frei in
+  `shared/setup.ts` (`setupCardVisible`, `setupWelcomeDue`, `setupClaimOwed`,
+  `setupStatusWatched`), welche Schritte ein Konto sieht in
+  `visibleSetupStepKeys` (Client und Backend gleich). **Alle Texte stehen in
   `features/setup/copy.ts`** (Schluessel wie im abgestimmten Textartefakt,
   `t()` fuellt Platzhalter); neue Schritte tragen sich in `SETUP_STEPS`
   (shared), `STEP_COMPONENTS` (`steps.tsx`) und `copy.ts` ein. Die Schritte

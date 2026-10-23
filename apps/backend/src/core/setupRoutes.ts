@@ -1,8 +1,19 @@
 import { createHash } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
-import { ADMIN_AREAS, SETUP_STEPS, permits, type AdminArea, type SetupStatus } from '@ohrganize/shared';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import {
+  ADMIN_AREAS,
+  areaOpen,
+  permits,
+  visibleSetupStepKeys,
+  type AdminArea,
+  type SetupOwner,
+  type SetupStatus,
+} from '@ohrganize/shared';
+import { VARIANT } from '@variant-manifest';
 import { getDb } from '../db/db.js';
+import { DEFAULT_ADMIN_EMAIL } from './auth.js';
 import { forbidden } from './errors.js';
+import { effectiveFeatures } from './license.js';
 import { permissionsFor } from './permissions.js';
 
 /**
@@ -10,10 +21,10 @@ import { permissionsFor } from './permissions.js';
  * Wer einen Schritt ueber die normalen Seiten erledigt, sieht ihn im
  * Assistenten trotzdem als erledigt. Gespeichert werden nur zwei Merker in
  * `setup_confirmations`, die sich nicht aus den Daten ergeben: die
- * Bestaetigung der Abwesenheitsarten (Zeile `abwesenheit`) und dass ein Konto
- * die Einrichtung uebernommen hat (Zeile `assistent`). Beide gelten fuer die
- * ganze Installation, damit ein weiterer Arbeitsplatz oder ein weiteres
- * Konto nicht erneut gefragt wird.
+ * Bestaetigung der Abwesenheitsarten (Zeile `abwesenheit`, fuer die
+ * Installation) und welches Konto die Einrichtung uebernommen hat (Zeile
+ * `assistent` mit `user_id`). Ein weiterer Arbeitsplatz fragt so nicht erneut,
+ * und eine neue HR-Person bekommt die Einrichtung nicht vorgesetzt.
  *
  * SICHERHEIT: `/api/setup` steht in ALWAYS_ALLOWED (permissions.ts), der globale
  * Hook prueft hier also KEINEN Bereich. Wie beim Dashboard (dashboardRoutes.ts)
@@ -22,6 +33,32 @@ import { permissionsFor } from './permissions.js';
  * werden. Eine Null waere eine Falschaussage; ein fehlendes Feld liest der
  * Client als "kein Recht".
  */
+
+/**
+ * Darf das Konto die Einrichtung uebernehmen? Mindestens ein Schritt, den es im
+ * Assistenten sieht (dieselbe Funktion wie der Client: Recht, Variante,
+ * Lizenzfeature), und nicht das Startkonto des Betreibers.
+ */
+function mayClaim(req: FastifyRequest): boolean {
+  const permissions = permissionsFor(req.user.admin_role_id);
+  const features = effectiveFeatures();
+  const visible = visibleSetupStepKeys(
+    (area) => areaOpen(VARIANT, area, permissions[area], 'bearbeiten'),
+    VARIANT,
+    features === 'all' ? null : [...features],
+  );
+  if (visible.length === 0) return false;
+  const row = getDb().prepare('SELECT email FROM users WHERE id = ?').get(req.user.id) as
+    | { email: string }
+    | undefined;
+  return row !== undefined && row.email.toLowerCase() !== DEFAULT_ADMIN_EMAIL;
+}
+
+function ownerFor(ownerId: number | null | undefined, userId: number): SetupOwner {
+  if (ownerId === null || ownerId === undefined) return 'none';
+  return ownerId === userId ? 'self' : 'other';
+}
+
 export async function setupRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/setup/status', async (req): Promise<SetupStatus> => {
     const db = getDb();
@@ -37,10 +74,18 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
       .digest('hex')
       .slice(0, 16);
 
+    // Beide Merker in einer Abfrage; die Tabelle hat hoechstens eine Zeile je Merker.
+    const marks = new Map(
+      (db.prepare('SELECT step, user_id FROM setup_confirmations').all() as { step: string; user_id: number | null }[]).map(
+        (m) => [m.step, m.user_id],
+      ),
+    );
+
     const status: SetupStatus = {
       allowed_areas: ADMIN_AREAS.filter(may),
       instance,
-      assistant_started: count(`SELECT COUNT(*) n FROM setup_confirmations WHERE step = 'assistent'`) > 0,
+      assistant_owner: ownerFor(marks.get('assistent'), req.user.id),
+      assistant_claimable: mayClaim(req),
     };
 
     if (may('einstellungen')) {
@@ -63,8 +108,7 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
 
     if (may('abwesenheit')) {
       status.absence_types_active = count(`SELECT COUNT(*) n FROM absence_types WHERE active = 1`);
-      status.absence_confirmed =
-        count(`SELECT COUNT(*) n FROM setup_confirmations WHERE step = 'abwesenheit'`) > 0;
+      status.absence_confirmed = marks.has('abwesenheit');
     }
 
     if (may('benutzer')) {
@@ -103,16 +147,24 @@ export async function setupRoutes(app: FastifyInstance): Promise<void> {
     return { absence_confirmed: true };
   });
 
-  // Ein Konto hat die Einrichtung uebernommen: Willkommen gesehen, Assistent
-  // geoeffnet oder Karte ausgeblendet. Danach bieten Karte und Willkommen sie
-  // keinem weiteren Konto an (Statusfeld assistant_started). Recht wie fuer den
-  // Assistenten selbst: mindestens ein Schritt bearbeitbar, geprueft hier, weil
-  // der globale Hook unter /api/setup keinen Bereich prueft. Idempotent und
-  // ohne Audit: Es aendert keine Fachdaten, nur ob die Karte erscheint.
+  // Das Konto hat den Assistenten kennengelernt (Willkommen gesehen oder
+  // geoeffnet) und uebernimmt die Einrichtung, sofern sie noch frei ist: Danach
+  // bieten Karte und Willkommen sie nur noch diesem Konto an (assistant_owner).
+  // Frei ist sie auch, wenn das Konto geloescht wurde (user_id NULL). Recht wie
+  // fuer den Assistenten (mayClaim), geprueft hier, weil der globale Hook unter
+  // /api/setup keinen Bereich prueft. Idempotent und ohne Audit: Es aendert keine
+  // Fachdaten, nur wem die Karte erscheint. Die Antwort nennt den Stand danach.
   app.post('/api/setup/started', async (req) => {
-    const permissions = permissionsFor(req.user.admin_role_id);
-    if (!SETUP_STEPS.some((d) => permits(permissions[d.area], 'bearbeiten'))) throw forbidden();
-    getDb().prepare(`INSERT OR IGNORE INTO setup_confirmations (step) VALUES ('assistent')`).run();
-    return { assistant_started: true };
+    if (!mayClaim(req)) throw forbidden();
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO setup_confirmations (step, user_id) VALUES ('assistent', ?)
+       ON CONFLICT(step) DO UPDATE SET user_id = excluded.user_id, confirmed_at = datetime('now')
+       WHERE setup_confirmations.user_id IS NULL`,
+    ).run(req.user.id);
+    const owner = db.prepare(`SELECT user_id FROM setup_confirmations WHERE step = 'assistent'`).get() as
+      | { user_id: number | null }
+      | undefined;
+    return { assistant_owner: ownerFor(owner?.user_id, req.user.id) };
   });
 }

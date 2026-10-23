@@ -225,10 +225,9 @@ export const coreMigrations: Migration[] = [
     `,
   },
   {
-    // Merker des Einrichtungs-Assistenten, die sich nicht aus den Daten
-    // ableiten lassen: "abwesenheit" (die Arten sind mitgeliefert, erledigt
-    // heisst angeschaut) und "assistent" (ein Konto hat die Einrichtung
-    // uebernommen, core/setupRoutes.ts). Gilt fuer die Installation,
+    // Bestaetigte Schritte des Einrichtungs-Assistenten, die sich nicht aus den
+    // Daten ableiten lassen (heute nur "abwesenheit": die Arten sind
+    // mitgeliefert, erledigt heisst angeschaut). Gilt fuer die Installation,
     // nicht je Geraet, sonst fragte jeder weitere Arbeitsplatz erneut nach.
     // Bewusst ohne Konto-Spalte: Beim Loeschen eines Kontos ist nichts
     // nachzuziehen.
@@ -238,6 +237,20 @@ export const coreMigrations: Migration[] = [
         step TEXT PRIMARY KEY,
         confirmed_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+    `,
+  },
+  {
+    // Wer die Einrichtung uebernommen hat (Zeile "assistent", core/setupRoutes.ts):
+    // Karte und Willkommen erscheinen dann nur noch fuer dieses Konto, auf
+    // jedem Arbeitsplatz, statt fuer jede neue HR-Person. Die Kontoloeschung
+    // (admin/userRoutes.ts, detachUserReferences ueber foreign_key_list) setzt
+    // die Spalte auf NULL; dann gilt die Einrichtung wieder als frei. Teilindex
+    // nach der Regel fuer Spalten mit REFERENCES users(id).
+    name: '008_setup_owner',
+    sql: `
+      ALTER TABLE setup_confirmations ADD COLUMN user_id INTEGER REFERENCES users(id);
+      CREATE INDEX IF NOT EXISTS idx_setup_confirmations_user
+        ON setup_confirmations(user_id) WHERE user_id IS NOT NULL;
     `,
   },
 ];

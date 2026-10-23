@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect } from 'react';
-import { isFreshInstallation } from '@ohrganize/shared';
+import { setupWelcomeDue } from '@ohrganize/shared';
 import { setupActions, useSetupState } from './store';
 import { useSetup, type SetupView } from './useSetup';
 
@@ -15,7 +15,7 @@ export function useSetupContext(): SetupView {
  * Haelt Status und Fortschritt des Einrichtungs-Assistenten fuer die ganze
  * Shell (Dialog, Launcher, Seitenleiste, Dashboard-Karte). Oeffnet den
  * Willkommensdialog genau einmal, und nur, wenn die Installation noch leer ist
- * und noch kein Konto die Einrichtung uebernommen hat (assistant_started).
+ * und kein anderes Konto die Einrichtung uebernommen hat (setupWelcomeDue).
  */
 export function SetupProvider({ children }: { children: React.ReactNode }) {
   const view = useSetup();
@@ -24,17 +24,10 @@ export function SetupProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // `bound`: erst, wenn der Stand dieser Installation und dieses Kontos geladen ist.
-    if (
-      eligible &&
-      status &&
-      local.bound &&
-      !local.welcomed &&
-      !status.assistant_started &&
-      isFreshInstallation(status)
-    ) {
+    if (eligible && status && local.bound && setupWelcomeDue(status, local)) {
       setupActions.showWelcome();
     }
-  }, [eligible, status, local.bound, local.welcomed]);
+  }, [eligible, status, local]);
 
   return <SetupContext.Provider value={view}>{children}</SetupContext.Provider>;
 }
