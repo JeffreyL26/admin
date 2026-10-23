@@ -152,8 +152,8 @@ paths:
         Frei heisst, noch kein Konto hat uebernommen, dessen Konto wurde
         geloescht oder hat keinen Assistentenschritt mehr, oder nur das
         Startkonto der Installation haelt sie (Kennzeichen is_start_account,
-        ohne Personalprofil; vorlaeufig, fuer jedes andere Konto frei). Danach meldet der Status diesem Konto assistant_owner self
-        und allen anderen other; Dashboard-Karte, Willkommensdialog und Launcher
+        ohne Personalprofil; vorlaeufig, fuer jedes andere Konto frei). Danach
+        meldet der Status diesem Konto assistant_owner self und allen anderen other; Dashboard-Karte, Willkommensdialog und Launcher
         erscheinen dann nur noch ihm. Idempotent, ohne Audit (keine Fachdaten).
         Verlangt ein Admin-Konto mit mindestens einem sichtbaren
         Assistentenschritt (Recht bearbeiten, Variante, Lizenzfeature), geprueft

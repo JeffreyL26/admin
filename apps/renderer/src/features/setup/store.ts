@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { SETUP_STEP_KEYS, type SetupStepKey } from '@ohrganize/shared';
+import { SETUP_STEP_KEYS, type SetupDialogView, type SetupStepKey } from '@ohrganize/shared';
 import { readJson, subscribeTo, writeJson } from '../../lib/localStore';
 import { announceSkip } from '../tours/skipEvent';
 
@@ -13,7 +13,8 @@ import { announceSkip } from '../tours/skipEvent';
  * (GET /api/setup/status, shared/setup.ts) und kann deshalb nicht driften.
  */
 
-export type SetupView = 'welcome' | 'step' | 'celebrate' | 'done';
+/** Zustaende des Dialogs; die Regeln in shared (setupDialogYields) lesen denselben Typ. */
+export type SetupView = SetupDialogView;
 
 interface Persisted {
   /** Willkommen gesehen oder Assistent bewusst geoeffnet: ab dann gibt es den Launcher. */

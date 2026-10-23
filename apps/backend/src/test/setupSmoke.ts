@@ -17,6 +17,7 @@ const { buildServer } = await import('../server.js');
 const { getDb, closeDb } = await import('../db/db.js');
 const { firstAdminLogin } = await import('./adminSession.js');
 const { resetForReseed } = await import('../seed/forceReset.js');
+const { markStartAccount } = await import('../db/migrations/000_core.js');
 const {
   deriveSetupProgress, isFreshInstallation, SETUP_STEPS, MODULE_KEYS, setupCardStep, setupLauncherVisible, setupWelcomeDue,
   setupClaimOwed, setupStatusWatched, setupDialogYields, visibleSetupStepKeys,
@@ -204,6 +205,44 @@ check('fuer ein persoenliches Konto gilt die Einrichtung des Startkontos als fre
 check('Startkonto erkannt am Kennzeichen, genau ein Konto traegt es',
   (db.prepare('SELECT COUNT(*) n FROM users WHERE is_start_account = 1').get() as { n: number }).n === 1 &&
     (db.prepare('SELECT is_start_account s FROM users WHERE id = ?').get(self.id) as { s: number }).s === 1);
+// Weg bestehender Installationen (Migration 009, markStartAccount): Frische
+// Datenbanken haben beim Migrieren noch kein Konto, dort setzt erst
+// ensureDefaultAdmin das Kennzeichen. Nachgestellt in einer Transaktion, die
+// zurueckrollt.
+const flagged = () =>
+  (db.prepare('SELECT id FROM users WHERE is_start_account = 1 ORDER BY id').all() as { id: number }[]).map((r) => r.id);
+const otherAccount = (db.prepare('SELECT id FROM users WHERE id != ? ORDER BY id LIMIT 1').get(self.id) as { id: number }).id;
+let migratedMarks: number[] = [];
+let reassignedMarks: number[] = [];
+let secondStartRefused = false;
+let markError = '';
+try {
+  db.transaction(() => {
+    db.prepare('UPDATE users SET is_start_account = 0').run();
+    markStartAccount(db);
+    migratedMarks = flagged();
+    try {
+      db.prepare('UPDATE users SET is_start_account = 1 WHERE id = ?').run(otherAccount);
+    } catch {
+      secondStartRefused = true;
+    }
+    // Startkonto geloescht (hier: umbenannt), Adresse neu vergeben: groessere ID.
+    db.prepare('UPDATE users SET is_start_account = 0').run();
+    db.prepare("UPDATE users SET email = 'betreiber.alt@example.org' WHERE id = ?").run(self.id);
+    db.prepare("INSERT INTO users (email, name, password_hash, role) VALUES ('admin@ohrganize.de', 'Neu', 'x', 'admin')").run();
+    markStartAccount(db);
+    reassignedMarks = flagged();
+    throw new Error('zurueckrollen');
+  })();
+} catch (err) {
+  if (String(err) !== 'Error: zurueckrollen') markError = String(err);
+}
+check('Migration markiert in einer bestehenden Installation genau das Startkonto',
+  JSON.stringify(migratedMarks) === JSON.stringify([self.id]), [migratedMarks, markError]);
+check('ein zweites Startkonto scheitert am eindeutigen Teilindex', secondStartRefused, markError);
+check('eine neu vergebene Adresse admin@ohrganize.de ist kein Startkonto', reassignedMarks.length === 0, [reassignedMarks, markError]);
+check('nach dem Zurueckrollen traegt wieder genau das Startkonto das Kennzeichen',
+  JSON.stringify(flagged()) === JSON.stringify([self.id]), flagged());
 // Mit Personalprofil nutzt eine Person das Startkonto selbst (ein Kunde behaelt
 // es): Dann haelt es die Einrichtung wie jedes persoenliche Konto.
 const ownProfile = await mk('Eva', 'Inhaberin');
@@ -401,7 +440,7 @@ check('Nachladen beim Menuewechsel: solange offen und nicht ausgeblendet, auch f
     setupStatusWatched(progMid, { ...viewNew, welcomed: true, cardDismissed: true }) &&
     !setupStatusWatched(progMid, { ...viewNew, cardDismissed: true }) &&
     !setupStatusWatched(all, viewNew));
-const welcomeOpen = { open: true, view: 'welcome' };
+const welcomeOpen = { open: true, view: 'welcome' as const };
 check('Dialog tritt zurueck, wenn ein anderes Konto uebernimmt und noch das Willkommen zeigt',
   setupDialogYields(asOwner('other'), welcomeOpen) &&
     !setupDialogYields(asOwner('self'), welcomeOpen) &&

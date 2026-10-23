@@ -217,6 +217,9 @@ export function visibleSetupStepKeys(
   ).map((d) => d.key);
 }
 
+/** Was der Dialog des Assistenten gerade zeigt (renderer features/setup/store.ts). */
+export type SetupDialogView = 'welcome' | 'step' | 'celebrate' | 'done';
+
 /** Lokaler Zustand, an dem die Sichtbarkeit haengt (renderer features/setup/store.ts). */
 export interface SetupViewState {
   /** Willkommen gesehen oder Assistent geoeffnet (ab dann gibt es den Launcher). */
@@ -304,7 +307,7 @@ export function setupStatusWatched(progress: SetupProgress, view: SetupViewState
  */
 export function setupDialogYields(
   status: Pick<SetupStatus, 'assistant_owner'>,
-  view: Pick<SetupViewState, 'open'> & { view: string },
+  view: Pick<SetupViewState, 'open'> & { view: SetupDialogView },
 ): boolean {
   return view.open && view.view === 'welcome' && !setupOfferedTo(status);
 }

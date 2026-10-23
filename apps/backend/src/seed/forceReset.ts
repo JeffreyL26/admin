@@ -1,13 +1,12 @@
 /**
  * Leert vor `npm run seed -- --force` alle Fachdaten und alle Konten bis auf
- * das Startkonto. Eigene Datei, damit der Setup-Test (src/test/setupSmoke.ts)
+ * das Startkonto (users.is_start_account). Eigene Datei, damit der Setup-Test (src/test/setupSmoke.ts)
  * genau diese Schritte gegen einen Stand mit Eigentuemer des Assistenten
  * pruefen kann; seed.ts selbst laeuft beim Import los. Ohne eigene
  * Transaktion: seed.ts ruft es in `inTransaction`, der Test in einer, die er
  * zurueckrollt.
  */
 import { getDb } from '../db/db.js';
-import { DEFAULT_ADMIN_EMAIL } from '../core/auth.js';
 
 export function resetForReseed(): void {
   const db = getDb();
@@ -61,7 +60,9 @@ export function resetForReseed(): void {
   // Verknuepfung, die Bestaetigung der Abwesenheitsarten bleibt stehen; ein
   // neu geseedeter Stand beginnt ohne Eigentuemer.
   db.prepare('UPDATE setup_confirmations SET user_id = NULL').run();
-  // Benutzerkonten bis auf den Standard-Admin entfernen: Die Mitarbeitenden-
-  // Konten legt seed.ts neu an und verknüpft sie mit den frischen Profilen.
-  db.prepare('DELETE FROM users WHERE email != ?').run(DEFAULT_ADMIN_EMAIL);
+  // Benutzerkonten bis auf das Startkonto entfernen (Kennzeichen
+  // is_start_account, dieselbe Regel wie im Einrichtungs-Assistenten, nicht die
+  // Adresse): Die Mitarbeitenden-Konten legt seed.ts neu an und verknüpft sie
+  // mit den frischen Profilen.
+  db.prepare('DELETE FROM users WHERE is_start_account = 0').run();
 }

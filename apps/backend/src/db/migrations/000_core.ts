@@ -1,4 +1,22 @@
+import type BetterSqlite3 from 'better-sqlite3';
 import type { Migration } from './types.js';
+
+/**
+ * Markiert in einer bestehenden Installation das Startkonto (Migration
+ * `009_start_account`): ensureDefaultAdmin legt es als allererstes Konto an,
+ * es zaehlt also nur mit der kleinsten ID (AUTOINCREMENT vergibt keine ID
+ * zweimal). Eine spaeter neu vergebene Adresse admin@ohrganize.de traegt eine
+ * groessere ID und bleibt ein gewoehnliches Konto. Exportiert fuer den
+ * Setup-Test: Frische Datenbanken haben beim Migrieren noch kein Konto, dort
+ * setzt erst ensureDefaultAdmin das Kennzeichen, und dieser Weg liefe sonst in
+ * keinem Test.
+ */
+export function markStartAccount(db: BetterSqlite3.Database): void {
+  db.prepare(
+    `UPDATE users SET is_start_account = 1
+      WHERE email = 'admin@ohrganize.de' AND id = (SELECT MIN(id) FROM users)`,
+  ).run();
+}
 
 export const coreMigrations: Migration[] = [
   {
@@ -258,13 +276,16 @@ export const coreMigrations: Migration[] = [
     // am Namen: Die Adresse admin@ohrganize.de laesst sich nach dem Loeschen
     // neu vergeben, ein solches Konto ist dann ein gewoehnliches. Es haelt den
     // Einrichtungs-Assistenten nur vorlaeufig (core/setupRoutes.ts,
-    // holdsProvisionally). Bestehende Installationen: ensureDefaultAdmin legt
-    // das Konto als allererstes an, also zaehlt es nur mit der kleinsten ID.
+    // holdsProvisionally). Hoechstens ein Konto traegt es (eindeutiger
+    // Teilindex): ownerFor verlaesst sich darauf, zwei Startkonten nahmen sich
+    // die Einrichtung sonst bei jedem Statusabruf gegenseitig ab. Bestehende
+    // Installationen markiert markStartAccount (oben).
     name: '009_start_account',
     sql: `
       ALTER TABLE users ADD COLUMN is_start_account INTEGER NOT NULL DEFAULT 0;
-      UPDATE users SET is_start_account = 1
-       WHERE email = 'admin@ohrganize.de' AND id = (SELECT MIN(id) FROM users);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_start_account
+        ON users(is_start_account) WHERE is_start_account = 1;
     `,
+    run: markStartAccount,
   },
 ];
