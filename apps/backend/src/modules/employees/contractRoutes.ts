@@ -285,6 +285,15 @@ function fillClosedVersion(current: ContractRow, today: string): string[] {
 }
 
 /**
+ * Vermerk (`entitlement_frozen`) ohne die Felder, die eine Korrektur jetzt
+ * selbst setzt: Sie sind dann keine Uebernahme aus der Akte mehr.
+ */
+function markerWithout(marker: string | null, columns: readonly string[]): string | null {
+  const touched = new Set(columns.map((c) => (c === 'work_weekdays' || c === 'work_days_per_week' ? 'work_week' : c)));
+  return formatEntitlementFrozen(parseEntitlementFrozen(marker).filter((f) => !touched.has(f)));
+}
+
+/**
  * Geplante Versionen, deren Beginn erreicht ist, auf employees spiegeln
  * (`mirror_pending`, Migration 116). Je Person die zuletzt begonnene; aeltere
  * faellige sind damit erledigt. Laeuft beim Start des Moduls und stuendlich,
@@ -385,8 +394,8 @@ export function syncCurrentContract(
   const cols = MIRRORED_COLUMNS.filter((c) => changed[c] !== undefined && changed[c] !== inEffect[c]);
   if (cols.length === 0) return result;
   getDb()
-    .prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-    .run(...cols.map((c) => changed[c] ?? null), inEffect.id);
+    .prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')}, entitlement_frozen = ? WHERE id = ?`)
+    .run(...cols.map((c) => changed[c] ?? null), markerWithout(inEffect.entitlement_frozen, cols), inEffect.id);
   result.synced = {
     id: inEffect.id,
     changed: Object.fromEntries(cols.map((c) => [c, { from: inEffect[c], to: changed[c] ?? null }])),
@@ -547,10 +556,9 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
           if (prev.valid_to !== null && prev.valid_to < today && prevTo >= today) reopenedId = prev.id;
         }
       }
-      db.prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(
-        ...cols.map((c) => patch[c] ?? null),
-        id,
-      );
+      db.prepare(
+        `UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')}, entitlement_frozen = ? WHERE id = ?`,
+      ).run(...cols.map((c) => patch[c] ?? null), markerWithout(existing.entitlement_frozen, cols), id);
       // Nur spiegeln, was diese Korrektur aendert: Unveraenderte Werte stimmen
       // schon mit den Stammdaten ueberein (syncCurrentContract), ein Altwert
       // aus der Zeit davor setzte sie sonst still zurueck. Eine geplante
