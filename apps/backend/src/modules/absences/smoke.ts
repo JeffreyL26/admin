@@ -1375,13 +1375,14 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
   }
 
   // Wieder geltende Vorversion: Verschiebt eine Korrektur den Beginn der
-  // Folgeversion nach hinten, gilt die festgehaltene Vorversion wieder. Was
-  // der heutigen Akte entspricht, wird wieder leer (sie folgt der Korrektur
-  // wie jede geltende Version); was abweicht, bleibt samt Vermerk.
+  // Folgeversion nach hinten, gilt die festgehaltene Vorversion wieder. Die
+  // Akte spiegelt sie dann bis zum neuen Beginn, und was danach der Akte
+  // entspricht, wird wieder leer; scheitert die Spiegelung an den Typregeln,
+  // bleibt die Vorversion mit Grund offen und behaelt ihre Werte.
   {
     const dayIn = (days: number) =>
       (db.prepare(`SELECT date('now', 'localtime', '+${days} days') AS d`).get() as { d: string }).d;
-    const reopen = async (first: string, change: Record<string, unknown>) => {
+    const reopen = async (first: string, v1Annual: number | null, change: Record<string, unknown>) => {
       const person = Number(
         db
           .prepare(
@@ -1396,18 +1397,18 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         db
           .prepare(
             `INSERT INTO contracts (employee_id, contract_type, valid_from, annual_leave_days, weekly_hours)
-             VALUES (?, 'unbefristet', '2023-01-01', 30, 40)`,
+             VALUES (?, 'unbefristet', '2023-01-01', ?, 40)`,
           )
-          .run(person).lastInsertRowid,
+          .run(person, v1Annual).lastInsertRowid,
       );
       const v2 = await post(`/api/employees/${person}/contracts`, {
         contract_type: 'unbefristet',
         valid_from: dayIn(0),
         ...change,
       });
-      const frozenAt = db.prepare('SELECT entitlement_frozen FROM contracts WHERE id = ?').get(v1) as {
+      const frozenAt = (db.prepare('SELECT entitlement_frozen FROM contracts WHERE id = ?').get(v1) as {
         entitlement_frozen: string | null;
-      };
+      }).entitlement_frozen;
       const moved = await app.inject({
         method: 'PATCH',
         url: `/api/contracts/${v2.json().contract?.id ?? -1}`,
@@ -1415,38 +1416,80 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         payload: { valid_from: dayIn(30) },
       });
       const after = db
-        .prepare('SELECT valid_to, work_weekdays, work_days_per_week, entitlement_frozen FROM contracts WHERE id = ?')
-        .get(v1) as { valid_to: string; work_weekdays: string | null; work_days_per_week: number | null; entitlement_frozen: string | null };
+        .prepare(
+          `SELECT valid_to, annual_leave_days, work_weekdays, work_days_per_week, entitlement_frozen, mirror_pending, mirror_error
+           FROM contracts WHERE id = ?`,
+        )
+        .get(v1) as {
+        valid_to: string;
+        annual_leave_days: number | null;
+        work_weekdays: string | null;
+        work_days_per_week: number | null;
+        entitlement_frozen: string | null;
+        mirror_pending: number;
+        mirror_error: string | null;
+      };
+      const akte = db
+        .prepare('SELECT employee_type, weekly_hours, annual_leave_days, work_weekdays FROM employees WHERE id = ?')
+        .get(person) as { employee_type: string; weekly_hours: number; annual_leave_days: number; work_weekdays: string | null };
       const auditRow = db
         .prepare("SELECT details FROM audit_log WHERE action = 'update' AND entity = 'contract' AND entity_id = ? ORDER BY id DESC LIMIT 1")
         .get(v2.json().contract?.id ?? -1) as { details: string } | undefined;
-      return { v1, v2: v2.statusCode, frozenAt, moved: moved.statusCode, after, unfrozen: JSON.parse(auditRow?.details ?? '{}').unfrozen };
+      return {
+        v1,
+        v2: v2.statusCode,
+        frozenAt,
+        moved: moved.statusCode,
+        after,
+        akte,
+        reopened: JSON.parse(auditRow?.details ?? '{}').reopened,
+      };
     };
-    // Gleiche Woche wie die Akte (nur der Urlaub der Folgeversion ist anders): wieder leer.
-    const same = await reopen('Jan', { weekly_hours: 40, annual_leave_days: 28 });
+    // Vorversion ohne Urlaubstage: Beim Wechsel werden Urlaub und Woche
+    // festgehalten, nach dem Verschieben spiegelt die Akte sie, beide wieder leer.
+    const same = await reopen('Jan', null, { weekly_hours: 40, annual_leave_days: 28 });
     check(
-      'Wieder geltende Vorversion: festgehaltene Woche gleich der Akte wird wieder leer',
+      'Wieder geltende Vorversion: Akte spiegelt sie, Urlaub und Woche wieder leer',
       same.v2 === 201 &&
-        same.frozenAt.entitlement_frozen === 'work_week' &&
+        same.frozenAt === 'annual_leave_days,work_week' &&
         same.moved === 200 &&
         same.after.valid_to === dayIn(29) &&
+        same.after.annual_leave_days === null &&
         same.after.work_weekdays === null &&
-        same.after.work_days_per_week === null &&
         same.after.entitlement_frozen === null &&
-        JSON.stringify(same.unfrozen) === JSON.stringify({ contract: same.v1, fields: ['work_week'] }),
+        same.after.mirror_pending === 0 &&
+        same.akte.annual_leave_days === 30 &&
+        same.akte.work_weekdays === '1,2,3,4,5' &&
+        JSON.stringify(same.reopened?.unfrozen) === JSON.stringify(['annual_leave_days', 'work_week']),
       same,
     );
-    // Akte traegt die Woche der verschobenen Folgeversion: festgehaltene Woche bleibt.
-    const other = await reopen('Kai', { employee_type: 'teilzeit', weekly_hours: 24, work_weekdays: '1,2,3' });
+    // Teilzeit mit drei Tagen: Die Akte bekommt Stunden und Woche der Vorversion zurueck.
+    const partTime = await reopen('Kai', 30, { employee_type: 'teilzeit', weekly_hours: 24, work_weekdays: '1,2,3' });
     check(
-      'Wieder geltende Vorversion: abweichende festgehaltene Woche bleibt samt Vermerk',
-      other.v2 === 201 &&
-        other.moved === 200 &&
-        other.after.valid_to === dayIn(29) &&
-        other.after.work_weekdays === '1,2,3,4,5' &&
-        other.after.entitlement_frozen === 'work_week' &&
-        other.unfrozen === undefined,
-      other,
+      'Wieder geltende Vorversion: Akte wieder mit Stunden und Woche der Vorversion',
+      partTime.v2 === 201 &&
+        partTime.frozenAt === 'work_week' &&
+        partTime.moved === 200 &&
+        partTime.akte.weekly_hours === 40 &&
+        partTime.akte.work_weekdays === '1,2,3,4,5' &&
+        partTime.after.work_weekdays === null &&
+        partTime.after.entitlement_frozen === null,
+      partTime,
+    );
+    // Werkstudentin (hoechstens 20 Stunden): Die Vorversion mit 40 Stunden passt
+    // nicht zur Art der Akte, bleibt mit Grund offen und behaelt ihre Woche.
+    const student = await reopen('Lea', 30, { employee_type: 'werkstudent', weekly_hours: 20, work_weekdays: '1,2,3' });
+    check(
+      'Wieder geltende Vorversion: scheitert die Spiegelung, bleibt sie offen mit Grund und festgehaltener Woche',
+      student.v2 === 201 &&
+        student.moved === 200 &&
+        student.after.mirror_pending === 1 &&
+        typeof student.after.mirror_error === 'string' &&
+        student.after.work_weekdays === '1,2,3,4,5' &&
+        student.after.entitlement_frozen === 'work_week' &&
+        student.akte.work_weekdays === '1,2,3' &&
+        typeof student.reopened?.mirror_error === 'string',
+      student,
     );
   }
 

@@ -1883,6 +1883,21 @@ ohnehin aus der Akte, und eine Migration haette jeder alten Version Werte
 gegeben, die niemand eingetragen hat. Versionen gehen vor festgehaltenen
 Zeitraeumen, damit eine spaeter nachgetragene Version gilt.
 
+**Wenn eine abgelaufene Version wieder gilt:** Verschiebt eine Korrektur
+den Beginn der geltenden Version nach hinten, verlaengert sie das Ende der
+Vorversion, und die gilt bis zum neuen Beginn wieder. Die Akte spiegelt sie
+dann zurueck (sonst rechneten Lohnlauf, FTE und kommende Antraege einen Monat
+zu frueh mit der verschobenen Version), und ihre festgehaltenen Felder
+werden wieder leer, soweit sie jetzt der Akte entsprechen: Als geltende
+Version folgt sie wieder jeder Korrektur in den Stammdaten. Felder, die
+abweichen, bleiben samt Vermerk. Das passiert nur, wenn die Spiegelung an den
+Typregeln scheitert (etwa eine Vorversion mit 40 Stunden ohne eigene Art bei
+einer Werkstudentin); die Akte traegt dann noch die Werte der verschobenen
+Version, und ein Leeren aenderte rueckwirkend den Anspruch des Zeitraums der
+Vorversion. Die Vorversion bleibt in diesem Fall offen mit Grund
+(`mirror_error`, die Akte zeigt ihn) und wird wie eine faellige Version
+erneut versucht; gelingt das spaeter, werden die Felder dann leer.
+
 **Grenzen:** Eine unbekannte Arbeitswoche (Teilzeit ohne Angabe) laesst sich
 nicht festhalten, sie folgt weiter der Akte. Die Art einer Version wird nie
 festgehalten: Sie ist die Historie der Beschaeftigungsart, und eine aus der
