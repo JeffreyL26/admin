@@ -84,6 +84,8 @@ export interface EmployeeFormState {
   work_mode: '' | 'fest' | 'flexibel';
   work_weekdays: number[];
   work_days_per_week: string;
+  /** Home-Office-Tage als Muster (shared/homeOffice.ts); leer = keine. */
+  home_office_weekdays: number[];
   disability_degree: string;
   disability_equal: boolean;
   disability_valid_until: string;
@@ -132,6 +134,7 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
   work_mode: 'fest',
   work_weekdays: [1, 2, 3, 4, 5],
   work_days_per_week: '',
+  home_office_weekdays: [],
   disability_degree: '',
   disability_equal: false,
   disability_valid_until: '',
@@ -179,6 +182,7 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
     highest_degree: e.highest_degree ?? '',
     degree_field: e.degree_field ?? '',
     ...workScheduleToForm(e),
+    home_office_weekdays: parseWeekdays(e.home_office_weekdays) ?? [],
     disability_degree: e.disability_degree != null ? String(e.disability_degree) : '',
     disability_equal: e.disability_equal === 1,
     disability_valid_until: e.disability_valid_until ?? '',
@@ -257,6 +261,7 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     residence_permit_until: needsResidencePermit(f.nationality) ? str(f.residence_permit_until) : null,
     highest_degree: str(f.highest_degree),
     degree_field: str(f.degree_field),
+    home_office_weekdays: f.home_office_weekdays.length > 0 ? formatWeekdays(f.home_office_weekdays) : null,
     disability_degree: num(f.disability_degree),
     disability_equal: f.disability_equal ? 1 : 0,
     disability_valid_until: str(f.disability_valid_until),
@@ -547,6 +552,7 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
         />
       </Field>
       <WorkWeekField form={form} set={set} />
+      <HomeOfficeField form={form} set={set} />
       <Field
         label="Jahresurlaub (Tage)"
         required={required.has('annual_leave_days')}
@@ -602,6 +608,61 @@ function leaveHint(form: EmployeeFormState): string {
   const entered = num(form.annual_leave_days);
   const text = `Gesetzliches Minimum bei ${String(days).replace('.', ',')} Tagen je Woche: ${String(minimum).replace('.', ',')} Tage`;
   return entered !== null && entered < minimum ? `${text}. Der Saldo rechnet mit dem Minimum.` : `${text}; der Rest ist vertraglicher Mehrurlaub.`;
+}
+
+/**
+ * Home-Office-Tage als Muster: Im Kalender sind sie markiert, einzelne Tage
+ * lassen sich dort als Bürotag herausnehmen. Bei fester Arbeitswoche nur deren
+ * Tage, sonst Mo bis Fr.
+ */
+function HomeOfficeField({ form, set }: { form: EmployeeFormState; set: SetForm }) {
+  const workdays = form.work_mode === 'fest' ? form.work_weekdays : [1, 2, 3, 4, 5];
+  const allOn = workdays.length > 0 && workdays.every((d) => form.home_office_weekdays.includes(d));
+  const toggle = (day: number) =>
+    set({
+      home_office_weekdays: form.home_office_weekdays.includes(day)
+        ? form.home_office_weekdays.filter((d) => d !== day)
+        : [...form.home_office_weekdays, day].sort((a, b) => a - b),
+    });
+  return (
+    <Field
+      label="Home Office"
+      span2
+      hint="Standardmäßig im Home Office an diesen Tagen; abweichende Bürotage im Abwesenheitskalender anklicken"
+    >
+      <div className="row row--wrap" style={{ gap: 6 }} role="group" aria-label="Home-Office-Tage">
+        {WEEKDAY_SHORT.map((label, i) => {
+          const day = i + 1;
+          if (!workdays.includes(day)) return null;
+          const on = form.home_office_weekdays.includes(day);
+          return (
+            <button
+              key={day}
+              type="button"
+              className={`hm-chip${on ? ' is-active' : ''}`}
+              aria-pressed={on}
+              onClick={(e) => {
+                e.preventDefault();
+                toggle(day);
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          className="hm-btn hm-btn--quiet hm-btn--sm"
+          onClick={(e) => {
+            e.preventDefault();
+            set({ home_office_weekdays: allOn ? [] : [...workdays] });
+          }}
+        >
+          {allOn ? 'Keine' : 'Alle Arbeitstage'}
+        </button>
+      </div>
+    </Field>
+  );
 }
 
 /** Arbeitswoche: feste Wochentage zum Anklicken oder eine Zahl Tage ohne feste Tage. */

@@ -8,6 +8,8 @@
  */
 import {
   entitlementDaysPerWeek,
+  homeOfficeExceptionFor,
+  homeOfficeOn,
   entitlementPartLabels,
   entitlementProrationNote,
   flexibleDays,
@@ -119,6 +121,18 @@ check('Vollzeit ohne Angabe: fuenf Tage', entitlementDaysPerWeek({ employee_type
 check('Teilzeit ohne Angabe: unbekannt', entitlementDaysPerWeek({ employee_type: 'teilzeit' }) === null);
 check('Teilzeit mit festen Tagen', entitlementDaysPerWeek({ employee_type: 'teilzeit', work_weekdays: '1,2' }) === 2);
 check('Freie Mitarbeit: kein Anspruch', entitlementDaysPerWeek({ employee_type: 'freiberufler', work_days_per_week: 5 }) === null);
+
+// --- Home Office (homeOffice.ts) ------------------------------------------
+// 02.11.2026 ist ein Montag, 03.11. ein Dienstag.
+const noExceptions = new Map<string, 'buero' | 'homeoffice'>();
+check('Muster Mo: Home Office', homeOfficeOn('1,3', noExceptions, '2026-11-02'));
+check('Muster Mo: Dienstag nicht', !homeOfficeOn('1,3', noExceptions, '2026-11-03'));
+check('Buerotag schlaegt Muster', !homeOfficeOn('1,3', new Map([['2026-11-02', 'buero' as const]]), '2026-11-02'));
+check('Zusatztag schlaegt Muster', homeOfficeOn('1,3', new Map([['2026-11-03', 'homeoffice' as const]]), '2026-11-03'));
+check('ohne Muster kein Home Office', !homeOfficeOn(null, noExceptions, '2026-11-02'));
+check('Klick auf Muster-Tag legt Buerotag an', homeOfficeExceptionFor('1', '2026-11-02', false) === 'buero');
+check('Rueckkehr zum Muster entfernt die Ausnahme', homeOfficeExceptionFor('1', '2026-11-02', true) === null);
+check('Zusaetzlicher Tag', homeOfficeExceptionFor('1', '2026-11-03', true) === 'homeoffice');
 
 const fmt = (n: number) => n.toLocaleString('de-DE');
 check('Teile benannt', entitlementPartLabels(julyFirst, fmt).join(' + ') === 'gesetzlich 20 + vertraglich 6', entitlementPartLabels(julyFirst, fmt));

@@ -19,6 +19,7 @@ import {
   type MeCalendarEmployee,
   type MeCalendarEntry,
   type OrgTreeNode,
+  homeOfficeOn,
 } from '@ohrganize/shared';
 import { useMyCalendar, useMyOrgTree, useMyProfile } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
@@ -517,6 +518,10 @@ function CalendarView() {
                 Wochenende
               </span>
               <span className="pt-cal__legend-item">
+                <span className="pt-cal__swatch pt-cal__swatch--homeoffice" />
+                Home-Office-Tag
+              </span>
+              <span className="pt-cal__legend-item">
                 <span className="pt-cal__swatch pt-cal__swatch--holiday" />
                 Feiertag (nach Standort)
               </span>
@@ -645,6 +650,7 @@ const CalendarGrid = memo(function CalendarGrid({
           {rows.map(({ employee, byDay }) => {
             const isSelf = ownEmployeeId !== null && employee.id === ownEmployeeId;
             const holidays = holidaysByLand.get(employee.bundesland);
+            const homeOfficeDays = new Map((employee.home_office ?? []).map((x) => [x.date, x.kind] as const));
             return (
               <tr key={employee.id} className={`pt-cal__row${isSelf ? ' pt-cal__row--self' : ''}`}>
                 <th scope="row" className="pt-cal__name">
@@ -665,6 +671,11 @@ const CalendarGrid = memo(function CalendarGrid({
                     holidayName={holidays?.get(day)}
                     closure={closureDays.has(day)}
                     dayWidth={dayWidth}
+                    homeOffice={homeOfficeOn(
+                      employee.home_office_weekdays,
+                      homeOfficeDays,
+                      day,
+                    )}
                   />
                 ))}
               </tr>
@@ -686,6 +697,7 @@ const DayCell = memo(function DayCell({
   holidayName,
   closure,
   dayWidth,
+  homeOffice = false,
 }: {
   day: string;
   today: string;
@@ -693,6 +705,8 @@ const DayCell = memo(function DayCell({
   holidayName?: string;
   closure: boolean;
   dayWidth: number;
+  /** Laut Muster oder Ausnahme ein Home-Office-Tag (nur Markierung, lesend). */
+  homeOffice?: boolean;
 }) {
   const weekend = isWeekend(day);
   // Die Balken laufen bewusst ÜBER Wochenenden, Feiertage und Betriebsruhe
@@ -705,6 +719,7 @@ const DayCell = memo(function DayCell({
   if (closure) classes.push('pt-cal__cell--closure');
   else if (holidayName) classes.push('pt-cal__cell--holiday');
   else if (weekend) classes.push('pt-cal__cell--weekend');
+  else if (homeOffice) classes.push('pt-cal__cell--homeoffice');
   if (day === today) classes.push('pt-cal__cell--today');
 
   // Tooltip nur auf besonderen Tagen und Balken — ein Tooltip auf jeder leeren
@@ -712,6 +727,7 @@ const DayCell = memo(function DayCell({
   const notes: string[] = [];
   if (holidayName) notes.push(`Feiertag: ${holidayName}`);
   if (closure) notes.push('Betriebsruhe');
+  if (homeOffice && !weekend && !holidayName && !closure) notes.push('Home Office');
   const srParts: string[] = [...notes];
   for (const mark of visible) {
     srParts.push(`${labelOf(mark.entry)}${mark.half ? ', halber Tag' : ''}`);

@@ -404,6 +404,8 @@ export interface EmployeeDto extends EmployeeLiteDto {
   work_weekdays: string | null;
   /** Arbeitstage je Woche; bei festen Tagen deren Anzahl. Beides NULL = nicht hinterlegt. */
   work_days_per_week: number | null;
+  /** Home-Office-Tage als Muster "1,3,5" (homeOffice.ts); NULL = keine. */
+  home_office_weekdays: string | null;
   /**
    * Schwerbehinderung (disability.ts). Fehlen ohne das Recht
    * "Schwerbehinderung: lesen" ganz in der Antwort, daher optional.

@@ -1,4 +1,5 @@
 import type { EntitlementDetail } from './leaveEntitlement.js';
+import type { HomeOfficeException } from './homeOffice.js';
 // Typen des Moduls Abwesenheitsmanagement.
 
 export type AbsenceCategory = 'urlaub' | 'krankheit' | 'sonder';
@@ -221,6 +222,9 @@ export interface CalendarEmployee {
   /** Arbeitswoche (workSchedule.ts): Tage außerhalb fester Wochentage zeigt der Kalender wie Wochenenden. */
   work_weekdays?: string | null;
   work_days_per_week?: number | null;
+  /** Home-Office-Muster und abweichende Tage im Zeitraum (homeOffice.ts). */
+  home_office_weekdays?: string | null;
+  home_office?: HomeOfficeException[];
   absences: CalendarAbsenceEntry[];
 }
 

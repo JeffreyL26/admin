@@ -152,6 +152,16 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Vollzeit und Ausbildung gelten ohne Angabe als fünf Tage, freie Mitarbeit
   hat keinen Anspruch. Der Saldo liefert die Aufteilung als
   `entitlement_detail`; Salden tragen seither zwei Nachkommastellen.
+- **Home Office ist ein Arbeitsort, keine Abwesenheit** (Migration
+  `207_home_office`, `packages/shared/src/homeOffice.ts`): Muster je Person
+  in `employees.home_office_weekdays` (Personalakte), abweichende Tage in
+  `home_office_exceptions` ('buero' an einem Muster-Tag, 'homeoffice'
+  zusätzlich). Der Saldo bleibt unberührt. Gesetzt über
+  `POST /api/absences/home-office` (Bereich `abwesenheit`; gleicht der Tag
+  wieder dem Muster, fällt die Ausnahme weg), geliefert in beiden Kalendern
+  (`home_office_weekdays`, `home_office`); das Portal zeigt die Markierung
+  nur lesend und bekommt die Arbeitswoche der anderen nicht. Die
+  Abwesenheitsart "Home Office" bleibt für Einzelfälle ohne Muster.
 - **Vier-Augen-Prinzip:** `approve` und `reject` in `absences/routes.ts` weisen
   den eigenen Antrag mit 403 ab (Vergleich `req.user.employee_id` gegen
   `absence_requests.employee_id`). `cancel` bleibt erlaubt (Rückzug, kein
@@ -1206,6 +1216,15 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (`ohrganize.employeeList.filters`), damit sie Zurück aus der Akte und einen
   Neustart überleben; gespeicherte IDs, die es nicht mehr gibt, fallen beim
   Laden der Auswahllisten weg.
+- **Gehaltsübersicht** (`GET /api/compensation/salaries`): Spalten je Gerät
+  wählbar (`ohrganize.salaryList`, `SALARY_COLUMNS` in `SalariesPage.tsx`):
+  Wochenstunden, FTE (Einstellung `fullTimeWeeklyHours`, Vorgabe 40),
+  Stundenlohn (vereinbart oder aus Monatsbrutto und `contractMonthHours`
+  gerechnet), Jahresbrutto (12 × Monatsbrutto, ohne variable Vergütung),
+  Extras (Bonusarten des laufenden Jahres, Link auf
+  `/verguetung/boni?person=`), letzte Gehaltsanpassung (jüngster gültiger
+  Beginn einer Komponente aus `BASE_PAY_KINDS`) und letzte Änderung (jede
+  Komponente).
 - **Tabellen sortieren und verschieben (alle Hauptlisten):** Spaltenköpfe über
   `components/SortableTh.tsx`, Stand je Gerät unter
   `ohrganize.tableSort.<tabelle>`. Clientseitig sortierte Listen nutzen

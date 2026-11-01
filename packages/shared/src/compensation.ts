@@ -42,6 +42,9 @@ export const SALARY_COMPONENT_LABELS: Record<SalaryComponentKind, string> = {
   abzug_sonstig: 'Sonstiger Abzug',
 };
 
+/** Grundvergütung: Ihr jüngster Beginn ist die "letzte Gehaltsanpassung" der Übersicht. */
+export const BASE_PAY_KINDS: SalaryComponentKind[] = ['grundgehalt', 'stundenlohn'];
+
 /** Komponenten, die das Monatsbrutto mindern (Entgeltumwandlung, Abzüge). */
 export const SALARY_DEDUCTION_KINDS: SalaryComponentKind[] = [
   'bav_entgeltumwandlung',

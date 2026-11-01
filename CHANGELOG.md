@@ -12,6 +12,20 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Rueckmeldungen aus dem ersten Kundentest, Home Office und Gehaltstabelle (01.11.2026)
+- **Neu:** Home-Office-Tage je Person in der Personalakte (z. B. Mo und Mi,
+  oder alle Arbeitstage). Der Abwesenheitskalender zeigt sie schraffiert;
+  ein Klick auf einen Tag traegt einen Buerotag ein (oder einen zusaetzlichen
+  Home-Office-Tag), das Muster bleibt. Der Portal-Kalender zeigt die
+  Markierung lesend. Kein Einfluss auf den Urlaubssaldo.
+- **Neu:** Die Gehaltsuebersicht hat waehlbare Spalten: Wochenstunden, FTE,
+  Stundenlohn, Jahresbrutto, Extras (Boni, Provisionen, Einmalzahlungen des
+  Jahres mit Link in "Boni & Variable") und "Letzte Gehaltsanpassung" (Beginn
+  der juengsten Grundgehalts- oder Stundenlohnaenderung, die schon gilt).
+  Die Vollzeit-Wochenstunden fuer FTE stehen unter Einstellungen.
+- **Geaendert:** "Letzte Aenderung" heisst weiter so und zaehlt jede
+  Komponente; fuer Gehaltserhoehungen gilt die neue Spalte.
+
 ### Rueckmeldungen aus dem ersten Kundentest, Schwerbehinderung (01.11.2026)
 - **Neu:** Angaben zur Schwerbehinderung in der Personalakte: Grad der
   Behinderung, Gleichstellung, Gueltigkeit des Ausweises und Notiz, dazu die

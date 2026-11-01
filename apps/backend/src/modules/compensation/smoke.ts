@@ -166,6 +166,39 @@ check(
     !overviewRows.some((r) => r.employee_id === e3),
   overviewRows,
 );
+{
+  // Neue Spalten: Jahresbrutto, Stundenlohn, FTE, letzte Gehaltsanpassung.
+  // Eine Zulage danach aendert die letzte Aenderung, nicht die Anpassung;
+  // eine kuenftige Erhoehung zaehlt fuer beides nicht als Anpassung.
+  const row = () =>
+    app
+      .inject({ method: 'GET', url: '/api/compensation/salaries', headers: auth })
+      .then((r) => (r.json().salaries as Record<string, unknown>[]).find((x) => x.employee_id === e1)!);
+  const before = await row();
+  check(
+    'Uebersicht: Jahresbrutto 12 x Monatsbrutto, Stundenlohn gerechnet, FTE',
+    before.annual_gross_cents === 520000 * 12 &&
+      before.hourly_derived === true &&
+      typeof before.hourly_rate_cents === 'number' &&
+      (before.fte === null || typeof before.fte === 'number'),
+    before,
+  );
+  const adjustment = before.last_adjustment as string | null;
+  const todayIsoLocal = new Date().toISOString().slice(0, 10);
+  const allowance = await app.inject({
+    method: 'POST',
+    url: `/api/compensation/employees/${e1}/components`,
+    headers: auth,
+    payload: { kind: 'zulage_funktion', amount_cents: 10000, valid_from: todayIsoLocal },
+  });
+  const after = await row();
+  check(
+    'Uebersicht: Zulage aendert letzte Aenderung, nicht letzte Gehaltsanpassung',
+    allowance.statusCode === 201 && after.last_adjustment === adjustment && after.last_change === todayIsoLocal,
+    { before, after, allowance: allowance.json() },
+  );
+  db.prepare("DELETE FROM salary_components WHERE employee_id = ? AND kind = 'zulage_funktion'").run(e1);
+}
 
 // ---------------- Gehaltsänderungs-Workflow ----------------
 

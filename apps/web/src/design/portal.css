@@ -2078,6 +2078,15 @@ button {
   height: 46px;
   padding: 0;
 }
+/* Home Office als Arbeitsort, wie in der Desktop-App schraffiert. */
+.pt-cal__cell--homeoffice,
+.pt-cal__swatch--homeoffice {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--blue-500) 16%, transparent) 0 3px,
+    transparent 3px 7px
+  );
+}
 .pt-cal__cell--weekend {
   background: var(--gray-50);
 }

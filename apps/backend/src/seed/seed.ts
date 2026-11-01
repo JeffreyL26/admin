@@ -289,6 +289,12 @@ inTransaction(() => {
   setWeek.run([null, 3, WS1]);
   setWeek.run(['2,4', 2, WS2]);
 
+  // Home-Office-Muster (Beispiele): ganz remote und hybrid.
+  const setHomeOffice = db.prepare('UPDATE employees SET home_office_weekdays = ? WHERE id = ?');
+  setHomeOffice.run(['1,2,3,4,5', DEV2]);
+  setHomeOffice.run(['1,5', DEV1]);
+  setHomeOffice.run(['3', TLF]);
+
   // Schwerbehinderung (Beispiel): GdB 50 mit befristetem Ausweis. Sichtbar nur
   // mit dem Recht "Schwerbehinderung"; der Saldo rechnet fuenf Tage Zusatzurlaub.
   db.prepare('UPDATE employees SET disability_degree = 50, disability_valid_until = ? WHERE id = ?').run([

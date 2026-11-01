@@ -202,4 +202,27 @@ export const absencesMigrations: Migration[] = [
       ALTER TABLE absence_requests ADD COLUMN days_manual INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    // Home Office als Arbeitsort (shared/homeOffice.ts): Muster je Person
+    // ("1,3,5", Mo = 1) und abweichende Tage ('buero' an einem Home-Office-Tag,
+    // 'homeoffice' an einem Buerotag). Keine Abwesenheit, der Saldo bleibt
+    // unberuehrt; der Kalender zeichnet die Tage. Kontospalte mit Teilindex
+    // (Regel Indizes in CLAUDE.md), die Person loescht ihre Ausnahmen mit.
+    name: '207_home_office',
+    sql: `
+      ALTER TABLE employees ADD COLUMN home_office_weekdays TEXT;
+      CREATE TABLE home_office_exceptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('buero', 'homeoffice')),
+        created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (employee_id, date)
+      );
+      CREATE INDEX IF NOT EXISTS idx_home_office_exceptions_date ON home_office_exceptions(date);
+      CREATE INDEX IF NOT EXISTS idx_home_office_exceptions_created_by
+        ON home_office_exceptions(created_by_user_id) WHERE created_by_user_id IS NOT NULL;
+    `,
+  },
 ];

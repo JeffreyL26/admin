@@ -116,6 +116,11 @@ export const employeeBodySchema = z.object({
     .regex(/^[1-7](,[1-7]){0,6}$/, 'Wochentage als Liste von 1 (Montag) bis 7 (Sonntag)')
     .nullish(),
   work_days_per_week: z.number().min(0.5).max(7).multipleOf(0.5).nullish(),
+  // Home-Office-Tage als Muster (shared/homeOffice.ts), Form wie work_weekdays.
+  home_office_weekdays: z
+    .string()
+    .regex(/^[1-7](,[1-7]){0,6}$/, 'Wochentage als Liste von 1 (Montag) bis 7 (Sonntag)')
+    .nullish(),
   // Schwerbehinderung: nur mit dem Recht 'schwerbehinderung' (disability.ts).
   disability_degree: z
     .number()
@@ -132,7 +137,15 @@ export const employeeBodySchema = z.object({
  * Zahl je Woche; wer die festen Tage entfernt und eine Zahl schickt, arbeitet
  * flexibel. Aufgerufen nach dem Parsen von POST und PATCH.
  */
-export function settleWorkSchedule(body: { work_weekdays?: string | null; work_days_per_week?: number | null }): void {
+export function settleWorkSchedule(body: {
+  work_weekdays?: string | null;
+  work_days_per_week?: number | null;
+  home_office_weekdays?: string | null;
+}): void {
+  if (body.home_office_weekdays) {
+    const office = parseWeekdays(body.home_office_weekdays);
+    body.home_office_weekdays = office ? formatWeekdays(office) : null;
+  }
   if (body.work_weekdays === undefined || body.work_weekdays === null) return;
   const days = parseWeekdays(body.work_weekdays);
   body.work_weekdays = days ? formatWeekdays(days) : null;

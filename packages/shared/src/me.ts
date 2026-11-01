@@ -10,6 +10,7 @@ import type {
 import type { CountryCode, RegionCode } from './country.js';
 import type { DocumentCategory, DocumentSource } from './employees.js';
 import type { OrgChartBasePerson } from './orgChart.js';
+import type { HomeOfficeException } from './homeOffice.js';
 
 /** Rollen von Benutzerkonten: HR-Administration (Desktop) bzw. Web-Portal. */
 export type UserRole = 'admin' | 'mitarbeiter';
@@ -187,6 +188,9 @@ export interface MeCalendarEmployee {
   /** Land der Region (Standort, sonst Land der Variante). */
   country: CountryCode;
   absences: MeCalendarEntry[];
+  /** Home-Office-Muster und abweichende Tage im Zeitraum (homeOffice.ts); nur lesend. */
+  home_office_weekdays?: string | null;
+  home_office?: HomeOfficeException[];
 }
 
 // ---------------------------------------------------------------------------

@@ -1286,6 +1286,28 @@
 .hm-cal__cell--weekend {
   background: var(--gray-50);
 }
+/* Home Office als Arbeitsort (shared/homeOffice.ts): feine Schraffur in der
+   Markenfarbe, Abwesenheiten liegen als Pille darüber. */
+.hm-cal__cell--homeoffice {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--blue-500) 16%, transparent) 0 3px,
+    transparent 3px 7px
+  );
+}
+.hm-cal__cell--editable {
+  cursor: pointer;
+}
+.hm-cal__cell--editable:hover {
+  box-shadow: inset 0 0 0 1px var(--blue-300);
+}
+.hm-cal-legend__swatch--homeoffice {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--blue-500) 30%, transparent) 0 3px,
+    transparent 3px 7px
+  );
+}
 .hm-cal__cell--holiday {
   background: var(--blue-50);
 }
