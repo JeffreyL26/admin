@@ -22,7 +22,7 @@ import {
 } from '@ohrganize/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { ApiRequestError, api, downloadFile } from '../../api/client';
-import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
+import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs, type BadgeTone } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
@@ -170,6 +170,10 @@ function HeaderDeadlines({ employee, contracts }: { employee: EmployeeRow; contr
   return (
     <>
       {probation && <Badge tone="yellow">Probezeit {probation}</Badge>}
+      {/* Fällige Vertragsversion, deren Übernahme an den Typregeln scheiterte (Tab Vertrag nennt den Grund). */}
+      {contracts?.some((c) => c.mirror_pending === 1 && c.mirror_error) && (
+        <Badge tone="red">Vertragsversion nicht übernommen</Badge>
+      )}
       {permitWarn && permitUntil && (
         <Tooltip
           content={
@@ -398,16 +402,35 @@ function Notice({ tone, children }: { tone: 'warning' | 'danger'; children: Reac
  * Zustand einer Vertragsversion, gleiche Regel wie in contractRoutes.ts:
  * „aktuell“ ist die jüngste Version (erste der absteigend sortierten Liste),
  * sofern sie nicht abgelaufen ist; eine Befristung allein macht sie nicht zur
- * Historie. Nur die aktuelle Version lässt sich korrigieren.
+ * Historie. Beginnt sie erst künftig, ist sie „geplant“, und die Version
+ * davor „gilt“ bis dahin. Nur die jüngste Version lässt sich korrigieren.
  */
-function contractState(c: ContractDto, newest: boolean, today: string): 'aktuell' | 'abgelaufen' | 'abgeloest' {
+function contractState(
+  c: ContractDto,
+  newest: boolean,
+  today: string,
+): 'aktuell' | 'geplant' | 'gilt' | 'abgelaufen' | 'abgeloest' {
   const running = c.valid_to === null || c.valid_to >= today;
-  if (running && newest) return 'aktuell';
   if (!running) return 'abgelaufen';
-  return 'abgeloest';
+  if (c.valid_from > today) return newest ? 'geplant' : 'abgeloest';
+  return newest ? 'aktuell' : 'gilt';
 }
 
-const CONTRACT_STATE_LABELS = { aktuell: 'Aktuell', abgelaufen: 'Abgelaufen', abgeloest: 'Abgelöst' } as const;
+const CONTRACT_STATE_LABELS = {
+  aktuell: 'Aktuell',
+  geplant: 'Geplant',
+  gilt: 'Gilt noch',
+  abgelaufen: 'Abgelaufen',
+  abgeloest: 'Abgelöst',
+} as const;
+
+const CONTRACT_STATE_TONES: Record<keyof typeof CONTRACT_STATE_LABELS, BadgeTone> = {
+  aktuell: 'green',
+  geplant: 'blue',
+  gilt: 'green',
+  abgelaufen: 'neutral',
+  abgeloest: 'neutral',
+};
 
 function ContractsTab({ employeeId, employeeType }: { employeeId: number; employeeType: EmployeeType }) {
   const { data: contracts, isLoading } = useContracts(employeeId);
@@ -454,7 +477,7 @@ function ContractsTab({ employeeId, employeeType }: { employeeId: number; employ
               }}
             >
               <div style={{ paddingTop: 3 }}>
-                <Badge tone={state === 'aktuell' ? 'green' : 'neutral'}>{CONTRACT_STATE_LABELS[state]}</Badge>
+                <Badge tone={CONTRACT_STATE_TONES[state]}>{CONTRACT_STATE_LABELS[state]}</Badge>
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>
@@ -478,6 +501,17 @@ function ContractsTab({ employeeId, employeeType }: { employeeId: number; employ
                     {c.note}
                   </div>
                 )}
+                {c.mirror_pending === 1 && !c.mirror_error && state === 'geplant' && (
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 3 }}>
+                    Stunden, Urlaub und Beschäftigungsart gehen am {formatDate(c.valid_from)} in die Personalakte.
+                  </div>
+                )}
+                {c.mirror_pending === 1 && c.mirror_error && (
+                  <div className="hm-notice" role="status" style={{ marginTop: 8 }}>
+                    Noch nicht in die Personalakte übernommen: {c.mirror_error}. Die Übernahme wird stündlich
+                    wiederholt und gelingt, sobald die Stammdaten passen.
+                  </div>
+                )}
               </div>
               <div className="row">
                 {c.document_file_id && (
@@ -490,7 +524,7 @@ function ContractsTab({ employeeId, employeeType }: { employeeId: number; employ
                     </button>
                   </Tooltip>
                 )}
-                {state === 'aktuell' && (
+                {(state === 'aktuell' || state === 'geplant') && (
                   <button
                     className="hm-btn hm-btn--secondary hm-btn--sm"
                     onClick={() => {
