@@ -6,7 +6,19 @@ import { audit, auditSystem } from '../../core/audit.js';
 import { addDaysIso, todayIso } from '../../core/dates.js';
 import { AppError, badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { assertMayLinkFiles } from '../../core/files.js';
-import { recountUpcomingRequests } from '../absences/service.js';
+import {
+  ENTITLEMENT_EMPLOYEE_COLUMNS,
+  freezeEntitlementInputs,
+  recountUpcomingRequests,
+} from '../absences/service.js';
+
+/** Was freezeEntitlementInputs vor einer Aenderung der Akte festgehalten hat (fuer den Audit-Eintrag). */
+type Frozen = ReturnType<typeof freezeEntitlementInputs>;
+
+/** Audit-Feld `frozen`, nur wenn etwas festgehalten wurde. */
+export function frozenDetails(frozen: Frozen | null): { frozen?: Frozen } {
+  return frozen && (frozen.contracts.length > 0 || frozen.gaps.length > 0) ? { frozen } : {};
+}
 import {
   assertTypeRules,
   assertWeeklyHoursWithinRule,
@@ -114,7 +126,9 @@ function contractInEffect(employeeId: number, today = todayIso()): ContractRow |
  * anlegen und schriebe still einen Wert in die Personalakte, den der
  * Stammdaten-PATCH mit 400 abweist. Mit `apply: false` nur pruefen (eine
  * geplante Version: Fehler zeigen sich beim Anlegen, geschrieben wird zum
- * Beginn).
+ * Beginn). Aendert sich eine Grundlage des Urlaubsanspruchs, haelt
+ * freezeEntitlementInputs vorher fest, was bisher aus der Akte rechnete;
+ * das Ergebnis gehoert in den Audit-Eintrag des Aufrufers (frozenDetails).
  */
 function mirrorToEmployee(
   employeeId: number,
@@ -126,7 +140,7 @@ function mirrorToEmployee(
     work_days_per_week?: number | null;
   },
   apply = true,
-): void {
+): Frozen | null {
   const sets: string[] = [];
   const params: unknown[] = [];
   const mirrored: Record<string, unknown> = {};
@@ -155,7 +169,7 @@ function mirrorToEmployee(
       mirrored[c] = contract[c] ?? null;
     }
   }
-  if (sets.length === 0) return;
+  if (sets.length === 0) return null;
   const employee = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(employeeId) as
     | Record<string, unknown>
     | undefined;
@@ -189,7 +203,13 @@ function mirrorToEmployee(
     }
     throw e;
   }
-  if (!apply) return;
+  if (!apply) return null;
+  // Frueherer Anspruch bleibt: Was bisher aus der Akte rechnete, behaelt ihre Werte.
+  const frozen = ENTITLEMENT_EMPLOYEE_COLUMNS.some(
+    (c) => c in mirrored && (employee[c] ?? null) !== (mirrored[c] ?? null),
+  )
+    ? freezeEntitlementInputs(employeeId)
+    : null;
   getDb()
     .prepare(`UPDATE employees SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`)
     .run(...params, employeeId);
@@ -197,6 +217,7 @@ function mirrorToEmployee(
   if (scheduleGiven && SCHEDULE_COLUMNS.some((c) => (employee[c] ?? null) !== (mirrored[c] ?? null))) {
     recountUpcomingRequests([employeeId]);
   }
+  return frozen;
 }
 
 /**
@@ -253,10 +274,15 @@ export function mirrorDueContracts(today = todayIso(), employeeIds?: readonly nu
       }
       seen.add(c.employee_id);
       try {
-        mirrorToEmployee(c.employee_id, c);
+        const frozen = mirrorToEmployee(c.employee_id, c);
         setState.run(0, null, c.id);
         mirrored.push(c.id);
-        auditSystem('contract.mirrored', 'contract', { employee_id: c.employee_id, valid_from: c.valid_from }, c.id);
+        auditSystem(
+          'contract.mirrored',
+          'contract',
+          { employee_id: c.employee_id, valid_from: c.valid_from, ...frozenDetails(frozen) },
+          c.id,
+        );
       } catch (e) {
         if (!(e instanceof AppError)) throw e;
         if (c.mirror_error === e.message) continue;
@@ -364,6 +390,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
 
     const db = getDb();
     const today = todayIso();
+    let frozen: Frozen | null = null;
     const id = inTransaction(() => {
       const current = db
         .prepare(
@@ -395,7 +422,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         // Geplante Version: jetzt nur pruefen, gespiegelt wird zum Beginn
         // (mirrorDueContracts), sonst rechneten Lohnlauf und FTE vorzeitig damit.
         const planned = body.valid_from > today;
-        mirrorToEmployee(employeeId, body, !planned);
+        frozen = mirrorToEmployee(employeeId, body, !planned);
         if (planned) db.prepare('UPDATE contracts SET mirror_pending = 1 WHERE id = ?').run(newId);
       }
       // Audit in derselben Transaktion: kein neuer Vertrag ohne Protokoll.
@@ -403,6 +430,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         employee_id: employeeId,
         contract_type: body.contract_type,
         valid_from: body.valid_from,
+        ...frozenDetails(frozen),
       });
       return newId;
     });
@@ -439,6 +467,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
     assertMayLinkFiles(req, [patch.document_file_id]);
 
     const db = getDb();
+    let frozen: Frozen | null = null;
     inTransaction(() => {
       if (patch.valid_from !== undefined && patch.valid_from !== existing.valid_from) {
         const prev = db
@@ -479,7 +508,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         if (SCHEDULE_COLUMNS.some((c) => c in changed)) {
           for (const c of SCHEDULE_COLUMNS) changed[c] = merged[c];
         }
-        mirrorToEmployee(existing.employee_id, changed, !planned);
+        frozen = mirrorToEmployee(existing.employee_id, changed, !planned);
         if ((existing.mirror_pending === 1) !== planned) {
           db.prepare('UPDATE contracts SET mirror_pending = ?, mirror_error = NULL WHERE id = ?').run(planned ? 1 : 0, id);
         }
@@ -487,6 +516,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       audit(req, 'update', 'contract', id, {
         employee_id: existing.employee_id,
         changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
+        ...frozenDetails(frozen),
       });
     });
     return { contract: getContract(id) };

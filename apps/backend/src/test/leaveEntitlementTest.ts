@@ -234,8 +234,9 @@ check('unbekannte Woche nur vertraglich', entitlementPartLabels(unknown, fmt).jo
     toFreelance.periods?.[1].total === 0 && freelanceSum === toFreelance.total,
     toFreelance.periods,
   );
-  // Ohne Recht "Schwerbehinderung": Abschnitte bleiben (sonst verriete ihr
-  // Fehlen den Grad), Zusatzurlaub ungenannt im vertraglichen Teil, gerundet.
+  // Ohne Recht "Schwerbehinderung": Abschnitte bleiben, aber ohne Urlaubstage,
+  // und das fuer jede Person (sonst verriete der Unterschied den Grad);
+  // Zusatzurlaub ungenannt im vertraglichen Teil, gerundet.
   const withExtra = leaveEntitlementForPeriods(
     { ...person, disability_degree: 50 },
     [
@@ -246,10 +247,13 @@ check('unbekannte Woche nur vertraglich', entitlementPartLabels(unknown, fmt).jo
   );
   const masked = maskDisabilityEntitlement(withExtra);
   const twoDecimals = (n: number) => Math.round(n * 100) / 100 === n;
+  const totalsOf = (d: typeof masked) => JSON.stringify(d.periods?.map((p) => p.total));
   check(
-    'Abschnitte: Maskierung behaelt die Abschnitte, Summe gleich, Teile gerundet',
+    'Abschnitte: Maskierung behaelt die Beitraege ohne Urlaubstage, Summe gleich, Teile gerundet',
     withExtra.disability > 0 &&
-      JSON.stringify(masked.periods) === JSON.stringify(withExtra.periods) &&
+      masked.periods?.length === 2 &&
+      masked.periods.every((p) => p.annual_leave_days === null) &&
+      totalsOf(masked) === totalsOf(withExtra) &&
       masked.total === withExtra.total &&
       masked.disability === 0 &&
       twoDecimals(masked.contractual) &&
@@ -268,6 +272,16 @@ check('unbekannte Woche nur vertraglich', entitlementPartLabels(unknown, fmt).jo
     ),
   );
   check('Maskierung: vertraglicher Teil auf zwei Stellen', twoDecimals(odd.contractual) && twoDecimals(odd.full_year.contractual), odd);
+  // Ohne Zusatzurlaub gleich behandelt: ebenfalls ohne Urlaubstage, Hinweis ohne sie.
+  const maskedPlain = maskDisabilityEntitlement(changeOctober);
+  const plainNote = entitlementPeriodNote(maskedPlain, fmt);
+  check(
+    'Maskierung: auch ohne Zusatzurlaub Abschnitte ohne Urlaubstage',
+    maskedPlain.periods?.every((p) => p.annual_leave_days === null) === true &&
+      plainNote === 'je Zeitraum: 22,5 bis 30.09.2026 (5 Tage je Woche) + 4,5 ab 01.10.2026 (3 Tage je Woche)' &&
+      maskedPlain.total === changeOctober.total,
+    plainNote,
+  );
 }
 
 if (failures > 0) {

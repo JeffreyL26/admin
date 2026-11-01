@@ -10,7 +10,6 @@ import {
   RESIDENCE_PERMIT_TYPES,
   DISABILITY_DEGREES,
   WEEKDAY_SHORT,
-  contractState,
   disabilityNotes,
   entitlementDaysPerWeek,
   formatWeekdays,
@@ -22,7 +21,7 @@ import {
   employeeTypeRulesFor,
   employeeTypesFor,
   taxClassesFor,
-  type ContractDto,
+  type ContractNote,
   type EmployeeRuleField,
   type EmployeeStatus,
   type EmployeeType,
@@ -440,15 +439,7 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
   );
 }
 
-/**
- * Hinweis in der Personalakte, wie Stunden, Arbeitswoche und Urlaub mit den
- * Vertragsversionen zusammenhängen: 'versioned' (heute gilt eine Version,
- * Änderungen hier korrigieren sie, syncCurrentContract), 'uncovered' (es gibt
- * Versionen, aber heute gilt keine: nur abgelaufene oder geplante) und
- * 'none' (keine Version, die Werte gelten für alle Jahre).
- */
-export type ContractNote = 'versioned' | 'uncovered' | 'none';
-
+/** Texte des Hinweises unter dem Jahresurlaub (welcher gilt: contractNoteFor in shared). */
 const CONTRACT_NOTES: Record<ContractNote, string> = {
   versioned:
     'Wochenstunden, Arbeitswoche und Jahresurlaub gehören zur Vertragsversion. Änderungen hier korrigieren die ' +
@@ -456,26 +447,16 @@ const CONTRACT_NOTES: Record<ContractNote, string> = {
     'bitte im Tab „Vertrag“ eine neue Version anlegen; der Urlaubsanspruch wird dann für jeden Zeitraum anteilig ' +
     'berechnet.',
   uncovered:
-    'Heute gilt keine Vertragsversion. Mit diesen Werten rechnet der Urlaubsanspruch die Zeiträume, die keine ' +
-    'Version abdeckt; die Versionen selbst bleiben unverändert. Ändern sie sich ab einem Datum, bitte im Tab ' +
-    '„Vertrag“ eine neue Version anlegen.',
+    'Heute gilt keine Vertragsversion. Für die Zeit ohne Version rechnet der Urlaubsanspruch ab heute mit diesen ' +
+    'Werten; frühere Zeiträume behalten ihre bisherigen Werte. Ändern sich diese Werte ab einem anderen Datum, ' +
+    'bitte im Tab „Vertrag“ eine neue Version anlegen.',
   none:
     'Ohne Vertragsversion rechnet der Urlaubsanspruch aller Jahre mit diesen Werten. Ändern sie sich ab einem ' +
     'Datum, etwa beim Wechsel in Teilzeit, bitte im Tab „Vertrag“ Versionen anlegen; dann wird für jeden Zeitraum ' +
     'anteilig gerechnet.',
 };
 
-/** Welcher Hinweis gilt (Zustand je Version wie im Tab Vertrag, contractState). */
-export function contractNoteFor(contracts: readonly ContractDto[], today: string): ContractNote {
-  if (contracts.length === 0) return 'none';
-  const inEffect = contracts.some((c) => {
-    const state = contractState(c, false, today);
-    return state !== 'abgelaufen' && state !== 'geplant';
-  });
-  return inEffect ? 'versioned' : 'uncovered';
-}
-
-/** `contractNote`: Hinweis in der Personalakte (contractNoteFor); beim Anlegen einer Person keiner. */
+/** `contractNote`: Hinweis in der Personalakte (contractNoteFor in shared); beim Anlegen einer Person keiner. */
 export function EmploymentFields({
   form,
   set,

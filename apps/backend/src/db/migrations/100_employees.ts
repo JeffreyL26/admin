@@ -529,4 +529,27 @@ export const employeesMigrations: Migration[] = [
       for (const v of versions) update.run([v.work_weekdays, v.work_days_per_week, v.annual_leave_days, v.id]);
     },
   },
+  {
+    // Vergangene Zeitraeume ohne Vertragsversion (vor der ersten, zwischen
+    // zwei, nach der letzten) mit den Werten, mit denen sie bisher rechneten:
+    // freezeEntitlementInputs (absences/service.ts) legt sie an, bevor sich
+    // Beschaeftigungsart, Jahresurlaub oder Arbeitswoche der Akte aendern.
+    // Ohne sie rechnete diese Zeit mit den HEUTIGEN Werten der Akte, und ein
+    // Wechsel in Teilzeit aenderte frueheren Anspruch. Leer angelegt: Bis zur
+    // ersten Aenderung rechnet die Zeit ohnehin mit der Akte.
+    name: '119_contract_gap_values',
+    sql: `
+      CREATE TABLE contract_gap_values (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        valid_from TEXT NOT NULL,
+        valid_to TEXT NOT NULL,
+        employee_type TEXT,
+        annual_leave_days REAL,
+        work_weekdays TEXT,
+        work_days_per_week REAL
+      );
+      CREATE INDEX idx_contract_gap_values_employee ON contract_gap_values(employee_id, valid_from);
+    `,
+  },
 ];

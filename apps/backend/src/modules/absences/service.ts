@@ -363,8 +363,8 @@ export interface BalanceContext {
   closures?: Set<string>;
   requests?: BalanceRequestRow[];
   /**
-   * Vertragsversionen der Person (Spalten CONTRACT_PERIOD_COLUMNS, sortiert
-   * nach valid_from, id), sonst selbst geladen.
+   * Zeitabschnitte der Person (CONTRACT_PERIODS_SQL samt Grundlage, sortiert
+   * nach valid_from, id), sonst selbst geladen (contractPeriodsOf).
    */
   contracts?: ContractPeriodRow[];
   /**
@@ -374,38 +374,197 @@ export interface BalanceContext {
   breakdown?: boolean;
 }
 
-/** Werte einer Vertragsversion, mit denen der Urlaubsanspruch ihren Zeitraum rechnet. */
+/**
+ * Werte einer Vertragsversion, mit denen der Urlaubsanspruch ihren Zeitraum
+ * rechnet, oder eines festgehaltenen Zeitraums ohne Version (CONTRACT_PERIODS_SQL).
+ */
 export interface ContractPeriodRow {
   employee_id: number;
   valid_from: string;
   valid_to: string | null;
+  /** 0 = festgehaltener Zeitraum ohne Version (contract_gap_values), sonst Version. */
+  kind?: number;
   employee_type: string | null;
   annual_leave_days: number | null;
   work_weekdays: string | null;
   work_days_per_week: number | null;
 }
 
-/** Spalten fuer ContractPeriodRow, aufsteigend je Person (Sammelabfragen haengen ein WHERE an). */
-export const CONTRACT_PERIOD_COLUMNS =
-  'employee_id, valid_from, valid_to, employee_type, annual_leave_days, work_weekdays, work_days_per_week';
+/**
+ * Zeilen fuer ContractPeriodRow: die Vertragsversionen (`kind` 1) und,
+ * solange es welche gibt, die festgehaltenen Zeitraeume ohne Version aus
+ * `contract_gap_values` (`kind` 0, Migration 119, freezeEntitlementInputs).
+ * Aufrufer filtern und sortieren nach CONTRACT_PERIODS_ORDER:
+ * `SELECT * FROM (${CONTRACT_PERIODS_SQL}) WHERE employee_id = ? ORDER BY ${CONTRACT_PERIODS_ORDER}`.
+ */
+export const CONTRACT_PERIODS_SQL = `
+  SELECT g.employee_id, g.valid_from, g.valid_to, g.employee_type, g.annual_leave_days,
+         g.work_weekdays, g.work_days_per_week, 0 AS kind, g.id
+    FROM contract_gap_values g
+   WHERE EXISTS (SELECT 1 FROM contracts c WHERE c.employee_id = g.employee_id)
+  UNION ALL
+  SELECT employee_id, valid_from, valid_to, employee_type, annual_leave_days, work_weekdays,
+         work_days_per_week, 1 AS kind, id
+    FROM contracts`;
+
+/** Reihenfolge der Zeilen aus CONTRACT_PERIODS_SQL je Person. */
+export const CONTRACT_PERIODS_ORDER = 'valid_from, kind, id';
+
+/** Zeitabschnitte einer Person fuer den Anspruch, aufsteigend (CONTRACT_PERIODS_SQL). */
+export function contractPeriodsOf(employeeId: number): ContractPeriodRow[] {
+  return getDb()
+    .prepare(`SELECT * FROM (${CONTRACT_PERIODS_SQL}) WHERE employee_id = ? ORDER BY ${CONTRACT_PERIODS_ORDER}`)
+    .all(employeeId) as ContractPeriodRow[];
+}
+
+/**
+ * Spalten der Akte, mit denen Versionen ohne eigene Angabe und Zeitraeume ohne
+ * Version den Anspruch rechnen (entitlementPeriods).
+ */
+export const ENTITLEMENT_EMPLOYEE_COLUMNS = [
+  'employee_type',
+  'annual_leave_days',
+  'work_weekdays',
+  'work_days_per_week',
+] as const;
+
+type EntitlementInputs = Pick<ContractPeriodRow, 'annual_leave_days' | 'work_weekdays' | 'work_days_per_week'>;
+
+/**
+ * Vor einer Aenderung von Beschaeftigungsart, Jahresurlaub oder Arbeitswoche
+ * der Akte: Was bisher aus der Akte rechnete, bekommt ihre bisherigen Werte
+ * fest, damit der Anspruch frueherer Zeitraeume bleibt. Das sind
+ * - begonnene Vertragsversionen ohne eigene Angabe (nicht solche, deren
+ *   Uebernahme noch aussteht: Deren leere Felder heissen "Akte behalten"),
+ * - und, sobald es Versionen gibt, jeder Zeitraum bis gestern, den weder eine
+ *   Version noch ein schon festgehaltener Zeitraum abdeckt (vor der ersten,
+ *   zwischen zwei, nach der letzten Version), als Zeile in
+ *   `contract_gap_values`. Ab heute gelten die neuen Werte.
+ * Eine Akte ohne Arbeitswoche rechnet bei Vollzeit und Ausbildung mit Mo bis
+ * Fr (entitlementDaysPerWeek) und wird so festgehalten; eine unbekannte Woche
+ * bleibt leer und folgt weiter der Akte. Ohne Versionen rechnen alle Jahre mit
+ * der Akte (so sagt es der Hinweis in den Stammdaten). Die geschriebenen Werte
+ * sind die, mit denen ohnehin gerechnet wurde; am Anspruch aendert das
+ * nichts. Aufrufen in der Transaktion der Aenderung und VOR dem UPDATE
+ * (statisch geprueft: test/placeChangeCheck.ts). Liefert, was festgehalten
+ * wurde, fuer den Audit-Eintrag des Aufrufers.
+ */
+export function freezeEntitlementInputs(
+  employeeId: number,
+  today = todayIso(),
+): { contracts: number[]; gaps: { from: string; to: string }[] } {
+  const db = getDb();
+  const columns = ENTITLEMENT_EMPLOYEE_COLUMNS.join(', ');
+  const emp = db.prepare(`SELECT ${columns}, hire_date FROM employees WHERE id = ?`).get(employeeId) as
+    | (EntitlementInputs & { employee_type: string; hire_date: string | null })
+    | undefined;
+  const frozen = { contracts: [] as number[], gaps: [] as { from: string; to: string }[] };
+  if (!emp) return frozen;
+  const weekOf = (type: string): Pick<EntitlementInputs, 'work_weekdays' | 'work_days_per_week'> => {
+    if (emp.work_weekdays !== null || emp.work_days_per_week !== null) {
+      return { work_weekdays: emp.work_weekdays, work_days_per_week: emp.work_days_per_week };
+    }
+    return entitlementDaysPerWeek({ employee_type: type }) === 5
+      ? { work_weekdays: '1,2,3,4,5', work_days_per_week: 5 }
+      : { work_weekdays: null, work_days_per_week: null };
+  };
+  const versions = db
+    .prepare(`SELECT id, ${columns} FROM contracts WHERE employee_id = ? AND valid_from <= ? AND mirror_pending = 0`)
+    .all([employeeId, today]) as (EntitlementInputs & { id: number; employee_type: string | null })[];
+  for (const v of versions) {
+    const set: Record<string, unknown> = {};
+    if (v.employee_type === null) set.employee_type = emp.employee_type;
+    if (v.annual_leave_days === null && emp.annual_leave_days !== null) set.annual_leave_days = emp.annual_leave_days;
+    if (v.work_weekdays === null && v.work_days_per_week === null) {
+      const week = weekOf(v.employee_type ?? emp.employee_type);
+      if (week.work_days_per_week !== null) Object.assign(set, week);
+    }
+    const cols = Object.keys(set);
+    if (cols.length === 0) continue;
+    db.prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run([
+      ...cols.map((c) => set[c]),
+      v.id,
+    ]);
+    frozen.contracts.push(v.id);
+  }
+  if (!db.prepare('SELECT 1 FROM contracts WHERE employee_id = ? LIMIT 1').get(employeeId)) return frozen;
+  // Zeitraeume bis gestern ohne Version und ohne festgehaltene Werte.
+  const yesterday = addDaysIso(today, -1);
+  const covered = db
+    .prepare(`SELECT valid_from, valid_to FROM (${CONTRACT_PERIODS_SQL}) WHERE employee_id = ? ORDER BY ${CONTRACT_PERIODS_ORDER}`)
+    .all(employeeId) as { valid_from: string; valid_to: string | null }[];
+  let cursor = '0000-01-01';
+  for (const c of covered) {
+    if (cursor > yesterday) break;
+    if (c.valid_from > cursor) {
+      const to = addDaysIso(c.valid_from, -1);
+      frozen.gaps.push({ from: cursor, to: to < yesterday ? to : yesterday });
+    }
+    if (c.valid_to === null) {
+      cursor = '9999-12-31';
+      break;
+    }
+    const after = addDaysIso(c.valid_to, 1);
+    if (after > cursor) cursor = after;
+  }
+  if (cursor <= yesterday) frozen.gaps.push({ from: cursor, to: yesterday });
+  // Ganz vor dem Eintritt zaehlt nichts zum Anspruch; dort nichts festhalten.
+  const hire = emp.hire_date;
+  if (hire) frozen.gaps = frozen.gaps.filter((gap) => gap.to >= hire);
+  const week = weekOf(emp.employee_type);
+  const insert = db.prepare(
+    `INSERT INTO contract_gap_values
+       (employee_id, valid_from, valid_to, employee_type, annual_leave_days, work_weekdays, work_days_per_week)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const gap of frozen.gaps) {
+    insert.run([employeeId, gap.from, gap.to, emp.employee_type, emp.annual_leave_days, week.work_weekdays, week.work_days_per_week]);
+  }
+  return frozen;
+}
 
 /**
  * Zeitabschnitte eines Jahres fuer den Urlaubsanspruch: je Vertragsversion
  * ihr Zeitraum mit ihrer Arbeitswoche und ihrem Jahresurlaub, bis zum Beginn
  * der naechsten Version. Was eine Version offen laesst und was keine Version
- * abdeckt, rechnet mit den Werten der Personalakte (wie vor den Versionen).
- * `contracts` aufsteigend nach Beginn, wie die Abfragen sie liefern.
+ * abdeckt, rechnet mit den Werten der Personalakte (wie vor den Versionen);
+ * die Zeit vor der ersten Version kommt als Grundlage mit (CONTRACT_PERIODS_SQL),
+ * und freezeEntitlementInputs haelt fest, was sonst der Akte folgte.
+ * `contracts` aufsteigend nach Beginn, wie contractPeriodsOf sie liefert.
  */
-export function entitlementPeriods(emp: EmployeeRow, contracts: readonly ContractPeriodRow[], year: number): EntitlementPeriod[] {
+export function entitlementPeriods(emp: EmployeeRow, rows: readonly ContractPeriodRow[], year: number): EntitlementPeriod[] {
   const yearStart = `${year}-01-01`;
   const yearEnd = `${year}-12-31`;
-  const fromEmployee = (from: string, to: string): EntitlementPeriod => ({
-    from,
-    to,
-    annual_leave_days: emp.annual_leave_days,
-    days_per_week: entitlementDaysPerWeek(emp),
-  });
+  const valuesOf = (c: ContractPeriodRow): Omit<EntitlementPeriod, 'from' | 'to'> => {
+    const type = c.employee_type ?? emp.employee_type;
+    const ownWeek = c.work_weekdays !== null || c.work_days_per_week !== null;
+    return {
+      annual_leave_days: c.annual_leave_days ?? emp.annual_leave_days,
+      days_per_week: entitlementDaysPerWeek(
+        ownWeek
+          ? { employee_type: type, work_weekdays: c.work_weekdays, work_days_per_week: c.work_days_per_week }
+          : { ...emp, employee_type: type },
+      ),
+    };
+  };
+  // Versionen gehen vor; was keine abdeckt, rechnet mit festgehaltenen Werten
+  // (contract_gap_values), wo es sie gibt, sonst mit der Akte.
+  const contracts = rows.filter((r) => r.kind !== 0);
+  const gaps = rows.filter((r) => r.kind === 0);
+  const fromEmployee = { annual_leave_days: emp.annual_leave_days, days_per_week: entitlementDaysPerWeek(emp) };
   const periods: EntitlementPeriod[] = [];
+  const fill = (from: string, to: string) => {
+    let at = from;
+    for (const g of gaps) {
+      const gFrom = g.valid_from > at ? g.valid_from : at;
+      const gTo = g.valid_to !== null && g.valid_to < to ? g.valid_to : to;
+      if (gFrom > gTo) continue;
+      if (gFrom > at) periods.push({ from: at, to: addDaysIso(gFrom, -1), ...fromEmployee });
+      periods.push({ from: gFrom, to: gTo, ...valuesOf(g) });
+      at = addDaysIso(gTo, 1);
+    }
+    if (at <= to) periods.push({ from: at, to, ...fromEmployee });
+  };
   let cursor = yearStart;
   contracts.forEach((c, i) => {
     const nextStart = contracts[i + 1]?.valid_from;
@@ -414,22 +573,11 @@ export function entitlementPeriods(emp: EmployeeRow, contracts: readonly Contrac
     const from = c.valid_from > yearStart ? c.valid_from : yearStart;
     if (to > yearEnd) to = yearEnd;
     if (from > to || from > yearEnd) return;
-    if (from > cursor) periods.push(fromEmployee(cursor, addDaysIso(from, -1)));
-    const type = c.employee_type ?? emp.employee_type;
-    const ownWeek = c.work_weekdays !== null || c.work_days_per_week !== null;
-    periods.push({
-      from,
-      to,
-      annual_leave_days: c.annual_leave_days ?? emp.annual_leave_days,
-      days_per_week: entitlementDaysPerWeek(
-        ownWeek
-          ? { employee_type: type, work_weekdays: c.work_weekdays, work_days_per_week: c.work_days_per_week }
-          : { ...emp, employee_type: type },
-      ),
-    });
+    if (from > cursor) fill(cursor, addDaysIso(from, -1));
+    periods.push({ from, to, ...valuesOf(c) });
     cursor = addDaysIso(to, 1);
   });
-  if (cursor <= yearEnd) periods.push(fromEmployee(cursor, yearEnd));
+  if (cursor <= yearEnd) fill(cursor, yearEnd);
   return periods;
 }
 
@@ -501,11 +649,7 @@ export function computeBalance(
   // Arbeitswoche und Jahresurlaub je Vertragsversion: ein Wechsel (etwa in
   // Teilzeit) aendert den Anspruch nur ab seinem Beginn, fruehere Jahre und der
   // Uebertrag bleiben (leaveEntitlementForPeriods).
-  const contracts =
-    ctx?.contracts ??
-    (db
-      .prepare(`SELECT ${CONTRACT_PERIOD_COLUMNS} FROM contracts WHERE employee_id = ? ORDER BY valid_from, id`)
-      .all(emp.id) as ContractPeriodRow[]);
+  const contracts = ctx?.contracts ?? contractPeriodsOf(emp.id);
   const deadlineMmDd = ctx?.carryoverDeadline ?? getSetting('carryoverDeadline');
 
   const hireYear = emp.hire_date ? Number(emp.hire_date.slice(0, 4)) : null;
@@ -988,9 +1132,7 @@ export function assertBalanceCovers(
     carryoverDeadline: getSetting('carryoverDeadline'),
     closures: chainClosures,
     requests,
-    contracts: db
-      .prepare(`SELECT ${CONTRACT_PERIOD_COLUMNS} FROM contracts WHERE employee_id = ? ORDER BY valid_from, id`)
-      .all(employeeId) as ContractPeriodRow[],
+    contracts: contractPeriodsOf(employeeId),
   };
   // Betriebsruhe des Antragszeitraums selbst: vom Aufrufer übernommen, sonst
   // deckt das Ketten-Superset sie mit ab (countAbsenceDays fragt nur `has`).

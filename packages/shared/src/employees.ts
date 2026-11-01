@@ -513,6 +513,28 @@ export function contractCorrectable(state: ContractState, newest: boolean): bool
   return newest && state !== 'abgelaufen';
 }
 
+/** Gilt die Version heute (begonnen und nicht abgelaufen)? Wie contractInEffect im Backend. */
+export function contractInEffectOn(c: Pick<ContractDto, 'valid_from' | 'valid_to'>, today: string): boolean {
+  return c.valid_from <= today && (c.valid_to === null || c.valid_to >= today);
+}
+
+/**
+ * Hinweis der Stammdaten, wie Stunden, Arbeitswoche und Urlaub mit den
+ * Vertragsversionen zusammenhängen: 'versioned' (heute gilt eine Version,
+ * Änderungen in den Stammdaten korrigieren sie, syncCurrentContract),
+ * 'uncovered' (es gibt Versionen, aber heute gilt keine: nur abgelaufene oder
+ * geplante) und 'none' (keine Version, die Werte gelten für alle Jahre).
+ */
+export type ContractNote = 'versioned' | 'uncovered' | 'none';
+
+export function contractNoteFor(
+  contracts: readonly Pick<ContractDto, 'valid_from' | 'valid_to'>[],
+  today: string,
+): ContractNote {
+  if (contracts.length === 0) return 'none';
+  return contracts.some((c) => contractInEffectOn(c, today)) ? 'versioned' : 'uncovered';
+}
+
 export const CONTRACT_STATE_LABELS: Record<ContractState, string> = {
   aktuell: 'Aktuell',
   geplant: 'Geplant',

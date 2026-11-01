@@ -65,8 +65,9 @@ export interface EntitlementDetail extends EntitlementParts {
   periods?: EntitlementPeriodPart[];
 }
 
-/** Tage auf zwei Stellen, ohne Gleitkommareste (8,333 statt 8,3333333). */
-const round2 = (n: number) => Math.round(n * 100) / 100;
+/** Tage auf zwei Stellen, ohne Gleitkommareste (8,333 statt 8,3333333); auch fuer die Maskierung (disability.ts). */
+export const roundDays = (n: number) => Math.round(n * 100) / 100;
+const round2 = roundDays;
 const roundHalf = (n: number) => Math.round(n * 2) / 2;
 
 /** § 5 Abs. 2 BUrlG: ab einem halben Tag aufrunden, sonst stehen lassen. */

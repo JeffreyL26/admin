@@ -1190,6 +1190,128 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     check('Anspruch je Vertragsversion: Uebertrag aus 2025 mit 30 Tagen', february.carryover === 30, february);
   }
 
+  // Festhalten vor einer Aenderung der Akte: Eine alte Version ohne
+  // Arbeitswoche (vor Migration 118) und die Zeit vor der ersten Version
+  // rechneten mit den HEUTIGEN Werten der Akte. Ein Wechsel in Teilzeit
+  // (neue Version, gespiegelt) aenderte sonst 2024 rueckwirkend.
+  {
+    const greta = Number(
+      db
+        .prepare(
+          `INSERT INTO employees (first_name, last_name, status, hire_date, annual_leave_days, location_id, department_id,
+                                  employee_type, weekly_hours, iban, tax_class, social_security_number)
+           VALUES ('Greta', 'Gans', 'aktiv', '2024-03-15', 30, 1, 1,
+                   'vollzeit', 40, 'DE02120300000000202051', 'I', '12 150390 G 123')`,
+        )
+        .run().lastInsertRowid,
+    );
+    const legacyId = Number(
+      db
+        .prepare(
+          `INSERT INTO contracts (employee_id, contract_type, valid_from, annual_leave_days)
+           VALUES (?, 'unbefristet', '2024-06-01', NULL)`,
+        )
+        .run(greta).lastInsertRowid,
+    );
+    const entitlementIn = async (year: number) =>
+      (await get(`/api/absences/balance/${greta}/${year}`)).json().balance.entitlement as number;
+    const before = await entitlementIn(2024);
+    const todayLocal = (db.prepare("SELECT date('now', 'localtime') AS d").get() as { d: string }).d;
+    const partTime = await post(`/api/employees/${greta}/contracts`, {
+      contract_type: 'unbefristet',
+      valid_from: todayLocal,
+      employee_type: 'teilzeit',
+      weekly_hours: 24,
+      annual_leave_days: 18,
+      work_weekdays: '1,2,3',
+    });
+    const after = await entitlementIn(2024);
+    const legacy = db
+      .prepare('SELECT employee_type, annual_leave_days, work_weekdays, work_days_per_week FROM contracts WHERE id = ?')
+      .get(legacyId);
+    const gapRows = () =>
+      db
+        .prepare(
+          `SELECT valid_from, valid_to, employee_type, annual_leave_days, work_weekdays
+           FROM contract_gap_values WHERE employee_id = ? ORDER BY valid_from`,
+        )
+        .all(greta);
+    const createAudit = db
+      .prepare("SELECT details FROM audit_log WHERE action = 'create' AND entity = 'contract' AND entity_id = ?")
+      .get(partTime.json().contract?.id ?? -1) as { details: string } | undefined;
+    check(
+      'Festhalten: Teilzeit ab heute aendert 2024 nicht (alte Version und Zeit davor behalten die Werte der Akte)',
+      partTime.statusCode === 201 &&
+        before === 27.5 &&
+        after === before &&
+        JSON.stringify(legacy) ===
+          JSON.stringify({ employee_type: 'vollzeit', annual_leave_days: 30, work_weekdays: '1,2,3,4,5', work_days_per_week: 5 }) &&
+        JSON.stringify(gapRows()) ===
+          JSON.stringify([
+            { valid_from: '0000-01-01', valid_to: '2024-05-31', employee_type: 'vollzeit', annual_leave_days: 30, work_weekdays: '1,2,3,4,5' },
+          ]) &&
+        JSON.parse(createAudit?.details ?? '{}').frozen?.contracts?.includes(legacyId) === true,
+      { status: partTime.statusCode, body: partTime.json(), before, after, legacy, gaps: gapRows(), createAudit },
+    );
+    // Eine zweite Aenderung haelt nichts doppelt fest.
+    await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${greta}`,
+      headers: auth,
+      payload: { annual_leave_days: 20 },
+    });
+    check(
+      'Festhalten: weitere Aenderung legt nichts doppelt an, 2024 unveraendert',
+      gapRows().length === 1 && (await entitlementIn(2024)) === before,
+      { gaps: gapRows(), entitlement2024: await entitlementIn(2024) },
+    );
+  }
+
+  // Festhalten nach der letzten Version: Ein befristeter Vertrag ist am
+  // 30.06.2025 ausgelaufen, die Person arbeitet weiter. Aendert die HR die Akte
+  // (Teilzeit, 3 Tage, 18), rechnet die Zeit seit dem 01.07.2025 bis gestern
+  // weiter mit den bisherigen Werten; 2025 bleibt 30.
+  {
+    const hanna = Number(
+      db
+        .prepare(
+          `INSERT INTO employees (first_name, last_name, status, hire_date, annual_leave_days, location_id, department_id,
+                                  employee_type, weekly_hours, iban, tax_class, social_security_number)
+           VALUES ('Hanna', 'Hahn', 'aktiv', '2024-01-01', 30, 1, 1,
+                   'vollzeit', 40, 'DE02120300000000202051', 'I', '12 010190 H 123')`,
+        )
+        .run().lastInsertRowid,
+    );
+    db.prepare(
+      `INSERT INTO contracts (employee_id, contract_type, valid_from, valid_to, annual_leave_days, work_weekdays, work_days_per_week)
+       VALUES (?, 'befristet', '2024-01-01', '2025-06-30', 30, '1,2,3,4,5', 5)`,
+    ).run(hanna);
+    const entitlement2025 = async () =>
+      (await get(`/api/absences/balance/${hanna}/2025`)).json().balance.entitlement as number;
+    const before = await entitlement2025();
+    const toPartTime = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${hanna}`,
+      headers: auth,
+      payload: { employee_type: 'teilzeit', weekly_hours: 24, annual_leave_days: 18, work_weekdays: '1,2,3' },
+    });
+    const after = await entitlement2025();
+    const tail = db
+      .prepare('SELECT valid_from, annual_leave_days, work_weekdays FROM contract_gap_values WHERE employee_id = ?')
+      .all(hanna) as { valid_from: string; annual_leave_days: number; work_weekdays: string | null }[];
+    check(
+      'Festhalten: Zeit nach der letzten Version behaelt die bisherigen Werte, 2025 bleibt 30',
+      toPartTime.statusCode === 200 &&
+        before === 30 &&
+        after === 30 &&
+        tail.length === 1 &&
+        tail[0].valid_from === '2025-07-01' &&
+        tail[0].annual_leave_days === 30 &&
+        tail[0].work_weekdays === '1,2,3,4,5',
+      { status: toPartTime.statusCode, body: toPartTime.json(), before, after, tail },
+    );
+  }
+
   // ------------------------------------------------------- Home Office ---
   // Muster Di (2) und Do (4); 01.12.2026 ist ein Dienstag, 02.12. ein Mittwoch.
   const pattern = await patchEmp({ home_office_weekdays: '4,2' });

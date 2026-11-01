@@ -22,8 +22,13 @@ import {
   mayAccessExecutive,
   projectDirectory,
 } from '../../core/executiveGate.js';
-import { COUNTING_EMPLOYEE_COLUMNS, recountUpcomingRequests } from '../absences/service.js';
-import { mirrorDueContracts, syncCurrentContract, type ContractSync } from './contractRoutes.js';
+import {
+  COUNTING_EMPLOYEE_COLUMNS,
+  ENTITLEMENT_EMPLOYEE_COLUMNS,
+  freezeEntitlementInputs,
+  recountUpcomingRequests,
+} from '../absences/service.js';
+import { frozenDetails, mirrorDueContracts, syncCurrentContract, type ContractSync } from './contractRoutes.js';
 
 /**
  * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
@@ -422,6 +427,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     }
     let teamsCleared = 0;
     let contractsNotSynced = 0;
+    const frozenFor: Record<number, ReturnType<typeof freezeEntitlementInputs>> = {};
     inTransaction(() => {
       const update = db.prepare(
         `UPDATE employees SET ${fields.map(([k]) => `${k} = ?`).join(', ')},
@@ -458,6 +464,12 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
             throw e;
           }
         }
+        // Frueherer Anspruch bleibt (wie beim Personal-PATCH).
+        const setFields: Record<string, unknown> = set;
+        if (ENTITLEMENT_EMPLOYEE_COLUMNS.some((c) => setFields[c] !== undefined && setFields[c] !== existing[c])) {
+          const frozen = frozenDetails(freezeEntitlementInputs(id)).frozen;
+          if (frozen) frozenFor[id] = frozen;
+        }
         update.run(...fields.map(([, v]) => v), id);
         if (clearsTeam) {
           clearTeam.run(id);
@@ -481,6 +493,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
         set,
         teams_cleared: teamsCleared,
         ...(recounted.length ? { recounted_requests: recounted } : {}),
+        ...(Object.keys(frozenFor).length ? { frozen: frozenFor } : {}),
       });
     });
     // Wie beim Personal-PATCH: an den Typregeln gescheiterte Versionen sofort erneut versuchen.
@@ -610,6 +623,10 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     // zurueck (detachUnreferencedFile/removeDetachedBlob in core/files.ts).
     let contract: ContractSync = {};
     const detached = inTransaction(() => {
+      // Frueherer Anspruch bleibt: Was bisher aus der Akte rechnete, behaelt ihre Werte.
+      const frozen = ENTITLEMENT_EMPLOYEE_COLUMNS.some((c) => patch[c] !== undefined && patch[c] !== existing[c])
+        ? freezeEntitlementInputs(id)
+        : null;
       getDb()
         .prepare(
           `UPDATE employees SET ${cols.map((c) => `${c} = ?`).join(', ')},
@@ -626,6 +643,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       audit(req, 'update', 'employee', id, {
         changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
         ...(recounted.length ? { recounted_requests: recounted } : {}),
+        ...frozenDetails(frozen),
         ...(removedFile ? { removed_file: { id: removedFile.id, sha256: removedFile.sha256 } } : {}),
         ...(removedThumb ? { removed_thumb_file: { id: removedThumb.id, sha256: removedThumb.sha256 } } : {}),
       });

@@ -3,13 +3,15 @@
  * Monatsrechnung (addMonthsIso), Probezeit (Ende, Laenge, Text), die Saetze
  * des Dashboard-Widgets "Fristen der Personalakte" und wann ein
  * Aufenthaltstitel gebraucht wird; dazu der Zustand einer Vertragsversion
- * (contractState, Server und Oberflaeche gleich).
+ * (contractState, Server und Oberflaeche gleich) und welcher Hinweis zu den
+ * Versionen in den Stammdaten steht (contractNoteFor).
  *
  * Aufruf: tsx src/test/masterDataTest.ts (Teil von npm test)
  */
 import {
   addMonthsIso,
   contractCorrectable,
+  contractNoteFor,
   contractState,
   formatDate,
   needsResidencePermit,
@@ -92,6 +94,21 @@ check('Drittstaat braucht Titel', needsResidencePermit('TR') && needsResidencePe
     'Vertrag: korrigierbar nur die juengste, nicht abgelaufene',
     contractCorrectable('geplant', true) && !contractCorrectable('geplant', false) && !contractCorrectable('abgelaufen', true),
   );
+}
+
+// Hinweis in den Stammdaten: geltende Version, nur abgelaufene oder geplante, keine.
+{
+  const today = '2026-11-01';
+  const ended = { valid_from: '2024-01-01', valid_to: '2025-06-30' };
+  const current = { valid_from: '2025-07-01', valid_to: null };
+  const planned = { valid_from: '2026-12-01', valid_to: null };
+  const endsToday = { valid_from: '2025-07-01', valid_to: '2026-11-01' };
+  check('Hinweis: keine Version', contractNoteFor([], today) === 'none');
+  check('Hinweis: geltende Version', contractNoteFor([ended, current], today) === 'versioned');
+  check('Hinweis: endet heute, gilt noch', contractNoteFor([endsToday], today) === 'versioned');
+  check('Hinweis: nur abgelaufen', contractNoteFor([ended], today) === 'uncovered');
+  check('Hinweis: abgelaufen und geplant', contractNoteFor([ended, planned], today) === 'uncovered');
+  check('Hinweis: beginnt heute', contractNoteFor([{ valid_from: today, valid_to: null }], today) === 'versioned');
 }
 
 if (failures > 0) {
