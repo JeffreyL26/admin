@@ -70,13 +70,6 @@ const CONTRACT_COLUMNS = [
   'document_file_id', 'note',
 ] as const;
 
-/**
- * Felder, die die aktuelle Version auf employees spiegelt (mirrorToEmployee)
- * und die umgekehrt das Personalformular auf sie zurückschreibt
- * (syncCurrentContract).
- */
-export const MIRRORED_COLUMNS = CONTRACT_MIRRORED_COLUMNS;
-
 /** Die Arbeitswoche wandert immer als Paar (feste Tage und Zahl gehoeren zusammen). */
 const SCHEDULE_COLUMNS = ['work_weekdays', 'work_days_per_week'] as const;
 
@@ -318,7 +311,7 @@ export function mirrorDueContracts(today = todayIso(), employeeIds?: readonly nu
       )
       .all(employeeIds ? [today, JSON.stringify(employeeIds)] : [today]) as ContractRow[];
     const setState = db.prepare('UPDATE contracts SET mirror_pending = ?, mirror_error = ? WHERE id = ?');
-    const akteRow = db.prepare(`SELECT ${MIRRORED_COLUMNS.join(', ')} FROM employees WHERE id = ?`);
+    const akteRow = db.prepare(`SELECT ${CONTRACT_MIRRORED_COLUMNS.join(', ')} FROM employees WHERE id = ?`);
     const mirrored: number[] = [];
     const seen = new Set<number>();
     for (const c of due) {
@@ -390,7 +383,7 @@ export function syncCurrentContract(
   today = todayIso(),
 ): ContractSync {
   // Ohne Vertragsfeld im Rumpf keine Abfrage (jeder Personal-PATCH kommt hier vorbei).
-  if (!MIRRORED_COLUMNS.some((c) => changed[c] !== undefined)) return {};
+  if (!CONTRACT_MIRRORED_COLUMNS.some((c) => changed[c] !== undefined)) return {};
   const result: ContractSync = {};
   const newest = newestContract(employeeId);
   if (newest && newest.valid_from > today && isCurrent(newest, today)) {
@@ -400,7 +393,7 @@ export function syncCurrentContract(
   if (!inEffect) return result;
   const current = inEffect as unknown as Record<string, unknown>;
   const next: Record<string, unknown> = {};
-  for (const c of MIRRORED_COLUMNS) if (changed[c] !== undefined) next[c] = changed[c] ?? null;
+  for (const c of CONTRACT_MIRRORED_COLUMNS) if (changed[c] !== undefined) next[c] = changed[c] ?? null;
   const schedule: readonly string[] = SCHEDULE_COLUMNS;
   if (Object.keys(next).some((c) => schedule.includes(c))) {
     const akte = getDb().prepare('SELECT work_weekdays, work_days_per_week FROM employees WHERE id = ?').get(employeeId) as
@@ -611,9 +604,9 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       if (isCurrent({ valid_to: merged.valid_to ?? null }, today)) {
         const planned = contractState(merged, true, today) === 'geplant';
         const changed = existing.mirror_pending === 1 && !planned
-          ? Object.fromEntries(MIRRORED_COLUMNS.map((c) => [c, merged[c]]))
+          ? Object.fromEntries(CONTRACT_MIRRORED_COLUMNS.map((c) => [c, merged[c]]))
           : Object.fromEntries(
-              MIRRORED_COLUMNS.filter((c) => patch[c] !== undefined && patch[c] !== existing[c]).map((c) => [c, patch[c]]),
+              CONTRACT_MIRRORED_COLUMNS.filter((c) => patch[c] !== undefined && patch[c] !== existing[c]).map((c) => [c, patch[c]]),
             );
         // Die Arbeitswoche geht nur als Paar: Aendert sich ein Teil, beide aus der Version.
         if (SCHEDULE_COLUMNS.some((c) => c in changed)) {
@@ -652,7 +645,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         try {
           backFrozen = mirrorToEmployee(
             existing.employee_id,
-            Object.fromEntries(MIRRORED_COLUMNS.map((c) => [c, back[c]])),
+            Object.fromEntries(CONTRACT_MIRRORED_COLUMNS.map((c) => [c, back[c]])),
             true,
             today,
             { clearWeek: frozenWeekIsTypeDefault(back.entitlement_frozen), rawErrors: true },
