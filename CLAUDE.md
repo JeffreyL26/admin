@@ -295,15 +295,22 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   und was keine Version abdeckt, rechnet mit den Werten der Personalakte;
   bevor sich Beschäftigungsart, Jahresurlaub oder Arbeitswoche der Akte
   ändern, hält `freezeEntitlementInputs` (`absences/service.ts`) die
-  bisherigen Werte fest: in den leeren Feldern begonnener Versionen und für
-  jeden vergangenen Zeitraum ohne Version (vor der ersten, dazwischen, nach
-  der letzten) in `contract_gap_values` (Migration `119_contract_gap_values`,
-  geladen über `CONTRACT_PERIODS_SQL`; Versionen gehen vor). Sonst änderte
+  bisherigen Werte fest: Jahresurlaub und Arbeitswoche in den leeren Feldern
+  ABGELAUFENER Versionen, nicht die Art (sie ist die Historie der
+  Beschäftigungsart; vermerkt in `contracts.entitlement_frozen`, Migration
+  `120_contract_entitlement_frozen`, der Tab Vertrag nennt sie,
+  `entitlementFrozenNote`) und für jeden vergangenen Zeitraum ohne Version
+  (vor der ersten, dazwischen, nach der letzten) in `contract_gap_values`
+  (Migration `119_contract_gap_values`, geladen über `CONTRACT_PERIODS_SQL`;
+  Versionen gehen vor; schließt ein Zeitraum an eine Zeile mit denselben
+  Werten an, wächst diese). Die heute geltende Version bleibt frei, sie
+  korrigiert syncCurrentContract für ihren ganzen Zeitraum. Sonst änderte
   ein Wechsel in Teilzeit rückwirkend den Anspruch. Jede Schreibstelle dieser
-  Spalten der Akte ruft es in ihrer Transaktion vor dem UPDATE und nennt das
-  Ergebnis im Audit (`frozen`); statisch geprüft von
-  `src/test/placeChangeCheck.ts` (`ENTITLEMENT_EMPLOYEE_COLUMNS`). Ohne
-  Versionen gelten die Werte der Akte für alle Jahre (so sagt es der Hinweis).
+  Spalten der Akte ruft es in ihrer Transaktion vor der Ausführung des UPDATE
+  und nennt das Ergebnis im Audit (`frozen`); statisch geprüft von
+  `src/test/placeChangeCheck.ts` (`ENTITLEMENT_EMPLOYEE_COLUMNS`, samt
+  Reihenfolge). Ohne Versionen gelten die Werte der Akte für alle Jahre (so
+  sagt es der Hinweis).
   Mit
   mehreren Abschnitten trägt `entitlement_detail.periods` den Beitrag je
   Abschnitt (Hinweis `entitlementPeriodNote` im Abwesenheit-Tab; benachbarte

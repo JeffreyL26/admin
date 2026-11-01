@@ -1872,15 +1872,24 @@ rueckwirkend der Anspruch frueherer Jahre samt Uebertrag (nachgestellt:
 Eintritt 15.03.2024, Anspruch 2024 von 27,5 auf 25,5). Deshalb haelt
 `freezeEntitlementInputs` vor jeder Aenderung von Beschaeftigungsart,
 Jahresurlaub oder Arbeitswoche der Akte die bisherigen Werte fest: in den
-leeren Feldern begonnener Versionen und als Zeile in `contract_gap_values`
-fuer jeden vergangenen Zeitraum ohne Version. Festgehalten wird erst bei der
+leeren Feldern abgelaufener Versionen (der Tab Vertrag nennt sie, damit sie
+nicht wie Eingaben aussehen) und als Zeile in `contract_gap_values` fuer
+jeden vergangenen Zeitraum ohne Version. Die heute geltende Version bleibt
+frei: Aenderungen in den Stammdaten korrigieren sie fuer ihren ganzen
+Zeitraum, und eine aus alten Werten abgeleitete Woche (Mo bis Fr aus
+Vollzeit) bliebe sonst neben der korrigierten Art stehen. Festgehalten wird erst bei der
 Aenderung, nicht per Migration fuer alle: Bis dahin rechnen dieselben Werte
 ohnehin aus der Akte, und eine Migration haette jeder alten Version Werte
 gegeben, die niemand eingetragen hat. Versionen gehen vor festgehaltenen
 Zeitraeumen, damit eine spaeter nachgetragene Version gilt.
 
 **Grenzen:** Eine unbekannte Arbeitswoche (Teilzeit ohne Angabe) laesst sich
-nicht festhalten, sie folgt weiter der Akte. Ohne jede Version rechnen alle
+nicht festhalten, sie folgt weiter der Akte. Die Art einer Version wird nie
+festgehalten: Sie ist die Historie der Beschaeftigungsart, und eine aus der
+heutigen Akte geschaetzte Art stand im Test bei einem "Urspruenglichen
+Vollzeitvertrag" als Teilzeit im Kopf der Version. Eine Version ohne Art
+rechnet deshalb weiter mit der Art der Akte; das wirkt nur bei unbekannter
+Woche und freier Mitarbeit. Ohne jede Version rechnen alle
 Jahre mit der Akte; der Hinweis in den Stammdaten sagt das, und eine Version
 ab dem Eintritt haelt die bisherigen Werte fest. Ein Feld, das eine
 Korrektur einer Version leert, folgt wieder der Akte.

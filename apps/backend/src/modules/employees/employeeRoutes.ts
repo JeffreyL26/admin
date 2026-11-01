@@ -428,6 +428,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     let teamsCleared = 0;
     let contractsNotSynced = 0;
     const frozenFor: Record<number, ReturnType<typeof freezeEntitlementInputs>> = {};
+    const setFields: Record<string, unknown> = set;
     inTransaction(() => {
       const update = db.prepare(
         `UPDATE employees SET ${fields.map(([k]) => `${k} = ?`).join(', ')},
@@ -465,7 +466,6 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
           }
         }
         // Frueherer Anspruch bleibt (wie beim Personal-PATCH).
-        const setFields: Record<string, unknown> = set;
         if (ENTITLEMENT_EMPLOYEE_COLUMNS.some((c) => setFields[c] !== undefined && setFields[c] !== existing[c])) {
           const frozen = frozenDetails(freezeEntitlementInputs(id)).frozen;
           if (frozen) frozenFor[id] = frozen;
@@ -486,7 +486,6 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
         if (contract.notice) contractsNotSynced++;
       }
       // Ein neuer Standort bringt andere Feiertage (absences/service.ts).
-      const setFields: Record<string, unknown> = set;
       const recounted = COUNTING_EMPLOYEE_COLUMNS.some((c) => setFields[c] !== undefined) ? recountUpcomingRequests(ids) : [];
       audit(req, 'bulk_update', 'employee', undefined, {
         ids,

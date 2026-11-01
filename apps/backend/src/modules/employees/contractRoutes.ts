@@ -140,6 +140,7 @@ function mirrorToEmployee(
     work_days_per_week?: number | null;
   },
   apply = true,
+  today = todayIso(),
 ): Frozen | null {
   const sets: string[] = [];
   const params: unknown[] = [];
@@ -208,7 +209,7 @@ function mirrorToEmployee(
   const frozen = ENTITLEMENT_EMPLOYEE_COLUMNS.some(
     (c) => c in mirrored && (employee[c] ?? null) !== (mirrored[c] ?? null),
   )
-    ? freezeEntitlementInputs(employeeId)
+    ? freezeEntitlementInputs(employeeId, today)
     : null;
   getDb()
     .prepare(`UPDATE employees SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`)
@@ -274,7 +275,7 @@ export function mirrorDueContracts(today = todayIso(), employeeIds?: readonly nu
       }
       seen.add(c.employee_id);
       try {
-        const frozen = mirrorToEmployee(c.employee_id, c);
+        const frozen = mirrorToEmployee(c.employee_id, c, true, today);
         setState.run(0, null, c.id);
         mirrored.push(c.id);
         auditSystem(
@@ -422,7 +423,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         // Geplante Version: jetzt nur pruefen, gespiegelt wird zum Beginn
         // (mirrorDueContracts), sonst rechneten Lohnlauf und FTE vorzeitig damit.
         const planned = body.valid_from > today;
-        frozen = mirrorToEmployee(employeeId, body, !planned);
+        frozen = mirrorToEmployee(employeeId, body, !planned, today);
         if (planned) db.prepare('UPDATE contracts SET mirror_pending = 1 WHERE id = ?').run(newId);
       }
       // Audit in derselben Transaktion: kein neuer Vertrag ohne Protokoll.
@@ -508,7 +509,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         if (SCHEDULE_COLUMNS.some((c) => c in changed)) {
           for (const c of SCHEDULE_COLUMNS) changed[c] = merged[c];
         }
-        frozen = mirrorToEmployee(existing.employee_id, changed, !planned);
+        frozen = mirrorToEmployee(existing.employee_id, changed, !planned, today);
         if ((existing.mirror_pending === 1) !== planned) {
           db.prepare('UPDATE contracts SET mirror_pending = ?, mirror_error = NULL WHERE id = ?').run(planned ? 1 : 0, id);
         }

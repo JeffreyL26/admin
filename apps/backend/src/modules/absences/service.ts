@@ -15,6 +15,8 @@ import {
   PORTAL_ABSENCE_CAPTURE,
   entitlementDaysPerWeek,
   flexibleDays,
+  formatEntitlementFrozen,
+  parseEntitlementFrozen,
   isOwnPersonDecision,
   isScheduledDay,
   leaveEntitlementForPeriods,
@@ -22,6 +24,7 @@ import {
   workScheduleOf,
   type CountryCode,
   type EntitlementDetail,
+  type EntitlementFrozenField,
   type EntitlementPeriod,
   type RegionCode,
   type WorkSchedule,
@@ -434,12 +437,19 @@ type EntitlementInputs = Pick<ContractPeriodRow, 'annual_leave_days' | 'work_wee
  * Vor einer Aenderung von Beschaeftigungsart, Jahresurlaub oder Arbeitswoche
  * der Akte: Was bisher aus der Akte rechnete, bekommt ihre bisherigen Werte
  * fest, damit der Anspruch frueherer Zeitraeume bleibt. Das sind
- * - begonnene Vertragsversionen ohne eigene Angabe (nicht solche, deren
- *   Uebernahme noch aussteht: Deren leere Felder heissen "Akte behalten"),
+ * - Jahresurlaub und Arbeitswoche ABGELAUFENER Vertragsversionen ohne eigene
+ *   Angabe (Ende vor `today`; die heute geltende nicht, die korrigiert
+ *   syncCurrentContract fuer ihren ganzen Zeitraum, und eine aus alten Werten
+ *   abgeleitete Woche bliebe sonst neben der korrigierten Art stehen),
+ *   vermerkt in `contracts.entitlement_frozen`. Nicht die Art: Sie ist die
+ *   Historie der Beschaeftigungsart, und eine aus der heutigen Akte geschaetzte
+ *   Art verfaelschte sie (eine Version ohne Art rechnet weiter mit der Art der
+ *   Akte; das wirkt nur bei unbekannter Woche und freier Mitarbeit),
  * - und, sobald es Versionen gibt, jeder Zeitraum bis gestern, den weder eine
  *   Version noch ein schon festgehaltener Zeitraum abdeckt (vor der ersten,
  *   zwischen zwei, nach der letzten Version), als Zeile in
- *   `contract_gap_values`. Ab heute gelten die neuen Werte.
+ *   `contract_gap_values`; schliesst er an eine Zeile mit denselben Werten
+ *   an, waechst diese. Ab `today` gelten die neuen Werte.
  * Eine Akte ohne Arbeitswoche rechnet bei Vollzeit und Ausbildung mit Mo bis
  * Fr (entitlementDaysPerWeek) und wird so festgehalten; eine unbekannte Woche
  * bleibt leer und folgt weiter der Akte. Ohne Versionen rechnen alle Jahre mit
@@ -469,18 +479,32 @@ export function freezeEntitlementInputs(
       : { work_weekdays: null, work_days_per_week: null };
   };
   const versions = db
-    .prepare(`SELECT id, ${columns} FROM contracts WHERE employee_id = ? AND valid_from <= ? AND mirror_pending = 0`)
-    .all([employeeId, today]) as (EntitlementInputs & { id: number; employee_type: string | null })[];
+    .prepare(
+      `SELECT id, ${columns}, entitlement_frozen FROM contracts
+       WHERE employee_id = ? AND valid_to IS NOT NULL AND valid_to < ?`,
+    )
+    .all([employeeId, today]) as (EntitlementInputs & {
+    id: number;
+    employee_type: string | null;
+    entitlement_frozen: string | null;
+  })[];
   for (const v of versions) {
     const set: Record<string, unknown> = {};
-    if (v.employee_type === null) set.employee_type = emp.employee_type;
-    if (v.annual_leave_days === null && emp.annual_leave_days !== null) set.annual_leave_days = emp.annual_leave_days;
+    const fields: EntitlementFrozenField[] = [];
+    if (v.annual_leave_days === null && emp.annual_leave_days !== null) {
+      set.annual_leave_days = emp.annual_leave_days;
+      fields.push('annual_leave_days');
+    }
     if (v.work_weekdays === null && v.work_days_per_week === null) {
       const week = weekOf(v.employee_type ?? emp.employee_type);
-      if (week.work_days_per_week !== null) Object.assign(set, week);
+      if (week.work_days_per_week !== null) {
+        Object.assign(set, week);
+        fields.push('work_week');
+      }
     }
+    if (fields.length === 0) continue;
+    set.entitlement_frozen = formatEntitlementFrozen([...parseEntitlementFrozen(v.entitlement_frozen), ...fields]);
     const cols = Object.keys(set);
-    if (cols.length === 0) continue;
     db.prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run([
       ...cols.map((c) => set[c]),
       v.id,
@@ -512,13 +536,24 @@ export function freezeEntitlementInputs(
   const hire = emp.hire_date;
   if (hire) frozen.gaps = frozen.gaps.filter((gap) => gap.to >= hire);
   const week = weekOf(emp.employee_type);
+  const values = [emp.employee_type, emp.annual_leave_days, week.work_weekdays, week.work_days_per_week];
+  // Schliesst die Luecke an eine Zeile mit denselben Werten an, waechst diese
+  // (sonst legte jede Aenderung nach der letzten Version eine weitere an).
+  const adjoining = db.prepare(
+    `SELECT id FROM contract_gap_values
+     WHERE employee_id = ? AND valid_to = ? AND employee_type IS ? AND annual_leave_days IS ?
+       AND work_weekdays IS ? AND work_days_per_week IS ?`,
+  );
+  const extend = db.prepare('UPDATE contract_gap_values SET valid_to = ? WHERE id = ?');
   const insert = db.prepare(
     `INSERT INTO contract_gap_values
        (employee_id, valid_from, valid_to, employee_type, annual_leave_days, work_weekdays, work_days_per_week)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const gap of frozen.gaps) {
-    insert.run([employeeId, gap.from, gap.to, emp.employee_type, emp.annual_leave_days, week.work_weekdays, week.work_days_per_week]);
+    const before = adjoining.get([employeeId, addDaysIso(gap.from, -1), ...values]) as { id: number } | undefined;
+    if (before) extend.run([gap.to, before.id]);
+    else insert.run([employeeId, gap.from, gap.to, ...values]);
   }
   return frozen;
 }
@@ -526,11 +561,12 @@ export function freezeEntitlementInputs(
 /**
  * Zeitabschnitte eines Jahres fuer den Urlaubsanspruch: je Vertragsversion
  * ihr Zeitraum mit ihrer Arbeitswoche und ihrem Jahresurlaub, bis zum Beginn
- * der naechsten Version. Was eine Version offen laesst und was keine Version
- * abdeckt, rechnet mit den Werten der Personalakte (wie vor den Versionen);
- * die Zeit vor der ersten Version kommt als Grundlage mit (CONTRACT_PERIODS_SQL),
- * und freezeEntitlementInputs haelt fest, was sonst der Akte folgte.
- * `contracts` aufsteigend nach Beginn, wie contractPeriodsOf sie liefert.
+ * der naechsten Version. Versionen gehen vor; was keine abdeckt, rechnet mit
+ * festgehaltenen Werten (`kind` 0 aus contract_gap_values), wo es sie gibt,
+ * sonst wie auch die leeren Felder einer Version mit den Werten der
+ * Personalakte (freezeEntitlementInputs haelt fest, bevor die sich aendert).
+ * `rows` aus CONTRACT_PERIODS_SQL, sortiert nach CONTRACT_PERIODS_ORDER
+ * (contractPeriodsOf).
  */
 export function entitlementPeriods(emp: EmployeeRow, rows: readonly ContractPeriodRow[], year: number): EntitlementPeriod[] {
   const yearStart = `${year}-01-01`;

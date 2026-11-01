@@ -552,4 +552,13 @@ export const employeesMigrations: Migration[] = [
       CREATE INDEX idx_contract_gap_values_employee ON contract_gap_values(employee_id, valid_from);
     `,
   },
+  {
+    // Welche Felder einer abgelaufenen Version freezeEntitlementInputs aus der
+    // Akte uebernommen hat ("employee_type,annual_leave_days,work_week");
+    // der Tab Vertrag nennt sie, sonst saehen sie wie Eingaben aus.
+    name: '120_contract_entitlement_frozen',
+    sql: `
+      ALTER TABLE contracts ADD COLUMN entitlement_frozen TEXT;
+    `,
+  },
 ];

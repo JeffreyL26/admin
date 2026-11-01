@@ -18,6 +18,7 @@ import {
   contractCorrectable,
   contractNoteFor,
   contractState,
+  entitlementFrozenNote,
   formatDate,
   probationText,
   todayIsoLocal,
@@ -459,6 +460,8 @@ function ContractsTab({ employeeId, employee }: { employeeId: number; employee: 
         <div className="stack">
           {contracts!.map((c, i) => {
             const state = contractState(c, i === 0, today);
+            // Aus der Akte festgehaltene Werte (freezeEntitlementInputs): sonst saehen sie wie Eingaben aus.
+            const frozenNote = entitlementFrozenNote(c.entitlement_frozen);
             return (
             <div
               key={c.id}
@@ -494,6 +497,11 @@ function ContractsTab({ employeeId, employee }: { employeeId: number; employee: 
                 {c.note && (
                   <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginTop: 3 }}>
                     {c.note}
+                  </div>
+                )}
+                {frozenNote && (
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', marginTop: 3 }}>
+                    {frozenNote}
                   </div>
                 )}
                 {c.mirror_pending === 1 && !c.mirror_error && state === 'geplant' && (
