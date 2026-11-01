@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { formatDate } from '@ohrganize/shared';
 import { assertExecutiveAccess } from '../../core/executiveGate.js';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
@@ -140,24 +141,49 @@ function mirrorToEmployee(
     .run(...params, employeeId);
 }
 
+export interface ContractSync {
+  /** Angepasste Version mit altem und neuem Wert je Feld; der Aufrufer protokolliert sie. */
+  synced?: { id: number; changed: Record<string, { from: unknown; to: unknown }> };
+  /** Hinweis für die Oberfläche, wenn eine künftige Version besteht und nichts angepasst wurde. */
+  notice?: string;
+}
+
 /**
  * Gegenrichtung der Spiegelung: Ändern Personalformular oder Sammeländerung
  * Beschäftigungsart, Wochenstunden oder Urlaubstage, gilt das als Korrektur
  * der aktuellen Vertragsversion (wie PATCH /api/contracts/:id). Sonst zeigte
  * die Vertragshistorie weiter den alten Stand, und der Korrekturdialog
  * belegte ihn vor. Eine Änderung ab einem Datum ist eine neue Version.
- * Läuft in der Transaktion der Personaländerung; liefert die ID der
- * angepassten Version (für das Audit) oder null.
+ *
+ * Beginnt die jüngste Version erst künftig (eine geplante Änderung), wird
+ * nichts angepasst: Die Korrektur landete sonst auf der geplanten Version und
+ * überschriebe sie still, die laufende bliebe falsch. Dann kommt `notice`.
+ * Läuft in der Transaktion der Personaländerung; das Audit schreibt der
+ * Aufrufer in derselben Transaktion (Eintrag `update` an `contract`).
  */
-export function syncCurrentContract(employeeId: number, changed: Partial<Record<string, unknown>>): number | null {
-  const current = newestContract(employeeId);
-  if (!current || !isCurrent(current)) return null;
-  const cols = MIRRORED_COLUMNS.filter((c) => changed[c] !== undefined && changed[c] !== current[c]);
-  if (cols.length === 0) return null;
+export function syncCurrentContract(
+  employeeId: number,
+  changed: Partial<Record<string, unknown>>,
+  today = todayIso(),
+): ContractSync {
+  const newest = newestContract(employeeId);
+  if (!newest || !isCurrent(newest, today)) return {};
+  const cols = MIRRORED_COLUMNS.filter((c) => changed[c] !== undefined && changed[c] !== newest[c]);
+  if (cols.length === 0) return {};
+  if (newest.valid_from > today) {
+    return {
+      notice: `Die geplante Vertragsversion ab ${formatDate(newest.valid_from)} wurde nicht angepasst. Wochenstunden, Urlaub und Beschäftigungsart ab dann bitte im Tab „Vertrag“ prüfen.`,
+    };
+  }
   getDb()
     .prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-    .run(...cols.map((c) => changed[c] ?? null), current.id);
-  return current.id;
+    .run(...cols.map((c) => changed[c] ?? null), newest.id);
+  return {
+    synced: {
+      id: newest.id,
+      changed: Object.fromEntries(cols.map((c) => [c, { from: newest[c], to: changed[c] ?? null }])),
+    },
+  };
 }
 
 function validateRange(body: Pick<ContractBody, 'valid_from' | 'valid_to'>): void {

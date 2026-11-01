@@ -457,23 +457,59 @@ check(
   const version = (await app.inject({ method: 'GET', url: `/api/employees/${empId}/contracts`, headers: auth }))
     .json()
     .contracts.find((c: { id: number }) => c.id === typedId) as { employee_type: string; weekly_hours: number } | undefined;
+  const contractAudit = getDb()
+    .prepare(
+      `SELECT details FROM audit_log WHERE action = 'update' AND entity = 'contract' AND entity_id = ?
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(typedId) as { details: string } | undefined;
   check(
-    'Personalformular zieht die aktuelle Vertragsversion mit',
-    retyped.statusCode === 200 && version?.employee_type === 'vollzeit' && version.weekly_hours === 40,
-    { retyped: retyped.json(), version },
+    'Personalformular zieht die aktuelle Vertragsversion mit, eigener Protokolleintrag mit altem Wert',
+    retyped.statusCode === 200 &&
+      version?.employee_type === 'vollzeit' &&
+      version.weekly_hours === 40 &&
+      !!contractAudit &&
+      JSON.parse(contractAudit.details).changed?.employee_type?.from === 'teilzeit',
+    { retyped: retyped.json(), version, contractAudit },
   );
+  // Bestand von vor dem Abgleich: Die Version traegt noch einen Altwert, und der
+  // Dialog schickt ihn unveraendert mit. Die Stammdaten bleiben stehen.
+  getDb().prepare("UPDATE contracts SET employee_type = 'teilzeit', weekly_hours = 30 WHERE id = ?").run(typedId);
   const corrected = await app.inject({
     method: 'PATCH',
     url: `/api/contracts/${typedId}`,
     headers: auth,
-    payload: { employee_type: 'vollzeit', weekly_hours: 40, notice_period_weeks: 6 },
+    payload: { employee_type: 'teilzeit', weekly_hours: 30, notice_period_weeks: 6 },
   });
   const after = (await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: auth })).json().employee;
   check(
-    'Vertragskorrektur setzt die Beschaeftigungsart nicht still zurueck',
+    'Vertragskorrektur mit Altwert setzt die Beschaeftigungsart nicht still zurueck',
     corrected.statusCode === 200 && after.employee_type === 'vollzeit' && after.weekly_hours === 40,
     { corrected: corrected.json(), after },
   );
+  // Geplante Version (Beginn kuenftig): Das Formular passt sie nicht an und sagt das.
+  const plannedFrom = new Date(Date.now() + 40 * 86_400_000).toISOString().slice(0, 10);
+  const plannedId = Number(
+    getDb()
+      .prepare(
+        `INSERT INTO contracts (employee_id, contract_type, employee_type, valid_from, weekly_hours, annual_leave_days)
+         VALUES (?, 'unbefristet', 'vollzeit', ?, 38, 30)`,
+      )
+      .run(empId, plannedFrom).lastInsertRowid,
+  );
+  const withPlanned = await app.inject({
+    method: 'PATCH',
+    url: `/api/employees/${empId}`,
+    headers: auth,
+    payload: { weekly_hours: 36 },
+  });
+  const planned = getDb().prepare('SELECT weekly_hours FROM contracts WHERE id = ?').get(plannedId) as { weekly_hours: number };
+  check(
+    'Geplante Vertragsversion bleibt, Antwort nennt sie',
+    withPlanned.statusCode === 200 && planned.weekly_hours === 38 && /geplante Vertragsversion/.test(withPlanned.json().contract_notice ?? ''),
+    { response: withPlanned.json(), planned },
+  );
+  getDb().prepare('DELETE FROM contracts WHERE id = ?').run(plannedId);
   await app.inject({
     method: 'PATCH',
     url: `/api/employees/${empId}`,

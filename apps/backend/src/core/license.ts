@@ -42,7 +42,7 @@ import {
 } from '@ohrganize/shared';
 import { config } from '../config.js';
 import { getDb } from '../db/db.js';
-import { auditStandalone } from './audit.js';
+import { auditStandalone, auditSystem } from './audit.js';
 import { addDaysIso, todayIso } from './dates.js';
 import { AppError } from './errors.js';
 import { TRUSTED_LICENSE_KEYS_RAW } from './licenseKeys.js';
@@ -146,9 +146,7 @@ function noteFileChange(previous: string | null, next: string | null, loaded: Lo
     exists: loaded.exists,
   };
   try {
-    getDb()
-      .prepare('INSERT INTO audit_log (user_id, action, entity, details) VALUES (NULL, ?, ?, ?)')
-      .run('license.file_changed', 'license', JSON.stringify(details));
+    auditSystem('license.file_changed', 'license', details);
   } catch (err) {
     licenseLogger?.warn(`Audit-Zeile zum Lizenzdateiwechsel konnte nicht geschrieben werden: ${(err as Error).message}`);
   }
