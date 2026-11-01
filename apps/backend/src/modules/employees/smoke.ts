@@ -714,6 +714,28 @@ check(
       payload: { work_weekdays: '4,1,2,3' },
     });
     const synced = weekOf(typedId);
+    // Nur die Zahl, passend nicht zu den festen Tagen: Wechsel auf flexibel,
+    // kein widerspruechliches Paar in Version und Akte.
+    const onlyCount = await app.inject({
+      method: 'PATCH',
+      url: `/api/contracts/${typedId}`,
+      headers: auth,
+      payload: { work_days_per_week: 2 },
+    });
+    const flexibleVersion = weekOf(typedId);
+    const flexiblePerson = getDb().prepare('SELECT work_weekdays, work_days_per_week FROM employees WHERE id = ?').get(empId) as {
+      work_weekdays: string | null;
+      work_days_per_week: number | null;
+    };
+    check(
+      'Arbeitswoche: nur die Zahl geaendert heisst flexibel, in Version und Akte gleich',
+      onlyCount.statusCode === 200 &&
+        flexibleVersion.work_weekdays === null &&
+        flexibleVersion.work_days_per_week === 2 &&
+        flexiblePerson.work_weekdays === null &&
+        flexiblePerson.work_days_per_week === 2,
+      { onlyCount: onlyCount.json(), flexibleVersion, flexiblePerson },
+    );
     const todayLocal = getDb().prepare("SELECT date('now', 'localtime') AS d").get() as { d: string };
     const newWeek = await app.inject({
       method: 'POST',

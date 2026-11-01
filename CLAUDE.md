@@ -191,7 +191,13 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   frühere Jahre und den Übertrag nicht ändert. Was eine Version offen lässt
   und was keine Version abdeckt, rechnet mit den Werten der Personalakte. Mit
   mehreren Abschnitten trägt `entitlement_detail.periods` den Beitrag je
-  Abschnitt (Hinweis `entitlementPeriodNote` im Abwesenheit-Tab). Die
+  Abschnitt (Hinweis `entitlementPeriodNote` im Abwesenheit-Tab; benachbarte
+  Abschnitte mit gleicher Woche und gleichem Urlaub zählen als einer, der
+  letzte Beitrag ist der Rest zur Summe; ohne Recht `schwerbehinderung`
+  fallen die Abschnitte weg, `maskDisabilityEntitlement`, sonst wäre der
+  Zusatzurlaub daneben ablesbar). Kommt beim PATCH nur die Zahl der
+  Arbeitstage und passt sie nicht zu den festen Tagen, fallen diese weg
+  (`settleWorkSchedule` mit Bestand), in Akte und Version gleich. Die
   Arbeitswoche einer Version wird wie Stunden und Urlaub gespiegelt (und
   zählt kommende Anträge neu); eine neue Version ohne Arbeitswoche oder
   Urlaub im Rumpf übernimmt die der Akte. Vertragsdialog und Stammdaten

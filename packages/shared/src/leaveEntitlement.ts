@@ -210,9 +210,26 @@ export function leaveEntitlementForPeriods(
   const yearEnd = `${year}-12-31`;
   const start = input.hire_date && input.hire_date > yearStart ? input.hire_date : yearStart;
   const end = input.exit_date && input.exit_date < yearEnd ? input.exit_date : yearEnd;
-  const clipped = periods
-    .map((p) => ({ ...p, from: p.from > start ? p.from : start, to: p.to < end ? p.to : end }))
-    .filter((p) => p.from <= p.to);
+  // Benachbarte Abschnitte mit gleicher Woche und gleichem Urlaub (etwa eine
+  // Version, die nur Stunden oder Befristung ändert) sind für den Anspruch
+  // EIN Abschnitt; sonst teilte jede Vertragsversion die Anzeige.
+  const clipped: EntitlementPeriod[] = [];
+  for (const p of periods) {
+    const from = p.from > start ? p.from : start;
+    const to = p.to < end ? p.to : end;
+    if (from > to) continue;
+    const prev = clipped[clipped.length - 1];
+    if (
+      prev &&
+      addDaysIso(prev.to, 1) === from &&
+      prev.annual_leave_days === p.annual_leave_days &&
+      prev.days_per_week === p.days_per_week
+    ) {
+      prev.to = to;
+    } else {
+      clipped.push({ ...p, from, to });
+    }
+  }
   const single = (p: EntitlementPeriod | undefined) =>
     leaveEntitlementFor(
       { ...input, annual_leave_days: p?.annual_leave_days ?? null, days_per_week: p?.days_per_week ?? null },
@@ -248,12 +265,16 @@ export function leaveEntitlementForPeriods(
     full_year: full,
     prorated: total !== full.total,
     statutory_known: parts.some((x) => x.detail.statutory_known),
-    periods: parts.map((x) => ({
+    // Der letzte Beitrag ist der Rest, damit die Beiträge genau den Anspruch ergeben.
+    periods: parts.map((x, i) => ({
       from: x.period.from,
       to: x.period.to,
       annual_leave_days: x.period.annual_leave_days,
       days_per_week: x.period.days_per_week,
-      total: round2(x.detail.total * x.weight),
+      total:
+        i < parts.length - 1
+          ? round2(x.detail.total * x.weight)
+          : round2(total - parts.slice(0, -1).reduce((sum, y) => sum + round2(y.detail.total * y.weight), 0)),
     })),
   };
 }
@@ -297,7 +318,6 @@ export function entitlementPartLabels(
   return parts;
 }
 
-/** Hinweis bei unterjährigem Anspruch, z. B. "anteilig, 6 von 12 Monaten (ganzes Jahr 30)". */
 /**
  * Hinweis bei mehreren Zeitabschnitten im Jahr (Vertragsversionen mit anderer
  * Arbeitswoche oder anderem Jahresurlaub), z. B. "je Vertragsversion: 22,5 bis
@@ -323,6 +343,7 @@ export function entitlementPeriodNote(detail: EntitlementDetail, format: (n: num
   return `je Vertragsversion: ${parts.join(' + ')}`;
 }
 
+/** Hinweis bei unterjährigem Anspruch, z. B. "anteilig, 6 von 12 Monaten (ganzes Jahr 30)". */
 export function entitlementProrationNote(detail: EntitlementDetail, format: (n: number) => string): string | null {
   if (!detail.prorated) return null;
   return `anteilig, ${detail.months} von 12 Monaten (ganzes Jahr ${format(detail.full_year.total)})`;

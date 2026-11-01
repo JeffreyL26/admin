@@ -390,6 +390,7 @@ export const CONTRACT_PERIOD_COLUMNS =
  * ihr Zeitraum mit ihrer Arbeitswoche und ihrem Jahresurlaub, bis zum Beginn
  * der naechsten Version. Was eine Version offen laesst und was keine Version
  * abdeckt, rechnet mit den Werten der Personalakte (wie vor den Versionen).
+ * `contracts` aufsteigend nach Beginn, wie die Abfragen sie liefern.
  */
 export function entitlementPeriods(emp: EmployeeRow, contracts: readonly ContractPeriodRow[], year: number): EntitlementPeriod[] {
   const yearStart = `${year}-01-01`;
@@ -400,11 +401,10 @@ export function entitlementPeriods(emp: EmployeeRow, contracts: readonly Contrac
     annual_leave_days: emp.annual_leave_days,
     days_per_week: entitlementDaysPerWeek(emp),
   });
-  const sorted = [...contracts].sort((a, b) => a.valid_from.localeCompare(b.valid_from));
   const periods: EntitlementPeriod[] = [];
   let cursor = yearStart;
-  sorted.forEach((c, i) => {
-    const nextStart = sorted[i + 1]?.valid_from;
+  contracts.forEach((c, i) => {
+    const nextStart = contracts[i + 1]?.valid_from;
     let to = c.valid_to ?? yearEnd;
     if (nextStart && nextStart <= to) to = addDaysIso(nextStart, -1);
     const from = c.valid_from > yearStart ? c.valid_from : yearStart;

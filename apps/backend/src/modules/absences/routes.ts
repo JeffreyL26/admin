@@ -749,7 +749,9 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     // Vertragsversionen (Anspruch je Zeitabschnitt) ebenfalls in EINER Abfrage.
     const contractsByEmployee = new Map<number, ContractPeriodRow[]>();
     for (const c of db()
-      .prepare(`SELECT ${CONTRACT_PERIOD_COLUMNS} FROM contracts ORDER BY employee_id, valid_from, id`)
+      .prepare(`SELECT ${CONTRACT_PERIOD_COLUMNS} FROM contracts
+                 WHERE employee_id IN (SELECT id FROM employees WHERE status = 'aktiv')
+                 ORDER BY employee_id, valid_from, id`)
       .all() as ContractPeriodRow[]) {
       const list = contractsByEmployee.get(c.employee_id);
       if (list) list.push(c);

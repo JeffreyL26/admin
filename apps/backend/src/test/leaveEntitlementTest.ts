@@ -18,6 +18,7 @@ import {
   isScheduledDay,
   leaveEntitlementFor,
   leaveEntitlementForPeriods,
+  maskDisabilityEntitlement,
   parseWeekdays,
   statutoryLeaveDays,
   workScheduleOf,
@@ -195,6 +196,42 @@ check('unbekannte Woche nur vertraglich', entitlementPartLabels(unknown, fmt).jo
     'Abschnitte: nur die Beschaeftigungszeit zaehlt (Eintritt 01.07., wie ohne Abschnitte)',
     lateHire.total === leaveEntitlementFor({ ...base, hire_date: '2026-07-01', annual_leave_days: 32 }, 2026).total,
     lateHire,
+  );
+  // Eine Version, die nur Stunden aendert: gleiche Woche, gleicher Urlaub, ein Abschnitt.
+  const sameValues = leaveEntitlementForPeriods(
+    person,
+    [
+      { from: '2026-01-01', to: '2026-06-30', annual_leave_days: 30, days_per_week: 5 },
+      { from: '2026-07-01', to: '2026-12-31', annual_leave_days: 30, days_per_week: 5 },
+    ],
+    2026,
+  );
+  check('Abschnitte: gleiche Nachbarn sind ein Abschnitt, ohne periods', sameValues.periods === undefined && sameValues.total === 30, sameValues);
+  // Krummer Wechsel (15.10.): Die Beitraege ergeben genau den Anspruch.
+  const midMonth = leaveEntitlementForPeriods(
+    person,
+    [
+      { from: '2026-01-01', to: '2026-10-14', annual_leave_days: 30, days_per_week: 5 },
+      { from: '2026-10-15', to: '2026-12-31', annual_leave_days: 18, days_per_week: 3 },
+    ],
+    2026,
+  );
+  const partSum = Math.round((midMonth.periods ?? []).reduce((s, p) => s + p.total, 0) * 100) / 100;
+  check('Abschnitte: Beitraege ergeben den Anspruch', partSum === midMonth.total, { partSum, midMonth });
+  // Ohne Recht "Schwerbehinderung": Abschnitte fallen weg, die Summe bleibt.
+  const withExtra = leaveEntitlementForPeriods(
+    { ...person, disability_degree: 50 },
+    [
+      { from: '2026-01-01', to: '2026-09-30', annual_leave_days: 30, days_per_week: 5 },
+      { from: '2026-10-01', to: '2026-12-31', annual_leave_days: 18, days_per_week: 3 },
+    ],
+    2026,
+  );
+  const masked = maskDisabilityEntitlement(withExtra);
+  check(
+    'Abschnitte: Maskierung entfernt die Abschnitte, Summe gleich',
+    withExtra.periods?.length === 2 && masked.periods === undefined && masked.total === withExtra.total && masked.disability === 0,
+    masked,
   );
 }
 
