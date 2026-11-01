@@ -541,8 +541,12 @@ export const ENTITLEMENT_FROZEN_FIELDS = [
 ] as const;
 export type EntitlementFrozenField = (typeof ENTITLEMENT_FROZEN_FIELDS)[number];
 
-/** Spalten der Version je uebernommenem Feld. */
-export const ENTITLEMENT_FROZEN_COLUMNS: Record<EntitlementFrozenField, readonly string[]> = {
+/**
+ * Spalten der Version je uebernommenem Feld; als Felder von ContractDto
+ * typisiert, damit eine umbenannte Spalte hier am Typecheck scheitert
+ * (employees/smoke.ts prueft sie zusaetzlich gegen die Tabelle).
+ */
+export const ENTITLEMENT_FROZEN_COLUMNS: Record<EntitlementFrozenField, readonly (keyof ContractDto)[]> = {
   employee_type: ['employee_type'],
   weekly_hours: ['weekly_hours'],
   annual_leave_days: ['annual_leave_days'],

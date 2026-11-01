@@ -1829,8 +1829,13 @@ Korrektur dieser Werte landete in der Vorversion, fuer ihren ganzen Zeitraum
 Aus demselben Grund uebernehmen Personal-PATCH und Sammelaenderung vor der
 Korrektur eine heute begonnene Version, die der stuendliche Lauf noch nicht
 uebernommen hat: Sonst traf die Korrektur sie, waehrend die Akte noch die
-Vorversion zeigte; der Abgleich mit `expected_updated_at` erkennt dann
-einen veralteten Stand.
+Vorversion zeigte. Das geschieht erst nach Existenz-, Rechte- und
+Standpruefung, sonst stellte auch ein abgewiesener Request die Akte um. Ein
+Formular, das noch die Vorversion zeigte, wird nur abgelehnt, wenn es
+Vertragsfelder aendert (die Korrektur traefe jetzt die neue Version); eine
+Telefonnummer geht durch. Die Meldung nennt dann die Version, auch wenn der
+stuendliche Lauf sie uebernommen hat (Protokoll `contract.mirrored` nach dem
+Stand des Formulars): "von jemand anderem geaendert" stimmte da nicht.
 
 Was die Vorversion selbst offen laesst, kann die Akte nicht zurueckbekommen;
 sie behielte dafuer Art oder Stunden der verschobenen Version (im Test:
