@@ -69,3 +69,34 @@ synchron im einzigen Backend-Prozess (alle anderen Anfragen warten so lange):
 Kundengrößen der ersten Installationen deutlich unter den gemessenen Werten.
 Wieder aufgreifen ab etwa 1000 Personen oder bei Rückmeldungen über träge
 Übersichten.
+
+## PERF-3: Stand der Personalakte nur sekundengenau
+
+**Befund.** Der Personal-PATCH erkennt ein veraltetes Formular am
+mitgeschickten `expected_updated_at` (`employeeRoutes.ts`,
+`concurrencySchema`). `employees.updated_at` entsteht aus `datetime('now')`
+und trägt nur ganze Sekunden. Zwei Änderungen in derselben Sekunde ergeben
+denselben Stand. Deshalb kann die 409-Meldung nach einer Übernahme durch den
+stündlichen Lauf nur vermuten, ob außerdem jemand anders etwas geändert hat
+(`versionMirroredSince`, Text „weitere Änderungen anderer sind möglich“).
+
+**Wirkung.** Zwei Arbeitsplätze, die dieselbe Akte in derselben Sekunde
+speichern, überschreiben sich ohne 409 (Lost Update); in der Praxis selten,
+weil zwischen Laden und Speichern eines Formulars meist mehr als eine Sekunde
+liegt. Die Meldung zur neuen Vertragsversion bleibt eine Vermutung statt
+einer Aussage.
+
+**Vorschlag.** Ein Versionszähler je Akte (`employees.row_version`, jede
+schreibende Stelle erhöht ihn, am besten per Trigger, damit keine Stelle ihn
+vergisst), den Formular und PATCH statt `updated_at` vergleichen. Alternativ
+`updated_at` mit Millisekunden (`strftime('%Y-%m-%d %H:%M:%f', 'now')`),
+dann aber an jeder Schreibstelle der Akte gleich. Mit dem Zähler kann die
+Übernahme ihren Stand vorher und nachher ins Protokoll schreiben, und die
+Meldung weiß, ob sie die einzige Änderung war.
+
+**Warum zurückgestellt.** Berührt jede Stelle, die `employees` schreibt
+(Personal, Sammeländerung, Verträge, Änderungsanträge, Standort,
+Migrationen), beide Clients und die Tests. Der heutige Schutz genügt für den
+Betrieb mit wenigen HR-Arbeitsplätzen. Wieder aufgreifen bei Rückmeldungen
+über verlorene Änderungen oder wenn mehrere HR-Konten dieselben Akten
+parallel pflegen.

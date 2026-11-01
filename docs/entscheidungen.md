@@ -1912,14 +1912,16 @@ uebernommen hat: Sonst traf die Korrektur sie, waehrend die Akte noch die
 Vorversion zeigte. Das geschieht erst nach Existenz-, Rechte- und
 Standpruefung, sonst stellte auch ein abgewiesener Request die Akte um. Ein
 Formular, das noch die Vorversion zeigte, wird nur abgelehnt, wenn es einen
-von der Version uebernommenen Wert mit einem anderen ueberschriebe (die
-Korrektur traefe jetzt die neue Version); eine Telefonnummer oder ein
-unveraendert mitgeschickter Wert geht durch. Die Meldung nennt die Version und
-nur die Felder, die sie gesetzt hat. Hat der stuendliche Lauf sie schon vor
-dem Speichern uebernommen (Protokoll `contract.mirrored` nach dem Stand des
-Formulars), nennt die Meldung sie ebenso, schliesst aber weitere Aenderungen
-anderer nicht aus: Der Stand traegt nur Sekunden und verraet nicht, ob die
-Uebernahme die einzige Aenderung war.
+Wert, den die Uebernahme geaendert hat, mit einem anderen ueberschriebe (die
+Korrektur traefe jetzt die neue Version); eine Telefonnummer, ein unveraendert
+mitgeschickter Wert, ein Feld, das die Version mit dem alten Wert nennt, und
+eine gleichwertig geschriebene Woche (verglichen nach `settleWorkSchedule`)
+gehen durch. Die Meldung nennt die Version und die Felder, die sich geaendert
+haben. Hat der stuendliche Lauf sie schon vor dem Speichern uebernommen
+(Protokoll `contract.mirrored` nach dem Stand des Formulars, auch fuer einen
+Stand als ISO-Zeit), nennt die Meldung sie ebenso, schliesst aber weitere
+Aenderungen anderer nicht aus: Der Stand traegt nur Sekunden und verraet
+nicht, ob die Uebernahme die einzige Aenderung war (offener Punkt PERF-3).
 
 Was die Vorversion selbst offen laesst, kann die Akte nicht zurueckbekommen;
 sie behielte dafuer Art oder Stunden der verschobenen Version (im Test:
