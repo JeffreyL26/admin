@@ -1794,6 +1794,46 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         akteOf(oldLeavePerson).annual_leave_days === 25,
       { sameValues: sameValues.json(), oldLeave: oldLeave.json() },
     );
+    // Nennt die Version einen Wert, der sich nicht aendert (Urlaub 30 wie
+    // vorher), ist das Formular dort nicht veraltet: Die Korrektur geht
+    // durch. Eine gleichwertige, anders geschriebene Woche ebenso.
+    const unchangedPerson = newPerson('Zeno');
+    db.prepare(
+      `INSERT INTO contracts (employee_id, contract_type, valid_from, valid_to, employee_type, annual_leave_days, weekly_hours)
+       VALUES (?, 'unbefristet', '2023-01-01', ?, 'vollzeit', 30, 40)`,
+    ).run(unchangedPerson, dayIn(-1));
+    const unchangedV2 = Number(
+      db
+        .prepare(
+          `INSERT INTO contracts (employee_id, contract_type, valid_from, employee_type, annual_leave_days, weekly_hours,
+                                  work_weekdays, work_days_per_week, mirror_pending)
+           VALUES (?, 'unbefristet', ?, 'teilzeit', 30, 24, '1,2,3', 3, 1)`,
+        )
+        .run(unchangedPerson, dayIn(0)).lastInsertRowid,
+    );
+    db.prepare("UPDATE employees SET updated_at = '2000-01-01 00:00:00' WHERE id = ?").run(unchangedPerson);
+    const correction = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${unchangedPerson}`,
+      headers: auth,
+      payload: { annual_leave_days: 32, work_weekdays: '3,1,2', expected_updated_at: '2000-01-01 00:00:00' },
+    });
+    // Ein Client, der den Stand als ISO-Zeit schickt, liest dieselbe Meldung.
+    const isoForm = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${unchangedPerson}`,
+      headers: auth,
+      payload: { phone: '+49 30 5', expected_updated_at: '2000-01-01T00:00:00.000Z' },
+    });
+    check(
+      'Uebernahme beim Speichern: unveraendertes Feld und gleichwertige Woche gehen durch, ISO-Stand nennt die Version',
+      correction.statusCode === 200 &&
+        versionOf(unchangedV2).annual_leave_days === 32 &&
+        akteOf(unchangedPerson).work_weekdays === '1,2,3' &&
+        isoForm.statusCode === 409 &&
+        /gilt eine neue Vertragsversion/.test(isoForm.json().error?.message ?? ''),
+      { correction: correction.json(), v2: versionOf(unchangedV2), isoForm: isoForm.json() },
+    );
 
     // Offene Uebernahme einer abgeloesten Version ist mit ihrem Ende erledigt.
     const openPerson = newPerson('Pia');
