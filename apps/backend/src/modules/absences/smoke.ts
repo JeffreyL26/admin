@@ -1890,6 +1890,38 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         akteOf(daysPerson).work_weekdays === '1,2,3',
       { isoSame: isoSame.json(), noopStale: noopStale.json(), oldDays: oldDays.json(), akte: akteOf(daysPerson) },
     );
+    // Protokolleintraege von vor changed_fields (bestehende Installationen)
+    // und unlesbare: Die Meldung nennt die Felder, die die Version nennt.
+    const legacyStale = async (first: string, details: string) => {
+      const person = newPerson(first);
+      const version = Number(
+        db
+          .prepare(
+            `INSERT INTO contracts (employee_id, contract_type, valid_from, annual_leave_days)
+             VALUES (?, 'unbefristet', ?, 25)`,
+          )
+          .run(person, dayIn(0)).lastInsertRowid,
+      );
+      db.prepare(
+        "INSERT INTO audit_log (user_id, action, entity, entity_id, details) VALUES (NULL, 'contract.mirrored', 'contract', ?, ?)",
+      ).run(version, details);
+      db.prepare("UPDATE employees SET annual_leave_days = 25, updated_at = '2000-01-02 00:00:00' WHERE id = ?").run(person);
+      return app.inject({
+        method: 'PATCH',
+        url: `/api/employees/${person}`,
+        headers: auth,
+        payload: { phone: '+49 30 9', expected_updated_at: '2000-01-01 00:00:00' },
+      });
+    };
+    const legacyEntry = await legacyStale('Lena', JSON.stringify({ employee_id: 0, valid_from: dayIn(0) }));
+    const brokenEntry = await legacyStale('Bea', 'kein JSON');
+    const namesLeave = (r: typeof legacyEntry) =>
+      r.statusCode === 409 && /gilt eine neue Vertragsversion, die Personalakte zeigt jetzt deren Urlaubstage;/.test(r.json().error?.message ?? '');
+    check(
+      'Alte und unlesbare Protokolleintraege: Meldung nennt die Felder der Version',
+      namesLeave(legacyEntry) && namesLeave(brokenEntry),
+      { legacy: legacyEntry.json(), broken: brokenEntry.json() },
+    );
 
     // Offene Uebernahme einer abgeloesten Version ist mit ihrem Ende erledigt.
     const openPerson = newPerson('Pia');

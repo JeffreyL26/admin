@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  CONTRACT_MIRRORED_COLUMNS,
   ENTITLEMENT_FROZEN_COLUMNS,
   changedMirroredFields,
   contractMirroredFields,
@@ -8,6 +9,7 @@ import {
   parseEntitlementFrozen,
   formatDate,
   type ContractDto,
+  type ContractMirroredColumn,
   type EmployeeSortField,
   type EntitlementFrozenField,
 } from '@ohrganize/shared';
@@ -122,10 +124,7 @@ function compareStand(expected: string, stored: unknown): { same: boolean; expec
   return { same: row.e !== null && row.e === row.s, expected: row.e };
 }
 
-type MirroredVersion = Pick<
-  ContractDto,
-  'valid_from' | 'employee_type' | 'weekly_hours' | 'annual_leave_days' | 'work_weekdays' | 'work_days_per_week'
->;
+type MirroredVersion = Pick<ContractDto, 'valid_from' | ContractMirroredColumn>;
 
 /**
  * Juengste Uebernahme einer Vertragsversion der Person seit `since` (Stand
@@ -145,8 +144,7 @@ function versionMirroredSince(
 ): { valid_from: string; fields: EntitlementFrozenField[] } | null {
   const rows = getDb()
     .prepare(
-      `SELECT c.valid_from, c.employee_type, c.weekly_hours, c.annual_leave_days, c.work_weekdays, c.work_days_per_week,
-              a.details
+      `SELECT c.valid_from, ${CONTRACT_MIRRORED_COLUMNS.map((col) => `c.${col}`).join(', ')}, a.details
        FROM contracts c CROSS JOIN audit_log a
        WHERE c.employee_id = ? AND a.entity = 'contract' AND a.entity_id = c.id
          AND a.action = 'contract.mirrored' AND a.created_at >= ?
