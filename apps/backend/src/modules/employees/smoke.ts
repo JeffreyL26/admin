@@ -487,15 +487,28 @@ check(
     corrected.statusCode === 200 && after.employee_type === 'vollzeit' && after.weekly_hours === 40,
     { corrected: corrected.json(), after },
   );
-  // Geplante Version (Beginn kuenftig): Das Formular passt sie nicht an und sagt das.
+  // Geplante Version (Beginn kuenftig): beim Anlegen nur geprueft, nicht
+  // gespiegelt; das Formular korrigiert die geltende Version, die geplante
+  // bleibt (Hinweis); zum Beginn uebernimmt mirrorDueContracts ihre Werte.
+  const { mirrorDueContracts } = await import('./contractRoutes.js');
   const plannedFrom = new Date(Date.now() + 40 * 86_400_000).toISOString().slice(0, 10);
-  const plannedId = Number(
-    getDb()
-      .prepare(
-        `INSERT INTO contracts (employee_id, contract_type, employee_type, valid_from, weekly_hours, annual_leave_days)
-         VALUES (?, 'unbefristet', 'vollzeit', ?, 38, 30)`,
-      )
-      .run(empId, plannedFrom).lastInsertRowid,
+  const hoursOf = async () =>
+    (await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: auth })).json().employee.weekly_hours as number;
+  const plannedRes = await app.inject({
+    method: 'POST',
+    url: `/api/employees/${empId}/contracts`,
+    headers: auth,
+    payload: { contract_type: 'unbefristet', employee_type: 'vollzeit', valid_from: plannedFrom, weekly_hours: 38, annual_leave_days: 30 },
+  });
+  const plannedId = plannedRes.json().contract?.id as number;
+  const hoursAfterPlan = await hoursOf();
+  const pendingRow = getDb().prepare('SELECT mirror_pending FROM contracts WHERE id = ?').get(plannedId ?? -1) as
+    | { mirror_pending: number }
+    | undefined;
+  check(
+    'Geplante Vertragsversion: angelegt, aber noch nicht in die Personalakte gespiegelt',
+    plannedRes.statusCode === 201 && hoursAfterPlan === 40 && pendingRow?.mirror_pending === 1,
+    { created: plannedRes.json(), hoursAfterPlan, pendingRow },
   );
   const withPlanned = await app.inject({
     method: 'PATCH',
@@ -503,13 +516,28 @@ check(
     headers: auth,
     payload: { weekly_hours: 36 },
   });
-  const planned = getDb().prepare('SELECT weekly_hours FROM contracts WHERE id = ?').get(plannedId) as { weekly_hours: number };
+  const contractHours = (cid: number) =>
+    (getDb().prepare('SELECT weekly_hours FROM contracts WHERE id = ?').get(cid) as { weekly_hours: number }).weekly_hours;
   check(
-    'Geplante Vertragsversion bleibt, Antwort nennt sie',
-    withPlanned.statusCode === 200 && planned.weekly_hours === 38 && /geplante Vertragsversion/.test(withPlanned.json().contract_notice ?? ''),
-    { response: withPlanned.json(), planned },
+    'Formular korrigiert die geltende Version, die geplante bleibt, Antwort nennt sie',
+    withPlanned.statusCode === 200 &&
+      contractHours(typedId) === 36 &&
+      contractHours(plannedId) === 38 &&
+      /geplante Vertragsversion/.test(withPlanned.json().contract_notice ?? ''),
+    { response: withPlanned.json(), current: contractHours(typedId), planned: contractHours(plannedId) },
+  );
+  const dueBefore = mirrorDueContracts();
+  const dueAtStart = mirrorDueContracts(plannedFrom);
+  const mirroredAudit = getDb()
+    .prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'contract.mirrored' AND entity_id = ? AND user_id IS NULL")
+    .get(plannedId) as { n: number };
+  check(
+    'Geplante Version wird zum Beginn gespiegelt, vorher nicht',
+    dueBefore.length === 0 && dueAtStart.includes(plannedId) && (await hoursOf()) === 38 && mirroredAudit.n === 1,
+    { dueBefore, dueAtStart, hours: await hoursOf(), mirroredAudit },
   );
   getDb().prepare('DELETE FROM contracts WHERE id = ?').run(plannedId);
+  getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
   await app.inject({
     method: 'PATCH',
     url: `/api/employees/${empId}`,

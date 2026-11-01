@@ -10,10 +10,11 @@
  * COUNTING_EMPLOYEE_COLUMNS, `UPDATE locations SET` mit dynamischer Liste
  * oder Land/Region, `DELETE FROM locations` und `setSetting(` mit
  * dynamischem Schlüssel oder `defaultBundesland`. Als dynamisch gilt auch
- * ein SQL-Text, der mit `+` weiter zusammengesetzt wird. Die umgebende
- * Funktion (Route oder Funktion auf oberster Ebene) muss
- * `recountUpcomingRequests` AUFRUFEN (gesucht im Syntaxbaum, ein Kommentar
- * zählt nicht) oder unten mit Datei und Name begründet ausgenommen sein;
+ * ein SQL-Text, der weiter zusammengesetzt wird (`+`, Teil eines Arrays,
+ * `.concat`). Die umgebende Funktion (Route oder Funktion auf oberster
+ * Ebene) muss `recountUpcomingRequests` AUFRUFEN (gesucht im Syntaxbaum,
+ * auch als `x.recountUpcomingRequests`; ein Kommentar zählt nicht) oder
+ * unten mit Datei und Name begründet ausgenommen sein;
  * Ausnahmen prüfen ihre Begründung, wo sie sich prüfen lässt.
  *
  * Aufruf: npx tsx src/test/placeChangeCheck.ts (Teil von npm test).
@@ -59,9 +60,17 @@ function callsRecount(fn: ts.Node): boolean {
   let found = false;
   const walk = (n: ts.Node) => {
     if (found) return;
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'recountUpcomingRequests') {
-      found = true;
-      return;
+    if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      const name = ts.isIdentifier(callee)
+        ? callee.text
+        : ts.isPropertyAccessExpression(callee)
+          ? callee.name.text
+          : null;
+      if (name === 'recountUpcomingRequests') {
+        found = true;
+        return;
+      }
     }
     ts.forEachChild(n, walk);
   };
@@ -69,10 +78,20 @@ function callsRecount(fn: ts.Node): boolean {
   return found;
 }
 
-/** Wird dieser Text per `+` weiter zusammengesetzt? */
+/** Wird dieser Text weiter zusammengesetzt (`+`, Array, zum Beispiel für `.join`, `.concat`)? */
 function concatenated(node: ts.Node): boolean {
   const parent = node.parent;
-  return !!parent && ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.PlusToken;
+  if (!parent) return false;
+  if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.PlusToken) return true;
+  if (ts.isArrayLiteralExpression(parent)) return true;
+  // 'UPDATE …'.concat(x) und x.concat('UPDATE …')
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === node && parent.name.text === 'concat') return true;
+  return (
+    ts.isCallExpression(parent) &&
+    ts.isPropertyAccessExpression(parent.expression) &&
+    parent.expression.name.text === 'concat' &&
+    parent.arguments.includes(node as ts.Expression)
+  );
 }
 
 function sourceFiles(dir: string): string[] {

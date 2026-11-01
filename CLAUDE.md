@@ -358,13 +358,18 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Historie „seit wann Vollzeit/Werkstudent“; die aktuelle Version spiegelt sie
   wie Stunden und Urlaub auf `employees` (`mirrorToEmployee`, Typregeln
   laufen dort; eine Korrektur der Version spiegelt nur, was sie ändert).
-  Umgekehrt gilt eine Änderung dieser Felder im Personalformular oder in der
-  Sammeländerung als Korrektur der aktuellen Version (`syncCurrentContract`,
-  eigener Audit-Eintrag `update` an `contract` mit altem und neuem Wert);
-  beginnt die jüngste Version erst künftig, bleibt sie unangetastet und die
-  Antwort nennt sie (`contract_notice`, bei der Sammeländerung
-  `contracts_not_synced`). Eine Änderung ab einem Datum ist eine neue
-  Version. Probezeit bleibt ein Datum am Vertrag; die Länge ist
+  Eine GEPLANTE Version (Beginn künftig) wird beim Anlegen nur geprüft und
+  erst zum Beginn gespiegelt (`contracts.mirror_pending`, Migration
+  `116_contract_mirror_pending`, `mirrorDueContracts` beim Start des Moduls
+  und stündlich, Protokoll ohne Konto `contract.mirrored` bzw.
+  `contract.mirror_failed`); sonst rechneten Lohnlauf, FTE und Typregeln
+  vorzeitig mit ihr. Umgekehrt gilt eine Änderung dieser Felder im
+  Personalformular oder in der Sammeländerung als Korrektur der HEUTE
+  geltenden Version (`syncCurrentContract`, eigener Audit-Eintrag `update`
+  an `contract` mit altem und neuem Wert); eine geplante Version bleibt
+  unangetastet, die Antwort nennt sie (`contract_notice`, bei der
+  Sammeländerung `contracts_not_synced`). Eine Änderung ab einem Datum ist
+  eine neue Version. Probezeit bleibt ein Datum am Vertrag; die Länge ist
   abgeleitet (`probationEndFor`/`probationMonths`, Fristende nach §§ 187,
   188 BGB, Test `src/test/masterDataTest.ts`). Das Dashboard-Widget
   „Fristen der Personalakte“ liest `personnel_deadlines` aus
