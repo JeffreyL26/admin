@@ -5,6 +5,7 @@ export * from './common.js';
 export * from './color.js';
 export * from './employees.js';
 export * from './orgChart.js';
+export * from './tableSort.js';
 export * from './absences.js';
 export * from './performance.js';
 export * from './compensation.js';

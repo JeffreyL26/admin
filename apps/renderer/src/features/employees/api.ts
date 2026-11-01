@@ -7,6 +7,7 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import type {
+  SortState,
   ContractDto,
   CountryCode,
   DocumentDto,
@@ -272,16 +273,26 @@ export function useDocuments(params: DocumentFilters) {
  * fünfstellig). Suche und Filter wirken im Backend über alle Seiten;
  * `focus_id` liefert die Seite eines angesprungenen Dokuments.
  */
+/** Sortierspalten der Ablage, gleich benannt wie im Backend (documentRoutes.ts). */
+export type DocumentSortKey = 'title' | 'employee' | 'category' | 'version' | 'expiry' | 'uploaded';
+export const DOCUMENT_SORT_KEYS: readonly DocumentSortKey[] = ['title', 'employee', 'category', 'version', 'expiry', 'uploaded'];
+export const DOCUMENT_SORT_DEFAULT: SortState<DocumentSortKey> = { key: 'uploaded', dir: 'desc' };
+
 export function useDocumentPage(
   params: DocumentFilters,
   page: { limit: number; offset: number; focus_id?: number | null },
+  sort?: SortState<DocumentSortKey>,
 ) {
   const p = documentFilterParams(params);
   p.set('limit', String(page.limit));
   p.set('offset', String(page.offset));
   if (page.focus_id) p.set('focus_id', String(page.focus_id));
+  if (sort) {
+    p.set('sort', sort.key);
+    p.set('dir', sort.dir);
+  }
   return useQuery({
-    queryKey: ['documents', 'page', params, page],
+    queryKey: ['documents', 'page', params, page, sort ?? null],
     queryFn: () =>
       api.get<{ documents: DocumentRow[]; total: number; offset: number }>(`/api/documents?${p.toString()}`),
     placeholderData: keepPreviousData,

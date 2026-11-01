@@ -11,13 +11,37 @@ import { Avatar, Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } fro
 import { ConfirmDialog, Modal } from '../../components/Modal';
 import { PhotoPicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
-import { useCandidates, useCandidate, useApplications, useInvalidate, type Candidate } from './api';
+import { useCandidates, useCandidate, useApplications, useInvalidate, type Application, type Candidate } from './api';
 import {
   ApplicationDrawer, NewApplicationModal, CandidateMeta, StageChip, RatingStars,
   APPLICATION_STATUS_TONES,
 } from './common';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
+import { SortableTh } from '../../components/SortableTh';
+import { TableScroller } from '../../components/TableScroller';
+import { useTableSort } from '../../lib/useTableSort';
+
+const APPLICATION_SORT = {
+  name: (a: Application) => `${a.candidate_last_name} ${a.candidate_first_name}`,
+  posting: (a: Application) => a.posting_title,
+  stage: (a: Application) => a.stage_name,
+  applied: (a: Application) => a.applied_at,
+  rating: (a: Application) => a.rating,
+  status: (a: Application) => APPLICATION_STATUS_LABELS[a.status],
+};
+const APPLICATION_SORT_DEFAULT = { key: 'applied', dir: 'desc' } as const;
+const applicationTieBreak = (a: Application) => `${a.candidate_last_name} ${a.candidate_first_name}`;
+
+const CANDIDATE_SORT = {
+  name: (c: Candidate) => `${c.last_name} ${c.first_name}`,
+  headline: (c: Candidate) => c.headline,
+  source: (c: Candidate) => CANDIDATE_SOURCE_LABELS[c.source],
+  city: (c: Candidate) => c.city,
+  applications: (c: Candidate) => c.application_count ?? 0,
+};
+const CANDIDATE_SORT_DEFAULT = { key: 'name', dir: 'asc' } as const;
+const candidateTieBreak = (c: Candidate) => `${c.last_name} ${c.first_name}`;
 
 interface Draft {
   first_name: string;
@@ -261,7 +285,8 @@ function ApplicationsTab({
 }) {
   const [search, setSearch] = useState('');
   const { data: applications, isLoading } = useApplications({ status, search: search || undefined });
-  const all = applications ?? [];
+  const { sort, toggle: sortBy, sorted } = useTableSort('applications', applications, APPLICATION_SORT, APPLICATION_SORT_DEFAULT, applicationTieBreak);
+  const all = sorted ?? [];
   return (
     <>
       <div className="row" style={{ gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -288,16 +313,16 @@ function ApplicationsTab({
         </Card>
       ) : (
         <Card flush>
-          <div className="hm-table-wrap">
+          <TableScroller>
             <table className="hm-table">
               <thead>
                 <tr>
-                  <th>Bewerber</th>
-                  <th>Stelle</th>
-                  <th>Stufe</th>
-                  <th>Eingang</th>
-                  <th>Bewertung</th>
-                  <th>Status</th>
+                  <SortableTh label="Bewerber" sortKey="name" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Stelle" sortKey="posting" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Stufe" sortKey="stage" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Eingang" sortKey="applied" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Bewertung" sortKey="rating" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Status" sortKey="status" sort={sort} onSort={sortBy} />
                 </tr>
               </thead>
               <tbody>
@@ -316,7 +341,7 @@ function ApplicationsTab({
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroller>
         </Card>
       )}
     </>
@@ -377,7 +402,9 @@ export function BewerberPage() {
     setEditorOpen(true);
   };
 
-  const all = (candidates ?? []).filter((c) => !onlyExpired || consentExpired(c.consent_until));
+  const filtered = (candidates ?? []).filter((c) => !onlyExpired || consentExpired(c.consent_until));
+  const { sort, toggle: sortBy, sorted } = useTableSort('candidates', filtered, CANDIDATE_SORT, CANDIDATE_SORT_DEFAULT, candidateTieBreak);
+  const all = sorted ?? filtered;
   const expiredCount = (candidates ?? []).filter((c) => consentExpired(c.consent_until)).length;
 
   return (
@@ -431,15 +458,15 @@ export function BewerberPage() {
         </Card>
       ) : (
         <Card flush>
-          <div className="hm-table-wrap">
+          <TableScroller>
             <table className="hm-table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Profil</th>
-                  <th>Kanal</th>
-                  <th>Ort</th>
-                  <th>Bewerbungen</th>
+                  <SortableTh label="Name" sortKey="name" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Profil" sortKey="headline" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Kanal" sortKey="source" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Ort" sortKey="city" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Bewerbungen" sortKey="applications" sort={sort} onSort={sortBy} />
                   <th></th>
                 </tr>
               </thead>
@@ -479,7 +506,7 @@ export function BewerberPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroller>
         </Card>
       )}
       </>

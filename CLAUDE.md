@@ -1148,6 +1148,26 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Sortierfelder sind eine Whitelist in `employeeRoutes.ts` (`SORT_COLUMNS`) —
   der Wert geht direkt ins SQL. `personnel_number` ist bewusst **nicht** Teil
   von `fields=lite`: Diese schlanke Form ist Kontrakt für andere Module.
+  Filter und Sortierung (ohne Suchbegriff) liegen ebenfalls je Gerät
+  (`ohrganize.employeeList.filters`), damit sie Zurück aus der Akte und einen
+  Neustart überleben; gespeicherte IDs, die es nicht mehr gibt, fallen beim
+  Laden der Auswahllisten weg.
+- **Tabellen sortieren und verschieben (alle Hauptlisten):** Spaltenköpfe über
+  `components/SortableTh.tsx`, Stand je Gerät unter
+  `ohrganize.tableSort.<tabelle>`. Clientseitig sortierte Listen nutzen
+  `lib/useTableSort.ts` mit einer Konstanten `{ spalte: (zeile) => wert }`
+  außerhalb der Komponente; die Regeln (deutsche Reihenfolge, Ziffern als
+  Zahl, leere Werte immer am Ende, Klickfolge, Prüfen gespeicherter Stände)
+  stehen DOM-frei in `packages/shared/src/tableSort.ts` (Test
+  `src/test/tableSortTest.ts`). Serverseitig geblätterte Listen (Alle
+  Anträge, Ablage) sortieren im Backend über `sort`/`dir` mit Whitelist; ein
+  `focus_id`-Absprung unter anderer als der Vorgabesortierung ermittelt die
+  Seite per `ROW_NUMBER()`. Breite Tabellen stehen in
+  `components/TableScroller.tsx` statt `<div className="hm-table-wrap">`:
+  Ziehen mit der Maus verschiebt waagerecht (der Klick danach öffnet keine
+  Zeile), die Scrollleiste klebt am unteren Fensterrand. Die Karte drumherum
+  schneidet dafür mit `overflow: clip` (`.hm-card:has(.hm-table-scroll)`),
+  und der Abstand stammt aus `--page-pad-bottom` (layout.css).
 - **Seitenleiste ist je Gerät sortierbar** (Einstellungen → Seitenleiste):
   Reihenfolge der Abschnitte im localStorage (`ohrganize.sidebar`,
   `layout/sidebarConfig.ts`), Dashboard immer ganz oben, System/Einstellungen
@@ -1235,7 +1255,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   und Suche ohne DOM in `packages/shared/src/orgChart.ts`, weil das Portal
   dieselbe Ansicht zeichnet: `apps/web/src/pages/OrgPage.tsx` über
   `GET /api/me/org-chart`, projiziert auf Name, Titel, Zuordnung und Foto)
-  hängt jede aktive Person unter ihren Vorgesetzten;
+  hängt jede aktive Person unter ihren Vorgesetzten; Geschwister stehen
+  Zweige vor Blättern, darin nach Abteilung gruppiert (die der leitenden
+  Person zuerst, dann alphabetisch) und je Abteilung nach Nachnamen
+  (`buildOrgModel`, Test `src/test/orgChartTest.ts`);
   `GET /api/org/chart` (`buildOrgChart` in `orgRoutes.ts`) liefert dafür
   `parent_id` fertig aufgelöst: `manager_id`, sonst Teamleitung, sonst die
   nächste Abteilungsleitung aufwärts (`parent_source`), Ringe aufgetrennt,

@@ -496,24 +496,26 @@ export interface EmployeeColumnDef {
   label: string;
   fixed?: boolean;
   defaultVisible?: boolean;
+  /** Sortierfeld des Servers, das ein Klick auf den Spaltenkopf setzt. */
+  sort?: EmployeeSortField;
 }
 
 export const EMPLOYEE_LIST_COLUMNS: EmployeeColumnDef[] = [
-  { id: 'name', label: 'Name', fixed: true, defaultVisible: true },
-  { id: 'personnel_number', label: 'Personalnummer', fixed: true, defaultVisible: true },
-  { id: 'employee_type', label: 'Typ', defaultVisible: true },
-  { id: 'department', label: 'Abteilung / Team', defaultVisible: true },
-  { id: 'job_title', label: 'Titel', defaultVisible: true },
-  { id: 'hire_date', label: 'Eintritt', defaultVisible: true },
-  { id: 'seniority', label: 'Betriebszugehörigkeit' },
-  { id: 'location', label: 'Standort' },
-  { id: 'status', label: 'Status' },
-  { id: 'email', label: 'E-Mail' },
-  { id: 'phone', label: 'Telefon' },
-  { id: 'manager', label: 'Vorgesetzte:r' },
-  { id: 'weekly_hours', label: 'Wochenstunden' },
-  { id: 'annual_leave_days', label: 'Urlaubsanspruch' },
-  { id: 'exit_date', label: 'Austritt' },
+  { id: 'name', label: 'Name', fixed: true, defaultVisible: true, sort: 'last_name' },
+  { id: 'personnel_number', label: 'Personalnummer', fixed: true, defaultVisible: true, sort: 'personnel_number' },
+  { id: 'employee_type', label: 'Typ', defaultVisible: true, sort: 'employee_type' },
+  { id: 'department', label: 'Abteilung / Team', defaultVisible: true, sort: 'department' },
+  { id: 'job_title', label: 'Titel', defaultVisible: true, sort: 'job_title' },
+  { id: 'hire_date', label: 'Eintritt', defaultVisible: true, sort: 'hire_date' },
+  { id: 'seniority', label: 'Betriebszugehörigkeit', sort: 'seniority' },
+  { id: 'location', label: 'Standort', sort: 'location' },
+  { id: 'status', label: 'Status', sort: 'status' },
+  { id: 'email', label: 'E-Mail', sort: 'email' },
+  { id: 'phone', label: 'Telefon', sort: 'phone' },
+  { id: 'manager', label: 'Vorgesetzte:r', sort: 'manager' },
+  { id: 'weekly_hours', label: 'Wochenstunden', sort: 'weekly_hours' },
+  { id: 'annual_leave_days', label: 'Urlaubsanspruch', sort: 'annual_leave_days' },
+  { id: 'exit_date', label: 'Austritt', sort: 'exit_date' },
 ];
 
 export type EmployeeSortField =
@@ -522,7 +524,17 @@ export type EmployeeSortField =
   | 'personnel_number'
   | 'hire_date'
   | 'job_title'
-  | 'department';
+  | 'department'
+  | 'employee_type'
+  | 'seniority'
+  | 'location'
+  | 'status'
+  | 'email'
+  | 'phone'
+  | 'manager'
+  | 'weekly_hours'
+  | 'annual_leave_days'
+  | 'exit_date';
 
 export const EMPLOYEE_SORT_LABELS: Record<EmployeeSortField, string> = {
   last_name: 'Nachname',
@@ -531,6 +543,16 @@ export const EMPLOYEE_SORT_LABELS: Record<EmployeeSortField, string> = {
   hire_date: 'Eintritt',
   job_title: 'Titel',
   department: 'Abteilung',
+  employee_type: 'Typ',
+  seniority: 'Betriebszugehörigkeit',
+  location: 'Standort',
+  status: 'Status',
+  email: 'E-Mail',
+  phone: 'Telefon',
+  manager: 'Vorgesetzte:r',
+  weekly_hours: 'Wochenstunden',
+  annual_leave_days: 'Urlaubsanspruch',
+  exit_date: 'Austritt',
 };
 
 // ===========================================================================

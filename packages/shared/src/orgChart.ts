@@ -83,8 +83,12 @@ function compareNames(a: OrgNode, b: OrgNode): number {
 
 /**
  * Baum aus `parent_id`. Kinder stehen sortiert: erst, wer selbst Berichtende
- * hat, dann die Blätter, jeweils alphabetisch. So liegen die Zweige links und
- * die Blätter bilden rechts den Stapel (siehe layoutOrg).
+ * hat, dann die Blätter. So liegen die Zweige links und die Blätter bilden
+ * rechts den Stapel (siehe layoutOrg). Innerhalb beider Gruppen stehen die
+ * Personen nach Abteilung zusammen (die Abteilung der leitenden Person zuerst,
+ * dann alphabetisch, ohne Abteilung zuletzt) und darin nach Nachnamen. Wer
+ * mehrere Abteilungen leitet, sieht die Leute so je Abteilung beisammen statt
+ * durchmischt.
  */
 export function buildOrgModel<P extends OrgChartBasePerson>(data: {
   people: P[];
@@ -105,12 +109,29 @@ export function buildOrgModel<P extends OrgChartBasePerson>(data: {
     }
   }
   let maxDepth = 0;
+  const departmentName = new Map(data.departments.map((d) => [d.id, d.name]));
+  /** Rangfolge der Abteilung unter einer Person: eigene zuerst, ohne Abteilung zuletzt. */
+  const departmentOrder = (parent: OrgNode<P>, child: OrgNode<P>): [number, string] => {
+    const id = child.person.department_id;
+    if (id === null) return [2, ''];
+    if (id === parent.person.department_id) return [0, ''];
+    return [1, departmentName.get(id) ?? child.person.department_name ?? ''];
+  };
   const finish = (node: OrgNode<P>, depth: number): number => {
     node.depth = depth;
     maxDepth = Math.max(maxDepth, depth);
-    node.children.sort(
-      (a, b) => Number(b.children.length > 0) - Number(a.children.length > 0) || compareNames(a, b),
-    );
+    node.children.sort((a, b) => {
+      const branch = Number(b.children.length > 0) - Number(a.children.length > 0);
+      if (branch !== 0) return branch;
+      const [ra, na] = departmentOrder(node, a);
+      const [rb, nb] = departmentOrder(node, b);
+      return (
+        ra - rb ||
+        na.localeCompare(nb, 'de') ||
+        (a.person.department_id ?? 0) - (b.person.department_id ?? 0) ||
+        compareNames(a, b)
+      );
+    });
     node.reportCount = node.children.length;
     node.totalReports = node.children.reduce((sum, child) => sum + 1 + finish(child, depth + 1), 0);
     return node.totalReports;

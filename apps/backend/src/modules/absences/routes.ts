@@ -160,6 +160,29 @@ const REQUEST_SELECT = `
   JOIN absence_types t ON t.id = r.type_id
   LEFT JOIN users c ON c.id = r.created_by_user_id`;
 
+/**
+ * Sortierung der Antragsliste (Spaltenkopf in der Desktop-App). Whitelist,
+ * der Ausdruck geht ins SQL. Die Vorgabe `period` absteigend ist die
+ * bisherige Reihenfolge; `joins` nennt, was die Seitenauswahl (ohne die Joins
+ * von REQUEST_SELECT) zusätzlich braucht.
+ */
+const REQUEST_SORT_COLUMNS = {
+  employee: { exprs: ['e.last_name COLLATE NOCASE', 'e.first_name COLLATE NOCASE'], joins: 'JOIN employees e ON e.id = r.employee_id' },
+  type: { exprs: ['t.name COLLATE NOCASE'], joins: 'JOIN absence_types t ON t.id = r.type_id' },
+  period: { exprs: ['r.date_from'], joins: '' },
+  days: { exprs: ['r.days_counted'], joins: '' },
+  status: {
+    exprs: ["CASE r.status WHEN 'beantragt' THEN 0 WHEN 'genehmigt' THEN 1 WHEN 'abgelehnt' THEN 2 ELSE 3 END"],
+    joins: '',
+  },
+} as const;
+type RequestSortKey = keyof typeof REQUEST_SORT_COLUMNS;
+
+const requestSortSchema = z.object({
+  sort: z.enum(Object.keys(REQUEST_SORT_COLUMNS) as [RequestSortKey, ...RequestSortKey[]]).optional(),
+  dir: z.enum(['asc', 'desc']).optional(),
+});
+
 export const absencesModule: FastifyPluginAsync = async (app) => {
   const db = () => getDb();
 
@@ -404,9 +427,20 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       params.push(q.to);
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const sortQuery = parse(requestSortSchema, { sort: (req.query as Record<string, unknown>).sort, dir: (req.query as Record<string, unknown>).dir });
+    const sortKey: RequestSortKey = sortQuery.sort ?? 'period';
+    const sortDir = sortQuery.dir ?? (sortQuery.sort ? 'asc' : 'desc');
+    const isDefaultSort = sortKey === 'period' && sortDir === 'desc';
+    const sortSpec = REQUEST_SORT_COLUMNS[sortKey];
+    const dirSql = sortDir === 'desc' ? 'DESC' : 'ASC';
+    // Gleichstand: neueste zuerst wie in der Vorgabe, damit Zeilen beim
+    // Neuladen nicht springen.
+    const orderSql = isDefaultSort
+      ? 'r.date_from DESC, r.id DESC'
+      : [...sortSpec.exprs.map((x) => `${x} ${dirSql}`), 'r.date_from DESC', 'r.id DESC'].join(', ');
     const sql = `${REQUEST_SELECT}
       ${whereSql}
-      ORDER BY r.date_from DESC, r.id DESC`;
+      ORDER BY ${orderSql}`;
     // Ohne limit ungeblättert wie bisher: Offene Anträge und Personalakte
     // brauchen alle Treffer ihres engen Filters. "Alle Anträge" blättert, die
     // ganze Historie samt aller Jahre bleibt dort über die Seiten erreichbar.
@@ -423,7 +457,19 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       ).n;
     const total = count([], []);
     let offset = page.offset;
-    if (page.focusId !== null) {
+    if (page.focusId !== null && !isDefaultSort) {
+      // Andere Sortierung: Position über eine Fensterfunktion. Teurer als das
+      // Zählen unten, läuft aber nur beim Absprung auf einen Antrag.
+      const position = db()
+        .prepare(
+          `SELECT pos FROM (
+             SELECT r.id, ROW_NUMBER() OVER (ORDER BY ${orderSql}) - 1 AS pos
+             FROM absence_requests r ${sortSpec.joins} ${whereSql}
+           ) WHERE id = ?`,
+        )
+        .get([...params, page.focusId]) as { pos: number } | undefined;
+      if (position) offset = pageOffsetOf(position.pos, page.limit);
+    } else if (page.focusId !== null) {
       const focus = db()
         .prepare(`SELECT r.date_from FROM absence_requests r WHERE ${[...where, 'r.id = ?'].join(' AND ')}`)
         .get([...params, page.focusId]) as { date_from: string } | undefined;
@@ -444,10 +490,10 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       .prepare(
         `${REQUEST_SELECT}
          WHERE r.id IN (
-           SELECT r.id FROM absence_requests r ${whereSql}
-           ORDER BY r.date_from DESC, r.id DESC LIMIT ? OFFSET ?
+           SELECT r.id FROM absence_requests r ${sortSpec.joins} ${whereSql}
+           ORDER BY ${orderSql} LIMIT ? OFFSET ?
          )
-         ORDER BY r.date_from DESC, r.id DESC`,
+         ORDER BY ${orderSql}`,
       )
       .all([...params, page.limit, offset]);
     return { requests, total, offset };

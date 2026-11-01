@@ -3,10 +3,22 @@ import { useAuth } from '../../auth/AuthContext';
 import { Field } from '../../components/ui';
 import { ApiRequestError } from '../../api/client';
 import logo from '../../assets/logo-full.png';
+import { readJson, writeJson } from '../../lib/localStore';
+
+/**
+ * Zuletzt erfolgreich angemeldete Adresse, je Geraet. Nur die Adresse, nie
+ * das Passwort; ohne Eintrag (Frischinstallation) das Startkonto.
+ */
+const LAST_LOGIN_KEY = 'ohrganize.lastLogin';
+const FIRST_LOGIN = 'admin@ohrganize.de';
 
 export function LoginPage() {
   const { login, notice } = useAuth();
-  const [email, setEmail] = useState('admin@ohrganize.de');
+  const [remembered] = useState(() => {
+    const stored = readJson<string>(LAST_LOGIN_KEY);
+    return typeof stored === 'string' && stored ? stored : null;
+  });
+  const [email, setEmail] = useState(remembered ?? FIRST_LOGIN);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -17,6 +29,7 @@ export function LoginPage() {
     setError(null);
     try {
       await login(email, password);
+      writeJson(LAST_LOGIN_KEY, email.trim());
     } catch (err) {
       setError(
         err instanceof ApiRequestError || err instanceof Error
@@ -49,7 +62,8 @@ export function LoginPage() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            autoFocus
+            autoComplete="username"
+            autoFocus={!remembered}
             required
           />
         </Field>
@@ -59,6 +73,8 @@ export function LoginPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            autoFocus={Boolean(remembered)}
             required
           />
         </Field>

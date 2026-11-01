@@ -2,13 +2,27 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Download, FilePlus2, FolderOpen, Pencil, Plus, Search, Trash2 } from 'lucide-react';
-import { DOCUMENT_CATEGORY_LABELS, formatDate, type DocumentSource } from '@ohrganize/shared';
+import {
+  DOCUMENT_CATEGORY_LABELS,
+  formatDate,
+  nextSort,
+  parseSortState,
+  type DocumentSource,
+  type SortState,
+} from '@ohrganize/shared';
 import { api, downloadFile } from '../../api/client';
 import { Badge, Card, EmptyState, PageHeader, Spinner } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
-import { useDocumentPage, useExpiringDocuments, type DocumentRow } from './api';
+import {
+  DOCUMENT_SORT_DEFAULT,
+  DOCUMENT_SORT_KEYS,
+  useDocumentPage,
+  useExpiringDocuments,
+  type DocumentRow,
+  type DocumentSortKey,
+} from './api';
 import { DocumentUploadModal } from './DocumentUploadModal';
 import { SourceBadge, VisibilityBadge, VisibilityToggle } from './documentVisibility';
 import { DocumentEditModal } from './DocumentEditModal';
@@ -18,6 +32,9 @@ import { backToState } from '../../lib/backTo';
 import { useFocusRow } from '../../lib/focusRow';
 import { Pagination, usePageState } from '../../components/Pagination';
 import { useDebounced } from '../../components/useDebounced';
+import { SortableTh } from '../../components/SortableTh';
+import { TableScroller } from '../../components/TableScroller';
+import { readJson, writeJson } from '../../lib/localStore';
 
 /** Seitengröße der Dokumentablage. */
 const DOCUMENT_PAGE_SIZE = 100;
@@ -36,6 +53,8 @@ function documentOwner(d: DocumentRow) {
   );
 }
 
+const DOCUMENT_SORT_STORAGE = 'ohrganize.tableSort.documents';
+
 export function DocumentsPage() {
   const focusId = useFocusRow('dokument');
   const toast = useToast();
@@ -52,6 +71,16 @@ export function DocumentsPage() {
   // Geblättert: Die Ablage lud früher alle Dokumente am Stück. Ein Absprung
   // zurück aus der Personalakte (?dokument=<id>) landet auf dessen Seite.
   const paging = usePageState(DOCUMENT_PAGE_SIZE, focusId);
+  // Sortierung je Gerät wie bei lib/useTableSort.ts, nur serverseitig (geblättert).
+  const [sort, setSort] = useState<SortState<DocumentSortKey>>(() =>
+    parseSortState(readJson(DOCUMENT_SORT_STORAGE), DOCUMENT_SORT_KEYS, DOCUMENT_SORT_DEFAULT),
+  );
+  const sortBy = (key: DocumentSortKey) => {
+    const next = nextSort(sort, key);
+    setSort(next);
+    writeJson(DOCUMENT_SORT_STORAGE, next);
+    paging.reset();
+  };
   const debouncedSearch = useDebounced(search);
   // Zurück auf Seite 1 erst mit dem entprellten Suchbegriff, der auch in die
   // Abfrage geht: Je Tastendruck zurückgesetzt, lud die Liste beim Tippen auf
@@ -72,6 +101,7 @@ export function DocumentsPage() {
       include_superseded: includeSuperseded,
     },
     paging.query,
+    sort,
   );
   useEffect(() => {
     if (data && !isPlaceholderData) {
@@ -207,16 +237,17 @@ export function DocumentsPage() {
             }
           />
         ) : (
-          <div className={`hm-table-wrap${isPlaceholderData ? ' hm-table-wrap--stale' : ''}`}>
+          <div className={isPlaceholderData ? 'hm-table-wrap--stale' : undefined}>
+          <TableScroller>
             <table className="hm-table">
               <thead>
                 <tr>
-                  <th>Titel</th>
-                  <th>Mitarbeiter:in</th>
-                  <th>Kategorie</th>
-                  <th>Version</th>
-                  <th>Ablauf</th>
-                  <th>Hochgeladen</th>
+                  <SortableTh label="Titel" sortKey="title" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Mitarbeiter:in" sortKey="employee" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Kategorie" sortKey="category" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Version" sortKey="version" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Ablauf" sortKey="expiry" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Hochgeladen" sortKey="uploaded" sort={sort} onSort={sortBy} />
                   <th style={{ width: 210 }} />
                 </tr>
               </thead>
@@ -300,6 +331,7 @@ export function DocumentsPage() {
                 ))}
               </tbody>
             </table>
+          </TableScroller>
           </div>
         )}
         {!isLoading && (documents?.length ?? 0) > 0 && (

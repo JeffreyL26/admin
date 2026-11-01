@@ -15,6 +15,9 @@ import { Tooltip } from '../../components/Tooltip';
 import { DaysCounted } from './DaysCounted';
 import { LOCALE } from '../../lib/locale';
 import { YearSelect } from './YearSelect';
+import { SortableTh } from '../../components/SortableTh';
+import { TableScroller } from '../../components/TableScroller';
+import { useTableSort } from '../../lib/useTableSort';
 
 /** Name mit Absprung in die Personalakte; Krankmeldungen ohne Profil-ID (Altbestand) bleiben Text. */
 function personName(note: SickNote) {
@@ -64,6 +67,24 @@ function CertificateDownloadButton({ note }: { note: SickNote }) {
 }
 
 /** Bereits angefallene Fehltage; laufende Erkrankungen und überzogene Entgeltfortzahlung markieren. */
+/** Rang des AU-Status für die Sortierung: zuerst, was Arbeit macht. */
+function certificateRank(note: SickNote): number {
+  if (note.certificate_file_id) return note.received_date && note.received_date > note.certificate_due_date ? 2 : 3;
+  return note.certificate_due_date < todayIsoLocal() ? 0 : 1;
+}
+
+const SICK_SORT = {
+  name: (n: SickNote) => `${n.last_name} ${n.first_name}`,
+  period: (n: SickNote) => n.date_from,
+  days: (n: SickNote) => n.days_counted,
+  missed: (n: SickNote) => n.days_absent_so_far ?? 0,
+  kind: (n: SickNote) => n.child_sick,
+  certificate: (n: SickNote) => certificateRank(n),
+  due: (n: SickNote) => n.certificate_due_date,
+};
+const SICK_SORT_DEFAULT = { key: 'period', dir: 'desc' } as const;
+const sickTieBreak = (n: SickNote) => `${n.last_name} ${n.first_name}`;
+
 function missedDaysCell(note: SickNote) {
   const ongoing = note.date_to !== undefined && note.date_to >= todayIsoLocal();
   return (
@@ -92,6 +113,7 @@ export function SickNotesPage() {
   const [year, setYear] = useState<number | null>(() => new Date().getFullYear());
   const { data: notes, isLoading } = useSickNotes({ childSick: childFilter === '' ? null : childFilter, year });
   const { data: missing } = useMissingSickNotes();
+  const { sort, toggle: sortBy, sorted } = useTableSort('sickNotes', notes, SICK_SORT, SICK_SORT_DEFAULT, sickTieBreak);
   // Erfassen-Dialog ueber ?neu=1 wie auf der Antragsseite: So oeffnet ihn auch
   // der Knopf „Krankmeldung erfassen“ im Dashboard direkt.
   const [params, setParams] = useSearchParams();
@@ -228,22 +250,22 @@ export function SickNotesPage() {
               }
             />
           ) : (
-            <div className="hm-table-wrap">
+            <TableScroller>
               <table className="hm-table">
                 <thead>
                   <tr>
-                    <th>Mitarbeiter:in</th>
-                    <th>Zeitraum</th>
-                    <th className="num">Tage</th>
-                    <th className="num">Bereits fehlend</th>
-                    <th>Art</th>
-                    <th>AU-Status</th>
-                    <th>AU-Frist</th>
+                    <SortableTh label="Mitarbeiter:in" sortKey="name" sort={sort} onSort={sortBy} />
+                    <SortableTh label="Zeitraum" sortKey="period" sort={sort} onSort={sortBy} />
+                    <SortableTh className="num" label="Tage" sortKey="days" sort={sort} onSort={sortBy} />
+                    <SortableTh className="num" label="Bereits fehlend" sortKey="missed" sort={sort} onSort={sortBy} />
+                    <SortableTh label="Art" sortKey="kind" sort={sort} onSort={sortBy} />
+                    <SortableTh label="AU-Status" sortKey="certificate" sort={sort} onSort={sortBy} />
+                    <SortableTh label="AU-Frist" sortKey="due" sort={sort} onSort={sortBy} />
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {notes.map((n) => (
+                  {(sorted ?? notes).map((n) => (
                     <tr key={n.id}>
                       <td>{personName(n)}</td>
                       <td>
@@ -273,7 +295,7 @@ export function SickNotesPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableScroller>
           )}
         </Card>
       </div>

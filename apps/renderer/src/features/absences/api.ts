@@ -7,6 +7,7 @@ import type {
   CalendarEmployee,
   CompanyClosure,
   SickNote,
+  SortState,
 } from '@ohrganize/shared';
 import { api } from '../../api/client';
 import { LOCALE } from '../../lib/locale';
@@ -92,6 +93,11 @@ export function useAbsenceRequests(filters: RequestFilters) {
   });
 }
 
+/** Sortierspalten der Antragsliste, gleich benannt wie im Backend (absences/routes.ts). */
+export type RequestSortKey = 'employee' | 'type' | 'period' | 'days' | 'status';
+export const REQUEST_SORT_KEYS: readonly RequestSortKey[] = ['employee', 'type', 'period', 'days', 'status'];
+export const REQUEST_SORT_DEFAULT: SortState<RequestSortKey> = { key: 'period', dir: 'desc' };
+
 /** Eine Seite der Antragsliste samt Treffern über alle Seiten und tatsächlichem Seitenbeginn. */
 export interface AbsenceRequestPage {
   requests: AbsenceRequest[];
@@ -110,13 +116,17 @@ export interface PageParams {
  * „Alle Anträge“: serverseitig geblättert, die Historie kann sechsstellig
  * sein. Beim Blättern bleibt die alte Seite stehen, bis die neue da ist.
  */
-export function useAbsenceRequestPage(filters: RequestFilters, page: PageParams) {
+export function useAbsenceRequestPage(filters: RequestFilters, page: PageParams, sort?: SortState<RequestSortKey>) {
   const params = requestFilterParams(filters);
   params.set('limit', String(page.limit));
   params.set('offset', String(page.offset));
   if (page.focus_id) params.set('focus_id', String(page.focus_id));
+  if (sort) {
+    params.set('sort', sort.key);
+    params.set('dir', sort.dir);
+  }
   return useQuery({
-    queryKey: ['absences', 'requests', 'page', filters, page],
+    queryKey: ['absences', 'requests', 'page', filters, page, sort ?? null],
     queryFn: () => api.get<AbsenceRequestPage>(`/api/absences/requests?${params.toString()}`),
     placeholderData: keepPreviousData,
   });

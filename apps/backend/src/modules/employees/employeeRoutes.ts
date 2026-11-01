@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import type { EmployeeSortField } from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
@@ -44,7 +45,22 @@ const SORT_COLUMNS = {
   hire_date: 'e.hire_date',
   job_title: 'e.job_title COLLATE NOCASE',
   department: 'd.name COLLATE NOCASE',
-} as const;
+  employee_type: 'e.employee_type',
+  // Betriebszugehoerigkeit aufsteigend = kuerzeste zuerst, also spaetester
+  // Eintritt zuerst (Umkehrung in queryEmployees, SORT_INVERTED).
+  seniority: 'e.hire_date',
+  location: 'l.name COLLATE NOCASE',
+  status: 'e.status',
+  email: 'e.email COLLATE NOCASE',
+  phone: 'e.phone',
+  manager: 'm.last_name COLLATE NOCASE',
+  weekly_hours: 'e.weekly_hours',
+  annual_leave_days: 'e.annual_leave_days',
+  exit_date: 'e.exit_date',
+} as const satisfies Record<EmployeeSortField, string>;
+
+/** Felder, deren Spalte die Richtung umgekehrt zur SQL-Spalte zeigt. */
+const SORT_INVERTED = new Set<keyof typeof SORT_COLUMNS>(['seniority']);
 
 /**
  * Optimistische Sperre für den Stammdaten-PATCH: Der Client schickt den
@@ -121,17 +137,23 @@ function queryEmployees(query: ListQuery): Record<string, unknown>[] {
 
   // Sortierung aus der Whitelist; der Name als zweites Kriterium hält die
   // Reihenfolge bei Gleichstand stabil (sonst springen Zeilen beim Neuladen).
-  const column = SORT_COLUMNS[query.sort ?? 'last_name'];
-  const dir = query.dir === 'desc' ? 'DESC' : 'ASC';
+  const sortField = query.sort ?? 'last_name';
+  const column = SORT_COLUMNS[sortField];
+  const descending = (query.dir === 'desc') !== SORT_INVERTED.has(sortField);
+  const dir = descending ? 'DESC' : 'ASC';
+  // Bei Namensspalten folgt der zweite Name der Richtung, sonst stehen Personen
+  // mit gleichem Wert (Abteilung, Typ, Status) immer alphabetisch.
   const tieBreak =
-    query.sort === 'first_name'
-      ? 'e.last_name COLLATE NOCASE'
-      : 'e.first_name COLLATE NOCASE';
+    sortField === 'first_name'
+      ? `e.last_name COLLATE NOCASE ${dir}`
+      : sortField === 'last_name'
+        ? `e.first_name COLLATE NOCASE ${dir}`
+        : 'e.last_name COLLATE NOCASE ASC, e.first_name COLLATE NOCASE ASC';
   // NULLs (z. B. fehlende Personalnummer) ans Ende, unabhängig von der Richtung.
   const nullsLast = `CASE WHEN ${column} IS NULL THEN 1 ELSE 0 END`;
 
   const sql = `${BASE_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-    ORDER BY ${nullsLast}, ${column} ${dir}, ${tieBreak} ${dir}`;
+    ORDER BY ${nullsLast}, ${column} ${dir}, ${tieBreak}`;
   return getDb().prepare(sql).all(...params) as Record<string, unknown>[];
 }
 

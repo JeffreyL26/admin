@@ -56,8 +56,10 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
   /api/absences/requests:
     get:
-      summary: Abwesenheitsanträge auflisten (sortiert nach date_from und id absteigend; mit limit geblättert)
+      summary: Abwesenheitsanträge auflisten (Vorgabe sortiert nach date_from und id absteigend; mit limit geblättert)
       parameters:
+        - { name: sort, in: query, schema: { type: string, enum: [employee, type, period, days, status] }, description: "Sortierspalte; ohne Angabe period absteigend. Gleichstand: date_from und id absteigend." }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc] }, description: "Richtung; mit sort ohne dir aufsteigend." }
         - { name: status, in: query, schema: { type: string, enum: [beantragt, genehmigt, abgelehnt, storniert] } }
         - { name: type_id, in: query, schema: { type: integer } }
         - { name: employee_id, in: query, schema: { type: integer } }

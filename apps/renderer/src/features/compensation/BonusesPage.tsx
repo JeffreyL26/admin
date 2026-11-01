@@ -15,6 +15,9 @@ import { useToast } from '../../components/Toast';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { currentMonth, formatMonth, parseEuroInput, STATUS_TONES } from './lib';
 import { Select } from '../../components/Select';
+import { SortableTh } from '../../components/SortableTh';
+import { TableScroller } from '../../components/TableScroller';
+import { useTableSort } from '../../lib/useTableSort';
 
 interface GoalOption {
   id: number;
@@ -39,6 +42,18 @@ interface BonusRow {
   payout_cents: number;
   goal: GoalOption | null;
 }
+
+const BONUS_SORT = {
+  name: (b: BonusRow) => `${b.last_name} ${b.first_name}`,
+  title: (b: BonusRow) => b.title,
+  kind: (b: BonusRow) => BONUS_KIND_LABELS[b.kind as BonusKind] ?? b.kind,
+  goal: (b: BonusRow) => b.goal?.title ?? null,
+  payout: (b: BonusRow) => b.payout_cents,
+  month: (b: BonusRow) => b.payout_month,
+  status: (b: BonusRow) => BONUS_STATUS_LABELS[b.status as BonusStatus] ?? b.status,
+};
+const BONUS_SORT_DEFAULT = { key: 'month', dir: 'desc' } as const;
+const bonusTieBreak = (b: BonusRow) => `${b.last_name} ${b.first_name}`;
 
 function CreateBonusDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const toast = useToast();
@@ -236,6 +251,7 @@ export function BonusesPage() {
       ),
     select: (d) => d.bonuses,
   });
+  const { sort, toggle: sortBy, sorted } = useTableSort('bonuses', data, BONUS_SORT, BONUS_SORT_DEFAULT, bonusTieBreak);
 
   const setStatus = useMutation({
     mutationFn: (p: { id: number; status: string }) =>
@@ -292,22 +308,22 @@ export function BonusesPage() {
             hint="Legen Sie einen Zielbonus, eine Provision oder eine Einmalzahlung an."
           />
         ) : (
-          <div className="hm-table-wrap">
+          <TableScroller>
             <table className="hm-table">
               <thead>
                 <tr>
-                  <th>Mitarbeiter:in</th>
-                  <th>Titel</th>
-                  <th>Art</th>
-                  <th>Zielkopplung</th>
-                  <th className="num">Auszahlung</th>
-                  <th>Monat</th>
-                  <th>Status</th>
+                  <SortableTh label="Mitarbeiter:in" sortKey="name" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Titel" sortKey="title" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Art" sortKey="kind" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Zielkopplung" sortKey="goal" sort={sort} onSort={sortBy} />
+                  <SortableTh className="num" label="Auszahlung" sortKey="payout" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Monat" sortKey="month" sort={sort} onSort={sortBy} />
+                  <SortableTh label="Status" sortKey="status" sort={sort} onSort={sortBy} />
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {(data ?? []).map((b) => (
+                {(sorted ?? []).map((b) => (
                   <tr key={b.id}>
                     <td style={{ fontWeight: 600 }}>
                       {b.last_name}, {b.first_name}
@@ -389,7 +405,7 @@ export function BonusesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroller>
         )}
       </Card>
       <CreateBonusDialog open={createOpen} onClose={() => setCreateOpen(false)} />
