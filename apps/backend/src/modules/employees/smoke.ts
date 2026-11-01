@@ -494,6 +494,19 @@ check(
   const plannedFrom = new Date(Date.now() + 40 * 86_400_000).toISOString().slice(0, 10);
   const hoursOf = async () =>
     (await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: auth })).json().employee.weekly_hours as number;
+  const resetToTypedVersion = (removeId: number | undefined) => {
+    if (removeId !== undefined) getDb().prepare('DELETE FROM contracts WHERE id = ?').run(removeId);
+    getDb()
+      .prepare('UPDATE contracts SET valid_to = NULL, entitlement_frozen = NULL, mirror_pending = 0, mirror_error = NULL WHERE id = ?')
+      .run(typedId);
+    getDb().prepare('DELETE FROM contract_gap_values WHERE employee_id = ?').run(empId);
+    const typed = getDb()
+      .prepare('SELECT employee_type, weekly_hours, annual_leave_days FROM contracts WHERE id = ?')
+      .get(typedId) as Record<string, unknown>;
+    for (const c of ['employee_type', 'weekly_hours', 'annual_leave_days']) {
+      if (typed[c] !== null) getDb().prepare(`UPDATE employees SET ${c} = ? WHERE id = ?`).run(typed[c], empId);
+    }
+  };
   const plannedRes = await app.inject({
     method: 'POST',
     url: `/api/employees/${empId}/contracts`,
@@ -536,8 +549,7 @@ check(
     dueBefore.length === 0 && dueAtStart.includes(plannedId) && (await hoursOf()) === 38 && mirroredAudit.n === 1,
     { dueBefore, dueAtStart, hours: await hoursOf(), mirroredAudit },
   );
-  getDb().prepare('DELETE FROM contracts WHERE id = ?').run(plannedId);
-  getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
+  resetToTypedVersion(plannedId);
 
   // Passt eine faellige geplante Version nicht mehr zu den Typregeln, bleibt sie
   // offen, traegt den Grund und wird erneut versucht; protokolliert wird nur
@@ -587,8 +599,7 @@ check(
     retried.includes(failingId) && retriedRow?.mirror_pending === 0 && retriedRow.mirror_error === null && (await hoursOf()) === 18,
     { retried, retriedRow, hours: await hoursOf() },
   );
-  getDb().prepare('DELETE FROM contracts WHERE id = ?').run(failingId ?? -1);
-  getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
+  resetToTypedVersion(failingId);
 
   // Heute faellig und an den Typregeln gescheitert: Speichert die HR passende
   // Stammdaten, gilt die Version sofort, nicht erst im stuendlichen Lauf.
@@ -601,7 +612,15 @@ check(
       payload: { contract_type: 'unbefristet', valid_from: plannedFrom, weekly_hours: 20 },
     });
     const dueId = due.json().contract?.id as number;
+    // Der Beginn ist erreicht: Die Vorversion endete gestern (so laege es nach
+    // dem POST), keine Ueberschneidung, die die API nie herstellt.
     getDb().prepare('UPDATE contracts SET valid_from = ?, weekly_hours = 30 WHERE id = ?').run(todayLocal.d, dueId ?? -1);
+    getDb()
+      .prepare("UPDATE contracts SET valid_to = date(?, '-1 day') WHERE id = ?")
+      .run(todayLocal.d, typedId);
+    const typedTypeBefore = (getDb().prepare('SELECT employee_type FROM contracts WHERE id = ?').get(typedId) as {
+      employee_type: string | null;
+    }).employee_type;
     mirrorDueContracts();
     const stateOf = () =>
       getDb().prepare('SELECT mirror_pending, mirror_error FROM contracts WHERE id = ?').get(dueId ?? -1) as
@@ -614,18 +633,22 @@ check(
       headers: auth,
       payload: { employee_type: 'teilzeit' },
     });
+    const typeOf = (cid: number) =>
+      (getDb().prepare('SELECT employee_type FROM contracts WHERE id = ?').get(cid) as { employee_type: string | null })
+        .employee_type;
     check(
-      'Gescheiterte Uebernahme gilt sofort nach dem Speichern passender Stammdaten',
+      'Gescheiterte Uebernahme gilt sofort nach dem Speichern passender Stammdaten (Korrektur trifft die heute geltende)',
       due.statusCode === 201 &&
         blocked?.mirror_pending === 1 &&
         !!blocked.mirror_error &&
         fixed.statusCode === 200 &&
         fixed.json().employee.weekly_hours === 30 &&
-        stateOf()?.mirror_pending === 0,
-      { due: due.json(), blocked, fixed: fixed.json(), after: stateOf() },
+        stateOf()?.mirror_pending === 0 &&
+        typeOf(dueId) === 'teilzeit' &&
+        typeOf(typedId) === typedTypeBefore,
+      { due: due.json(), blocked, fixed: fixed.json(), after: stateOf(), due_type: typeOf(dueId), typed_type: typeOf(typedId) },
     );
-    getDb().prepare('DELETE FROM contracts WHERE id = ?').run(dueId ?? -1);
-    getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
+    resetToTypedVersion(dueId);
   }
 
   // Beginn einer geplanten Version auf heute vorziehen: sofort ganz gespiegelt;

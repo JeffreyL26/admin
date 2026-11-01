@@ -16,6 +16,9 @@ import {
   entitlementFrozenNote,
   formatEntitlementFrozen,
   parseEntitlementFrozen,
+  withEntitlementFrozen,
+  withoutEntitlementFrozen,
+  withoutEntitlementFrozenColumns,
   formatDate,
   needsResidencePermit,
   personnelDeadlineText,
@@ -128,6 +131,18 @@ check(
     entitlementFrozenNote('unbekannt') === null,
   entitlementFrozenNote('work_week,employee_type,annual_leave_days'),
 );
+
+// Vermerk ergaenzen und entfernen: je Feld und je gesetzter Spalte (die Woche
+// besteht aus zwei Spalten, eine genuegt).
+check('Vermerk: ergaenzen ohne Doppel', withEntitlementFrozen('work_week', ['employee_type', 'work_week']) === 'employee_type,work_week');
+check('Vermerk: Felder entfernen, leer wird NULL', withoutEntitlementFrozen('annual_leave_days', ['annual_leave_days']) === null);
+check(
+  'Vermerk: eine Wochenspalte entfernt die Woche, auch die abgeleitete',
+  withoutEntitlementFrozenColumns('employee_type,work_week', ['work_days_per_week']) === 'employee_type' &&
+    withoutEntitlementFrozenColumns('work_week_default', ['work_weekdays']) === null &&
+    withoutEntitlementFrozenColumns('weekly_hours,annual_leave_days', ['note', 'valid_from']) === 'weekly_hours,annual_leave_days',
+);
+check('Vermerk: abgeleitete Woche heisst im Hinweis Arbeitswoche', entitlementFrozenNote('work_week_default')?.startsWith('Arbeitswoche aus') === true);
 
 if (failures > 0) {
   console.log(`masterDataTest: ${failures} Fehler`);

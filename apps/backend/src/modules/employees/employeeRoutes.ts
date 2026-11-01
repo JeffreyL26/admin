@@ -412,6 +412,9 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     const fields = Object.entries(set).filter(([, v]) => v !== undefined);
     if (fields.length === 0) throw badRequest('Keine Felder zum Setzen angegeben');
     for (const employeeId of ids) assertExecutiveAccess(req, employeeId, 'bearbeiten');
+    // Wie beim Personal-PATCH: heute begonnene Versionen zuerst in die Akte,
+    // damit die Korrektur die Version trifft, die die Akte zeigt.
+    mirrorDueContracts(undefined, ids);
 
     const db = getDb();
     // Platzgrenze der Lizenz (core/license.ts): zählt, wie viele der gewählten
@@ -569,6 +572,11 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch('/api/employees/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
+    // Eine heute begonnene, noch nicht uebernommene Version zuerst in die Akte
+    // (sonst bis zum naechsten stuendlichen Lauf): Die Korrektur unten trifft
+    // die Version, die heute gilt, und die Akte muss sie dann schon zeigen.
+    // Aendert das die Akte, faellt ein veralteter Stand am expected_updated_at auf.
+    mirrorDueContracts(undefined, [id]);
     const existing = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(id) as
       | Record<string, unknown>
       | undefined;

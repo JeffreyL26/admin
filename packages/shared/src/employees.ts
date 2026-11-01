@@ -527,16 +527,35 @@ export function contractCorrectable(state: ContractState, newest: boolean): bool
  * employees/contractRoutes.ts; genau dann spiegelt die Akte sie), Jahresurlaub
  * und Arbeitswoche, bevor sich die Akte aendert (freezeEntitlementInputs in
  * absences/service.ts; nie die Art, die waere dort nur geschaetzt).
- * `work_week` steht fuer feste Tage und Zahl zusammen.
+ * `work_week` steht fuer feste Tage und Zahl zusammen, wie die Akte sie
+ * nannte; `work_week_default` fuer eine Woche, die die Akte nicht nannte
+ * und die nur aus der Art folgte (Vollzeit und Ausbildung: Mo bis Fr). Gilt
+ * die Version wieder, geht diese nicht als feste Woche zurueck in die Akte.
  */
-export const ENTITLEMENT_FROZEN_FIELDS = ['employee_type', 'weekly_hours', 'annual_leave_days', 'work_week'] as const;
+export const ENTITLEMENT_FROZEN_FIELDS = [
+  'employee_type',
+  'weekly_hours',
+  'annual_leave_days',
+  'work_week',
+  'work_week_default',
+] as const;
 export type EntitlementFrozenField = (typeof ENTITLEMENT_FROZEN_FIELDS)[number];
+
+/** Spalten der Version je uebernommenem Feld. */
+export const ENTITLEMENT_FROZEN_COLUMNS: Record<EntitlementFrozenField, readonly string[]> = {
+  employee_type: ['employee_type'],
+  weekly_hours: ['weekly_hours'],
+  annual_leave_days: ['annual_leave_days'],
+  work_week: ['work_weekdays', 'work_days_per_week'],
+  work_week_default: ['work_weekdays', 'work_days_per_week'],
+};
 
 const ENTITLEMENT_FROZEN_LABELS: Record<EntitlementFrozenField, string> = {
   employee_type: 'Beschäftigungsart',
   weekly_hours: 'Wochenstunden',
   annual_leave_days: 'Urlaubstage',
   work_week: 'Arbeitswoche',
+  work_week_default: 'Arbeitswoche',
 };
 
 /** Gespeicherte Liste lesen: bekannte Felder, ohne Doppel, in fester Reihenfolge. */
@@ -552,6 +571,37 @@ export function formatEntitlementFrozen(fields: readonly EntitlementFrozenField[
   return list.length ? list.join(',') : null;
 }
 
+/** Vermerk um Felder ergaenzt (fillClosedVersion, freezeEntitlementInputs). */
+export function withEntitlementFrozen(
+  marker: string | null | undefined,
+  fields: readonly EntitlementFrozenField[],
+): string | null {
+  return formatEntitlementFrozen([...parseEntitlementFrozen(marker), ...fields]);
+}
+
+/** Vermerk ohne diese Felder (unfreezeReopenedContract). */
+export function withoutEntitlementFrozen(
+  marker: string | null | undefined,
+  fields: readonly EntitlementFrozenField[],
+): string | null {
+  return formatEntitlementFrozen(parseEntitlementFrozen(marker).filter((f) => !fields.includes(f)));
+}
+
+/**
+ * Vermerk ohne die Felder, deren Spalten eine Korrektur selbst setzt
+ * (syncCurrentContract, PATCH einer Version): Sie sind dann keine Uebernahme
+ * aus der Akte mehr. Eine der beiden Wochenspalten genuegt fuer die Woche.
+ */
+export function withoutEntitlementFrozenColumns(
+  marker: string | null | undefined,
+  columns: readonly string[],
+): string | null {
+  const touched = new Set(columns);
+  return formatEntitlementFrozen(
+    parseEntitlementFrozen(marker).filter((f) => !ENTITLEMENT_FROZEN_COLUMNS[f].some((c) => touched.has(c))),
+  );
+}
+
 /**
  * Hinweis im Tab Vertrag, z. B. "Beschäftigungsart und Arbeitswoche aus der
  * Personalakte übernommen, weil die Version sie nicht nannte; so bleibt
@@ -559,7 +609,7 @@ export function formatEntitlementFrozen(fields: readonly EntitlementFrozenField[
  * Felder null.
  */
 export function entitlementFrozenNote(value: string | null | undefined): string | null {
-  const labels = parseEntitlementFrozen(value).map((f) => ENTITLEMENT_FROZEN_LABELS[f]);
+  const labels = [...new Set(parseEntitlementFrozen(value).map((f) => ENTITLEMENT_FROZEN_LABELS[f]))];
   if (labels.length === 0) return null;
   const list = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} und ${labels[labels.length - 1]}`;
   return `${list} aus der Personalakte übernommen, weil die Version sie nicht nannte; so bleibt dieser Zeitraum gleich, auch wenn sich die Akte ändert.`;
