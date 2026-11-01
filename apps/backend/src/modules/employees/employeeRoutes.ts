@@ -1,6 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { formatDate, type EmployeeSortField } from '@ohrganize/shared';
+import {
+  ENTITLEMENT_FROZEN_COLUMNS,
+  contractMirroredFields,
+  entitlementFieldsLabel,
+  formatDate,
+  type ContractDto,
+  type EmployeeSortField,
+} from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
@@ -28,13 +35,7 @@ import {
   freezeEntitlementInputs,
   recountUpcomingRequests,
 } from '../absences/service.js';
-import {
-  MIRRORED_COLUMNS,
-  frozenDetails,
-  mirrorDueContracts,
-  syncCurrentContract,
-  type ContractSync,
-} from './contractRoutes.js';
+import { frozenDetails, mirrorDueContracts, syncCurrentContract, type ContractSync } from './contractRoutes.js';
 
 /**
  * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
@@ -102,29 +103,38 @@ const concurrencySchema = z.object({
   expected_updated_at: z.string().nullish(),
 });
 
+type MirroredVersion = Pick<
+  ContractDto,
+  'valid_from' | 'employee_type' | 'weekly_hours' | 'annual_leave_days' | 'work_weekdays' | 'work_days_per_week'
+>;
+const MIRRORED_VERSION_SELECT =
+  'c.valid_from, c.employee_type, c.weekly_hours, c.annual_leave_days, c.work_weekdays, c.work_days_per_week';
+
 /**
  * Juengste Vertragsversion der Person, die seit `since` (updated_at-Stand des
- * Formulars) in die Akte uebernommen wurde (Protokoll `contract.mirrored`,
- * stuendlich oder beim Speichern). Nur fuer die Meldung: Sie sagt dann, warum
- * sich die Akte geaendert hat, statt jemand anderen zu nennen.
+ * Formulars) Werte in die Akte uebernommen hat (Protokoll
+ * `contract.mirrored`, stuendlich oder beim Speichern). Nur fuer die Meldung:
+ * Sie nennt dann die Version, statt allein jemand anderen. CROSS JOIN legt
+ * die Reihenfolge fest: erst die wenigen Versionen der Person
+ * (idx_contracts_employee), dann je Version ihr Protokoll (idx_audit_entity).
  */
-function versionMirroredSince(employeeId: number, since: string): string | null {
-  const row = getDb()
+function versionMirroredSince(employeeId: number, since: string): MirroredVersion | null {
+  const rows = getDb()
     .prepare(
-      `SELECT c.valid_from FROM audit_log a JOIN contracts c ON c.id = a.entity_id
-       WHERE a.entity = 'contract' AND a.action = 'contract.mirrored' AND c.employee_id = ? AND a.created_at >= ?
-       ORDER BY c.valid_from DESC LIMIT 1`,
+      `SELECT DISTINCT ${MIRRORED_VERSION_SELECT} FROM contracts c CROSS JOIN audit_log a
+       WHERE c.employee_id = ? AND a.entity = 'contract' AND a.entity_id = c.id
+         AND a.action = 'contract.mirrored' AND a.created_at >= ?
+       ORDER BY c.valid_from DESC`,
     )
-    .get([employeeId, since]) as { valid_from: string } | undefined;
-  return row?.valid_from ?? null;
+    .all([employeeId, since]) as MirroredVersion[];
+  return rows.find((v) => contractMirroredFields(v).length > 0) ?? null;
 }
 
 const RELOAD_HINT = 'Bitte laden Sie die Personalakte neu und übernehmen Sie Ihre Änderungen erneut.';
 
-function newVersionConflict(validFrom: string) {
-  return conflict(
-    `Seit dem ${formatDate(validFrom)} gilt eine neue Vertragsversion; die Personalakte zeigt jetzt deren Beschäftigungsart, Wochenstunden, Urlaubstage und Arbeitswoche. ${RELOAD_HINT}`,
-  );
+/** "Seit dem 01.11.2026 gilt eine neue Vertragsversion, die Personalakte zeigt jetzt deren Urlaubstage" */
+function newVersionText(version: MirroredVersion): string {
+  return `Seit dem ${formatDate(version.valid_from)} gilt eine neue Vertragsversion, die Personalakte zeigt jetzt deren ${entitlementFieldsLabel(contractMirroredFields(version))}`;
 }
 
 const listQuerySchema = z.object({
@@ -616,8 +626,14 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     // einzigen Prozess, zwischen Lesen und Schreiben läuft kein zweiter Request.
     const { expected_updated_at } = parse(concurrencySchema, req.body);
     if (expected_updated_at != null && expected_updated_at !== existing.updated_at) {
-      const mirroredFrom = versionMirroredSince(id, expected_updated_at);
-      if (mirroredFrom) throw newVersionConflict(mirroredFrom);
+      // Ob ausser der Uebernahme noch jemand etwas geaendert hat, verraet der
+      // Stand nicht (Sekunden); die Meldung schliesst es deshalb nicht aus.
+      const version = versionMirroredSince(id, expected_updated_at);
+      if (version) {
+        throw conflict(
+          `Die Personalakte wurde zwischenzeitlich geändert. ${newVersionText(version)}; weitere Änderungen anderer sind möglich. ${RELOAD_HINT}`,
+        );
+      }
       throw conflict(`Der Datensatz wurde zwischenzeitlich von jemand anderem geändert. ${RELOAD_HINT}`);
     }
     const patch = parse(employeePatchSchema, req.body);
@@ -630,13 +646,19 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     const mirrored = mirrorDueContracts(undefined, [id]);
     if (mirrored.length) {
       existing = loadEmployee() as Record<string, unknown>;
-      // Das Formular zeigte noch die Werte der Vorversion; eine Korrektur
-      // dieser Felder traefe jetzt die neue. Andere Felder gehen durch.
-      if (expected_updated_at != null && MIRRORED_COLUMNS.some((c) => patch[c] !== undefined)) {
-        const version = getDb().prepare('SELECT valid_from FROM contracts WHERE id = ?').get(mirrored[0]) as {
-          valid_from: string;
-        };
-        throw newVersionConflict(version.valid_from);
+      // Das Formular zeigte noch die Werte der Vorversion. Abgelehnt wird nur,
+      // was einen davon gegen die uebernommenen Werte setzte (die Korrektur
+      // traefe die neue Version); gleiche Werte und andere Felder gehen durch.
+      // Der Stand davor war geprueft: Geaendert hat hier nur die Uebernahme.
+      const version = getDb().prepare(`SELECT ${MIRRORED_VERSION_SELECT} FROM contracts c WHERE c.id = ?`).get(
+        mirrored[0],
+      ) as MirroredVersion;
+      const sent: Record<string, unknown> = patch;
+      const overwritten = contractMirroredFields(version)
+        .flatMap((f) => ENTITLEMENT_FROZEN_COLUMNS[f])
+        .filter((c) => sent[c] !== undefined && (sent[c] ?? null) !== (existing[c] ?? null));
+      if (expected_updated_at != null && overwritten.length > 0) {
+        throw conflict(`${newVersionText(version)}. ${RELOAD_HINT}`);
       }
     }
     // Selbstschutz: Wer das Kennzeichen entfernen dürfte, gäbe sich ohne das

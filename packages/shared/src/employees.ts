@@ -613,10 +613,32 @@ export function withoutEntitlementFrozenColumns(
  * Felder null.
  */
 export function entitlementFrozenNote(value: string | null | undefined): string | null {
-  const labels = [...new Set(parseEntitlementFrozen(value).map((f) => ENTITLEMENT_FROZEN_LABELS[f]))];
-  if (labels.length === 0) return null;
-  const list = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} und ${labels[labels.length - 1]}`;
+  const list = entitlementFieldsLabel(parseEntitlementFrozen(value));
+  if (list === null) return null;
   return `${list} aus der Personalakte übernommen, weil die Version sie nicht nannte; so bleibt dieser Zeitraum gleich, auch wenn sich die Akte ändert.`;
+}
+
+/** Felder als Aufzaehlung ("Beschäftigungsart, Urlaubstage und Arbeitswoche"); leer null. */
+export function entitlementFieldsLabel(fields: readonly EntitlementFrozenField[]): string | null {
+  const labels = [...new Set(fields.map((f) => ENTITLEMENT_FROZEN_LABELS[f]))];
+  if (labels.length === 0) return null;
+  return labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} und ${labels[labels.length - 1]}`;
+}
+
+/**
+ * Felder, die eine Version beim Uebernehmen in die Akte schreibt
+ * (mirrorToEmployee im Backend): was sie nennt, die Woche als Paar. Was sie
+ * offen laesst, bleibt in der Akte stehen.
+ */
+export function contractMirroredFields(
+  c: Pick<ContractDto, 'employee_type' | 'weekly_hours' | 'annual_leave_days' | 'work_weekdays' | 'work_days_per_week'>,
+): EntitlementFrozenField[] {
+  const fields: EntitlementFrozenField[] = [];
+  if (c.employee_type !== null) fields.push('employee_type');
+  if (c.weekly_hours !== null) fields.push('weekly_hours');
+  if (c.annual_leave_days !== null) fields.push('annual_leave_days');
+  if (c.work_weekdays !== null || c.work_days_per_week !== null) fields.push('work_week');
+  return fields;
 }
 
 /** Gilt die Version heute (begonnen und nicht abgelaufen)? Wie contractInEffect im Backend. */

@@ -1831,11 +1831,15 @@ Korrektur eine heute begonnene Version, die der stuendliche Lauf noch nicht
 uebernommen hat: Sonst traf die Korrektur sie, waehrend die Akte noch die
 Vorversion zeigte. Das geschieht erst nach Existenz-, Rechte- und
 Standpruefung, sonst stellte auch ein abgewiesener Request die Akte um. Ein
-Formular, das noch die Vorversion zeigte, wird nur abgelehnt, wenn es
-Vertragsfelder aendert (die Korrektur traefe jetzt die neue Version); eine
-Telefonnummer geht durch. Die Meldung nennt dann die Version, auch wenn der
-stuendliche Lauf sie uebernommen hat (Protokoll `contract.mirrored` nach dem
-Stand des Formulars): "von jemand anderem geaendert" stimmte da nicht.
+Formular, das noch die Vorversion zeigte, wird nur abgelehnt, wenn es einen
+von der Version uebernommenen Wert mit einem anderen ueberschriebe (die
+Korrektur traefe jetzt die neue Version); eine Telefonnummer oder ein
+unveraendert mitgeschickter Wert geht durch. Die Meldung nennt die Version und
+nur die Felder, die sie gesetzt hat. Hat der stuendliche Lauf sie schon vor
+dem Speichern uebernommen (Protokoll `contract.mirrored` nach dem Stand des
+Formulars), nennt die Meldung sie ebenso, schliesst aber weitere Aenderungen
+anderer nicht aus: Der Stand traegt nur Sekunden und verraet nicht, ob die
+Uebernahme die einzige Aenderung war.
 
 Was die Vorversion selbst offen laesst, kann die Akte nicht zurueckbekommen;
 sie behielte dafuer Art oder Stunden der verschobenen Version (im Test:

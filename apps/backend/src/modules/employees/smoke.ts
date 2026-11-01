@@ -1006,14 +1006,28 @@ check(
       .run(empId).lastInsertRowid,
   );
   const patchByHr = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: hr, payload: { phone: '+49 1' } });
-  const gatePending = (getDb().prepare('SELECT mirror_pending FROM contracts WHERE id = ?').get(dueForGate) as {
-    mirror_pending: number;
-  }).mirror_pending;
+  const pendingOf = () =>
+    (getDb().prepare('SELECT mirror_pending FROM contracts WHERE id = ?').get(dueForGate) as { mirror_pending: number })
+      .mirror_pending;
+  const gatePending = pendingOf();
+  // Sammelaenderung mit einer unbekannten ID: 404, auch fuer die bekannte nichts uebernommen.
+  const bulkUnknown = await app.inject({
+    method: 'POST',
+    url: '/api/employees/bulk',
+    headers: auth,
+    payload: { ids: [empId, 999999], set: { status: 'aktiv' } },
+  });
+  const bulkPending = pendingOf();
   getDb().prepare('DELETE FROM contracts WHERE id = ?').run(dueForGate);
   check(
     'Leitungsebene: Aendern ohne Recht → 403, faellige Version bleibt offen',
     patchByHr.statusCode === 403 && gatePending === 1,
     { body: patchByHr.json(), gatePending },
+  );
+  check(
+    'Sammelaenderung mit unbekannter ID → 404, faellige Version bleibt offen',
+    bulkUnknown.statusCode === 404 && bulkPending === 1,
+    { body: bulkUnknown.json(), bulkPending },
   );
   const unflagByHr = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: hr, payload: { executive: 0 } });
   check('Leitungsebene: Kennzeichen ohne Recht entfernen → 403', unflagByHr.statusCode === 403);

@@ -207,9 +207,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Paar aus der Akte; Personal-PATCH und Sammeländerung übernehmen vorher,
   nach Existenz-, Rechte- und Standprüfung, eine heute begonnene Version,
   `mirrorDueContracts`, damit die Korrektur die Version trifft, die die Akte
-  zeigt; ein Formular von davor bekommt nur bei Vertragsfeldern 409, und
-  die Meldung nennt die Version statt „jemand anderem“,
-  `versionMirroredSince`). Verschiebt der PATCH einer
+  zeigt; ein Formular von davor bekommt nur 409, wenn es einen übernommenen
+  Wert mit einem anderen überschriebe, und die Meldung nennt die Version
+  samt ihren Feldern statt „jemand anderem“, `versionMirroredSince`,
+  `contractMirroredFields`). Verschiebt der PATCH einer
   Version ihren Beginn, wandert das Ende der Vorversion nur mit, wenn sie
   direkt anschloss (eine Lücke bleibt, gekürzt wird nur bei
   Überschneidung). Gilt eine angrenzende abgelaufene Version dadurch
