@@ -10,12 +10,16 @@ import { holidaysByRegion, isHoliday } from '../../core/holidays.js';
 import {
   DEFAULT_WORK_SCHEDULE,
   isScheduledDay,
+  maskDisabilityEntitlement,
   nextWorkdayIso,
+  permits,
+  type EntitlementDetail,
   workScheduleOf,
   type CountryCode,
   type RegionCode,
 } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
+import { permissionsFor } from '../../core/permissions.js';
 import {
   allowedTypeIdsFor,
   assertBalanceCovers,
@@ -195,6 +199,17 @@ const requestSortSchema = z.object({
   sort: z.enum(Object.keys(REQUEST_SORT_COLUMNS) as [RequestSortKey, ...RequestSortKey[]]).optional(),
   dir: z.enum(['asc', 'desc']).optional(),
 });
+
+/**
+ * Zusatzurlaub bei Schwerbehinderung benennt der Saldo nur Konten mit dem
+ * Recht `schwerbehinderung: lesen`; sonst steckt er ohne Namen im
+ * vertraglichen Teil (die Summe bleibt, shared/disability.ts).
+ */
+function withDisabilityShown<T extends { entitlement_detail: EntitlementDetail }>(req: FastifyRequest, balance: T): T {
+  const user = req.user as { admin_role_id?: number | null };
+  if (permits(permissionsFor(user.admin_role_id ?? null).schwerbehinderung, 'lesen')) return balance;
+  return { ...balance, entitlement_detail: maskDisabilityEntitlement(balance.entitlement_detail) };
+}
 
 export const absencesModule: FastifyPluginAsync = async (app) => {
   const db = () => getDb();
@@ -673,7 +688,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     if (!emp) throw notFound('Mitarbeiter:in nicht gefunden');
     const y = Number(year);
     if (!Number.isInteger(y) || y < 2000 || y > 2100) throw badRequest('Ungültiges Jahr');
-    return { balance: computeBalance(emp, y, todayIso(), { breakdown: true }) };
+    return { balance: withDisabilityShown(req, computeBalance(emp, y, todayIso(), { breakdown: true })) };
   });
 
   app.get('/api/absences/balances/:year', async (req) => {
@@ -723,12 +738,12 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     const carryoverDeadline = getSetting('carryoverDeadline');
     const today = todayIso();
     const balances = employees.map((e) => ({
-      ...computeBalance(e, y, today, {
+      ...withDisabilityShown(req, computeBalance(e, y, today, {
         place: placeFromRow(e),
         carryoverDeadline,
         closures,
         requests: requestsByEmployee.get(e.id) ?? [],
-      }),
+      })),
       first_name: e.first_name,
       last_name: e.last_name,
     }));

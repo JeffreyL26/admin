@@ -12,6 +12,20 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Rueckmeldungen aus dem ersten Kundentest, Schwerbehinderung (01.11.2026)
+- **Neu:** Angaben zur Schwerbehinderung in der Personalakte: Grad der
+  Behinderung, Gleichstellung, Gueltigkeit des Ausweises und Notiz, dazu die
+  Hinweise, was der Status mit sich bringt (Zusatzurlaub nach § 208 SGB IX,
+  Kuendigung nur mit Zustimmung des Integrationsamts, Mindestfrist vier
+  Wochen, Beteiligung der Schwerbehindertenvertretung).
+- **Neu:** Eigener Rechtebereich "Schwerbehinderung" (Kein Zugriff, Nur
+  lesen, Bearbeiten). Ohne ihn sind die Angaben nicht sichtbar. Die
+  ausgelieferten Rollen Geschaeftsfuehrung und Head of HR bekommen ihn,
+  HR-Sachbearbeitung nicht; eigene Rollen stehen auf "Kein Zugriff".
+- **Neu:** Ab einem Grad von 50 rechnet der Urlaubsanspruch den Zusatzurlaub
+  ein (eine Arbeitswoche, bei unterjaehrigem Eintritt anteilig). Konten ohne
+  das Recht und das Portal sehen nur die Summe.
+
 ### Rueckmeldungen aus dem ersten Kundentest, Arbeitswoche und Urlaub (01.11.2026)
 - **Neu:** Arbeitswoche je Person in der Personalakte: feste Wochentage
   (z. B. Di, Mi, Do) oder eine Zahl Tage je Woche ohne feste Tage.

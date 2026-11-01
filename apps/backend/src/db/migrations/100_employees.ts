@@ -402,4 +402,16 @@ export const employeesMigrations: Migration[] = [
       ALTER TABLE employees ADD COLUMN work_weekdays TEXT;
     `,
   },
+  {
+    // Schwerbehinderung (shared/disability.ts): Grad der Behinderung, Gleichstellung
+    // (§ 2 Abs. 3 SGB IX), Gueltigkeit des Ausweises, Notiz. Lesen und Schreiben
+    // nur mit dem Rechtebereich 'schwerbehinderung' (modules/employees/disability.ts).
+    name: '114_employee_disability',
+    sql: `
+      ALTER TABLE employees ADD COLUMN disability_degree INTEGER;
+      ALTER TABLE employees ADD COLUMN disability_equal INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE employees ADD COLUMN disability_valid_until TEXT;
+      ALTER TABLE employees ADD COLUMN disability_note TEXT;
+    `,
+  },
 ];

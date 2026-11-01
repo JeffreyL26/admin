@@ -404,6 +404,14 @@ export interface EmployeeDto extends EmployeeLiteDto {
   work_weekdays: string | null;
   /** Arbeitstage je Woche; bei festen Tagen deren Anzahl. Beides NULL = nicht hinterlegt. */
   work_days_per_week: number | null;
+  /**
+   * Schwerbehinderung (disability.ts). Fehlen ohne das Recht
+   * "Schwerbehinderung: lesen" ganz in der Antwort, daher optional.
+   */
+  disability_degree?: number | null;
+  disability_equal?: number;
+  disability_valid_until?: string | null;
+  disability_note?: string | null;
   created_at: string;
   updated_at: string;
 }

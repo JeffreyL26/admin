@@ -10,6 +10,7 @@ export * from './tableSort.js';
 export * from './absences.js';
 export * from './workSchedule.js';
 export * from './leaveEntitlement.js';
+export * from './disability.js';
 export * from './performance.js';
 export * from './compensation.js';
 export * from './datev.js';

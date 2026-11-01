@@ -94,6 +94,19 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   deren Konten schlagartig Vollzugriff). Rang und Aussteller der Zugangsdaten
   (wer mehr Rechte bekommt, braucht ein Passwort von jemandem, der sie hatte):
   `core/accountRights.ts`, Einzelheiten unter „Rang eines Kontos“ bei Führung.
+- **Rechtebereich `schwerbehinderung` ist ein Feldrecht** (Migrationen
+  `010_admin_roles_schwerbehinderung`, `114_employee_disability`): Grad,
+  Gleichstellung, Ausweis und Notiz in der Personalakte sind Gesundheitsdaten
+  (Art. 9 DSGVO). Kein Eintrag in `ROUTE_AREAS`; `modules/employees/disability.ts`
+  entfernt die Felder aus jeder Antwort der Personal-Routen ohne
+  `schwerbehinderung: lesen` (`stripDisability`) und weist das Ändern eines
+  Wertes ohne `bearbeiten` mit 403 ab (`assertDisabilityWrite`; leere und
+  unveränderte Werte gehen durch, damit Formulare ohne das Recht speichern).
+  Der Saldo benennt den Zusatzurlaub (§ 208 SGB IX) nur mit dem Recht, sonst
+  steckt er im vertraglichen Teil (`maskDisabilityEntitlement`); das Portal
+  bekommt die Felder nie. Eine neue Route, die Personalzeilen ausliefert,
+  ruft `stripDisability`. In `/api/lookup` (`ANY_AREA_ROUTES`) zählt der
+  Bereich nicht als Fachbereich.
 - **Zwei getrennte Rollenbegriffe — nicht verwechseln.** `users.role` ist der
   **Systemzugang** und bleibt zweiwertig (`admin`/`mitarbeiter`); wer daran dreht,
   sperrt Konten aus. Die **Admin-Rolle** oben regelt Rechte innerhalb der

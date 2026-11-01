@@ -144,6 +144,7 @@ export interface OnboardingTaskTemplate {
  */
 export const ADMIN_AREAS = [
   'personal',
+  'schwerbehinderung',
   'abwesenheit',
   'leistung',
   'verguetung',
@@ -159,6 +160,7 @@ export type AdminArea = (typeof ADMIN_AREAS)[number];
 
 export const ADMIN_AREA_LABELS: Record<AdminArea, string> = {
   personal: 'Personal',
+  schwerbehinderung: 'Schwerbehinderung',
   abwesenheit: 'Abwesenheit',
   leistung: 'Leistung',
   verguetung: 'Vergütung',
@@ -173,6 +175,7 @@ export const ADMIN_AREA_LABELS: Record<AdminArea, string> = {
 /** Kurzbeschreibung je Bereich — erklärt in der Rechtevergabe, was betroffen ist. */
 export const ADMIN_AREA_HINTS: Record<AdminArea, string> = {
   personal: 'Mitarbeitende, Organisation, Verträge und Dokumente',
+  schwerbehinderung: 'Grad der Behinderung, Gleichstellung und Ausweis in der Personalakte (Gesundheitsdaten nach Art. 9 DSGVO)',
   abwesenheit: 'Kalender, Anträge, Krankmeldungen und Abwesenheitsarten',
   leistung: 'Ziele, Beurteilungen, Skills, Trainings und Feedback',
   verguetung: 'Gehälter, Abrechnung, Boni, Honorare und Bescheinigungen',

@@ -289,6 +289,13 @@ inTransaction(() => {
   setWeek.run([null, 3, WS1]);
   setWeek.run(['2,4', 2, WS2]);
 
+  // Schwerbehinderung (Beispiel): GdB 50 mit befristetem Ausweis. Sichtbar nur
+  // mit dem Recht "Schwerbehinderung"; der Saldo rechnet fuenf Tage Zusatzurlaub.
+  db.prepare('UPDATE employees SET disability_degree = 50, disability_valid_until = ? WHERE id = ?').run([
+    '2029-06-30',
+    BUCH,
+  ]);
+
   // Vorgesetzte + Abteilungs-/Teamleitungen
   const setMgr = db.prepare('UPDATE employees SET manager_id = ? WHERE id = ?');
   for (const [mgr, subs] of [

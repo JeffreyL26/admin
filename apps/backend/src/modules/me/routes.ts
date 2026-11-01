@@ -9,6 +9,7 @@
  */
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import { maskDisabilityEntitlement } from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
@@ -212,7 +213,10 @@ export const meModule: FastifyPluginAsync = async (app) => {
     const q = req.query as { year?: string };
     const year = q.year ? Number(q.year) : Number(todayIso().slice(0, 4));
     if (!Number.isInteger(year) || year < 2000 || year > 2100) throw badRequest('Ungültiges Jahr');
-    return { balance: computeBalance(emp, year) };
+    // Ohne benannten Zusatzurlaub: Das Portal zeigt keine Angaben zur
+    // Schwerbehinderung (shared/disability.ts), die Summe bleibt dieselbe.
+    const balance = computeBalance(emp, year);
+    return { balance: { ...balance, entitlement_detail: maskDisabilityEntitlement(balance.entitlement_detail) } };
   });
 
   /** Live-Vorschau der gezählten Tage für das Antragsformular. */

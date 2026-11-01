@@ -8,7 +8,9 @@ import {
   NATIONALITY_CODES,
   RESIDENCE_PERMIT_LABELS,
   RESIDENCE_PERMIT_TYPES,
+  DISABILITY_DEGREES,
   WEEKDAY_SHORT,
+  disabilityNotes,
   entitlementDaysPerWeek,
   formatWeekdays,
   nationalityLabel,
@@ -82,6 +84,10 @@ export interface EmployeeFormState {
   work_mode: '' | 'fest' | 'flexibel';
   work_weekdays: number[];
   work_days_per_week: string;
+  disability_degree: string;
+  disability_equal: boolean;
+  disability_valid_until: string;
+  disability_note: string;
 }
 
 export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
@@ -126,6 +132,10 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
   work_mode: 'fest',
   work_weekdays: [1, 2, 3, 4, 5],
   work_days_per_week: '',
+  disability_degree: '',
+  disability_equal: false,
+  disability_valid_until: '',
+  disability_note: '',
 };
 
 export function employeeToForm(e: EmployeeRow): EmployeeFormState {
@@ -169,6 +179,10 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
     highest_degree: e.highest_degree ?? '',
     degree_field: e.degree_field ?? '',
     ...workScheduleToForm(e),
+    disability_degree: e.disability_degree != null ? String(e.disability_degree) : '',
+    disability_equal: e.disability_equal === 1,
+    disability_valid_until: e.disability_valid_until ?? '',
+    disability_note: e.disability_note ?? '',
   };
 }
 
@@ -243,6 +257,10 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     residence_permit_until: needsResidencePermit(f.nationality) ? str(f.residence_permit_until) : null,
     highest_degree: str(f.highest_degree),
     degree_field: str(f.degree_field),
+    disability_degree: num(f.disability_degree),
+    disability_equal: f.disability_equal ? 1 : 0,
+    disability_valid_until: str(f.disability_valid_until),
+    disability_note: str(f.disability_note),
     work_weekdays: f.work_mode === 'fest' && f.work_weekdays.length > 0 ? formatWeekdays(f.work_weekdays) : null,
     work_days_per_week:
       f.work_mode === 'fest'
@@ -656,6 +674,71 @@ function WorkWeekField({ form, set }: { form: EmployeeFormState; set: SetForm })
         )}
       </div>
     </Field>
+  );
+}
+
+/**
+ * Schwerbehinderung (nur mit dem Recht "Schwerbehinderung"): Grad,
+ * Gleichstellung, Ausweis, Notiz und darunter, was der Status mit sich bringt.
+ * `readOnly` bei "lesen"; das Backend sperrt das Schreiben zusätzlich.
+ */
+export function DisabilityFields({ form, set, readOnly }: { form: EmployeeFormState; set: SetForm; readOnly: boolean }) {
+  const degree = num(form.disability_degree);
+  const notes = disabilityNotes(degree, form.disability_equal);
+  return (
+    <div className="hm-form-grid">
+      <Field label="Grad der Behinderung">
+        <Select
+          className="hm-select"
+          value={form.disability_degree}
+          disabled={readOnly}
+          onChange={(e) => set({ disability_degree: e.target.value })}
+        >
+          <option value="">— keiner —</option>
+          {DISABILITY_DEGREES.map((d) => (
+            <option key={d} value={String(d)}>
+              GdB {d}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Ausweis gültig bis" hint="Leer bei unbefristetem Ausweis">
+        <input
+          className="hm-input"
+          type="date"
+          value={form.disability_valid_until}
+          disabled={readOnly}
+          onChange={(e) => set({ disability_valid_until: e.target.value })}
+        />
+      </Field>
+      <Field label="Gleichstellung" span2 hint="Gleichgestellt durch die Agentur für Arbeit (§ 2 Abs. 3 SGB IX), bei GdB 30 oder 40">
+        <label className="row" style={{ gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={form.disability_equal}
+            disabled={readOnly}
+            onChange={(e) => set({ disability_equal: e.target.checked })}
+          />
+          Schwerbehinderten Menschen gleichgestellt
+        </label>
+      </Field>
+      <Field label="Notiz" span2>
+        <textarea
+          className="hm-textarea"
+          rows={2}
+          value={form.disability_note}
+          disabled={readOnly}
+          onChange={(e) => set({ disability_note: e.target.value })}
+        />
+      </Field>
+      {notes.length > 0 && (
+        <ul className="span-2" style={{ margin: 0, paddingLeft: 18, color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
+          {notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

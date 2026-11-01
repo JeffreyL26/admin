@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   COUNTRY_CODES,
   COUNTRY_LABELS,
+  DISABILITY_DEGREES,
   DOCUMENT_CATEGORIES,
   EMPLOYEE_RULE_FIELD_LABELS,
   HIGHEST_DEGREES,
@@ -115,6 +116,15 @@ export const employeeBodySchema = z.object({
     .regex(/^[1-7](,[1-7]){0,6}$/, 'Wochentage als Liste von 1 (Montag) bis 7 (Sonntag)')
     .nullish(),
   work_days_per_week: z.number().min(0.5).max(7).multipleOf(0.5).nullish(),
+  // Schwerbehinderung: nur mit dem Recht 'schwerbehinderung' (disability.ts).
+  disability_degree: z
+    .number()
+    .int()
+    .refine((n) => (DISABILITY_DEGREES as readonly number[]).includes(n), 'Grad der Behinderung in Zehnerstufen von 20 bis 100')
+    .nullish(),
+  disability_equal: z.union([z.literal(0), z.literal(1)]).optional(),
+  disability_valid_until: isoDate.nullish(),
+  disability_note: nullableString,
 });
 
 /**

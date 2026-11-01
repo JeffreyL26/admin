@@ -450,6 +450,73 @@ check(
   dashboardDeadlines.json().personnel_deadlines,
 );
 
+// ---------- Schwerbehinderung: eigener Rechtebereich ----------
+{
+  const bcryptMod = (await import('bcryptjs')).default;
+  const roleFor = (name: string, level: 'kein' | 'lesen' | 'bearbeiten') => {
+    const roleId = Number(getDb().prepare('INSERT INTO admin_roles (name) VALUES (?)').run(name).lastInsertRowid);
+    getDb()
+      .prepare(
+        `INSERT INTO admin_role_permissions (role_id, area, level) VALUES (?, 'personal', 'bearbeiten'), (?, 'schwerbehinderung', ?)`,
+      )
+      .run(roleId, roleId, level);
+    return roleId;
+  };
+  const accountWith = async (email: string, roleId: number) => {
+    getDb()
+      .prepare("INSERT INTO users (email, name, password_hash, role, admin_role_id) VALUES (?, ?, ?, 'admin', ?)")
+      .run(email, email, bcryptMod.hashSync('geheim123', 10), roleId);
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'geheim123' } });
+    return { authorization: `Bearer ${login.json().token as string}` };
+  };
+  const authNone = await accountWith('sb-kein@test.de', roleFor('SB kein', 'kein'));
+  const authRead = await accountWith('sb-lesen@test.de', roleFor('SB lesen', 'lesen'));
+  const authEdit = await accountWith('sb-bearbeiten@test.de', roleFor('SB bearbeiten', 'bearbeiten'));
+
+  const setDegree = (headers: Record<string, string>, payload: Record<string, unknown>) =>
+    app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers, payload });
+  const noneWrite = await setDegree(authNone, { disability_degree: 50 });
+  check('Schwerbehinderung ohne Recht schreiben → 403', noneWrite.statusCode === 403, noneWrite.json());
+  const readWrite = await setDegree(authRead, { disability_degree: 50 });
+  check('Schwerbehinderung mit Lesen schreiben → 403', readWrite.statusCode === 403, readWrite.json());
+  const editWrite = await setDegree(authEdit, { disability_degree: 50, disability_valid_until: '2028-12-31' });
+  check(
+    'Schwerbehinderung mit Bearbeiten schreiben → 200',
+    editWrite.statusCode === 200 && editWrite.json().employee.disability_degree === 50,
+    editWrite.json(),
+  );
+  const badDegree = await setDegree(authEdit, { disability_degree: 55 });
+  check('Grad ausserhalb der Zehnerstufen → 400', badDegree.statusCode === 400, badDegree.json());
+
+  const noneRead = await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: authNone });
+  check(
+    'Ohne Recht: Felder fehlen in der Personalakte',
+    noneRead.statusCode === 200 && !('disability_degree' in noneRead.json().employee) && !('disability_note' in noneRead.json().employee),
+    Object.keys(noneRead.json().employee ?? {}),
+  );
+  const noneList = await app.inject({ method: 'GET', url: '/api/employees', headers: authNone });
+  check(
+    'Ohne Recht: Felder fehlen in der Liste',
+    (noneList.json().employees as Record<string, unknown>[]).every((e) => !('disability_degree' in e)),
+  );
+  const readRead = await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: authRead });
+  check('Mit Lesen: Grad sichtbar', readRead.json().employee.disability_degree === 50, readRead.json().employee);
+  // Ein Formular ohne das Recht speichert weiter: unveraenderte oder leere Felder gehen durch.
+  const noneOther = await setDegree(authNone, { phone: '+49 30 123', disability_equal: 0 });
+  check('Ohne Recht: andere Felder speichern weiter → 200', noneOther.statusCode === 200, noneOther.json());
+
+  // Zusatzurlaub im Saldo: benannt nur mit dem Recht (Bereich Abwesenheit fehlt
+  // den Rollen oben, deshalb der Vollzugriff als Gegenprobe).
+  const year = new Date().getFullYear();
+  const fullBalance = await app.inject({ method: 'GET', url: `/api/absences/balance/${empId}/${year}`, headers: auth });
+  check(
+    'Saldo mit Vollzugriff nennt den Zusatzurlaub',
+    (fullBalance.json().balance?.entitlement_detail?.disability ?? 0) > 0,
+    fullBalance.json().balance?.entitlement_detail,
+  );
+  await setDegree(authEdit, { disability_degree: null, disability_valid_until: null });
+}
+
 // ---------- Org-Baum ----------
 const tree = await app.inject({ method: 'GET', url: '/api/org/tree', headers: auth });
 const roots = tree.json().tree as {

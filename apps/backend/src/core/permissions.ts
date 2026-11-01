@@ -89,7 +89,8 @@ const ALWAYS_ALLOWED = [
  * GET /api/leadership/lookup.
  */
 const ANY_AREA_ROUTES: ReadonlyArray<readonly [string, readonly AdminArea[]]> = [
-  ['/api/lookup', ADMIN_AREAS.filter((a) => a !== 'einstellungen' && a !== 'fuehrung')],
+  // Schwerbehinderung ist ein Feldrecht in der Personalakte, kein Fachbereich.
+  ['/api/lookup', ADMIN_AREAS.filter((a) => a !== 'einstellungen' && a !== 'fuehrung' && a !== 'schwerbehinderung')],
 ];
 
 export interface PermissionSubject {

@@ -49,6 +49,7 @@ export type ModuleKey = (typeof MODULE_KEYS)[number];
  */
 export const AREA_MODULES: Record<AdminArea, ModuleKey | null> = {
   personal: 'employees',
+  schwerbehinderung: 'employees',
   abwesenheit: 'absences',
   leistung: 'performance',
   fuehrung: 'performance',

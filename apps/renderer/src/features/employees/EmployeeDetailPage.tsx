@@ -31,6 +31,7 @@ import { avatarFileId } from './avatarPhoto';
 import { SourceBadge, VisibilityBadge, VisibilityToggle } from './documentVisibility';
 import { DocumentEditModal } from './DocumentEditModal';
 import {
+  DisabilityFields,
   EmploymentFields,
   FinanceFields,
   PersonFields,
@@ -179,6 +180,7 @@ function HeaderDeadlines({ employee, contracts }: { employee: EmployeeRow; contr
 
 function MasterDataTab({ employee }: { employee: EmployeeRow }) {
   const toast = useToast();
+  const { can } = useAuth();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [form, setForm] = useState<EmployeeFormState>(() => employeeToForm(employee));
@@ -293,6 +295,11 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
       <Card title="Finanzen, Steuer & Sozialversicherung">
         <FinanceFields form={form} set={set} />
       </Card>
+      {can('schwerbehinderung') && (
+        <Card title="Schwerbehinderung">
+          <DisabilityFields form={form} set={set} readOnly={!can('schwerbehinderung', 'bearbeiten')} />
+        </Card>
+      )}
       <div className="row row--between">
         <button className="hm-btn hm-btn--danger" onClick={() => setConfirmDelete(true)}>
           <Trash2 size={16} /> Löschen
