@@ -255,7 +255,7 @@ export function BulkEditModal({
               type="number"
               min={0}
               max={60}
-              step={0.5}
+              step={1}
               disabled={!state.weekly_hours.active}
               value={state.weekly_hours.value}
               onChange={(e) => patch('weekly_hours', { value: e.target.value })}
@@ -271,7 +271,7 @@ export function BulkEditModal({
               type="number"
               min={0}
               max={100}
-              step={0.5}
+              step={1}
               disabled={!state.annual_leave_days.active}
               value={state.annual_leave_days.value}
               onChange={(e) => patch('annual_leave_days', { value: e.target.value })}

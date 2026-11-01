@@ -35,6 +35,9 @@ import { EmployeeCreateModal } from './EmployeeCreateModal';
 import { BulkEditModal } from './BulkEditModal';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
+import { SortableTh } from '../../components/SortableTh';
+import { TableScroller } from '../../components/TableScroller';
+import { readJson, writeJson } from '../../lib/localStore';
 
 export const TYPE_TONES: Record<EmployeeType, BadgeTone> = {
   vollzeit: 'blue',
@@ -81,6 +84,38 @@ function loadView(): ViewConfig {
   } catch {
     return DEFAULT_VIEW;
   }
+}
+
+/**
+ * Filter und Sortierung, je Gerät gespeichert wie die Spaltenauswahl: Sie
+ * überleben den Wechsel in eine Personalakte und zurück ebenso wie einen
+ * Neustart. Die Suche bewusst nicht, ein alter Suchbegriff blendete beim
+ * nächsten Öffnen still fast alle aus.
+ */
+const FILTERS_KEY = 'ohrganize.employeeList.filters';
+
+type StoredFilters = Omit<EmployeeFilters, 'search'>;
+
+function loadFilters(): EmployeeFilters {
+  const raw = readJson<Partial<StoredFilters>>(FILTERS_KEY);
+  if (!raw || typeof raw !== 'object') return EMPTY_FILTERS;
+  const strings = <T extends string>(v: unknown, allowed: readonly string[]): T[] =>
+    Array.isArray(v) ? (v.filter((x) => typeof x === 'string' && allowed.includes(x)) as T[]) : [];
+  const ids = (v: unknown): number[] =>
+    Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x) && x > 0) : [];
+  return {
+    search: '',
+    status: Array.isArray(raw.status)
+      ? strings<EmployeeStatus>(raw.status, Object.keys(EMPLOYEE_STATUS_LABELS))
+      : EMPTY_FILTERS.status,
+    employee_type: strings<EmployeeType>(raw.employee_type, Object.keys(EMPLOYEE_TYPE_LABELS)),
+    job_title: Array.isArray(raw.job_title) ? raw.job_title.filter((x): x is string => typeof x === 'string') : [],
+    department_id: ids(raw.department_id),
+    team_id: ids(raw.team_id),
+    location_id: ids(raw.location_id),
+    sort: typeof raw.sort === 'string' && raw.sort in EMPLOYEE_SORT_LABELS ? raw.sort : EMPTY_FILTERS.sort,
+    dir: raw.dir === 'desc' ? 'desc' : 'asc',
+  };
 }
 
 function cellContent(e: EmployeeRow, columnId: string, seniorityFormat: SeniorityFormat): React.ReactNode {
@@ -217,7 +252,7 @@ export function EmployeeListPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [filters, setFilters] = useState<EmployeeFilters>(EMPTY_FILTERS);
+  const [filters, setFilters] = useState<EmployeeFilters>(loadFilters);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -241,6 +276,40 @@ export function EmployeeListPage() {
       /* Speicher voll oder gesperrt — die Ansicht funktioniert trotzdem. */
     }
   }, [view]);
+
+  useEffect(() => {
+    const { search: _search, ...stored } = filters;
+    writeJson(FILTERS_KEY, stored);
+  }, [filters]);
+
+  // Gespeicherte Auswahl, die es nicht mehr gibt (gelöschte Abteilung, kein
+  // Titel mehr vergeben), fällt weg, sobald die Listen da sind; sonst bliebe
+  // die Tabelle ohne sichtbaren Grund leer.
+  useEffect(() => {
+    if (!departments || !teams || !locations || !jobTitles) return;
+    const dept = new Set(departments.map((d) => d.id));
+    const team = new Set(teams.map((t) => t.id));
+    const loc = new Set(locations.map((l) => l.id));
+    const title = new Set(jobTitles.map((t) => t.title));
+    setFilters((f) => {
+      const next = {
+        ...f,
+        department_id: f.department_id.filter((id) => dept.has(id)),
+        team_id: f.team_id.filter((id) => team.has(id)),
+        location_id: f.location_id.filter((id) => loc.has(id)),
+        job_title: f.job_title.filter((t) => title.has(t)),
+      };
+      const same =
+        next.department_id.length === f.department_id.length &&
+        next.team_id.length === f.team_id.length &&
+        next.location_id.length === f.location_id.length &&
+        next.job_title.length === f.job_title.length;
+      return same ? f : next;
+    });
+  }, [departments, teams, locations, jobTitles]);
+
+  const sortBy = (field: EmployeeSortField) =>
+    set(filters.sort === field ? { dir: filters.dir === 'asc' ? 'desc' : 'asc' } : { sort: field, dir: 'asc' });
 
   const set = (patch: Partial<EmployeeFilters>) => {
     setFilters((f) => ({ ...f, ...patch }));
@@ -580,7 +649,7 @@ export function EmployeeListPage() {
             }
           />
         ) : (
-          <div className="hm-table-wrap">
+          <TableScroller>
             <table className="hm-table">
               <thead>
                 <tr>
@@ -592,9 +661,19 @@ export function EmployeeListPage() {
                       aria-label="Alle sichtbaren auswählen"
                     />
                   </th>
-                  {visible.map((c) => (
-                    <th key={c.id}>{c.label}</th>
-                  ))}
+                  {visible.map((c) =>
+                    c.sort ? (
+                      <SortableTh
+                        key={c.id}
+                        label={c.label}
+                        sortKey={c.sort}
+                        sort={{ key: filters.sort, dir: filters.dir }}
+                        onSort={sortBy}
+                      />
+                    ) : (
+                      <th key={c.id}>{c.label}</th>
+                    ),
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -611,7 +690,7 @@ export function EmployeeListPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroller>
         )}
       </Card>
 

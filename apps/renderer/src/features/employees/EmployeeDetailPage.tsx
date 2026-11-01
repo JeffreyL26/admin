@@ -70,23 +70,24 @@ export function EmployeeDetailPage() {
 
   if (isLoading || !data) return <Spinner center />;
   const e = data.employee;
+  // Oben im Kopf und noch einmal unter dem Inhalt: Bei langen Akten muss
+  // niemand zum Zurückgehen bis ganz nach oben scrollen.
+  const backButton = backTo ? (
+    <button className="hm-btn hm-btn--secondary" onClick={() => navigate(backTo.path)}>
+      <ArrowLeft size={16} /> {backTo.label}
+    </button>
+  ) : (
+    <button className="hm-btn hm-btn--secondary" onClick={() => navigate('/personal/mitarbeitende')}>
+      <ArrowLeft size={16} /> Zur Übersicht
+    </button>
+  );
 
   return (
     <>
       <PageHeader
         title={`${e.first_name} ${e.last_name}`}
         subtitle={[e.job_title, e.department_name, e.location_name].filter(Boolean).join(' · ') || 'Personalakte'}
-        actions={
-          backTo ? (
-            <button className="hm-btn hm-btn--secondary" onClick={() => navigate(backTo.path)}>
-              <ArrowLeft size={16} /> {backTo.label}
-            </button>
-          ) : (
-            <button className="hm-btn hm-btn--secondary" onClick={() => navigate('/personal/mitarbeitende')}>
-              <ArrowLeft size={16} /> Zur Übersicht
-            </button>
-          )
-        }
+        actions={backButton}
       />
       <div className="row" style={{ marginBottom: 16 }}>
         <Avatar name={`${e.first_name} ${e.last_name}`} size={56} src={photo.data} />
@@ -117,6 +118,7 @@ export function EmployeeDetailPage() {
           <EmployeeCompensationTab employeeId={employeeId} employeeName={`${e.first_name} ${e.last_name}`} />
         )}
       </div>
+      <div className="page__foot">{backButton}</div>
     </>
   );
 }

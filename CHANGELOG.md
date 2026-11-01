@@ -70,6 +70,27 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Rueckmeldungen aus dem ersten Kundentest, Bedienung (01.11.2026)
+- **Neu:** Die Anmeldung merkt sich je Geraet die zuletzt erfolgreich
+  benutzte E-Mail-Adresse und setzt den Cursor ins Passwortfeld (Desktop und
+  Portal); das Passwort wird nie gespeichert.
+- **Neu:** Alle Hauptlisten sind ueber die Spaltenkoepfe sortierbar
+  (Mitarbeitende, Antraege, Krankmeldungen, Gehaelter, Boni, Ablage,
+  Bewerbungen, Bewerber:innen, Konten). Die Sortierung bleibt je Geraet
+  gespeichert, auch nach dem Wechsel in eine Akte und nach einem Neustart.
+  In der Mitarbeiterliste bleiben auch die Filter erhalten.
+- **Neu:** Breite Tabellen lassen sich mit der Maus waagerecht ziehen, und
+  ihre Scrollleiste klebt am unteren Fensterrand statt erst unter der
+  letzten Zeile zu erscheinen.
+- **Neu:** Personalakte und Gehaltsdetail haben den Zurueck-Knopf zusaetzlich
+  am Seitenende.
+- **Geaendert:** Die Pfeilknoepfe an Wochenstunden und Urlaubstagen zaehlen in
+  ganzen Schritten; halbe Werte lassen sich weiter eintippen (Hinweis am
+  Fragezeichen neben dem Feld).
+- **Geaendert:** Im Organigramm stehen Personen auf gleicher Ebene nach
+  Abteilung gruppiert und darin nach Nachnamen; wer mehrere Abteilungen
+  leitet, sieht die Leute je Abteilung beisammen.
+
 ### Einrichtungs-Assistent: Karte nur fuer das Konto, das einrichtet (23.10.2026)
 - **Behoben:** Jedes weitere HR-Konto bekam bei der ersten Anmeldung die
   Dashboard-Karte "Einrichtung" mit Fortschrittsbalken (bei leerer Firma den

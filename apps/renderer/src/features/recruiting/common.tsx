@@ -30,6 +30,7 @@ import {
 } from './api';
 import { Select } from '../../components/Select';
 import { Tooltip } from '../../components/Tooltip';
+import { HalfStepHint } from '../../components/HalfStepHint';
 
 export const APPLICATION_STATUS_TONES: Record<ApplicationStatus, BadgeTone> = {
   aktiv: 'blue',
@@ -506,11 +507,11 @@ function HireDialog({
         <Field label="Eintrittsdatum" required>
           <input className="hm-input" type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} />
         </Field>
-        <Field label={EMPLOYEE_RULE_FIELD_LABELS.weekly_hours} required={required.has('weekly_hours')} hint={rule?.maxWeeklyHours !== undefined ? `Höchstens ${rule.maxWeeklyHours}` : undefined}>
-          <input className="hm-input" type="number" min={0} max={60} step={0.5} value={weeklyHours} onChange={(e) => setWeeklyHours(e.target.value)} />
+        <Field label={EMPLOYEE_RULE_FIELD_LABELS.weekly_hours} required={required.has('weekly_hours')} hint={rule?.maxWeeklyHours !== undefined ? `Höchstens ${rule.maxWeeklyHours}` : undefined} labelAddon={<HalfStepHint />}>
+          <input className="hm-input" type="number" min={0} max={60} step={1} value={weeklyHours} onChange={(e) => setWeeklyHours(e.target.value)} />
         </Field>
-        <Field label={EMPLOYEE_RULE_FIELD_LABELS.annual_leave_days} required={required.has('annual_leave_days')}>
-          <input className="hm-input" type="number" min={0} max={100} value={leave} onChange={(e) => setLeave(e.target.value)} />
+        <Field label={EMPLOYEE_RULE_FIELD_LABELS.annual_leave_days} required={required.has('annual_leave_days')} labelAddon={<HalfStepHint />}>
+          <input className="hm-input" type="number" min={0} max={100} step={1} value={leave} onChange={(e) => setLeave(e.target.value)} />
         </Field>
         {(required.has('exit_date') || exitDate) && (
           <Field label={EMPLOYEE_RULE_FIELD_LABELS.exit_date} required={required.has('exit_date')}>

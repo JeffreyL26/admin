@@ -10,6 +10,8 @@ paths:
         - { name: department_id, in: query, schema: { type: integer } }
         - { name: team_id, in: query, schema: { type: integer } }
         - { name: location_id, in: query, schema: { type: integer } }
+        - { name: sort, in: query, schema: { type: string, enum: [last_name, first_name, personnel_number, hire_date, job_title, department, employee_type, seniority, location, status, email, phone, manager, weekly_hours, annual_leave_days, exit_date] }, description: "Sortierfeld (Vorgabe last_name); seniority aufsteigend = kuerzeste Betriebszugehoerigkeit zuerst. Leere Werte stehen am Ende." }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc] } }
         - { name: fields, in: query, schema: { type: string, enum: [lite, full] } }
       responses:
         "200": { description: "{ employees: [...] }" }
@@ -202,6 +204,8 @@ paths:
         - { name: employee_id, in: query, schema: { type: integer } }
         - { name: source, in: query, schema: { type: string, enum: [hr, portal] }, description: Herkunft (HR-Upload oder aus dem Portal) }
         - { name: include_superseded, in: query, schema: { type: boolean } }
+        - { name: sort, in: query, schema: { type: string, enum: [title, employee, category, version, expiry, uploaded] }, description: "Sortierspalte; ohne Angabe uploaded absteigend. Leere Werte stehen am Ende." }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc] }, description: "Richtung; mit sort ohne dir aufsteigend." }
         - { name: limit, in: query, schema: { type: integer, minimum: 1 }, description: "Seitengröße, höchstens 500 (größere Werte werden gedeckelt). Ohne limit ungeblättert: alle Treffer, ohne total." }
         - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 }, description: Nur mit limit. Anzahl übersprungener Treffer. }
         - { name: focus_id, in: query, schema: { type: integer }, description: "Nur mit limit. Liefert die Seite, auf der dieses Dokument steht (passt es zu den Filtern); offset der Antwort nennt ihren Beginn." }

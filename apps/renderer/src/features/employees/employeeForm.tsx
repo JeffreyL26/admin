@@ -20,6 +20,7 @@ import { createPhotoThumbnail } from '../../lib/photoThumbnail';
 import { useDepartments, useLocations, usePhotoUrl, useTeams, type EmployeeRow } from './api';
 import { avatarFileId } from './avatarPhoto';
 import { Select } from '../../components/Select';
+import { HalfStepHint } from '../../components/HalfStepHint';
 
 /** Formularzustand: Zahlen als String (Eingabe), Konvertierung erst beim Submit. */
 export interface EmployeeFormState {
@@ -390,6 +391,7 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
       <Field
         label="Wochenstunden"
         required={required.has('weekly_hours')}
+        labelAddon={<HalfStepHint />}
         hint={rule.maxWeeklyHours ? `Maximal ${rule.maxWeeklyHours} Stunden` : undefined}
       >
         <input
@@ -397,18 +399,18 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
           type="number"
           min={0}
           max={60}
-          step={0.5}
+          step={1}
           value={form.weekly_hours}
           onChange={(e) => set({ weekly_hours: e.target.value })}
         />
       </Field>
-      <Field label="Jahresurlaub (Tage)" required={required.has('annual_leave_days')}>
+      <Field label="Jahresurlaub (Tage)" required={required.has('annual_leave_days')} labelAddon={<HalfStepHint />}>
         <input
           className="hm-input"
           type="number"
           min={0}
           max={100}
-          step={0.5}
+          step={1}
           value={form.annual_leave_days}
           onChange={(e) => set({ annual_leave_days: e.target.value })}
         />

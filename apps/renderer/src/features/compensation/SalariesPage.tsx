@@ -22,6 +22,9 @@ import { tourEvent } from '../tours/events';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { parseEuroInput, STATUS_TONES } from './lib';
 import { Select } from '../../components/Select';
+import { SortableTh } from '../../components/SortableTh';
+import { TableScroller } from '../../components/TableScroller';
+import { useTableSort } from '../../lib/useTableSort';
 
 interface SalaryOverviewRow {
   employee_id: number;
@@ -34,6 +37,18 @@ interface SalaryOverviewRow {
   component_count: number;
   last_change: string | null;
 }
+
+/** Sortierbare Spalten der Übersicht (lib/useTableSort.ts). */
+const SALARY_SORT = {
+  name: (r: SalaryOverviewRow) => `${r.last_name} ${r.first_name}`,
+  type: (r: SalaryOverviewRow) => EMPLOYEE_TYPE_LABELS[r.employee_type as EmployeeType] ?? r.employee_type,
+  job_title: (r: SalaryOverviewRow) => r.job_title,
+  gross: (r: SalaryOverviewRow) => r.monthly_gross_cents,
+  components: (r: SalaryOverviewRow) => r.component_count,
+  last_change: (r: SalaryOverviewRow) => r.last_change,
+};
+const SALARY_SORT_DEFAULT = { key: 'name', dir: 'asc' } as const;
+const salaryTieBreak = (r: SalaryOverviewRow) => `${r.last_name} ${r.first_name}`;
 
 interface ComponentRow {
   id: number;
@@ -771,6 +786,11 @@ function EmployeeDetail({
           )}
         </Card>
       </div>
+      <div className="page__foot">
+        <button className="hm-btn hm-btn--secondary" onClick={onBack}>
+          <ArrowLeft size={16} /> {backLabel}
+        </button>
+      </div>
       <ComponentDialog open={componentDialog} onClose={() => setComponentDialog(false)} employeeId={employeeId} />
       <ChangeRequestDialog open={requestDialog} onClose={() => setRequestDialog(false)} presetEmployeeId={employeeId} />
     </>
@@ -793,6 +813,8 @@ export function SalariesPage() {
     queryFn: () => api.get<{ salaries: SalaryOverviewRow[] }>('/api/compensation/salaries'),
     select: (d) => d.salaries,
   });
+
+  const { sort, toggle: sortBy, sorted } = useTableSort('salaries', data, SALARY_SORT, SALARY_SORT_DEFAULT, salaryTieBreak);
 
   if (selected !== null) {
     return (
@@ -835,20 +857,20 @@ export function SalariesPage() {
                 hint="Legen Sie zunächst Mitarbeitende im Personal-Modul an."
               />
             ) : (
-              <div className="hm-table-wrap">
+              <TableScroller>
                 <table className="hm-table">
                   <thead>
                     <tr>
-                      <th>Mitarbeiter:in</th>
-                      <th>Beschäftigung</th>
-                      <th>Position</th>
-                      <th className="num">Monatsbrutto</th>
-                      <th className="num">Komponenten</th>
-                      <th>Letzte Änderung</th>
+                      <SortableTh label="Mitarbeiter:in" sortKey="name" sort={sort} onSort={sortBy} />
+                      <SortableTh label="Beschäftigung" sortKey="type" sort={sort} onSort={sortBy} />
+                      <SortableTh label="Position" sortKey="job_title" sort={sort} onSort={sortBy} />
+                      <SortableTh className="num" label="Monatsbrutto" sortKey="gross" sort={sort} onSort={sortBy} />
+                      <SortableTh className="num" label="Komponenten" sortKey="components" sort={sort} onSort={sortBy} />
+                      <SortableTh label="Letzte Änderung" sortKey="last_change" sort={sort} onSort={sortBy} />
                     </tr>
                   </thead>
                   <tbody>
-                    {(data ?? []).map((r) => (
+                    {(sorted ?? []).map((r) => (
                       <tr key={r.employee_id} className="clickable" onClick={() => setSelected(r.employee_id)}>
                         <td style={{ fontWeight: 600 }}>
                           {r.last_name}, {r.first_name}{' '}
@@ -869,7 +891,7 @@ export function SalariesPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableScroller>
             )}
           </Card>
         </div>

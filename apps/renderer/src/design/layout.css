@@ -297,7 +297,10 @@
 .page {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 36px 56px;
+  /* Als Variable, weil die klebende Tabellen-Scrollleiste (components.css)
+     sonst um genau diesen Abstand über dem Fensterrand stehen bliebe. */
+  --page-pad-bottom: 56px;
+  padding: 32px 36px var(--page-pad-bottom);
 }
 /* Sanftes Einblenden beim Seitenwechsel (Key = Route in AppShell). */
 .page-enter {
@@ -308,6 +311,12 @@
     opacity: 0;
     transform: translateY(7px);
   }
+}
+/* Zweiter Zurück-Knopf unter langen Seiten (Personalakte, Gehaltsdetail). */
+.page__foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
 }
 .page__header {
   display: flex;

@@ -7,7 +7,24 @@ import { assertMayLinkFiles, detachUnreferencedFile, removeDetachedBlob } from '
 import { pageOffsetOf, pageRequest } from '../../core/paging.js';
 import { documentBodySchema, documentCategorySchema, documentPatchSchema } from './validation.js';
 
+/**
+ * Sortierung der Ablage (Spaltenkopf in der Desktop-App). Whitelist, der
+ * Ausdruck geht ins SQL; Vorgabe `uploaded` absteigend ist die bisherige
+ * Reihenfolge. Leere Werte (ohne Person, ohne Ablauf) stehen immer am Ende.
+ */
+const DOCUMENT_SORT_COLUMNS = {
+  title: ['d.title COLLATE NOCASE'],
+  employee: ['e.last_name COLLATE NOCASE', 'e.first_name COLLATE NOCASE'],
+  category: ['d.category'],
+  version: ['d.version'],
+  expiry: ['d.expiry_date'],
+  uploaded: ['d.created_at'],
+} as const;
+type DocumentSortKey = keyof typeof DOCUMENT_SORT_COLUMNS;
+
 const listQuerySchema = z.object({
+  sort: z.enum(Object.keys(DOCUMENT_SORT_COLUMNS) as [DocumentSortKey, ...DocumentSortKey[]]).optional(),
+  dir: z.enum(['asc', 'desc']).optional(),
   search: z.string().trim().optional(),
   category: documentCategorySchema.optional(),
   employee_id: z.coerce.number().int().positive().optional(),
@@ -122,8 +139,22 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     if (!query.include_superseded) {
       where.push('NOT EXISTS(SELECT 1 FROM documents s WHERE s.supersedes_id = d.id)');
     }
-    const sql = `${DOC_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-      ORDER BY d.created_at DESC, d.id DESC`;
+    const sortKey: DocumentSortKey = query.sort ?? 'uploaded';
+    const sortDir = query.dir ?? (query.sort ? 'asc' : 'desc');
+    const isDefaultSort = sortKey === 'uploaded' && sortDir === 'desc';
+    const dirSql = sortDir === 'desc' ? 'DESC' : 'ASC';
+    const sortExprs = DOCUMENT_SORT_COLUMNS[sortKey];
+    const orderSql = isDefaultSort
+      ? 'd.created_at DESC, d.id DESC'
+      : [
+          `CASE WHEN ${sortExprs[0]} IS NULL THEN 1 ELSE 0 END`,
+          ...sortExprs.map((x) => `${x} ${dirSql}`),
+          'd.created_at DESC',
+          'd.id DESC',
+        ].join(', ');
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const sql = `${DOC_SELECT} ${whereSql}
+      ORDER BY ${orderSql}`;
     // Ohne limit ungeblättert wie bisher: Die Personalakte listet alle
     // Dokumente EINER Person samt aller Versionen. Die Ablage blättert; Suche
     // und Filter wirken dabei serverseitig über alle Seiten.
@@ -138,7 +169,17 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
       ).n;
     const total = count([], []);
     let offset = page.offset;
-    if (page.focusId !== null) {
+    if (page.focusId !== null && !isDefaultSort) {
+      // Andere Sortierung: Position über eine Fensterfunktion, nur beim Absprung.
+      const position = getDb()
+        .prepare(
+          `SELECT pos FROM (
+             SELECT d.id, ROW_NUMBER() OVER (ORDER BY ${orderSql}) - 1 AS pos ${DOC_FROM} ${whereSql}
+           ) WHERE id = ?`,
+        )
+        .get([...params, page.focusId]) as { pos: number } | undefined;
+      if (position) offset = pageOffsetOf(position.pos, page.limit);
+    } else if (page.focusId !== null) {
       const focus = getDb()
         .prepare(`SELECT d.created_at ${DOC_FROM} WHERE ${[...where, 'd.id = ?'].join(' AND ')}`)
         .get([...params, page.focusId]) as { created_at: string } | undefined;

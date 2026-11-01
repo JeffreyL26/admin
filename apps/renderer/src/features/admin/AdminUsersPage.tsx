@@ -32,6 +32,9 @@ import { Select } from '../../components/Select';
 import { HintBox } from '../../components/HintBox';
 import { t } from '../setup/copy';
 import { tourEvent } from '../tours/events';
+import { SortableTh } from '../../components/SortableTh';
+import { TableScroller } from '../../components/TableScroller';
+import { useTableSort } from '../../lib/useTableSort';
 
 /**
  * Bereiche, die es in dieser Variante gibt (Modul enthalten). Nur sie vergibt der Rollen-Editor:
@@ -73,6 +76,17 @@ function RoleNotice({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+/** Sortierbare Spalten der Kontenliste (lib/useTableSort.ts). Personalprofil: verknüpft vor nicht verknüpft. */
+const ACCOUNT_SORT = {
+  name: (a: AdminAccount) => a.name,
+  email: (a: AdminAccount) => a.email,
+  access: (a: AdminAccount) => (a.role === 'mitarbeiter' ? 'Portal' : 'HR-Administration'),
+  profile: (a: AdminAccount) => (a.employee_id ? 0 : 1),
+  role: (a: AdminAccount) => (a.role === 'mitarbeiter' ? 'Self-Service' : (a.admin_role_name ?? 'Vollzugriff')),
+};
+const ACCOUNT_SORT_DEFAULT = { key: 'name', dir: 'asc' } as const;
+const accountTieBreak = (a: AdminAccount) => a.name;
 
 const KEY = ['admin', 'admin-roles'];
 const USERS_KEY = ['admin', 'users'];
@@ -136,6 +150,7 @@ function AccountsTab() {
   const { user } = useAuth();
   const leaderGuardHint = useLeaderGuardHint();
   const { data: accounts, isLoading } = useAdminAccounts();
+  const { sort, toggle: sortBy, sorted: sortedAccounts } = useTableSort('accounts', accounts, ACCOUNT_SORT, ACCOUNT_SORT_DEFAULT, accountTieBreak);
   const { data: roles } = useAdminRoles();
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<AdminAccount | null>(null);
@@ -210,20 +225,20 @@ function AccountsTab() {
             <Plus size={15} /> Konto anlegen
           </button>
         </div>
-        <div className="hm-table-wrap">
+        <TableScroller>
           <table className="hm-table">
             <thead>
               <tr>
-                <th>Konto</th>
-                <th>E-Mail</th>
-                <th>Zugang</th>
-                <th>Personalprofil</th>
-                <th>Rolle</th>
+                <SortableTh label="Konto" sortKey="name" sort={sort} onSort={sortBy} />
+                <SortableTh label="E-Mail" sortKey="email" sort={sort} onSort={sortBy} />
+                <SortableTh label="Zugang" sortKey="access" sort={sort} onSort={sortBy} />
+                <SortableTh label="Personalprofil" sortKey="profile" sort={sort} onSort={sortBy} />
+                <SortableTh label="Rolle" sortKey="role" sort={sort} onSort={sortBy} />
                 <th style={{ width: 96 }}>Aktionen</th>
               </tr>
             </thead>
             <tbody>
-              {(accounts ?? []).map((a) => {
+              {(sortedAccounts ?? []).map((a) => {
                 const self = a.id === user?.id;
                 const portal = a.role === 'mitarbeiter';
                 const tourTarget = !portal && !self && a.id === tourTargetId;
@@ -361,7 +376,7 @@ function AccountsTab() {
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroller>
         <div
           style={{
             display: 'flex',

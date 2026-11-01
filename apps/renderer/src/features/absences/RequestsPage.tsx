@@ -2,7 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalendarPlus, Check, Inbox, X } from 'lucide-react';
-import { formatDate, ABSENCE_STATUS_LABELS, type AbsenceRequest, type AbsenceRequestStatus } from '@ohrganize/shared';
+import {
+  formatDate,
+  nextSort,
+  parseSortState,
+  ABSENCE_STATUS_LABELS,
+  type AbsenceRequest,
+  type AbsenceRequestStatus,
+  type SortState,
+} from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs, type BadgeTone } from '../../components/ui';
 import { Modal, ConfirmDialog } from '../../components/Modal';
@@ -14,6 +22,9 @@ import { useFocusRow } from '../../lib/focusRow';
 import { useAuth } from '../../auth/AuthContext';
 import {
   balanceExceededQuestion,
+  REQUEST_SORT_DEFAULT,
+  REQUEST_SORT_KEYS,
+  type RequestSortKey,
   useAbsenceRequestPage,
   useAbsenceRequests,
   useAbsenceTypes,
@@ -24,6 +35,10 @@ import { RequestDialog } from './RequestDialog';
 import { Select } from '../../components/Select';
 import { Pagination, usePageState } from '../../components/Pagination';
 import { YearSelect } from './YearSelect';
+import { SortableTh } from '../../components/SortableTh';
+import { TableScroller } from '../../components/TableScroller';
+import { useTableSort } from '../../lib/useTableSort';
+import { readJson, writeJson } from '../../lib/localStore';
 
 const STATUS_TONES: Record<AbsenceRequestStatus, BadgeTone> = {
   beantragt: 'yellow',
@@ -126,28 +141,51 @@ function useRequestActions(
   return { approve, reject, cancel };
 }
 
+/** Sortierwerte der Antragsliste je Spalte; dieselben Schlüssel sortiert das Backend für „Alle Anträge“. */
+const STATUS_RANK: Record<AbsenceRequestStatus, number> = { beantragt: 0, genehmigt: 1, abgelehnt: 2, storniert: 3 };
+const REQUEST_SORT = {
+  employee: (r: AbsenceRequest) => `${r.last_name} ${r.first_name}`,
+  type: (r: AbsenceRequest) => r.type_name,
+  period: (r: AbsenceRequest) => r.date_from,
+  days: (r: AbsenceRequest) => r.days_counted,
+  status: (r: AbsenceRequest) => STATUS_RANK[r.status],
+};
+const requestTieBreak = (r: AbsenceRequest) => r.date_from;
+
+/** Serverseitig sortierte Liste („Alle Anträge“): Stand je Gerät wie bei useTableSort. */
+const ALL_REQUESTS_SORT_KEY = 'ohrganize.tableSort.allRequests';
+
+function loadAllRequestsSort(): SortState<RequestSortKey> {
+  return parseSortState(readJson(ALL_REQUESTS_SORT_KEY), REQUEST_SORT_KEYS, REQUEST_SORT_DEFAULT);
+}
+
 function RequestRows({
   requests,
   actions,
   focusId,
   stale = false,
+  sort,
+  onSort,
 }: {
   requests: AbsenceRequest[];
   actions: (r: AbsenceRequest) => React.ReactNode;
   focusId: number | null;
   /** Alte Seite, während die nächste lädt: gedimmt. */
   stale?: boolean;
+  sort: SortState<RequestSortKey>;
+  onSort: (key: RequestSortKey) => void;
 }) {
   return (
-    <div className={`hm-table-wrap${stale ? ' hm-table-wrap--stale' : ''}`}>
+    <div className={stale ? 'hm-table-wrap--stale' : undefined}>
+    <TableScroller>
       <table className="hm-table">
         <thead>
           <tr>
-            <th>Mitarbeiter:in</th>
-            <th>Art</th>
-            <th>Zeitraum</th>
-            <th className="num">Tage</th>
-            <th>Status</th>
+            <SortableTh label="Mitarbeiter:in" sortKey="employee" sort={sort} onSort={onSort} />
+            <SortableTh label="Art" sortKey="type" sort={sort} onSort={onSort} />
+            <SortableTh label="Zeitraum" sortKey="period" sort={sort} onSort={onSort} />
+            <SortableTh className="num" label="Tage" sortKey="days" sort={sort} onSort={onSort} />
+            <SortableTh label="Status" sortKey="status" sort={sort} onSort={onSort} />
             <th>Kommentar</th>
             <th></th>
           </tr>
@@ -206,6 +244,7 @@ function RequestRows({
           ))}
         </tbody>
       </table>
+    </TableScroller>
     </div>
   );
 }
@@ -282,7 +321,14 @@ function OpenRequestsTab({ focusId }: { focusId: number | null }) {
   const [rejecting, setRejecting] = useState<AbsenceRequest | null>(null);
   const [cancelling, setCancelling] = useState<AbsenceRequest | null>(null);
 
-  const list = requests ?? [];
+  const { sort, toggle: sortBy, sorted } = useTableSort(
+    'openRequests',
+    requests,
+    REQUEST_SORT,
+    REQUEST_SORT_DEFAULT,
+    requestTieBreak,
+  );
+  const list = sorted ?? [];
   // Eigene Anträge bleiben sichtbar, sind für die angemeldete Person aber nichts
   // zu Erledigendes — die Kopfzeile nennt deshalb beide Zahlen, damit niemand
   // vergeblich auf eine Schaltfläche wartet.
@@ -317,6 +363,8 @@ function OpenRequestsTab({ focusId }: { focusId: number | null }) {
           <RequestRows
             requests={list}
             focusId={focusId}
+            sort={sort}
+            onSort={sortBy}
             actions={(r) =>
               isOwnRequest(r) ? (
                 <>
@@ -427,6 +475,13 @@ function AllRequestsTab({ focusId }: { focusId: number | null }) {
     setFilters((f) => ({ ...f, ...patch }));
     paging.reset();
   };
+  const [sort, setSort] = useState<SortState<RequestSortKey>>(loadAllRequestsSort);
+  const sortBy = (key: RequestSortKey) => {
+    const next = nextSort(sort, key);
+    setSort(next);
+    writeJson(ALL_REQUESTS_SORT_KEY, next);
+    paging.reset();
+  };
   const { status, typeId, employeeId, from, to } = filters;
   const { data, isLoading, isPlaceholderData } = useAbsenceRequestPage(
     {
@@ -437,6 +492,7 @@ function AllRequestsTab({ focusId }: { focusId: number | null }) {
       to: to || undefined,
     },
     paging.query,
+    sort,
   );
   useEffect(() => {
     if (data && !isPlaceholderData) {
@@ -527,6 +583,8 @@ function AllRequestsTab({ focusId }: { focusId: number | null }) {
               requests={requests}
               focusId={focusId}
               stale={isPlaceholderData}
+              sort={sort}
+              onSort={sortBy}
               actions={(r) =>
                 r.status === 'beantragt' || r.status === 'genehmigt' ? (
                   <button className="hm-btn hm-btn--sm hm-btn--ghost" onClick={() => setCancelling(r)}>

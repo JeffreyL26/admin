@@ -7,6 +7,7 @@ import { Field } from '../../components/ui';
 import { FilePicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
 import { Select } from '../../components/Select';
+import { HalfStepHint } from '../../components/HalfStepHint';
 
 interface ContractForm {
   contract_type: ContractType;
@@ -165,24 +166,24 @@ export function ContractModal({
             onChange={(e) => set({ notice_period_weeks: e.target.value })}
           />
         </Field>
-        <Field label="Wochenstunden" hint="Wird auf die Stammdaten gespiegelt">
+        <Field label="Wochenstunden" hint="Wird auf die Stammdaten gespiegelt" labelAddon={<HalfStepHint />}>
           <input
             className="hm-input"
             type="number"
             min={0}
             max={60}
-            step={0.5}
+            step={1}
             value={form.weekly_hours}
             onChange={(e) => set({ weekly_hours: e.target.value })}
           />
         </Field>
-        <Field label="Jahresurlaub (Tage)" hint="Wird auf die Stammdaten gespiegelt">
+        <Field label="Jahresurlaub (Tage)" hint="Wird auf die Stammdaten gespiegelt" labelAddon={<HalfStepHint />}>
           <input
             className="hm-input"
             type="number"
             min={0}
             max={100}
-            step={0.5}
+            step={1}
             value={form.annual_leave_days}
             onChange={(e) => set({ annual_leave_days: e.target.value })}
           />

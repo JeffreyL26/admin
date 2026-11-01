@@ -48,10 +48,33 @@ function HarmonyBackdrop() {
   );
 }
 
+/**
+ * Zuletzt erfolgreich angemeldete Adresse, je Browser. Nur die Adresse, nie
+ * das Passwort.
+ */
+const LAST_LOGIN_KEY = 'ohrganize.portal.lastLogin';
+
+function readLastLogin(): string {
+  try {
+    return localStorage.getItem(LAST_LOGIN_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function writeLastLogin(email: string): void {
+  try {
+    localStorage.setItem(LAST_LOGIN_KEY, email);
+  } catch {
+    // Kein Speicher: Beim nächsten Mal bleibt das Feld leer.
+  }
+}
+
 export function LoginPage() {
   const { user, loading, login, notice } = useAuth();
   const location = useLocation();
-  const [email, setEmail] = useState('');
+  const [remembered] = useState(readLastLogin);
+  const [email, setEmail] = useState(remembered);
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -67,6 +90,7 @@ export function LoginPage() {
     setError(null);
     try {
       await login(email, password);
+      writeLastLogin(email.trim());
     } catch (err) {
       setError(
         err instanceof ApiRequestError || err instanceof Error
@@ -110,7 +134,7 @@ export function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="E-Mail"
               autoComplete="username"
-              autoFocus
+              autoFocus={!remembered}
               required
             />
           </Field>
@@ -121,6 +145,7 @@ export function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
+              autoFocus={Boolean(remembered)}
               required
             />
           </Field>
