@@ -67,8 +67,12 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [halfEnd, setHalfEnd] = useState(false);
   const [comment, setComment] = useState('');
   const [approve, setApprove] = useState(false);
-  /** Tatsächliche Arbeitstage bei flexibler Arbeitswoche; '' = Vorschlag übernehmen. */
-  const [daysOverride, setDaysOverride] = useState('');
+  /**
+   * Tatsächliche Arbeitstage bei flexibler Arbeitswoche; '' = Vorschlag
+   * übernehmen. Gilt nur für Person und Zeitraum, zu denen sie eingetragen
+   * wurde (`span`): Danach zählt wieder der neue Vorschlag.
+   */
+  const [override, setOverride] = useState({ span: '', value: '' });
   const [balanceWarning, setBalanceWarning] = useState<BalanceExceededDetails | null>(null);
   const selectedType = activeTypes.find((t) => t.id === typeId) ?? null;
   const needsApproval = selectedType ? selectedType.requires_approval === 1 : true;
@@ -79,6 +83,9 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
   // Start; sonst bliebe nach einer Datumsänderung die ungültige Kombination
   // stehen, obwohl die Checkbox-Handler sie beim Anhaken ausschließen.
   const effectiveHalfEnd = halfEnd && !sameDay;
+  const span = `${employeeId}|${dateFrom}|${dateTo}|${halfStart}|${effectiveHalfEnd}`;
+  const daysOverride = override.span === span ? override.value : '';
+  const setDaysOverride = (value: string) => setOverride({ span, value });
 
   const preview = useDaysPreview(employeeId, dateFrom, dateTo, halfStart, effectiveHalfEnd);
 

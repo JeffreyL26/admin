@@ -443,6 +443,34 @@ check(
   typedContract.json().contract.employee_type === 'teilzeit',
   typedContract.json().contract,
 );
+// Wechsel im Personalformular, danach eine Korrektur der Version, die wie der
+// Dialog alle Felder mitschickt: Unveraenderte Altwerte spiegeln nicht zurueck.
+{
+  const retyped = await app.inject({
+    method: 'PATCH',
+    url: `/api/employees/${empId}`,
+    headers: auth,
+    payload: { employee_type: 'vollzeit', weekly_hours: 40 },
+  });
+  const corrected = await app.inject({
+    method: 'PATCH',
+    url: `/api/contracts/${typedContract.json().contract.id as number}`,
+    headers: auth,
+    payload: { employee_type: 'teilzeit', weekly_hours: 30, notice_period_weeks: 6 },
+  });
+  const after = (await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: auth })).json().employee;
+  check(
+    'Vertragskorrektur setzt die Beschaeftigungsart nicht still zurueck',
+    retyped.statusCode === 200 && corrected.statusCode === 200 && after.employee_type === 'vollzeit' && after.weekly_hours === 40,
+    { retyped: retyped.json(), corrected: corrected.json(), after },
+  );
+  await app.inject({
+    method: 'PATCH',
+    url: `/api/employees/${empId}`,
+    headers: auth,
+    payload: { employee_type: 'teilzeit', weekly_hours: 30 },
+  });
+}
 const dashboardDeadlines = await app.inject({ method: 'GET', url: '/api/dashboard', headers: auth });
 check(
   'Dashboard liefert personnel_deadlines',
@@ -506,13 +534,26 @@ check(
   check('Ohne Recht: andere Felder speichern weiter → 200', noneOther.statusCode === 200, noneOther.json());
 
   // Zusatzurlaub im Saldo: benannt nur mit dem Recht (Bereich Abwesenheit fehlt
-  // den Rollen oben, deshalb der Vollzugriff als Gegenprobe).
+  // den Rollen oben, deshalb der Vollzugriff als Gegenprobe). Er bemisst sich
+  // an der Arbeitswoche, ohne sie gibt es keinen.
   const year = new Date().getFullYear();
-  const fullBalance = await app.inject({ method: 'GET', url: `/api/absences/balance/${empId}/${year}`, headers: auth });
+  const balanceDetail = async () =>
+    (await app.inject({ method: 'GET', url: `/api/absences/balance/${empId}/${year}`, headers: auth })).json().balance
+      ?.entitlement_detail as { disability: number; statutory_known: boolean } | undefined;
+  const withoutWeek = await balanceDetail();
+  const weekBackup = getDb().prepare('SELECT work_weekdays, work_days_per_week FROM employees WHERE id = ?').get(empId) as {
+    work_weekdays: string | null;
+    work_days_per_week: number | null;
+  };
+  getDb().prepare("UPDATE employees SET work_weekdays = '1,2,3,4,5', work_days_per_week = 5 WHERE id = ?").run(empId);
+  const withWeek = await balanceDetail();
+  getDb()
+    .prepare('UPDATE employees SET work_weekdays = ?, work_days_per_week = ? WHERE id = ?')
+    .run(weekBackup.work_weekdays, weekBackup.work_days_per_week, empId);
   check(
-    'Saldo mit Vollzugriff nennt den Zusatzurlaub',
-    (fullBalance.json().balance?.entitlement_detail?.disability ?? 0) > 0,
-    fullBalance.json().balance?.entitlement_detail,
+    'Saldo mit Vollzugriff nennt den Zusatzurlaub, nur mit bekannter Arbeitswoche',
+    withWeek?.disability === 5 && (withoutWeek?.statutory_known || withoutWeek?.disability === 0),
+    { withWeek, withoutWeek },
   );
   await setDegree(authEdit, { disability_degree: null, disability_valid_until: null });
 }
@@ -582,6 +623,28 @@ check(
   );
   const bulk = await app.inject({ method: 'POST', url: '/api/employees/bulk', headers: hr, payload: { ids: [empId], set: { weekly_hours: 30 } } });
   check('Leitungsebene: Massenbearbeitung ohne Recht → 403', bulk.statusCode === 403, bulk.json());
+
+  // Sortieren nach einem verborgenen Wert verraet ihn nicht: Ohne das Recht
+  // steht die Person bei den leeren Werten, mit ihm an ihrem Platz.
+  const otherId = (getDb().prepare('SELECT id FROM employees WHERE id != ? ORDER BY id LIMIT 1').get(empId) as { id: number }).id;
+  const exitBackup = getDb()
+    .prepare('SELECT id, exit_date FROM employees WHERE id IN (?, ?)')
+    .all(empId, otherId) as { id: number; exit_date: string | null }[];
+  getDb().prepare("UPDATE employees SET exit_date = '2000-01-31' WHERE id = ?").run(empId);
+  getDb().prepare("UPDATE employees SET exit_date = '2030-01-31' WHERE id = ?").run(otherId);
+  const sortedIds = async (headers: Record<string, string>) =>
+    ((await app.inject({ method: 'GET', url: '/api/employees?sort=exit_date&dir=asc', headers })).json().employees as { id: number }[]).map(
+      (e) => e.id,
+    );
+  const hrOrder = await sortedIds(hr);
+  const chiefOrder = await sortedIds(chiefRead);
+  check(
+    'Leitungsebene: Sortierung nach verborgenem Austritt stellt die Person zu den leeren Werten',
+    hrOrder.indexOf(empId) > hrOrder.indexOf(otherId) && chiefOrder.indexOf(empId) < chiefOrder.indexOf(otherId),
+    { hrOrder, chiefOrder },
+  );
+  const restoreExit = getDb().prepare('UPDATE employees SET exit_date = ? WHERE id = ?');
+  for (const r of exitBackup) restoreExit.run(r.exit_date, r.id);
 
   const readDetail = await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: chiefRead });
   check('Leitungsebene: mit Lesen voll lesbar', readDetail.json().employee.restricted === undefined, readDetail.json());

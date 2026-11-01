@@ -113,6 +113,12 @@ const equal = leaveEntitlementFor({ ...base, disability_degree: 40, disability_e
 check('Gleichstellung: kein Zusatzurlaub', equal.disability === 0, equal);
 const disabledLate = leaveEntitlementFor({ ...base, hire_date: '2026-10-01', disability_degree: 60 }, 2026);
 check('Zusatzurlaub unterjaehrig: 3/12 von 5 = 1,25', disabledLate.disability === 1.25, disabledLate);
+const disabledUnknown = leaveEntitlementFor({ ...base, days_per_week: null, annual_leave_days: 0, disability_degree: 50 }, 2026);
+check(
+  'Zusatzurlaub ohne bekannte Woche (freie Mitarbeit, Teilzeit ohne Angabe): keiner',
+  disabledUnknown.disability === 0 && disabledUnknown.total === 0,
+  disabledUnknown,
+);
 
 check('vor dem Eintritt: nichts', leaveEntitlementFor({ ...base, hire_date: '2027-03-01' }, 2026).total === 0);
 check('nach dem Austritt: nichts', leaveEntitlementFor({ ...base, exit_date: '2025-12-31' }, 2026).total === 0);

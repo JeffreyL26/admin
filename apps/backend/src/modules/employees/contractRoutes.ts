@@ -29,6 +29,9 @@ const CONTRACT_COLUMNS = [
   'weekly_hours', 'annual_leave_days', 'fixed_term_reason', 'document_file_id', 'note',
 ] as const;
 
+/** Felder, die die aktuelle Version auf employees spiegelt (mirrorToEmployee). */
+const MIRRORED_COLUMNS = ['weekly_hours', 'annual_leave_days', 'employee_type'] as const;
+
 function assertEmployee(id: number): void {
   const row = getDb().prepare('SELECT id FROM employees WHERE id = ?').get(id);
   if (!row) throw notFound('Mitarbeiter:in nicht gefunden');
@@ -254,8 +257,14 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         ...cols.map((c) => patch[c] ?? null),
         id,
       );
+      // Nur spiegeln, was diese Korrektur aendert: Die Stammdaten koennen seit
+      // dem Anlegen der Version abweichen (Personalformular), und ein
+      // unveraenderter Altwert setzte sie sonst still zurueck.
       if (isCurrent({ valid_to: merged.valid_to ?? null }, today)) {
-        mirrorToEmployee(existing.employee_id, merged);
+        const changed = Object.fromEntries(
+          MIRRORED_COLUMNS.filter((c) => patch[c] !== undefined && patch[c] !== existing[c]).map((c) => [c, patch[c]]),
+        );
+        mirrorToEmployee(existing.employee_id, changed);
       }
       audit(req, 'update', 'contract', id, {
         employee_id: existing.employee_id,

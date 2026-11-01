@@ -978,6 +978,87 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     check('Arbeitswoche: Betriebsruhe laesst Tage von Hand stehen', after.days_counted === 2 && after.days_manual === 1, after);
   }
 
+  // Ausschnitte eines Antrags (bis heute, ab morgen) ergeben zusammen die
+  // gespeicherten Tage, statt einzeln zu runden. 07. bis 11.12.2026: Mo bis
+  // Fr ohne Feiertag, bei zwei Tagen je Woche ein Vorschlag von 2.
+  {
+    const { computeBalance, countAbsenceDays } = await import('./service.js');
+    type Place = Parameters<typeof countAbsenceDays>[0]['place'];
+    const flexPlace = { country: 'DE', region: 'BY', schedule: { daysPerWeek: 2, weekdays: null } } as Place;
+    const week = { place: flexPlace, dateFrom: '2026-12-07', dateTo: '2026-12-11', closures: new Set<string>() };
+    const parts = [countAbsenceDays({ ...week, clipTo: '2026-12-07' }), countAbsenceDays({ ...week, clipFrom: '2026-12-08' })];
+    check(
+      'Flexible Woche: Ausschnitte ergeben zusammen den Vorschlag',
+      countAbsenceDays(week) === 2 && Math.round((parts[0] + parts[1]) * 100) === 200,
+      parts,
+    );
+    const doraRow = db.prepare('SELECT * FROM employees WHERE id = ?').get(dora) as Parameters<typeof computeBalance>[0];
+    for (const [stored, manual] of [[2, 0], [3, 1]] as const) {
+      const b = computeBalance(doraRow, 2026, '2026-12-07', {
+        place: flexPlace,
+        carryoverDeadline: '03-31',
+        closures: new Set(),
+        requests: [
+          { date_from: '2026-12-07', date_to: '2026-12-11', half_day_start: 0, half_day_end: 0, status: 'genehmigt', days_manual: manual, days_counted: stored },
+        ],
+      });
+      check(
+        `Flexible Woche: genommen und geplant ergeben die gespeicherten ${stored} Tage`,
+        b.taken > 0 && Math.round((b.taken + b.planned) * 100) === stored * 100,
+        { taken: b.taken, planned: b.planned },
+      );
+    }
+  }
+
+  // Eine neue Arbeitswoche zaehlt kommende Antraege neu; vergangene bleiben,
+  // wie sie gezaehlt wurden (sonst aenderte sie genommene Tage rueckwirkend).
+  {
+    const { countAbsenceDays, regionForEmployee } = await import('./service.js');
+    const { todayIso, addDaysIso } = await import('../../core/dates.js');
+    const { isoWeekday } = await import('@ohrganize/shared');
+    const today = todayIso();
+    const mondayIn = (weeks: number) => addDaysIso(today, 1 - isoWeekday(today) + 7 * weeks);
+    const emil = Number(
+      db
+        .prepare(
+          `INSERT INTO employees (first_name, last_name, status, hire_date, annual_leave_days, location_id, department_id,
+                                  employee_type, weekly_hours, iban, tax_class, social_security_number,
+                                  work_weekdays, work_days_per_week)
+           VALUES ('Emil', 'Eck', 'aktiv', '2020-01-01', 30, 1, 1,
+                   'vollzeit', 40, 'DE02120300000000202051', 'I', '12 010190 E 123', '1,2,3,4,5', 5)`,
+        )
+        .run().lastInsertRowid,
+    );
+    const capture = (weeks: number) =>
+      post('/api/absences/requests', {
+        employee_id: emil,
+        type_id: urlaubType.id,
+        date_from: mondayIn(weeks),
+        date_to: addDaysIso(mondayIn(weeks), 4),
+        approve: true,
+      });
+    const past = await capture(-3);
+    const upcoming = await capture(3);
+    const daysOf = (id: number) =>
+      (db.prepare('SELECT days_counted FROM absence_requests WHERE id = ?').get(id) as { days_counted: number }).days_counted;
+    const pastId = past.json().request?.id as number;
+    const upcomingId = upcoming.json().request?.id as number;
+    const pastBefore = pastId ? daysOf(pastId) : -1;
+    const upcomingBefore = upcomingId ? daysOf(upcomingId) : -1;
+    const patched = await app.inject({ method: 'PATCH', url: `/api/employees/${emil}`, headers: auth, payload: { work_weekdays: '1,2' } });
+    const expected = countAbsenceDays({ place: regionForEmployee(emil), dateFrom: mondayIn(3), dateTo: addDaysIso(mondayIn(3), 4) });
+    check(
+      'Arbeitswoche: neue Woche zaehlt kommende Antraege neu, vergangene bleiben',
+      past.statusCode === 201 &&
+        upcoming.statusCode === 201 &&
+        patched.statusCode === 200 &&
+        daysOf(pastId) === pastBefore &&
+        daysOf(upcomingId) === expected &&
+        expected < upcomingBefore,
+      { past: past.json(), upcoming: upcoming.json(), patched: patched.statusCode, pastBefore, upcomingBefore, expected },
+    );
+  }
+
   // ------------------------------------------------------- Home Office ---
   // Muster Di (2) und Do (4); 01.12.2026 ist ein Dienstag, 02.12. ein Mittwoch.
   const pattern = await patchEmp({ home_office_weekdays: '4,2' });
@@ -1003,9 +1084,9 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
   );
   const back = await post('/api/absences/home-office', { employee_id: dora, date: '2026-12-01', home_office: true });
   check('Home Office: zurueck zum Muster entfernt die Ausnahme', back.json().exception === null, back.json());
-  const removed = await app.inject({ method: 'DELETE', url: `/api/absences/home-office/${dora}/2026-12-02`, headers: auth });
+  const removed = await post('/api/absences/home-office', { employee_id: dora, date: '2026-12-02', home_office: false });
   const left = db.prepare('SELECT COUNT(*) AS n FROM home_office_exceptions WHERE employee_id = ?').get(dora) as { n: number };
-  check('Home Office: Ausnahme loeschen → 204, keine mehr', removed.statusCode === 204 && left.n === 0, left);
+  check('Home Office: zurueck zum Buerotag entfernt die Ausnahme, keine mehr', removed.json().exception === null && left.n === 0, left);
 }
 
 await app.close();

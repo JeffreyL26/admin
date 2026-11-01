@@ -5,6 +5,7 @@ import { parse, badRequest, conflict, notFound } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
 import { isValidIsoDate } from '../../core/dates.js';
 import { assertMayLinkFiles, deleteFileIfUnreferenced } from '../../core/files.js';
+import { assertExecutiveAccess, executiveFilterSql } from '../../core/executiveGate.js';
 import { getEmployee } from './lib.js';
 
 const isoDate = z
@@ -44,8 +45,9 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/compensation/freelancer-rates', async (req) => {
     const { employee_id } = req.query as { employee_id?: string };
-    const where = employee_id ? 'WHERE r.employee_id = ?' : '';
-    const params = employee_id ? [Number(employee_id)] : [];
+    const executive = executiveFilterSql(req);
+    const where = `WHERE ${executive.sql}${employee_id ? ' AND r.employee_id = ?' : ''}`;
+    const params = [...executive.params, ...(employee_id ? [Number(employee_id)] : [])];
     const rates = getDb()
       .prepare(
         `SELECT r.*, e.first_name, e.last_name FROM freelancer_rates r
@@ -59,6 +61,7 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/compensation/freelancer-rates', async (req, reply) => {
     const body = parse(rateSchema, req.body);
     assertFreelancer(body.employee_id);
+    assertExecutiveAccess(req, body.employee_id, 'bearbeiten');
     // Satz und Audit-Eintrag in einem Commit: Ein Absturz dazwischen hinterliesse
     // sonst eine Änderung ohne Protokoll.
     const rate = inTransaction(() => {
@@ -83,6 +86,7 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
       | { employee_id: number }
       | undefined;
     if (!existing) throw notFound('Honorarsatz nicht gefunden');
+    assertExecutiveAccess(req, existing.employee_id, 'bearbeiten');
     const body = parse(rateSchema.omit({ employee_id: true }), req.body);
     inTransaction(() => {
       getDb()
@@ -97,8 +101,11 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/api/compensation/freelancer-rates/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const existing = getDb().prepare('SELECT * FROM freelancer_rates WHERE id = ?').get(id);
+    const existing = getDb().prepare('SELECT * FROM freelancer_rates WHERE id = ?').get(id) as
+      | { employee_id: number }
+      | undefined;
     if (!existing) throw notFound('Honorarsatz nicht gefunden');
+    assertExecutiveAccess(req, existing.employee_id, 'bearbeiten');
     inTransaction(() => {
       getDb().prepare('DELETE FROM freelancer_rates WHERE id = ?').run(id);
       audit(req, 'freelancer_rate.delete', 'freelancer_rate', id);
@@ -110,8 +117,9 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/compensation/freelancer-invoices', async (req) => {
     const { status, employee_id } = req.query as { status?: string; employee_id?: string };
-    const conditions: string[] = [];
-    const params: unknown[] = [];
+    const executive = executiveFilterSql(req);
+    const conditions: string[] = [executive.sql];
+    const params: unknown[] = [...executive.params];
     if (status) {
       conditions.push('i.status = ?');
       params.push(status);
@@ -120,7 +128,7 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
       conditions.push('i.employee_id = ?');
       params.push(Number(employee_id));
     }
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
     const invoices = getDb()
       .prepare(
         `SELECT i.*, e.first_name, e.last_name FROM freelancer_invoices i
@@ -128,19 +136,23 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
          ${where} ORDER BY i.invoice_date DESC, i.id DESC`,
       )
       .all(...params);
-    // Offene-Posten-Summe (alles außer 'bezahlt').
+    // Offene-Posten-Summe (alles außer 'bezahlt'), ohne die Rechnungen, die
+    // das Konto nicht sieht: Die Summe verriete sonst deren Betraege.
     const open = getDb()
       .prepare(
-        `SELECT COUNT(*) AS open_count, COALESCE(SUM(amount_cents), 0) AS open_cents
-         FROM freelancer_invoices WHERE status != 'bezahlt'`,
+        `SELECT COUNT(*) AS open_count, COALESCE(SUM(i.amount_cents), 0) AS open_cents
+         FROM freelancer_invoices i
+         JOIN employees e ON e.id = i.employee_id
+         WHERE i.status != 'bezahlt' AND ${executive.sql}`,
       )
-      .get() as { open_count: number; open_cents: number };
+      .get(...executive.params) as { open_count: number; open_cents: number };
     return { invoices, open_count: open.open_count, open_cents: open.open_cents };
   });
 
   app.post('/api/compensation/freelancer-invoices', async (req, reply) => {
     const body = parse(invoiceSchema, req.body);
     assertFreelancer(body.employee_id);
+    assertExecutiveAccess(req, body.employee_id, 'bearbeiten');
     const duplicate = getDb()
       .prepare('SELECT 1 FROM freelancer_invoices WHERE employee_id = ? AND invoice_number = ?')
       .get(body.employee_id, body.invoice_number);
@@ -197,6 +209,7 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
       | { id: number; employee_id: number; invoice_number: string; status: string; amount_cents: number }
       | undefined;
     if (!invoice) throw notFound('Rechnung nicht gefunden');
+    assertExecutiveAccess(req, invoice.employee_id, 'bearbeiten');
     const allowed: Record<string, string[]> = {
       offen: ['geprueft'],
       geprueft: ['bezahlt'],
@@ -229,9 +242,10 @@ export async function freelancerRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/compensation/freelancer-invoices/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
     const invoice = getDb().prepare('SELECT * FROM freelancer_invoices WHERE id = ?').get(id) as
-      | { status: string; file_id: number | null }
+      | { employee_id: number; status: string; file_id: number | null }
       | undefined;
     if (!invoice) throw notFound('Rechnung nicht gefunden');
+    assertExecutiveAccess(req, invoice.employee_id, 'bearbeiten');
     if (invoice.status !== 'offen') {
       throw conflict('Nur offene Rechnungen können gelöscht werden');
     }

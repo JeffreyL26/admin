@@ -12,20 +12,20 @@ import {
   isScheduledDay,
   maskDisabilityEntitlement,
   nextWorkdayIso,
-  permits,
   type EntitlementDetail,
   workScheduleOf,
   type CountryCode,
   type RegionCode,
 } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
-import { permissionsFor } from '../../core/permissions.js';
+import { mayDisability } from '../employees/disability.js';
 import { homeOfficeExceptionsByEmployee, homeOfficeRoutes } from './homeOfficeRoutes.js';
 import {
   allowedTypeIdsFor,
   assertBalanceCovers,
   assertSpanWithinLimit,
   closureDates,
+  closuresCovering,
   computeBalance,
   assertNotOwnEmployee,
   countAbsenceDays,
@@ -207,8 +207,7 @@ const requestSortSchema = z.object({
  * vertraglichen Teil (die Summe bleibt, shared/disability.ts).
  */
 function withDisabilityShown<T extends { entitlement_detail: EntitlementDetail }>(req: FastifyRequest, balance: T): T {
-  const user = req.user as { admin_role_id?: number | null };
-  if (permits(permissionsFor(user.admin_role_id ?? null).schwerbehinderung, 'lesen')) return balance;
+  if (mayDisability(req, 'lesen')) return balance;
   return { ...balance, entitlement_detail: maskDisabilityEntitlement(balance.entitlement_detail) };
 }
 
@@ -719,7 +718,6 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     // 5 Jahre zurück); je Person überzählige Zeilen clippen sich dort zu 0.
     const spanFrom = `${y - 5}-01-01`;
     const spanTo = `${y}-12-31`;
-    const closures = closureDates(spanFrom, spanTo);
     const requestRows = db()
       .prepare(
         `SELECT r.employee_id, r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status,
@@ -730,6 +728,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
            AND r.date_from <= ? AND r.date_to >= ?`,
       )
       .all([spanTo, spanFrom]) as (BalanceRequestRow & { employee_id: number })[];
+    const closures = closuresCovering(requestRows, spanFrom, spanTo);
     const requestsByEmployee = new Map<number, BalanceRequestRow[]>();
     for (const r of requestRows) {
       const list = requestsByEmployee.get(r.employee_id);
@@ -837,17 +836,17 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
 
     // Betriebsruhetage EINMAL für die Spanne aller gezählten Zeiträume statt
     // einer Abfrage je Zeile (countAbsenceDays ohne `closures` lädt selbst).
-    // Gezählt wird je Zeile date_from bis min(date_to, heute), und die Zählung
-    // fragt nur `has` für Tage dieses Zeitraums; die Tage außerhalb, die das
-    // gemeinsame Set mehr enthält, ändern das Ergebnis also nicht. Zeilen, die
-    // erst nach heute beginnen, zählen 0, bevor die Betriebsruhe gefragt wird.
+    // Gezählt wird je Zeile date_from bis min(date_to, heute); bei flexibler
+    // Woche ist das ein Anteil am ganzen Zeitraum, deshalb deckt das Set den
+    // ganzen Zeitraum jeder begonnenen Zeile ab. Die Zählung fragt nur `has`,
+    // Tage außerhalb ändern das Ergebnis also nicht. Zeilen, die erst nach
+    // heute beginnen, zählen 0, bevor die Betriebsruhe gefragt wird.
     let spanFrom: string | null = null;
     let spanTo: string | null = null;
     for (const row of rows) {
-      const to = row.date_to < today ? row.date_to : today;
-      if (row.date_from > to) continue;
+      if (row.date_from > today) continue;
       if (spanFrom === null || row.date_from < spanFrom) spanFrom = row.date_from;
-      if (spanTo === null || to > spanTo) spanTo = to;
+      if (spanTo === null || row.date_to > spanTo) spanTo = row.date_to;
     }
     const closures = spanFrom !== null && spanTo !== null ? closureDates(spanFrom, spanTo) : new Set<string>();
 

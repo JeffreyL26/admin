@@ -56,16 +56,20 @@ const ALL_DETAIL_TABS: { key: string; label: string; area?: AdminArea }[] = [
   { key: 'verguetung', label: 'Vergütung', area: 'verguetung' },
 ];
 
+/** Tabs einer gekürzten Akte (Leitungsebene ohne das Recht, `restricted`). */
+const RESTRICTED_TABS = new Set(['organisation', 'abwesenheit']);
+
 export function EmployeeDetailPage() {
   const { id } = useParams();
   const employeeId = Number(id);
   const navigate = useNavigate();
   const { data, isLoading } = useEmployee(employeeId);
   const { can } = useAuth();
-  // Leitungsebene ohne das Recht: nur die Verzeichnisdaten (Organisation).
+  // Leitungsebene ohne das Recht: nur die Verzeichnisdaten (Organisation) und
+  // die Abwesenheiten, die das Recht bewusst nicht sperrt.
   const restricted = data?.employee.restricted === true;
   const detailTabs = ALL_DETAIL_TABS.filter(
-    (d) => (!d.area || can(d.area)) && (!restricted || d.key === 'organisation'),
+    (d) => (!d.area || can(d.area)) && (!restricted || RESTRICTED_TABS.has(d.key)),
   );
   // Der Tab steht in der URL (?tab=…), damit ein Rücksprung von einer anderen
   // Seite wieder im selben Tab landet, nicht auf den Stammdaten.

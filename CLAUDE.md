@@ -208,7 +208,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   am Datensatz, `executiveFilterSql` in Listen, `projectDirectory` für die
   Personalakte, die ohne das Recht gekürzt mit `restricted: true` kommt
   statt mit 403). Die Suche durchsucht Leitungspersonen ohne das Recht nur
-  in Verzeichnisfeldern, sonst verriete ein IBAN-Treffer die Person.
+  in Verzeichnisfeldern, sonst verriete ein IBAN-Treffer die Person; aus
+  demselben Grund sortieren sie nach Feldern außerhalb des Verzeichnisses
+  wie ein leerer Wert (`SORT_COLUMNS.field` in `employeeRoutes.ts`).
   Dateien an Leitungspersonen (Vertrag, Dokument, Bescheinigung, Rechnung)
   signiert `assertMayReadFile` nur mit dem Recht; ein Lohnlauf mit
   Leitungsperson gibt Prüfbericht, DATEV- und CSV-Export nur mit dem Recht
@@ -266,7 +268,18 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   HR-Erfassung und Portal, gespeichert als `days_counted` mit
   `days_manual = 1`; nur bei flexibler Woche, höchstens die Werktage Mo bis
   Fr; `recountRequestsOverlapping` lässt solche Anträge stehen, Saldo und
-  Saldoprüfung lesen sie über `requestDaysIn`). Der Anspruch kommt allein
+  Saldoprüfung lesen sie über `requestDaysIn`). Der Saldo liest für JEDEN
+  Antrag die gespeicherte Zahl `days_counted` und teilt sie für Ausschnitte
+  (Jahreswechsel, bis heute) anteilig auf (`shareOf` in
+  `absences/service.ts`: die Teile ergeben zusammen genau die Zahl, auch der
+  flexible Vorschlag rundet nur einmal für den ganzen Zeitraum). Eine neue
+  Arbeitswoche, ein anderer Standort oder eine andere Region zählen nur noch
+  nicht begonnene Anträge neu (`recountUpcomingRequests`, aufgerufen aus
+  Personal-PATCH, Sammeländerung, Standort und Firmenvorgabe), vergangene
+  bleiben, wie sie gezählt wurden; eine neue Stelle, die Woche oder Ort einer
+  Person ändert, ruft es in ihrer Transaktion. Grenze: Der Anspruch früherer
+  Jahre rechnet weiter mit der heutigen Woche und dem heutigen Jahresurlaub
+  (keine Historie je Vertragsversion). Der Anspruch kommt allein
   aus `leaveEntitlementFor` (`packages/shared/src/leaveEntitlement.ts`, Test
   `src/test/leaveEntitlementTest.ts`): Mindesturlaub 4 × Arbeitstage je Woche
   (§ 3 BUrlG), voll nach erfüllter Wartezeit, Zwölftel nur in den Fällen von

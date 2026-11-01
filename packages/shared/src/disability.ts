@@ -29,12 +29,22 @@ export function hasDisabilityProtection(degree: number | null | undefined, equal
 /**
  * Feste Hinweise der Personalakte: was der Status mit sich bringt. Kurz und
  * mit Fundstelle; die Rechnung des Zusatzurlaubs steht in leaveEntitlement.ts.
+ * `daysPerWeek` wie `entitlementDaysPerWeek`: null heißt, der Zusatzurlaub
+ * ist (noch) nicht eingerechnet.
  */
-export function disabilityNotes(degree: number | null | undefined, equal: boolean): string[] {
+export function disabilityNotes(
+  degree: number | null | undefined,
+  equal: boolean,
+  daysPerWeek: number | null = 5,
+): string[] {
   const notes: string[] = [];
   const severe = (degree ?? 0) >= SEVERE_DISABILITY_DEGREE;
-  if (severe) {
+  if (severe && daysPerWeek !== null) {
     notes.push('Zusatzurlaub: eine Arbeitswoche je Jahr, bei fünf Arbeitstagen fünf Tage (§ 208 SGB IX); im Urlaubsanspruch eingerechnet.');
+  } else if (severe) {
+    notes.push(
+      'Zusatzurlaub: eine Arbeitswoche je Jahr (§ 208 SGB IX). Eingerechnet erst mit hinterlegter Arbeitswoche; freie Mitarbeit hat keinen Urlaubsanspruch.',
+    );
   } else if (equal) {
     notes.push('Gleichgestellt: kein Zusatzurlaub (§ 151 Abs. 3 SGB IX), aber Kündigungsschutz wie bei Schwerbehinderung.');
   }

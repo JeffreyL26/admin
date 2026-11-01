@@ -19,11 +19,6 @@ const setSchema = z.object({
   home_office: z.boolean(),
 });
 
-const deleteParams = z.object({
-  employeeId: z.coerce.number().int().positive(),
-  date: isoDateString,
-});
-
 /** Ausnahmen aller genannten Personen im Zeitraum, je Person als Liste. */
 export function homeOfficeExceptionsByEmployee(
   employeeIds: number[],
@@ -69,13 +64,5 @@ export async function homeOfficeRoutes(app: FastifyInstance): Promise<void> {
       ).run(body.employee_id, body.date, kind, req.user.id);
     }
     return { employee_id: body.employee_id, date: body.date, exception: kind };
-  });
-
-  // Ausnahme entfernen: Der Tag folgt wieder dem Muster.
-  app.delete('/api/absences/home-office/:employeeId/:date', async (req, reply) => {
-    const { employeeId, date } = parse(deleteParams, req.params);
-    getDb().prepare('DELETE FROM home_office_exceptions WHERE employee_id = ? AND date = ?').run(employeeId, date);
-    reply.status(204);
-    return null;
   });
 }

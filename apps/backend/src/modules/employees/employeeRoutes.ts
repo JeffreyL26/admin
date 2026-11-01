@@ -16,7 +16,16 @@ import {
   settleWorkSchedule,
 } from './validation.js';
 import { assertDisabilityWrite, stripDisability } from './disability.js';
-import { assertExecutiveAccess, mayAccessExecutive, projectDirectory } from '../../core/executiveGate.js';
+import {
+  DIRECTORY_COLUMNS,
+  assertExecutiveAccess,
+  mayAccessExecutive,
+  projectDirectory,
+} from '../../core/executiveGate.js';
+import { recountUpcomingRequests } from '../absences/service.js';
+
+/** Spalten, von denen die Zählung der Abwesenheitstage abhängt. */
+const PLACE_COLUMNS = ['work_weekdays', 'work_days_per_week', 'location_id'] as const;
 
 /**
  * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
@@ -40,29 +49,35 @@ const numberList = csvList.transform((v) =>
   v?.map(Number).filter((n) => Number.isInteger(n) && n > 0),
 );
 
-/** Sortierfelder der Liste. Bewusst eine Whitelist — der Wert geht ins SQL. */
+/**
+ * Sortierfelder der Liste. Bewusst eine Whitelist: Der Wert geht ins SQL.
+ * `field` nennt das Antwortfeld dahinter: Liegt es außerhalb der
+ * Verzeichnisdaten (DIRECTORY_COLUMNS), sortieren Personen der Leitungsebene
+ * ohne das Recht wie ein leerer Wert, sonst verriete ihre Position den
+ * verborgenen Wert (etwa ein geplantes Austrittsdatum).
+ */
 const SORT_COLUMNS = {
-  last_name: 'e.last_name COLLATE NOCASE',
-  first_name: 'e.first_name COLLATE NOCASE',
-  personnel_number: 'e.personnel_number COLLATE NOCASE',
-  hire_date: 'e.hire_date',
-  job_title: 'e.job_title COLLATE NOCASE',
-  department: 'd.name COLLATE NOCASE',
-  employee_type: 'e.employee_type',
+  last_name: { sql: 'e.last_name COLLATE NOCASE', field: 'last_name' },
+  first_name: { sql: 'e.first_name COLLATE NOCASE', field: 'first_name' },
+  personnel_number: { sql: 'e.personnel_number COLLATE NOCASE', field: 'personnel_number' },
+  hire_date: { sql: 'e.hire_date', field: 'hire_date' },
+  job_title: { sql: 'e.job_title COLLATE NOCASE', field: 'job_title' },
+  department: { sql: 'd.name COLLATE NOCASE', field: 'department_name' },
+  employee_type: { sql: 'e.employee_type', field: 'employee_type' },
   // Betriebszugehoerigkeit aufsteigend = kuerzeste zuerst, also spaetester
   // Eintritt zuerst (Umkehrung in queryEmployees, SORT_INVERTED).
-  seniority: 'e.hire_date',
-  location: 'l.name COLLATE NOCASE',
-  status: 'e.status',
-  email: 'e.email COLLATE NOCASE',
-  phone: 'e.phone',
-  manager: 'm.last_name COLLATE NOCASE',
-  weekly_hours: 'e.weekly_hours',
-  annual_leave_days: 'e.annual_leave_days',
-  exit_date: 'e.exit_date',
-  nationality: 'e.nationality',
-  highest_degree: 'e.highest_degree',
-} as const satisfies Record<EmployeeSortField, string>;
+  seniority: { sql: 'e.hire_date', field: 'hire_date' },
+  location: { sql: 'l.name COLLATE NOCASE', field: 'location_name' },
+  status: { sql: 'e.status', field: 'status' },
+  email: { sql: 'e.email COLLATE NOCASE', field: 'email' },
+  phone: { sql: 'e.phone', field: 'phone' },
+  manager: { sql: 'm.last_name COLLATE NOCASE', field: 'manager_name' },
+  weekly_hours: { sql: 'e.weekly_hours', field: 'weekly_hours' },
+  annual_leave_days: { sql: 'e.annual_leave_days', field: 'annual_leave_days' },
+  exit_date: { sql: 'e.exit_date', field: 'exit_date' },
+  nationality: { sql: 'e.nationality', field: 'nationality' },
+  highest_degree: { sql: 'e.highest_degree', field: 'highest_degree' },
+} as const satisfies Record<EmployeeSortField, { sql: string; field: string }>;
 
 /** Felder, deren Spalte die Richtung umgekehrt zur SQL-Spalte zeigt. */
 const SORT_INVERTED = new Set<keyof typeof SORT_COLUMNS>(['seniority']);
@@ -159,7 +174,12 @@ function queryEmployees(query: ListQuery, mayExecutive = true): Record<string, u
   // Sortierung aus der Whitelist; der Name als zweites Kriterium hält die
   // Reihenfolge bei Gleichstand stabil (sonst springen Zeilen beim Neuladen).
   const sortField = query.sort ?? 'last_name';
-  const column = SORT_COLUMNS[sortField];
+  const { sql: sortSql, field: sortSource } = SORT_COLUMNS[sortField];
+  // Der Ausdruck steht vor einem etwaigen COLLATE und enthaelt kein Leerzeichen.
+  const column =
+    mayExecutive || DIRECTORY_COLUMNS.has(sortSource)
+      ? sortSql
+      : sortSql.replace(/^\S+/, (expr) => `(CASE WHEN e.executive = 1 THEN NULL ELSE ${expr} END)`);
   const descending = (query.dir === 'desc') !== SORT_INVERTED.has(sortField);
   const dir = descending ? 'DESC' : 'ASC';
   // Bei Namensspalten folgt der zweite Name der Richtung, sonst stehen Personen
@@ -445,7 +465,14 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
           teamsCleared++;
         }
       }
-      audit(req, 'bulk_update', 'employee', undefined, { ids, set, teams_cleared: teamsCleared });
+      // Ein neuer Standort bringt andere Feiertage (absences/service.ts).
+      const recounted = set.location_id !== undefined ? recountUpcomingRequests(ids) : [];
+      audit(req, 'bulk_update', 'employee', undefined, {
+        ids,
+        set,
+        teams_cleared: teamsCleared,
+        ...(recounted.length ? { recounted_requests: recounted } : {}),
+      });
     });
     return { updated: ids.length, teams_cleared: teamsCleared };
   });
@@ -575,8 +602,13 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       const [removedFile, removedThumb] = replacedFiles.map((fileId) =>
         fileId ? detachUnreferencedFile(fileId) : null,
       );
+      // Arbeitswoche und Standort (Feiertage) bestimmen die Tage kommender
+      // Anträge; vergangene bleiben, wie sie gezählt wurden.
+      const countingChanged = PLACE_COLUMNS.some((c) => patch[c] !== undefined && patch[c] !== existing[c]);
+      const recounted = countingChanged ? recountUpcomingRequests([id]) : [];
       audit(req, 'update', 'employee', id, {
         changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
+        ...(recounted.length ? { recounted_requests: recounted } : {}),
         ...(removedFile ? { removed_file: { id: removedFile.id, sha256: removedFile.sha256 } } : {}),
         ...(removedThumb ? { removed_thumb_file: { id: removedThumb.id, sha256: removedThumb.sha256 } } : {}),
       });

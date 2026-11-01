@@ -5,6 +5,7 @@ import { ArrowLeft, Check, Columns3, History, Plus, Receipt, ScrollText, Wallet,
 import {
   formatDate,
   formatEuro,
+  todayIsoLocal,
   BONUS_KIND_LABELS,
   EMPLOYEE_TYPE_LABELS,
   SALARY_COMPONENT_KINDS,
@@ -130,7 +131,7 @@ function salaryCell(r: SalaryOverviewRow, id: SalaryColumnId): React.ReactNode {
             <Link
               key={x.kind}
               className="hm-badge hm-badge--navy"
-              to={`/verguetung/boni?person=${r.employee_id}`}
+              to={`/verguetung/boni?person=${r.employee_id}&jahr=${todayIsoLocal().slice(0, 4)}`}
               onClick={(e) => e.stopPropagation()}
             >
               {BONUS_KIND_LABELS[x.kind as BonusKind] ?? x.kind}

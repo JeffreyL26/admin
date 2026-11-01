@@ -238,14 +238,6 @@ paths:
       responses:
         "200": { description: "{ employee_id, date, exception } mit exception buero, homeoffice oder null" }
         "404": { description: Person nicht gefunden }
-  /api/absences/home-office/{employeeId}/{date}:
-    delete:
-      summary: Ausnahme vom Home-Office-Muster entfernen
-      parameters:
-        - { name: employeeId, in: path, required: true, schema: { type: integer } }
-        - { name: date, in: path, required: true, schema: { type: string, format: date } }
-      responses:
-        "204": { description: Entfernt (auch wenn keine bestand) }
   /api/absences/closures:
     get:
       summary: Betriebsruhetage auflisten

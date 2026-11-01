@@ -22,12 +22,19 @@ export function NewRequestPage() {
   const [halfStart, setHalfStart] = useState(false);
   const [halfEnd, setHalfEnd] = useState(false);
   const [comment, setComment] = useState('');
-  /** Eigene Arbeitstage bei flexibler Arbeitswoche; '' = Vorschlag übernehmen. */
-  const [daysOverride, setDaysOverride] = useState('');
+  /**
+   * Eigene Arbeitstage bei flexibler Arbeitswoche; '' = Vorschlag übernehmen.
+   * Gilt nur für den Zeitraum, zu dem sie eingetragen wurden (`span`): Danach
+   * zählt wieder der neue Vorschlag.
+   */
+  const [override, setOverride] = useState({ span: '', value: '' });
   const [apiError, setApiError] = useState<string | null>(null);
 
   const selectedType = (types ?? []).find((t) => t.id === typeId);
   const singleDay = !!dateFrom && dateFrom === dateTo;
+  const span = `${dateFrom}|${dateTo}|${halfStart}|${halfEnd && !singleDay}`;
+  const daysOverride = override.span === span ? override.value : '';
+  const setDaysOverride = (value: string) => setOverride({ span, value });
   const year = Number((dateFrom || todayIso()).slice(0, 4));
   const { data: balance } = useMyBalance(year);
   const preview = useLeavePreview(dateFrom, dateTo, halfStart, halfEnd && !singleDay);

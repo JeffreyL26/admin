@@ -650,20 +650,6 @@ function plausibleMimeType(mime: string): string {
 }
 
 /**
- * Wirft 403, wenn das Konto die Datei nicht lesen darf.
- *
- * Warum diese Prüfung nicht in permissions.ts passieren kann: Der Fachbereich
- * hängt nicht an der Route, sondern an der Datei. `files.id` ist AUTOINCREMENT
- * und damit durchzählbar — ohne diese Auflösung kommt jedes Admin-Konto mit
- * irgendeinem Recht an JEDE Datei: Entgeltbescheinigungen, Verträge,
- * AU-Bescheinigungen, Bewerbungsunterlagen. Genau das konnte die ausgelieferte
- * Rolle „HR-Sachbearbeitung" (verguetung: 'kein').
- *
- * Verlangt wird 'lesen', nicht 'bearbeiten': Signieren ist fachlich ein
- * Lesevorgang (POST nur, damit der Link nicht im Query-String steht). Mit
- * 'bearbeiten' könnte eine Nur-Lese-Rolle gar nichts mehr herunterladen.
- */
-/**
  * Dateien, die an einer Person der Leitungsebene hängen (Vertrag, Dokument,
  * Bescheinigung, Rechnung). Fotos bewusst nicht: Sie sind Verzeichnisdaten.
  * Eine neue Verweisspalte mit Personenbezug gehört hierher und in
@@ -681,6 +667,20 @@ const EXECUTIVE_FILE_SQL = [
   )
   .join('\n UNION ');
 
+/**
+ * Wirft 403, wenn das Konto die Datei nicht lesen darf.
+ *
+ * Warum diese Prüfung nicht in permissions.ts passieren kann: Der Fachbereich
+ * hängt nicht an der Route, sondern an der Datei. `files.id` ist AUTOINCREMENT
+ * und damit durchzählbar; ohne diese Auflösung kommt jedes Admin-Konto mit
+ * irgendeinem Recht an JEDE Datei: Entgeltbescheinigungen, Verträge,
+ * AU-Bescheinigungen, Bewerbungsunterlagen. Genau das konnte die ausgelieferte
+ * Rolle „HR-Sachbearbeitung" (verguetung: 'kein').
+ *
+ * Verlangt wird 'lesen', nicht 'bearbeiten': Signieren ist fachlich ein
+ * Lesevorgang (POST nur, damit der Link nicht im Query-String steht). Mit
+ * 'bearbeiten' könnte eine Nur-Lese-Rolle gar nichts mehr herunterladen.
+ */
 export function assertMayReadFile(req: FastifyRequest, fileId: number): void {
   // Nur für die HR-Administration. Portal-Konten (role 'mitarbeiter') haben
   // keine admin_role_id — `permissionsFor(undefined)` würde ihnen VOLLZUGRIFF

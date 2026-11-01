@@ -5,10 +5,7 @@ import { AlertTriangle, Download, FilePlus2, FolderOpen, Pencil, Plus, Search, T
 import {
   DOCUMENT_CATEGORY_LABELS,
   formatDate,
-  nextSort,
-  parseSortState,
   type DocumentSource,
-  type SortState,
 } from '@ohrganize/shared';
 import { api, downloadFile } from '../../api/client';
 import { Badge, Card, EmptyState, PageHeader, Spinner } from '../../components/ui';
@@ -34,7 +31,7 @@ import { Pagination, usePageState } from '../../components/Pagination';
 import { useDebounced } from '../../components/useDebounced';
 import { SortableTh } from '../../components/SortableTh';
 import { TableScroller } from '../../components/TableScroller';
-import { readJson, writeJson } from '../../lib/localStore';
+import { useServerSort } from '../../lib/useTableSort';
 
 /** Seitengröße der Dokumentablage. */
 const DOCUMENT_PAGE_SIZE = 100;
@@ -53,7 +50,6 @@ function documentOwner(d: DocumentRow) {
   );
 }
 
-const DOCUMENT_SORT_STORAGE = 'ohrganize.tableSort.documents';
 
 export function DocumentsPage() {
   const focusId = useFocusRow('dokument');
@@ -71,16 +67,8 @@ export function DocumentsPage() {
   // Geblättert: Die Ablage lud früher alle Dokumente am Stück. Ein Absprung
   // zurück aus der Personalakte (?dokument=<id>) landet auf dessen Seite.
   const paging = usePageState(DOCUMENT_PAGE_SIZE, focusId);
-  // Sortierung je Gerät wie bei lib/useTableSort.ts, nur serverseitig (geblättert).
-  const [sort, setSort] = useState<SortState<DocumentSortKey>>(() =>
-    parseSortState(readJson(DOCUMENT_SORT_STORAGE), DOCUMENT_SORT_KEYS, DOCUMENT_SORT_DEFAULT),
-  );
-  const sortBy = (key: DocumentSortKey) => {
-    const next = nextSort(sort, key);
-    setSort(next);
-    writeJson(DOCUMENT_SORT_STORAGE, next);
-    paging.reset();
-  };
+  // Sortierung je Gerät (ohrganize.tableSort.documents), serverseitig, weil geblättert.
+  const { sort, toggle: sortBy } = useServerSort('documents', DOCUMENT_SORT_KEYS, DOCUMENT_SORT_DEFAULT, paging.reset);
   const debouncedSearch = useDebounced(search);
   // Zurück auf Seite 1 erst mit dem entprellten Suchbegriff, der auch in die
   // Abfrage geht: Je Tastendruck zurückgesetzt, lud die Liste beim Tippen auf
