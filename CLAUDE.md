@@ -277,7 +277,13 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   nicht begonnene Anträge neu (`recountUpcomingRequests`, aufgerufen aus
   Personal-PATCH, Sammeländerung, Standort und Firmenvorgabe), vergangene
   bleiben, wie sie gezählt wurden; eine neue Stelle, die Woche oder Ort einer
-  Person ändert, ruft es in ihrer Transaktion. Grenze: Der Anspruch früherer
+  Person ändert, ruft es in ihrer Transaktion (statisch geprüft von
+  `src/test/placeChangeCheck.ts`, Zählspalten `COUNTING_EMPLOYEE_COLUMNS`).
+  Tage von Hand bleiben dabei nur bei flexibler Woche stehen, bei festen
+  Tagen wird gezählt und `days_manual` fällt weg. Ändert ein Update die
+  Feiertagsregeln, zählt der Start des Moduls die kommenden Anträge neu
+  (`recountAfterHolidayRuleChange`, Fingerabdruck in `_holiday_rules_state`,
+  Migration `208_holiday_rules_state`, Protokoll ohne Konto). Grenze: Der Anspruch früherer
   Jahre rechnet weiter mit der heutigen Woche und dem heutigen Jahresurlaub
   (keine Historie je Vertragsversion). Der Anspruch kommt allein
   aus `leaveEntitlementFor` (`packages/shared/src/leaveEntitlement.ts`, Test
@@ -351,7 +357,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   **Beschäftigungsart je Vertragsversion** (`contracts.employee_type`) ist die
   Historie „seit wann Vollzeit/Werkstudent“; die aktuelle Version spiegelt sie
   wie Stunden und Urlaub auf `employees` (`mirrorToEmployee`, Typregeln
-  laufen dort). Probezeit bleibt ein Datum am Vertrag; die Länge ist
+  laufen dort; eine Korrektur der Version spiegelt nur, was sie ändert).
+  Umgekehrt gilt eine Änderung dieser Felder im Personalformular oder in der
+  Sammeländerung als Korrektur der aktuellen Version (`syncCurrentContract`);
+  eine Änderung ab einem Datum ist eine neue Version. Probezeit bleibt ein Datum am Vertrag; die Länge ist
   abgeleitet (`probationEndFor`/`probationMonths`, Fristende nach §§ 187,
   188 BGB, Test `src/test/masterDataTest.ts`). Das Dashboard-Widget
   „Fristen der Personalakte“ liest `personnel_deadlines` aus

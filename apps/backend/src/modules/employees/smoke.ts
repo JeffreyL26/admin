@@ -443,26 +443,36 @@ check(
   typedContract.json().contract.employee_type === 'teilzeit',
   typedContract.json().contract,
 );
-// Wechsel im Personalformular, danach eine Korrektur der Version, die wie der
-// Dialog alle Felder mitschickt: Unveraenderte Altwerte spiegeln nicht zurueck.
+// Wechsel im Personalformular schreibt auf die aktuelle Version zurueck
+// (syncCurrentContract); eine Korrektur der Version, die wie der Dialog alle
+// Felder mitschickt, laesst die Stammdaten danach stehen.
 {
+  const typedId = typedContract.json().contract.id as number;
   const retyped = await app.inject({
     method: 'PATCH',
     url: `/api/employees/${empId}`,
     headers: auth,
     payload: { employee_type: 'vollzeit', weekly_hours: 40 },
   });
+  const version = (await app.inject({ method: 'GET', url: `/api/employees/${empId}/contracts`, headers: auth }))
+    .json()
+    .contracts.find((c: { id: number }) => c.id === typedId) as { employee_type: string; weekly_hours: number } | undefined;
+  check(
+    'Personalformular zieht die aktuelle Vertragsversion mit',
+    retyped.statusCode === 200 && version?.employee_type === 'vollzeit' && version.weekly_hours === 40,
+    { retyped: retyped.json(), version },
+  );
   const corrected = await app.inject({
     method: 'PATCH',
-    url: `/api/contracts/${typedContract.json().contract.id as number}`,
+    url: `/api/contracts/${typedId}`,
     headers: auth,
-    payload: { employee_type: 'teilzeit', weekly_hours: 30, notice_period_weeks: 6 },
+    payload: { employee_type: 'vollzeit', weekly_hours: 40, notice_period_weeks: 6 },
   });
   const after = (await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: auth })).json().employee;
   check(
     'Vertragskorrektur setzt die Beschaeftigungsart nicht still zurueck',
-    retyped.statusCode === 200 && corrected.statusCode === 200 && after.employee_type === 'vollzeit' && after.weekly_hours === 40,
-    { retyped: retyped.json(), corrected: corrected.json(), after },
+    corrected.statusCode === 200 && after.employee_type === 'vollzeit' && after.weekly_hours === 40,
+    { corrected: corrected.json(), after },
   );
   await app.inject({
     method: 'PATCH',
@@ -540,19 +550,22 @@ check(
   const balanceDetail = async () =>
     (await app.inject({ method: 'GET', url: `/api/absences/balance/${empId}/${year}`, headers: auth })).json().balance
       ?.entitlement_detail as { disability: number; statutory_known: boolean } | undefined;
+  const weekBackup = getDb()
+    .prepare('SELECT employee_type, work_weekdays, work_days_per_week FROM employees WHERE id = ?')
+    .get(empId) as { employee_type: string; work_weekdays: string | null; work_days_per_week: number | null };
+  // Teilzeit ohne hinterlegte Woche: keine bekannte Woche, also kein Zusatzurlaub.
+  getDb()
+    .prepare("UPDATE employees SET employee_type = 'teilzeit', work_weekdays = NULL, work_days_per_week = NULL WHERE id = ?")
+    .run(empId);
   const withoutWeek = await balanceDetail();
-  const weekBackup = getDb().prepare('SELECT work_weekdays, work_days_per_week FROM employees WHERE id = ?').get(empId) as {
-    work_weekdays: string | null;
-    work_days_per_week: number | null;
-  };
   getDb().prepare("UPDATE employees SET work_weekdays = '1,2,3,4,5', work_days_per_week = 5 WHERE id = ?").run(empId);
   const withWeek = await balanceDetail();
   getDb()
-    .prepare('UPDATE employees SET work_weekdays = ?, work_days_per_week = ? WHERE id = ?')
-    .run(weekBackup.work_weekdays, weekBackup.work_days_per_week, empId);
+    .prepare('UPDATE employees SET employee_type = ?, work_weekdays = ?, work_days_per_week = ? WHERE id = ?')
+    .run(weekBackup.employee_type, weekBackup.work_weekdays, weekBackup.work_days_per_week, empId);
   check(
     'Saldo mit Vollzugriff nennt den Zusatzurlaub, nur mit bekannter Arbeitswoche',
-    withWeek?.disability === 5 && (withoutWeek?.statutory_known || withoutWeek?.disability === 0),
+    withWeek?.disability === 5 && withoutWeek?.statutory_known === false && withoutWeek.disability === 0,
     { withWeek, withoutWeek },
   );
   await setDegree(authEdit, { disability_degree: null, disability_valid_until: null });

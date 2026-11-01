@@ -28,10 +28,10 @@ import { StartAccountMissingError, resetForReseed } from './forceReset.js';
 import { storeFile } from '../core/files.js';
 import { RESPONSE_ID_LIMIT } from '../modules/communication/surveyService.js';
 import { holidaysForYear } from '../core/holidays.js';
-import { probationEndFor } from '@ohrganize/shared';
-import type { CountryCode, RegionCode } from '@ohrganize/shared';
+import { flexibleDays, isScheduledDay, probationEndFor, workScheduleOf } from '@ohrganize/shared';
+import type { CountryCode, RegionCode, WorkSchedule } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
-import { eachDay, isWeekend } from '../core/dates.js';
+import { eachDay } from '../core/dates.js';
 import { periodForDate, shiftPeriod } from '@ohrganize/shared';
 
 const FORCE = process.argv.includes('--force');
@@ -131,17 +131,30 @@ function insert(table: string, row: Record<string, unknown>): number {
 }
 
 /** Arbeitstage im Zeitraum (Mo–Fr, ohne Feiertage des Bundeslands, ohne Betriebsruhe). */
-function countDays(from: string, to: string, place: { country: CountryCode; region: RegionCode }, halfStart = false, halfEnd = false, withClosures = true): number {
+/**
+ * Tage eines Antrags wie absences/service.ts#countAbsenceDays: Tage der
+ * Arbeitswoche (ohne Angabe Mo bis Fr) ohne Feiertage und Betriebsruhe, bei
+ * flexibler Woche der anteilige Vorschlag. Der Saldo liest die gespeicherte
+ * Zahl, eine Zaehlung nur nach Mo bis Fr stimmte fuer Teilzeitkraefte nicht.
+ */
+function countDays(
+  from: string,
+  to: string,
+  place: { country: CountryCode; region: RegionCode; schedule: WorkSchedule },
+  halfStart = false,
+  halfEnd = false,
+  withClosures = true,
+): number {
   const years = new Set(eachDay(from, to).map((d) => d.slice(0, 4)));
   const holidays = new Set(
     [...years].flatMap((y) => holidaysForYear(Number(y), place.country, place.region).map((h) => h.date)),
   );
   const closures = new Set(withClosures ? eachDay('2026-12-24', '2026-12-31') : []);
-  const days = eachDay(from, to).filter((d) => !isWeekend(d) && !holidays.has(d) && !closures.has(d));
+  const days = eachDay(from, to).filter((d) => isScheduledDay(place.schedule, d) && !holidays.has(d) && !closures.has(d));
   let n = days.length;
-  if (halfStart && days.length > 0) n -= 0.5;
-  if (halfEnd && days.length > 1) n -= 0.5;
-  return n;
+  if (halfStart && days.includes(from)) n -= 0.5;
+  if (halfEnd && from !== to && days.includes(to)) n -= 0.5;
+  return place.schedule.weekdays === null ? flexibleDays(n, place.schedule.daysPerWeek) : n;
 }
 
 function demoFile(name: string, content: string): number {
@@ -477,9 +490,15 @@ inTransaction(() => {
 
   insert('company_closures', { date_from: '2026-12-24', date_to: '2026-12-31', name: 'Betriebsruhe Jahreswechsel' });
 
-  const placeOf = (emp: number): { country: CountryCode; region: RegionCode } => {
-    const row = db.prepare('SELECT l.country AS c, l.bundesland AS b FROM employees e LEFT JOIN locations l ON l.id = e.location_id WHERE e.id = ?').get(emp) as { c: string | null; b: string | null };
-    return { country: (row.c ?? VARIANT.country) as CountryCode, region: row.b ?? 'BY' };
+  // Die Arbeitswochen stehen schon (oben gesetzt), die Zaehlung nimmt sie mit.
+  const placeOf = (emp: number): { country: CountryCode; region: RegionCode; schedule: WorkSchedule } => {
+    const row = db
+      .prepare(
+        `SELECT l.country AS c, l.bundesland AS b, e.work_weekdays, e.work_days_per_week
+         FROM employees e LEFT JOIN locations l ON l.id = e.location_id WHERE e.id = ?`,
+      )
+      .get(emp) as { c: string | null; b: string | null; work_weekdays: string | null; work_days_per_week: number | null };
+    return { country: (row.c ?? VARIANT.country) as CountryCode, region: row.b ?? 'BY', schedule: workScheduleOf(row) };
   };
   const req = (emp: number, type: number, from: string, to: string, status: string, opts: { comment?: string; rejection?: string; halfStart?: boolean } = {}) =>
     insert('absence_requests', {

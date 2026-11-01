@@ -29,8 +29,12 @@ const CONTRACT_COLUMNS = [
   'weekly_hours', 'annual_leave_days', 'fixed_term_reason', 'document_file_id', 'note',
 ] as const;
 
-/** Felder, die die aktuelle Version auf employees spiegelt (mirrorToEmployee). */
-const MIRRORED_COLUMNS = ['weekly_hours', 'annual_leave_days', 'employee_type'] as const;
+/**
+ * Felder, die die aktuelle Version auf employees spiegelt (mirrorToEmployee)
+ * und die umgekehrt das Personalformular auf sie zurückschreibt
+ * (syncCurrentContract).
+ */
+export const MIRRORED_COLUMNS = ['weekly_hours', 'annual_leave_days', 'employee_type'] as const;
 
 function assertEmployee(id: number): void {
   const row = getDb().prepare('SELECT id FROM employees WHERE id = ?').get(id);
@@ -134,6 +138,26 @@ function mirrorToEmployee(
   getDb()
     .prepare(`UPDATE employees SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`)
     .run(...params, employeeId);
+}
+
+/**
+ * Gegenrichtung der Spiegelung: Ändern Personalformular oder Sammeländerung
+ * Beschäftigungsart, Wochenstunden oder Urlaubstage, gilt das als Korrektur
+ * der aktuellen Vertragsversion (wie PATCH /api/contracts/:id). Sonst zeigte
+ * die Vertragshistorie weiter den alten Stand, und der Korrekturdialog
+ * belegte ihn vor. Eine Änderung ab einem Datum ist eine neue Version.
+ * Läuft in der Transaktion der Personaländerung; liefert die ID der
+ * angepassten Version (für das Audit) oder null.
+ */
+export function syncCurrentContract(employeeId: number, changed: Partial<Record<string, unknown>>): number | null {
+  const current = newestContract(employeeId);
+  if (!current || !isCurrent(current)) return null;
+  const cols = MIRRORED_COLUMNS.filter((c) => changed[c] !== undefined && changed[c] !== current[c]);
+  if (cols.length === 0) return null;
+  getDb()
+    .prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+    .run(...cols.map((c) => changed[c] ?? null), current.id);
+  return current.id;
 }
 
 function validateRange(body: Pick<ContractBody, 'valid_from' | 'valid_to'>): void {
@@ -257,9 +281,9 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         ...cols.map((c) => patch[c] ?? null),
         id,
       );
-      // Nur spiegeln, was diese Korrektur aendert: Die Stammdaten koennen seit
-      // dem Anlegen der Version abweichen (Personalformular), und ein
-      // unveraenderter Altwert setzte sie sonst still zurueck.
+      // Nur spiegeln, was diese Korrektur aendert: Unveraenderte Werte stimmen
+      // schon mit den Stammdaten ueberein (syncCurrentContract), ein Altwert
+      // aus der Zeit davor setzte sie sonst still zurueck.
       if (isCurrent({ valid_to: merged.valid_to ?? null }, today)) {
         const changed = Object.fromEntries(
           MIRRORED_COLUMNS.filter((c) => patch[c] !== undefined && patch[c] !== existing[c]).map((c) => [c, patch[c]]),

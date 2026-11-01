@@ -993,13 +993,14 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
       parts,
     );
     const doraRow = db.prepare('SELECT * FROM employees WHERE id = ?').get(dora) as Parameters<typeof computeBalance>[0];
-    for (const [stored, manual] of [[2, 0], [3, 1]] as const) {
+    // 2 wie der Vorschlag, 3 wie von Hand genannt.
+    for (const stored of [2, 3]) {
       const b = computeBalance(doraRow, 2026, '2026-12-07', {
         place: flexPlace,
         carryoverDeadline: '03-31',
         closures: new Set(),
         requests: [
-          { date_from: '2026-12-07', date_to: '2026-12-11', half_day_start: 0, half_day_end: 0, status: 'genehmigt', days_manual: manual, days_counted: stored },
+          { date_from: '2026-12-07', date_to: '2026-12-11', half_day_start: 0, half_day_end: 0, status: 'genehmigt', days_counted: stored },
         ],
       });
       check(
@@ -1056,6 +1057,79 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         daysOf(upcomingId) === expected &&
         expected < upcomingBefore,
       { past: past.json(), upcoming: upcoming.json(), patched: patched.statusCode, pastBefore, upcomingBefore, expected },
+    );
+
+    // Jeder Weg, der Ort oder Woche aendert, zaehlt neu (statisch:
+    // src/test/placeChangeCheck.ts): Die gespeicherte Zahl wird verfaelscht,
+    // der Weg muss sie richtigstellen.
+    const correct = () =>
+      countAbsenceDays({ place: regionForEmployee(emil), dateFrom: mondayIn(3), dateTo: addDaysIso(mondayIn(3), 4) });
+    const spoil = () => db.prepare('UPDATE absence_requests SET days_counted = 99 WHERE id = ?').run(upcomingId);
+    const viaWay = async (label: string, act: () => Promise<{ statusCode: number }>) => {
+      spoil();
+      const res = await act();
+      check(`Neuzaehlung ueber ${label}`, res.statusCode < 300 && daysOf(upcomingId) === correct(), {
+        status: res.statusCode,
+        days: daysOf(upcomingId),
+        expected: correct(),
+      });
+    };
+    const berlin = Number(db.prepare("INSERT INTO locations (name, bundesland) VALUES ('Berlin', 'BE')").run().lastInsertRowid);
+    await viaWay('Sammelaenderung des Standorts', () => post('/api/employees/bulk', { ids: [emil], set: { location_id: berlin } }));
+    await viaWay('neue Region des Standorts', () =>
+      app.inject({ method: 'PATCH', url: `/api/locations/${berlin}`, headers: auth, payload: { bundesland: 'HH' } }),
+    );
+    await viaWay('geloeschten Standort', () => app.inject({ method: 'DELETE', url: `/api/locations/${berlin}`, headers: auth }));
+    // Ohne Standort gilt die Firmenvorgabe.
+    const defaultRegion = (await get('/api/settings')).json().settings.defaultBundesland as string;
+    await viaWay('Firmenvorgabe der Region', () =>
+      app.inject({
+        method: 'PUT',
+        url: '/api/settings',
+        headers: auth,
+        payload: { defaultBundesland: defaultRegion === 'NW' ? 'BY' : 'NW' },
+      }),
+    );
+    await app.inject({ method: 'PUT', url: '/api/settings', headers: auth, payload: { defaultBundesland: defaultRegion } });
+
+    // Tage von Hand gibt es nur bei flexibler Woche: Der Wechsel auf feste
+    // Tage zaehlt solche kommenden Antraege und nimmt die Kennzeichnung weg.
+    await app.inject({ method: 'PATCH', url: `/api/employees/${emil}`, headers: auth, payload: { work_weekdays: null, work_days_per_week: 3 } });
+    const manualReq = await post('/api/absences/requests', {
+      employee_id: emil,
+      type_id: urlaubType.id,
+      date_from: mondayIn(5),
+      date_to: addDaysIso(mondayIn(5), 4),
+      days_override: 1,
+      approve: true,
+    });
+    const toFixed = await app.inject({ method: 'PATCH', url: `/api/employees/${emil}`, headers: auth, payload: { work_weekdays: '1,2,3,4,5' } });
+    const manualRow = db
+      .prepare('SELECT days_counted, days_manual FROM absence_requests WHERE id = ?')
+      .get(manualReq.json().request?.id ?? -1) as { days_counted: number; days_manual: number } | undefined;
+    const fixedCount = countAbsenceDays({ place: regionForEmployee(emil), dateFrom: mondayIn(5), dateTo: addDaysIso(mondayIn(5), 4) });
+    check(
+      'Wechsel auf feste Woche zaehlt Tage von Hand neu',
+      manualReq.statusCode === 201 && toFixed.statusCode === 200 && manualRow?.days_manual === 0 && manualRow.days_counted === fixedCount,
+      { manual: manualReq.json(), row: manualRow, fixedCount },
+    );
+
+    // Geaenderte Feiertagsregeln (ein Update) zaehlt der Start des Moduls neu;
+    // erkannt am Fingerabdruck in _holiday_rules_state.
+    const { recountAfterHolidayRuleChange } = await import('./service.js');
+    spoil();
+    const unchanged = recountAfterHolidayRuleChange();
+    db.prepare("UPDATE _holiday_rules_state SET fingerprint = 'vor dem Update'").run();
+    const recounted = recountAfterHolidayRuleChange();
+    const systemRows = (
+      db
+        .prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'absence_request.recount_holidays' AND user_id IS NULL")
+        .get() as { n: number }
+    ).n;
+    check(
+      'Feiertagsregeln: unveraendert keine Neuzaehlung, geaendert kommende Antraege neu samt Protokoll',
+      unchanged.length === 0 && recounted.includes(upcomingId) && daysOf(upcomingId) === correct() && systemRows > 0,
+      { unchanged, recounted, days: daysOf(upcomingId), systemRows },
     );
   }
 
