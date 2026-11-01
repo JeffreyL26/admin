@@ -14,8 +14,9 @@ import {
   DEFAULT_WORK_SCHEDULE,
   entitlementDaysPerWeek,
   flexibleDays,
-  formatEntitlementFrozen,
   parseEntitlementFrozen,
+  withEntitlementFrozen,
+  withoutEntitlementFrozen,
   isOwnPersonDecision,
   isScheduledDay,
   leaveEntitlementForPeriods,
@@ -469,7 +470,8 @@ function akteWeekOf(
  *   `contract_gap_values`; schliesst er an eine Zeile mit denselben Werten
  *   an, waechst diese. Ab `today` gelten die neuen Werte.
  * Eine Akte ohne Arbeitswoche rechnet bei Vollzeit und Ausbildung mit Mo bis
- * Fr (entitlementDaysPerWeek) und wird so festgehalten; eine unbekannte Woche
+ * Fr (entitlementDaysPerWeek) und wird so festgehalten (Vermerk
+ * `work_week_default`, siehe frozenWeekIsTypeDefault); eine unbekannte Woche
  * bleibt leer und folgt weiter der Akte. Ohne Versionen rechnen alle Jahre mit
  * der Akte (so sagt es der Hinweis in den Stammdaten). Die geschriebenen Werte
  * sind die, mit denen ohnehin gerechnet wurde; am Anspruch aendert das
@@ -510,11 +512,12 @@ export function freezeEntitlementInputs(
       const week = weekOf(v.employee_type ?? emp.employee_type);
       if (week.work_days_per_week !== null) {
         Object.assign(set, week);
-        fields.push('work_week');
+        // Nannte die Akte keine Woche, folgt sie nur aus der Art (Mo bis Fr).
+        fields.push(emp.work_weekdays !== null || emp.work_days_per_week !== null ? 'work_week' : 'work_week_default');
       }
     }
     if (fields.length === 0) continue;
-    set.entitlement_frozen = formatEntitlementFrozen([...parseEntitlementFrozen(v.entitlement_frozen), ...fields]);
+    set.entitlement_frozen = withEntitlementFrozen(v.entitlement_frozen, fields);
     const cols = Object.keys(set);
     db.prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run([
       ...cols.map((c) => set[c]),
@@ -572,67 +575,70 @@ export function freezeEntitlementInputs(
 /**
  * Gegenstueck zu freezeEntitlementInputs fuer eine abgelaufene Version, die
  * wieder gilt (eine Korrektur verschiebt den Beginn der Folgeversion nach
- * hinten, PATCH /api/contracts/:id verlaengert die Vorversion): Festgehaltene
- * Urlaubstage und Woche, die genau dem entsprechen, was die Akte heute
- * liefert, werden wieder leer, damit die geltende Version wie jede andere der
- * Korrektur in den Stammdaten folgt (sonst bliebe etwa eine aus alter
- * Vollzeit abgeleitete Woche neben einer korrigierten Art stehen). Beim
- * Abloesen uebernommene Art und Stunden bleiben als Werte (geleert gingen sie
- * beim naechsten Abloesen verloren, gefuellt wird nur beim POST), verlieren
- * aber bei Gleichheit ihren Vermerk: Die geltende Version folgt jetzt den
- * Korrekturen. Abweichende Felder bleiben samt Vermerk, sonst aenderte sich
- * der Anspruch ihres Zeitraums (die Akte traegt dann noch die Werte der
- * verschobenen Folgeversion). Liefert die Felder ohne Vermerk fuer den Audit-Eintrag.
+ * hinten, PATCH /api/contracts/:id verlaengert die angrenzende Vorversion und
+ * spiegelt sie zurueck in die Akte): Festgehaltene Urlaubstage und Woche, die
+ * jetzt genau dem entsprechen, was die Akte liefert, werden wieder leer,
+ * damit die geltende Version wie jede andere der Akte folgt. Beim Abloesen
+ * uebernommene Art und Stunden bleiben samt Vermerk: Geleert gingen sie beim
+ * naechsten Abloesen verloren (gefuellt wird nur beim POST), und ein
+ * spaeteres Neusetzen des Vermerks gibt es nicht; den Vermerk eines Feldes
+ * entfernt erst eine Korrektur, die es setzt (syncCurrentContract). Liefert
+ * die geleerten Felder fuer den Audit-Eintrag.
  */
 export function unfreezeReopenedContract(contractId: number, today = todayIso()): EntitlementFrozenField[] {
   const db = getDb();
   const v = db
     .prepare(
-      `SELECT employee_id, employee_type, weekly_hours, annual_leave_days, work_weekdays, work_days_per_week, valid_to,
-              entitlement_frozen
+      `SELECT employee_id, employee_type, annual_leave_days, work_weekdays, work_days_per_week, valid_to, entitlement_frozen
        FROM contracts WHERE id = ?`,
     )
     .get(contractId) as
     | (EntitlementInputs & {
         employee_id: number;
         employee_type: string | null;
-        weekly_hours: number | null;
         valid_to: string | null;
         entitlement_frozen: string | null;
       })
     | undefined;
   if (!v || v.entitlement_frozen === null || (v.valid_to !== null && v.valid_to < today)) return [];
   const emp = db
-    .prepare(`SELECT ${ENTITLEMENT_EMPLOYEE_COLUMNS.join(', ')}, weekly_hours FROM employees WHERE id = ?`)
-    .get(v.employee_id) as (EntitlementInputs & { employee_type: string; weekly_hours: number | null }) | undefined;
+    .prepare(`SELECT ${ENTITLEMENT_EMPLOYEE_COLUMNS.join(', ')} FROM employees WHERE id = ?`)
+    .get(v.employee_id) as (EntitlementInputs & { employee_type: string }) | undefined;
   if (!emp) return [];
   const held = parseEntitlementFrozen(v.entitlement_frozen);
   const cleared: EntitlementFrozenField[] = [];
   const set: Record<string, unknown> = {};
-  // Art und Stunden: Wert bleibt, nur der Vermerk faellt bei Gleichheit weg.
-  for (const c of ['employee_type', 'weekly_hours'] as const) {
-    if (held.includes(c) && v[c] === emp[c]) cleared.push(c);
-  }
   if (held.includes('annual_leave_days') && v.annual_leave_days === emp.annual_leave_days) {
     set.annual_leave_days = null;
     cleared.push('annual_leave_days');
   }
-  if (held.includes('work_week')) {
+  for (const field of ['work_week', 'work_week_default'] as const) {
+    if (!held.includes(field)) continue;
     const week = akteWeekOf(emp, v.employee_type ?? emp.employee_type);
     if (week.work_weekdays === v.work_weekdays && week.work_days_per_week === v.work_days_per_week) {
       set.work_weekdays = null;
       set.work_days_per_week = null;
-      cleared.push('work_week');
+      cleared.push(field);
     }
   }
   if (cleared.length === 0) return [];
-  set.entitlement_frozen = formatEntitlementFrozen(held.filter((f) => !cleared.includes(f)));
+  set.entitlement_frozen = withoutEntitlementFrozen(v.entitlement_frozen, cleared);
   const cols = Object.keys(set);
   db.prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run([
     ...cols.map((c) => set[c]),
     contractId,
   ]);
   return cleared;
+}
+
+/**
+ * Ist die festgehaltene Woche einer Version nur aus der Art abgeleitet
+ * (Vermerk `work_week_default`: Die Akte nannte keine Woche, Vollzeit und
+ * Ausbildung zaehlen Mo bis Fr)? Dann geht sie beim Zurueckspiegeln nicht
+ * als feste Woche in die Akte, sondern die Akte bleibt ohne Angabe wie vorher.
+ */
+export function frozenWeekIsTypeDefault(entitlementFrozen: string | null): boolean {
+  return parseEntitlementFrozen(entitlementFrozen).includes('work_week_default');
 }
 
 /**

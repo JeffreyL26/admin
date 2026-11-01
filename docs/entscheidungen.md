@@ -1804,19 +1804,33 @@ gegeben, die niemand eingetragen hat. Versionen gehen vor festgehaltenen
 Zeitraeumen, damit eine spaeter nachgetragene Version gilt.
 
 **Wenn eine abgelaufene Version wieder gilt:** Verschiebt eine Korrektur
-den Beginn der geltenden Version nach hinten, verlaengert sie das Ende der
-Vorversion, und die gilt bis zum neuen Beginn wieder. Die Akte spiegelt sie
-dann zurueck (sonst rechneten Lohnlauf, FTE und kommende Antraege einen Monat
-zu frueh mit der verschobenen Version), und ihre festgehaltenen Felder
-werden wieder leer, soweit sie jetzt der Akte entsprechen: Als geltende
-Version folgt sie wieder jeder Korrektur in den Stammdaten. Felder, die
-abweichen, bleiben samt Vermerk. Das passiert nur, wenn die Spiegelung an den
-Typregeln scheitert (etwa eine Vorversion mit 40 Stunden ohne eigene Art bei
-einer Werkstudentin); die Akte traegt dann noch die Werte der verschobenen
-Version, und ein Leeren aenderte rueckwirkend den Anspruch des Zeitraums der
-Vorversion. Die Vorversion bleibt in diesem Fall offen mit Grund
-(`mirror_error`, die Akte zeigt ihn) und wird wie eine faellige Version
-erneut versucht; gelingt das spaeter, werden die Felder dann leer.
+den Beginn der geltenden Version nach hinten, wandert das Ende der direkt
+anschliessenden Vorversion mit, und die gilt bis zum neuen Beginn wieder.
+Lag eine Luecke dazwischen (ein befristeter Vertrag endete, die neue Version
+begann spaeter), bleibt sie: Sonst dehnte jede Korrektur die alte Version
+ueber die Luecke, und der Anspruch dieser Zeit aenderte sich rueckwirkend
+(nachgestellt: 2025 von 29,33 auf 28,28). Die Akte spiegelt die wieder
+geltende Version zurueck (sonst rechneten Lohnlauf, FTE und kommende Antraege
+einen Monat zu frueh mit der verschobenen Version), und festgehaltene
+Urlaubstage und Woche werden wieder leer, soweit sie jetzt der Akte
+entsprechen: Als geltende Version folgt sie wieder jeder Korrektur in den
+Stammdaten. Art und Stunden behalten Wert und Vermerk, denn einen Vermerk
+setzt spaeter niemand neu; eine Korrektur des Feldes entfernt ihn (und das
+Protokoll nennt es). Eine nur aus der Art abgeleitete Woche (die Akte nannte
+keine, Vollzeit zaehlt Mo bis Fr) geht als "nicht hinterlegt" zurueck, nicht
+als feste Woche, die niemand eingetragen hat.
+
+Passt die Vorversion nicht zu den heutigen Stammdaten (Typregeln), lehnt der
+PATCH das Verschieben ab. Eine fruehere Fassung liess sie dann offen mit
+Grund; die Akte trug weiter die Werte der verschobenen Version, und eine
+Korrektur dieser Werte landete in der Vorversion, fuer ihren ganzen Zeitraum
+(nachgestellt: 15 auf 16 in der Akte setzte die Vorversion von 30 auf 16).
+
+Aus demselben Grund uebernehmen Personal-PATCH und Sammelaenderung vor der
+Korrektur eine heute begonnene Version, die der stuendliche Lauf noch nicht
+uebernommen hat: Sonst traf die Korrektur sie, waehrend die Akte noch die
+Vorversion zeigte; der Abgleich mit `expected_updated_at` erkennt dann
+einen veralteten Stand.
 
 Was die Vorversion selbst offen laesst, kann die Akte nicht zurueckbekommen;
 sie behielte dafuer Art oder Stunden der verschobenen Version (im Test:

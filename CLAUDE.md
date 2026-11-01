@@ -203,16 +203,22 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (Migration `119_contract_gap_values`, geladen über `CONTRACT_PERIODS_SQL`;
   Versionen gehen vor; schließt ein Zeitraum an eine Zeile mit denselben
   Werten an, wächst diese). Die heute geltende Version bleibt frei, sie
-  korrigiert syncCurrentContract für ihren ganzen Zeitraum; gilt eine
-  abgelaufene Version wieder (der PATCH verschiebt den Beginn der
-  Folgeversion nach hinten), spiegelt die Akte sie bis zum neuen Beginn
-  (passt sie nicht zu den Typregeln: offen mit `mirror_error`, erneut
-  versucht wie eine fällige Version), und ihre festgehaltenen Felder, die
-  danach der Akte entsprechen, werden wieder leer
-  (`unfreezeReopenedContract`; Art und Stunden behalten ihren Wert und
-  verlieren nur den Vermerk, Audit `reopened`); eine Korrektur einer
-  Version (PATCH, syncCurrentContract) entfernt den Vermerk der Felder, die
-  sie selbst setzt. Damit die Akte sie
+  korrigiert syncCurrentContract für ihren ganzen Zeitraum (die Woche als
+  Paar aus der Akte; Personal-PATCH und Sammeländerung übernehmen vorher
+  eine heute begonnene Version, `mirrorDueContracts`, damit die Korrektur
+  die Version trifft, die die Akte zeigt). Verschiebt der PATCH einer
+  Version ihren Beginn, wandert das Ende der Vorversion nur mit, wenn sie
+  direkt anschloss (eine Lücke bleibt, gekürzt wird nur bei
+  Überschneidung). Gilt eine angrenzende abgelaufene Version dadurch
+  wieder, spiegelt die Akte sie bis zum neuen Beginn; passt sie nicht zu den
+  heutigen Stammdaten, lehnt der PATCH ab (409, nichts geändert). Eine nur
+  aus der Art abgeleitete Woche (Vermerk `work_week_default`) geht dabei
+  als „nicht hinterlegt“ zurück. Danach werden festgehaltene Urlaubstage
+  und Woche gleich der Akte wieder leer (`unfreezeReopenedContract`, Audit
+  `reopened`); Art und Stunden behalten Wert und Vermerk. Eine Korrektur
+  (Vertrags-PATCH für wirklich geänderte Felder, syncCurrentContract)
+  entfernt den Vermerk der Felder, die sie setzt, und protokolliert das als
+  `entitlement_frozen` von alt nach neu. Damit die Akte sie
   vollständig zurückbekommt, erhält eine Version beim Ablösen (POST einer
   neuen) ihre offene Art und Wochenstunden aus der Akte, die in diesem
   Moment genau sie spiegelt (`fillClosedVersion`, Audit `closed_filled`,

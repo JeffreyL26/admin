@@ -3,8 +3,8 @@ import {
   contractCorrectable,
   contractState,
   formatDate,
-  formatEntitlementFrozen,
-  parseEntitlementFrozen,
+  withEntitlementFrozen,
+  withoutEntitlementFrozenColumns,
 } from '@ohrganize/shared';
 import { assertExecutiveAccess } from '../../core/executiveGate.js';
 import { getDb, inTransaction } from '../../db/db.js';
@@ -15,6 +15,7 @@ import { assertMayLinkFiles } from '../../core/files.js';
 import {
   ENTITLEMENT_EMPLOYEE_COLUMNS,
   freezeEntitlementInputs,
+  frozenWeekIsTypeDefault,
   recountUpcomingRequests,
   unfreezeReopenedContract,
 } from '../absences/service.js';
@@ -138,6 +139,10 @@ function contractInEffect(employeeId: number, today = todayIso()): ContractRow |
  * Beginn). Aendert sich eine Grundlage des Urlaubsanspruchs, haelt
  * freezeEntitlementInputs vorher fest, was bisher aus der Akte rechnete;
  * das Ergebnis gehoert in den Audit-Eintrag des Aufrufers (frozenDetails).
+ * `opts.clearWeek`: die Arbeitswoche der Akte auf "nicht hinterlegt" setzen
+ * statt sie aus der Version zu nehmen (eine nur aus der Art abgeleitete
+ * Woche, frozenWeekIsTypeDefault). `opts.rawErrors`: den Fehler der
+ * Typregeln unverpackt weiterreichen (der Aufrufer formuliert selbst).
  */
 function mirrorToEmployee(
   employeeId: number,
@@ -150,6 +155,7 @@ function mirrorToEmployee(
   },
   apply = true,
   today = todayIso(),
+  opts: { clearWeek?: boolean; rawErrors?: boolean } = {},
 ): Frozen | null {
   const sets: string[] = [];
   const params: unknown[] = [];
@@ -171,12 +177,14 @@ function mirrorToEmployee(
   }
   // Arbeitswoche als Paar; eine Version ohne Angabe (beides leer) laesst die
   // Akte stehen.
-  const scheduleGiven = SCHEDULE_COLUMNS.some((c) => contract[c] !== null && contract[c] !== undefined);
+  const scheduleGiven =
+    opts.clearWeek === true || SCHEDULE_COLUMNS.some((c) => contract[c] !== null && contract[c] !== undefined);
   if (scheduleGiven) {
     for (const c of SCHEDULE_COLUMNS) {
+      const value = opts.clearWeek ? null : (contract[c] ?? null);
       sets.push(`${c} = ?`);
-      params.push(contract[c] ?? null);
-      mirrored[c] = contract[c] ?? null;
+      params.push(value);
+      mirrored[c] = value;
     }
   }
   if (sets.length === 0) return null;
@@ -206,6 +214,7 @@ function mirrorToEmployee(
     }
   } catch (e) {
     if (e instanceof AppError) {
+      if (opts.rawErrors) throw e;
       throw badRequest(
         `Die Vertragsdaten passen nicht zu den Stammdaten der Person: ${e.message}. Bitte Wochenstunden bzw. Urlaubstage im Vertrag anpassen oder zuerst den Mitarbeitertyp ändern.`,
         e.details,
@@ -277,20 +286,11 @@ function fillClosedVersion(current: ContractRow, today: string): string[] {
   if (!akte) return [];
   const fields = CLOSE_FILLED_COLUMNS.filter((c) => current[c] === null && akte[c] !== null);
   if (fields.length === 0) return [];
-  const marker = formatEntitlementFrozen([...parseEntitlementFrozen(current.entitlement_frozen), ...fields]);
+  const marker = withEntitlementFrozen(current.entitlement_frozen, fields);
   getDb()
     .prepare(`UPDATE contracts SET ${fields.map((c) => `${c} = ?`).join(', ')}, entitlement_frozen = ? WHERE id = ?`)
     .run(...fields.map((c) => akte[c]), marker, current.id);
   return [...fields];
-}
-
-/**
- * Vermerk (`entitlement_frozen`) ohne die Felder, die eine Korrektur jetzt
- * selbst setzt: Sie sind dann keine Uebernahme aus der Akte mehr.
- */
-function markerWithout(marker: string | null, columns: readonly string[]): string | null {
-  const touched = new Set(columns.map((c) => (c === 'work_weekdays' || c === 'work_days_per_week' ? 'work_week' : c)));
-  return formatEntitlementFrozen(parseEntitlementFrozen(marker).filter((f) => !touched.has(f)));
 }
 
 /**
@@ -330,18 +330,10 @@ export function mirrorDueContracts(today = todayIso(), employeeIds?: readonly nu
         const frozen = mirrorToEmployee(c.employee_id, c, true, today);
         setState.run(0, null, c.id);
         mirrored.push(c.id);
-        // Eine wieder geltende Vorversion, deren Spiegelung erst jetzt gelingt:
-        // festgehaltene Felder gleich der Akte wieder leer (sonst leer, nichts zu tun).
-        const unfrozen = unfreezeReopenedContract(c.id, today);
         auditSystem(
           'contract.mirrored',
           'contract',
-          {
-            employee_id: c.employee_id,
-            valid_from: c.valid_from,
-            ...frozenDetails(frozen),
-            ...(unfrozen.length ? { unfrozen } : {}),
-          },
+          { employee_id: c.employee_id, valid_from: c.valid_from, ...frozenDetails(frozen) },
           c.id,
         );
       } catch (e) {
@@ -373,9 +365,14 @@ export interface ContractSync {
  * genau sie (geplante Versionen erst zum Beginn, mirrorDueContracts). Eine
  * geplante Version bleibt unangetastet, sonst ueberschriebe die Korrektur
  * still die geplante Aenderung; ab ihrem Beginn gelten ihre Werte, und
- * `notice` sagt das. Läuft in der Transaktion der Personaländerung; das
- * Audit schreibt der Aufrufer in derselben Transaktion (Eintrag `update` an
- * `contract`).
+ * `notice` sagt das. Läuft in der Transaktion der Personaländerung, NACH
+ * deren UPDATE; das Audit schreibt der Aufrufer in derselben Transaktion
+ * (Eintrag `update` an `contract`). Die Arbeitswoche geht nur als Paar: Ist
+ * eine Haelfte geaendert, kommen beide aus der Akte (dort steht nach dem
+ * UPDATE das ganze, von settleWorkSchedule geordnete Paar). Was die Version
+ * aus der Akte uebernommen hatte (`entitlement_frozen`), verliert fuer die
+ * gesetzten Felder den Vermerk; das Protokoll nennt das als
+ * `entitlement_frozen` von alt nach neu.
  */
 export function syncCurrentContract(
   employeeId: number,
@@ -391,14 +388,31 @@ export function syncCurrentContract(
   }
   const inEffect = contractInEffect(employeeId, today);
   if (!inEffect) return result;
-  const cols = MIRRORED_COLUMNS.filter((c) => changed[c] !== undefined && changed[c] !== inEffect[c]);
+  const current = inEffect as unknown as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  for (const c of MIRRORED_COLUMNS) if (changed[c] !== undefined) next[c] = changed[c] ?? null;
+  const schedule: readonly string[] = SCHEDULE_COLUMNS;
+  if (Object.keys(next).some((c) => schedule.includes(c))) {
+    const akte = getDb().prepare('SELECT work_weekdays, work_days_per_week FROM employees WHERE id = ?').get(employeeId) as
+      | Record<string, unknown>
+      | undefined;
+    if (akte) for (const c of SCHEDULE_COLUMNS) next[c] = akte[c] ?? null;
+  }
+  let cols = Object.keys(next).filter((c) => next[c] !== current[c]);
+  if (cols.some((c) => schedule.includes(c))) cols = [...new Set([...cols, ...SCHEDULE_COLUMNS])];
   if (cols.length === 0) return result;
+  const marker = withoutEntitlementFrozenColumns(inEffect.entitlement_frozen, cols);
+  const markerChanged = marker !== inEffect.entitlement_frozen;
+  const assignments = [...cols.map((c) => `${c} = ?`), ...(markerChanged ? ['entitlement_frozen = ?'] : [])];
   getDb()
-    .prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')}, entitlement_frozen = ? WHERE id = ?`)
-    .run(...cols.map((c) => changed[c] ?? null), markerWithout(inEffect.entitlement_frozen, cols), inEffect.id);
+    .prepare(`UPDATE contracts SET ${assignments.join(', ')} WHERE id = ?`)
+    .run(...cols.map((c) => next[c]), ...(markerChanged ? [marker] : []), inEffect.id);
   result.synced = {
     id: inEffect.id,
-    changed: Object.fromEntries(cols.map((c) => [c, { from: inEffect[c], to: changed[c] ?? null }])),
+    changed: {
+      ...Object.fromEntries(cols.map((c) => [c, { from: current[c], to: next[c] }])),
+      ...(markerChanged ? { entitlement_frozen: { from: inEffect.entitlement_frozen, to: marker } } : {}),
+    },
   };
   return result;
 }
@@ -474,6 +488,11 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         }
         const fields = fillClosedVersion(current, today);
         if (fields.length) closedFilled = { contract: current.id, fields };
+        // Stand ihre Uebernahme noch aus (Typregeln), ist sie mit dem Ende
+        // erledigt; sonst bliebe der Hinweis "nicht übernommen" stehen.
+        if (cutoff < today && current.mirror_pending === 1) {
+          db.prepare('UPDATE contracts SET mirror_pending = 0, mirror_error = NULL WHERE id = ?').run(current.id);
+        }
       }
       const info = db
         .prepare(
@@ -549,16 +568,31 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
               `valid_from muss nach dem Beginn der Vorversion (${prev.valid_from}) liegen`,
             );
           }
+          // Schliesst die Vorversion direkt an, wandert ihr Ende mit. Lag eine
+          // Luecke dazwischen (der POST kuerzt nur, verlaengert nie), bleibt sie;
+          // gekuerzt wird dann nur, wenn sich beide sonst ueberschnitten.
           const prevTo = addDaysIso(patch.valid_from, -1);
-          db.prepare('UPDATE contracts SET valid_to = ? WHERE id = ?').run(prevTo, prev.id);
-          // War die Vorversion abgelaufen und gilt jetzt wieder, spiegelt die
-          // Akte sie (unten, nach dieser Version).
-          if (prev.valid_to !== null && prev.valid_to < today && prevTo >= today) reopenedId = prev.id;
+          const prevEnd = prev.valid_to as string;
+          const adjacent = prevEnd === addDaysIso(existing.valid_from, -1);
+          if (adjacent || prevTo < prevEnd) {
+            db.prepare('UPDATE contracts SET valid_to = ? WHERE id = ?').run(prevTo, prev.id);
+            if (prevTo < today && prev.mirror_pending === 1) {
+              db.prepare('UPDATE contracts SET mirror_pending = 0, mirror_error = NULL WHERE id = ?').run(prev.id);
+            }
+            // War die angrenzende Vorversion abgelaufen und gilt jetzt wieder,
+            // spiegelt die Akte sie (unten, nach dieser Version).
+            if (adjacent && prevEnd < today && prevTo >= today) reopenedId = prev.id;
+          }
         }
       }
+      // Den Vermerk verlieren nur Felder, die diese Korrektur wirklich aendert
+      // (der Dialog schickt immer alle Felder mit).
+      const existingRow = existing as unknown as Record<string, unknown>;
+      const changedCols = cols.filter((c) => (patch[c] ?? null) !== existingRow[c]);
+      const marker = withoutEntitlementFrozenColumns(existing.entitlement_frozen, changedCols);
       db.prepare(
         `UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')}, entitlement_frozen = ? WHERE id = ?`,
-      ).run(...cols.map((c) => patch[c] ?? null), markerWithout(existing.entitlement_frozen, cols), id);
+      ).run(...cols.map((c) => patch[c] ?? null), marker, id);
       // Nur spiegeln, was diese Korrektur aendert: Unveraenderte Werte stimmen
       // schon mit den Stammdaten ueberein (syncCurrentContract), ein Altwert
       // aus der Zeit davor setzte sie sonst still zurueck. Eine geplante
@@ -583,10 +617,14 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       // Gilt die Vorversion wieder (der Beginn dieser Version wanderte nach
       // hinten), spiegelt die Akte sie bis zum neuen Beginn; sonst rechneten
       // Lohnlauf, FTE und kommende Antraege zu frueh mit dieser Version. Passt
-      // sie nicht zu den Typregeln, bleibt sie mit Grund offen (mirror_error,
-      // die Akte zeigt ihn) und wird wie eine faellige Version erneut versucht
-      // (mirrorDueContracts). Danach werden ihre festgehaltenen Felder, die
-      // jetzt der Akte entsprechen, wieder leer (unfreezeReopenedContract).
+      // sie nicht zu den heutigen Stammdaten (Typregeln), wird das Verschieben
+      // abgelehnt (409, alles zurueckgerollt): Eine offene Vorversion liesse die
+      // Akte bei den Werten dieser Version, und Korrekturen der Stammdaten
+      // landeten in der Vorversion. Eine nur aus der Art abgeleitete Woche geht
+      // als "nicht hinterlegt" zurueck (frozenWeekIsTypeDefault). Danach werden
+      // festgehaltene Urlaubstage und Woche, die jetzt der Akte entsprechen,
+      // wieder leer (unfreezeReopenedContract; Art und Stunden behalten Wert
+      // und Vermerk).
       if (reopenedId !== null) {
         const back = getContract(reopenedId);
         // Was die Vorversion offen laesst, behielte die Akte von dieser Version
@@ -601,23 +639,23 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
           );
         }
         let backFrozen: Frozen | null = null;
-        let mirrorError: string | null = null;
         try {
           backFrozen = mirrorToEmployee(
             existing.employee_id,
             Object.fromEntries(MIRRORED_COLUMNS.map((c) => [c, back[c]])),
             true,
             today,
+            { clearWeek: frozenWeekIsTypeDefault(back.entitlement_frozen), rawErrors: true },
           );
         } catch (e) {
           if (!(e instanceof AppError)) throw e;
-          mirrorError = e.message;
-          db.prepare('UPDATE contracts SET mirror_pending = 1, mirror_error = ? WHERE id = ?').run(e.message, reopenedId);
+          throw conflict(
+            `Der Beginn lässt sich nicht nach hinten verschieben: Die Vorversion gälte dann wieder, passt aber nicht zu den heutigen Stammdaten (${e.message}). Stattdessen bitte diese Version auf die bisherigen Werte korrigieren und ab dem gewünschten Datum eine neue Version anlegen.`,
+          );
         }
         const unfrozen = unfreezeReopenedContract(reopenedId, today);
         reopened = {
           contract: reopenedId,
-          ...(mirrorError ? { mirror_error: mirrorError } : {}),
           ...frozenDetails(backFrozen),
           ...(unfrozen.length ? { unfrozen } : {}),
         };
@@ -625,6 +663,9 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       audit(req, 'update', 'contract', id, {
         employee_id: existing.employee_id,
         changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
+        ...(marker !== existing.entitlement_frozen
+          ? { entitlement_frozen: { from: existing.entitlement_frozen, to: marker } }
+          : {}),
         ...frozenDetails(frozen),
         ...(reopened ? { reopened } : {}),
       });
