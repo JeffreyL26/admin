@@ -4,7 +4,9 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
 import { audit, auditTrail } from '../../core/audit.js';
 import { todayIso, isValidIsoDate } from '../../core/dates.js';
-import { SALARY_COMPONENT_KINDS, isOwnRequestDecision } from '@ohrganize/shared';
+import { BASE_PAY_KINDS, SALARY_COMPONENT_KINDS, contractMonthHours, isOwnRequestDecision } from '@ohrganize/shared';
+import { getSetting } from '../../core/settings.js';
+import { assertExecutiveAccess, executiveFilterSql } from '../../core/executiveGate.js';
 import {
   assertNoComponentOverlap,
   componentsAt,
@@ -56,26 +58,60 @@ function currentAmountCents(employeeId: number, kind: string, date: string): num
 export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Gesamtübersicht: aktuelles Monatsbrutto aller Mitarbeitenden (ohne
   // Freiberufler:innen — deren Vergütung läuft getrennt über Honorare).
-  app.get('/api/compensation/salaries', async () => {
+  app.get('/api/compensation/salaries', async (req) => {
     const today = todayIso();
+    // Leitungsebene ohne das Recht: nicht in der Übersicht (core/executiveGate.ts).
+    const executive = executiveFilterSql(req, 'employees');
     const employees = getDb()
       .prepare(
-        `SELECT * FROM employees WHERE employee_type != 'freiberufler'
+        `SELECT * FROM employees WHERE employee_type != 'freiberufler' AND ${executive.sql}
          ORDER BY last_name, first_name`,
       )
-      .all() as EmployeeRow[];
+      .all(executive.params) as EmployeeRow[];
     const lastChanges = getDb()
       .prepare(
         `SELECT employee_id, MAX(valid_from) AS last_change FROM salary_components GROUP BY employee_id`,
       )
       .all() as { employee_id: number; last_change: string }[];
     const lastByEmployee = new Map(lastChanges.map((r) => [r.employee_id, r.last_change]));
+    // Letzte Gehaltsanpassung: jüngster Beginn einer Grundvergütung
+    // (Grundgehalt oder Stundenlohn), der schon gilt. Zulagen, Sachbezüge,
+    // Abzüge und künftige Erhöhungen zählen nicht.
+    const lastAdjustments = getDb()
+      .prepare(
+        `SELECT employee_id, MAX(valid_from) AS last_adjustment FROM salary_components
+         WHERE kind IN (${BASE_PAY_KINDS.map(() => '?').join(', ')}) AND valid_from <= ?
+         GROUP BY employee_id`,
+      )
+      .all([...BASE_PAY_KINDS, today]) as { employee_id: number; last_adjustment: string }[];
+    const adjustmentByEmployee = new Map(lastAdjustments.map((r) => [r.employee_id, r.last_adjustment]));
+    // Variable Vergütung des laufenden Jahres je Person und Art (Spalte
+    // "Extras"); eine Sammelabfrage statt einer je Person.
+    const extraRows = getDb()
+      .prepare(
+        `SELECT employee_id, kind, COUNT(*) AS count FROM bonuses
+         WHERE substr(payout_month, 1, 4) = ? GROUP BY employee_id, kind ORDER BY kind`,
+      )
+      .all(today.slice(0, 4)) as { employee_id: number; kind: string; count: number }[];
+    const extrasByEmployee = new Map<number, { kind: string; count: number }[]>();
+    for (const r of extraRows) {
+      const list = extrasByEmployee.get(r.employee_id) ?? [];
+      list.push({ kind: r.kind, count: r.count });
+      extrasByEmployee.set(r.employee_id, list);
+    }
+    const fullTime = getSetting('fullTimeWeeklyHours');
     return {
       salaries: employees.map((e) => {
         // Eine Abfrage je Person: Summe und Zähler teilen sich das Ergebnis —
         // currentMonthlyGross würde componentsAt intern ein zweites Mal
         // identisch ausführen (2N statt N Queries über die ganze Belegschaft).
         const components = componentsAt(e.id, today);
+        const monthlyGross = components.reduce(
+          (sum, c) => sum + monthlyCents(c.kind, c.amount_cents, e.weekly_hours),
+          0,
+        );
+        const hourly = components.find((c) => c.kind === 'stundenlohn');
+        const monthHours = contractMonthHours(e.weekly_hours);
         return {
           employee_id: e.id,
           first_name: e.first_name,
@@ -83,12 +119,24 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
           employee_type: e.employee_type,
           status: e.status,
           job_title: e.job_title,
-          monthly_gross_cents: components.reduce(
-            (sum, c) => sum + monthlyCents(c.kind, c.amount_cents, e.weekly_hours),
-            0,
-          ),
+          monthly_gross_cents: monthlyGross,
           component_count: components.length,
           last_change: lastByEmployee.get(e.id) ?? null,
+          last_adjustment: adjustmentByEmployee.get(e.id) ?? null,
+          weekly_hours: e.weekly_hours,
+          // Anteil einer Vollzeitstelle (Einstellung fullTimeWeeklyHours).
+          fte: e.weekly_hours !== null ? Math.round((e.weekly_hours / fullTime) * 100) / 100 : null,
+          // Stundenlohn: vereinbart (Komponente) oder aus dem Monatsbrutto
+          // und den Vertragsstunden des Monats gerechnet (hourly_derived).
+          hourly_rate_cents: hourly
+            ? hourly.amount_cents
+            : monthlyGross > 0 && monthHours > 0
+              ? Math.round(monthlyGross / monthHours)
+              : null,
+          hourly_derived: !hourly,
+          // Jahresbrutto ohne variable Vergütung und Einmalzahlungen.
+          annual_gross_cents: monthlyGross * 12,
+          extras: extrasByEmployee.get(e.id) ?? [],
         };
       }),
     };
@@ -97,6 +145,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Aktuelle Vergütung einer Mitarbeiter:in: Komponenten + Monatsbrutto.
   app.get('/api/compensation/employees/:id/salary', async (req) => {
     const id = Number((req.params as { id: string }).id);
+    assertExecutiveAccess(req, id, 'lesen');
     const employee = getEmployee(id);
     const today = todayIso();
     const components = componentsAt(id, today).map((c) => ({
@@ -119,6 +168,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Historie (Timeline) aller Komponenten einer Mitarbeiter:in.
   app.get('/api/compensation/employees/:id/salary/history', async (req) => {
     const id = Number((req.params as { id: string }).id);
+    assertExecutiveAccess(req, id, 'lesen');
     getEmployee(id);
     const components = getDb()
       .prepare(
@@ -133,6 +183,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Vorgängerzeile gleicher Art transaktional (lückenlose Historie).
   app.post('/api/compensation/employees/:id/components', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
+    assertExecutiveAccess(req, id, 'bearbeiten');
     const employee = getEmployee(id);
     if (employee.employee_type === 'freiberufler') {
       throw badRequest('Freiberufler:innen werden über Honorarsätze vergütet, nicht über Gehaltskomponenten');
@@ -164,6 +215,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Audit-Historie der Vergütung je Mitarbeiter:in („wer/wann/was/warum").
   app.get('/api/compensation/employees/:id/audit', async (req) => {
     const id = Number((req.params as { id: string }).id);
+    assertExecutiveAccess(req, id, 'lesen');
     getEmployee(id);
     const entries = (auditTrail('compensation_employee', id) as { details: string | null }[]).map(
       (e) => ({ ...e, details: e.details ? JSON.parse(e.details) : null }),
@@ -185,6 +237,9 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
       conditions.push('r.employee_id = ?');
       params.push(Number(employee_id));
     }
+    const executive = executiveFilterSql(req);
+    conditions.push(executive.sql);
+    params.push(...executive.params);
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const requests = getDb()
       .prepare(
@@ -204,6 +259,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/compensation/change-requests', async (req, reply) => {
     const body = parse(changeRequestSchema, req.body);
     const employee = getEmployee(body.employee_id);
+    assertExecutiveAccess(req, body.employee_id, 'bearbeiten');
     if (employee.employee_type === 'freiberufler') {
       throw badRequest('Für Freiberufler:innen sind keine Gehaltsänderungen möglich');
     }
@@ -263,6 +319,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
         }
       | undefined;
     if (!request) throw notFound('Änderungsantrag nicht gefunden');
+    assertExecutiveAccess(req, request.employee_id, 'bearbeiten');
     if (request.status !== 'beantragt') {
       throw conflict('Der Antrag wurde bereits entschieden');
     }

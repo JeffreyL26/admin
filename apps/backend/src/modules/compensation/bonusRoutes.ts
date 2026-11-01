@@ -1,3 +1,4 @@
+import { assertExecutiveAccess, executiveFilterSql } from '../../core/executiveGate.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
@@ -105,6 +106,9 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
       conditions.push('b.employee_id = ?');
       params.push(Number(employee_id));
     }
+    const executive = executiveFilterSql(req);
+    conditions.push(executive.sql);
+    params.push(...executive.params);
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     // Das Ziel kommt per LEFT JOIN gleich mit, statt je zielgekoppeltem Bonus
     // goalById samt tableExists abzufragen (zwei Abfragen je Zeile). Fehlt das
@@ -168,6 +172,7 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/compensation/bonuses', async (req, reply) => {
     const body = parse(bonusSchema, req.body);
     const employee = getEmployee(body.employee_id);
+    assertExecutiveAccess(req, body.employee_id, 'bearbeiten');
     if (employee.employee_type === 'freiberufler') {
       throw badRequest('Freiberufliche Mitarbeiter werden über Honorare vergütet, nicht über Boni');
     }
@@ -222,6 +227,7 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
     const db = getDb();
     const bonus = db.prepare('SELECT * FROM bonuses WHERE id = ?').get(id) as BonusRow | undefined;
     if (!bonus) throw notFound('Bonus nicht gefunden');
+    assertExecutiveAccess(req, bonus.employee_id, 'bearbeiten');
     const allowed: Record<string, string[]> = {
       geplant: ['freigegeben'],
       freigegeben: ['ausgezahlt'],
@@ -260,6 +266,7 @@ export async function bonusRoutes(app: FastifyInstance): Promise<void> {
       | BonusRow
       | undefined;
     if (!bonus) throw notFound('Bonus nicht gefunden');
+    assertExecutiveAccess(req, bonus.employee_id, 'bearbeiten');
     if (bonus.status !== 'geplant') {
       throw conflict('Nur geplante Boni können gelöscht werden');
     }

@@ -414,4 +414,13 @@ export const employeesMigrations: Migration[] = [
       ALTER TABLE employees ADD COLUMN disability_note TEXT;
     `,
   },
+  {
+    // Leitungsebene (C-Level, core/executiveGate.ts): Konten ohne das Recht
+    // 'leitung' sehen die Person nur mit Verzeichnisdaten.
+    name: '115_employee_executive',
+    sql: `
+      ALTER TABLE employees ADD COLUMN executive INTEGER NOT NULL DEFAULT 0 CHECK (executive IN (0, 1));
+      CREATE INDEX IF NOT EXISTS idx_employees_executive ON employees(executive) WHERE executive = 1;
+    `,
+  },
 ];

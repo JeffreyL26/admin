@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, History, Plus, Receipt, ScrollText, Wallet, X } from 'lucide-react';
+import { ArrowLeft, Check, Columns3, History, Plus, Receipt, ScrollText, Wallet, X } from 'lucide-react';
 import {
   formatDate,
   formatEuro,
+  BONUS_KIND_LABELS,
   EMPLOYEE_TYPE_LABELS,
   SALARY_COMPONENT_KINDS,
   SALARY_COMPONENT_LABELS,
+  type BonusKind,
   type EmployeeType,
   type SalaryComponentKind,
 } from '@ohrganize/shared';
@@ -22,6 +24,9 @@ import { tourEvent } from '../tours/events';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { parseEuroInput, STATUS_TONES } from './lib';
 import { Select } from '../../components/Select';
+import { Popover } from '../../components/Popover';
+import { readJson, writeJson } from '../../lib/localStore';
+import { LOCALE } from '../../lib/locale';
 import { SortableTh } from '../../components/SortableTh';
 import { TableScroller } from '../../components/TableScroller';
 import { useTableSort } from '../../lib/useTableSort';
@@ -36,16 +41,129 @@ interface SalaryOverviewRow {
   monthly_gross_cents: number;
   component_count: number;
   last_change: string | null;
+  /** Jüngster Beginn von Grundgehalt oder Stundenlohn, der schon gilt. */
+  last_adjustment: string | null;
+  weekly_hours: number | null;
+  fte: number | null;
+  hourly_rate_cents: number | null;
+  /** true: aus Monatsbrutto und Vertragsstunden gerechnet, kein vereinbarter Stundenlohn. */
+  hourly_derived: boolean;
+  annual_gross_cents: number;
+  /** Variable Vergütung des laufenden Jahres je Art (Boni & Variable). */
+  extras: { kind: string; count: number }[];
+}
+
+/**
+ * Spalten der Gehaltsübersicht, je Gerät wählbar wie in der Mitarbeiterliste
+ * (`ohrganize.salaryList`). `sort` ist der Schlüssel aus SALARY_SORT.
+ */
+type SalaryColumnId =
+  | 'name' | 'type' | 'job_title' | 'weekly_hours' | 'fte' | 'hourly' | 'gross' | 'annual'
+  | 'extras' | 'components' | 'last_adjustment' | 'last_change';
+interface SalaryColumn {
+  id: SalaryColumnId;
+  label: string;
+  num?: boolean;
+  fixed?: boolean;
+  defaultVisible?: boolean;
+  hint?: string;
+}
+const SALARY_COLUMNS: SalaryColumn[] = [
+  { id: 'name', label: 'Mitarbeiter:in', fixed: true, defaultVisible: true },
+  { id: 'type', label: 'Beschäftigung', defaultVisible: true },
+  { id: 'job_title', label: 'Position', defaultVisible: true },
+  { id: 'weekly_hours', label: 'Wochenstunden', num: true },
+  { id: 'fte', label: 'FTE', num: true, hint: 'Anteil einer Vollzeitstelle (Einstellungen: Vollzeit-Wochenstunden)' },
+  { id: 'hourly', label: 'Stundenlohn', num: true, hint: 'Vereinbart oder, kursiv, aus Monatsbrutto und Vertragsstunden gerechnet' },
+  { id: 'gross', label: 'Monatsbrutto', num: true, defaultVisible: true },
+  { id: 'annual', label: 'Jahresbrutto', num: true, defaultVisible: true, hint: '12 × Monatsbrutto, ohne Boni und Einmalzahlungen' },
+  { id: 'extras', label: 'Extras', defaultVisible: true, hint: 'Boni, Provisionen und Einmalzahlungen im laufenden Jahr' },
+  { id: 'components', label: 'Komponenten', num: true },
+  { id: 'last_adjustment', label: 'Letzte Gehaltsanpassung', defaultVisible: true, hint: 'Jüngster Beginn von Grundgehalt oder Stundenlohn, der schon gilt' },
+  { id: 'last_change', label: 'Letzte Änderung', hint: 'Jüngster Beginn irgendeiner Komponente, auch Zulagen und Abzüge' },
+];
+const SALARY_VIEW_KEY = 'ohrganize.salaryList';
+const DEFAULT_SALARY_COLUMNS = SALARY_COLUMNS.filter((c) => c.defaultVisible).map((c) => c.id);
+
+function loadSalaryColumns(): SalaryColumnId[] {
+  const stored = readJson<unknown>(SALARY_VIEW_KEY);
+  if (!Array.isArray(stored)) return DEFAULT_SALARY_COLUMNS;
+  const known = new Set(SALARY_COLUMNS.map((c) => c.id));
+  const chosen = stored.filter((c): c is SalaryColumnId => typeof c === 'string' && known.has(c as SalaryColumnId));
+  return chosen.length ? chosen : DEFAULT_SALARY_COLUMNS;
+}
+
+function salaryCell(r: SalaryOverviewRow, id: SalaryColumnId): React.ReactNode {
+  switch (id) {
+    case 'name':
+      return (
+        <span style={{ fontWeight: 600 }}>
+          {r.last_name}, {r.first_name} {r.status !== 'aktiv' && <Badge tone="neutral">ausgeschieden</Badge>}
+        </span>
+      );
+    case 'type':
+      return <Badge tone="blue">{EMPLOYEE_TYPE_LABELS[r.employee_type as EmployeeType] ?? r.employee_type}</Badge>;
+    case 'job_title':
+      return r.job_title ?? '—';
+    case 'weekly_hours':
+      return r.weekly_hours !== null ? `${r.weekly_hours.toLocaleString(LOCALE)} h` : '—';
+    case 'fte':
+      return r.fte !== null ? r.fte.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+    case 'hourly':
+      return r.hourly_rate_cents !== null ? (
+        <span style={r.hourly_derived ? { fontStyle: 'italic', color: 'var(--text-secondary)' } : undefined}>
+          {formatEuro(r.hourly_rate_cents)}
+        </span>
+      ) : (
+        '—'
+      );
+    case 'gross':
+      return <span style={{ fontWeight: 600 }}>{formatEuro(r.monthly_gross_cents)}</span>;
+    case 'annual':
+      return formatEuro(r.annual_gross_cents);
+    case 'extras':
+      return r.extras.length === 0 ? (
+        '—'
+      ) : (
+        <span className="row row--wrap" style={{ gap: 4 }}>
+          {r.extras.map((x) => (
+            <Link
+              key={x.kind}
+              className="hm-badge hm-badge--navy"
+              to={`/verguetung/boni?person=${r.employee_id}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {BONUS_KIND_LABELS[x.kind as BonusKind] ?? x.kind}
+              {x.count > 1 ? ` × ${x.count}` : ''}
+            </Link>
+          ))}
+        </span>
+      );
+    case 'components':
+      return r.component_count;
+    case 'last_adjustment':
+      return r.last_adjustment ? formatDate(r.last_adjustment) : '—';
+    case 'last_change':
+      return r.last_change ? formatDate(r.last_change) : '—';
+    default:
+      return null;
+  }
 }
 
 /** Sortierbare Spalten der Übersicht (lib/useTableSort.ts). */
-const SALARY_SORT = {
-  name: (r: SalaryOverviewRow) => `${r.last_name} ${r.first_name}`,
-  type: (r: SalaryOverviewRow) => EMPLOYEE_TYPE_LABELS[r.employee_type as EmployeeType] ?? r.employee_type,
-  job_title: (r: SalaryOverviewRow) => r.job_title,
-  gross: (r: SalaryOverviewRow) => r.monthly_gross_cents,
-  components: (r: SalaryOverviewRow) => r.component_count,
-  last_change: (r: SalaryOverviewRow) => r.last_change,
+const SALARY_SORT: Record<SalaryColumnId, (r: SalaryOverviewRow) => string | number | null> = {
+  name: (r) => `${r.last_name} ${r.first_name}`,
+  type: (r) => EMPLOYEE_TYPE_LABELS[r.employee_type as EmployeeType] ?? r.employee_type,
+  job_title: (r) => r.job_title,
+  weekly_hours: (r) => r.weekly_hours,
+  fte: (r) => r.fte,
+  hourly: (r) => r.hourly_rate_cents,
+  gross: (r) => r.monthly_gross_cents,
+  annual: (r) => r.annual_gross_cents,
+  extras: (r) => r.extras.reduce((n, x) => n + x.count, 0) || null,
+  components: (r) => r.component_count,
+  last_adjustment: (r) => r.last_adjustment,
+  last_change: (r) => r.last_change,
 };
 const SALARY_SORT_DEFAULT = { key: 'name', dir: 'asc' } as const;
 const salaryTieBreak = (r: SalaryOverviewRow) => `${r.last_name} ${r.first_name}`;
@@ -815,6 +933,15 @@ export function SalariesPage() {
   });
 
   const { sort, toggle: sortBy, sorted } = useTableSort('salaries', data, SALARY_SORT, SALARY_SORT_DEFAULT, salaryTieBreak);
+  const [columns, setColumns] = useState<SalaryColumnId[]>(loadSalaryColumns);
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const columnsButtonRef = useRef<HTMLButtonElement>(null);
+  const visibleColumns = SALARY_COLUMNS.filter((c) => c.fixed || columns.includes(c.id));
+  const toggleColumn = (id: SalaryColumnId) => {
+    const next = columns.includes(id) ? columns.filter((c) => c !== id) : [...columns, id];
+    setColumns(next);
+    writeJson(SALARY_VIEW_KEY, next);
+  };
 
   if (selected !== null) {
     return (
@@ -847,7 +974,65 @@ export function SalariesPage() {
       <div className="stack">
         <PendingRequests />
         <div data-tour="gehaelter-overview">
-          <Card title="Übersicht" flush>
+          <Card
+            title="Übersicht"
+            flush
+            actions={
+              <div className="hm-multi" style={{ width: 150 }}>
+                <button
+                  ref={columnsButtonRef}
+                  type="button"
+                  className="hm-multi__button"
+                  onClick={() => setColumnsOpen((o) => !o)}
+                  aria-expanded={columnsOpen}
+                >
+                  <Columns3 size={14} />
+                  <span className="hm-multi__label">Spalten</span>
+                </button>
+                <Popover
+                  open={columnsOpen}
+                  onClose={() => setColumnsOpen(false)}
+                  anchorRef={columnsButtonRef}
+                  align="right"
+                  minWidth={280}
+                >
+                  <div>
+                    <div className="hm-multi__list">
+                      {SALARY_COLUMNS.map((c) => {
+                        const on = c.fixed || columns.includes(c.id);
+                        return (
+                          <label
+                            key={c.id}
+                            className={`hm-multi__option${on ? ' hm-multi__option--on' : ''}`}
+                            style={c.fixed ? { opacity: 0.65, cursor: 'default' } : undefined}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              disabled={c.fixed}
+                              onChange={() => toggleColumn(c.id)}
+                            />
+                            <span className="hm-multi__text">{c.label}</span>
+                            {c.fixed && <span className="hm-multi__hint">immer</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      className="hm-multi__reset"
+                      onClick={() => {
+                        setColumns(DEFAULT_SALARY_COLUMNS);
+                        writeJson(SALARY_VIEW_KEY, DEFAULT_SALARY_COLUMNS);
+                      }}
+                    >
+                      Auf Standard zurücksetzen
+                    </button>
+                  </div>
+                </Popover>
+              </div>
+            }
+          >
             {isLoading ? (
               <Spinner center />
             ) : (data ?? []).length === 0 ? (
@@ -861,32 +1046,34 @@ export function SalariesPage() {
                 <table className="hm-table">
                   <thead>
                     <tr>
-                      <SortableTh label="Mitarbeiter:in" sortKey="name" sort={sort} onSort={sortBy} />
-                      <SortableTh label="Beschäftigung" sortKey="type" sort={sort} onSort={sortBy} />
-                      <SortableTh label="Position" sortKey="job_title" sort={sort} onSort={sortBy} />
-                      <SortableTh className="num" label="Monatsbrutto" sortKey="gross" sort={sort} onSort={sortBy} />
-                      <SortableTh className="num" label="Komponenten" sortKey="components" sort={sort} onSort={sortBy} />
-                      <SortableTh label="Letzte Änderung" sortKey="last_change" sort={sort} onSort={sortBy} />
+                      {visibleColumns.map((c) => (
+                        <SortableTh
+                          key={c.id}
+                          className={c.num ? 'num' : undefined}
+                          label={
+                            c.hint ? (
+                              <Tooltip content={<span className="hm-tooltip__line">{c.hint}</span>}>
+                                <span>{c.label}</span>
+                              </Tooltip>
+                            ) : (
+                              c.label
+                            )
+                          }
+                          sortKey={c.id}
+                          sort={sort}
+                          onSort={sortBy}
+                        />
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
                     {(sorted ?? []).map((r) => (
                       <tr key={r.employee_id} className="clickable" onClick={() => setSelected(r.employee_id)}>
-                        <td style={{ fontWeight: 600 }}>
-                          {r.last_name}, {r.first_name}{' '}
-                          {r.status !== 'aktiv' && <Badge tone="neutral">ausgeschieden</Badge>}
-                        </td>
-                        <td>
-                          <Badge tone="blue">
-                            {EMPLOYEE_TYPE_LABELS[r.employee_type as EmployeeType] ?? r.employee_type}
-                          </Badge>
-                        </td>
-                        <td>{r.job_title ?? '—'}</td>
-                        <td className="num" style={{ fontWeight: 600 }}>
-                          {formatEuro(r.monthly_gross_cents)}
-                        </td>
-                        <td className="num">{r.component_count}</td>
-                        <td>{r.last_change ? formatDate(r.last_change) : '—'}</td>
+                        {visibleColumns.map((c) => (
+                          <td key={c.id} className={c.num ? 'num' : undefined}>
+                            {salaryCell(r, c.id)}
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>

@@ -221,6 +221,31 @@ paths:
       responses:
         "200": { description: Aktualisierte Krankmeldung }
         "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" }
+  /api/absences/home-office:
+    post:
+      summary: "Arbeitsort eines Tages setzen (Home Office oder Buero); gleicht er dem Muster der Person, faellt die Ausnahme weg"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employee_id, date, home_office]
+              properties:
+                employee_id: { type: integer }
+                date: { type: string, format: date }
+                home_office: { type: boolean }
+      responses:
+        "200": { description: "{ employee_id, date, exception } mit exception buero, homeoffice oder null" }
+        "404": { description: Person nicht gefunden }
+  /api/absences/home-office/{employeeId}/{date}:
+    delete:
+      summary: Ausnahme vom Home-Office-Muster entfernen
+      parameters:
+        - { name: employeeId, in: path, required: true, schema: { type: integer } }
+        - { name: date, in: path, required: true, schema: { type: string, format: date } }
+      responses:
+        "204": { description: Entfernt (auch wenn keine bestand) }
   /api/absences/closures:
     get:
       summary: Betriebsruhetage auflisten

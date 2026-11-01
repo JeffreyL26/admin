@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { assertExecutiveAccess, executiveFilterSql } from '../../core/executiveGate.js';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, notFound, parse } from '../../core/errors.js';
@@ -120,6 +121,10 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     const query = parse(listQuerySchema, req.query ?? {});
     const where: string[] = [];
     const params: unknown[] = [];
+    // Leitungsebene: deren Dokumente nur mit dem Recht (Dokumente ohne Person bleiben).
+    const executive = executiveFilterSql(req, 'e', true);
+    where.push(executive.sql);
+    params.push(...executive.params);
     if (query.search) {
       where.push('d.id IN (SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?)');
       params.push(ftsQuery(query.search));
@@ -200,11 +205,13 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
 
   // Ablaufende Dokumente: expiry_date innerhalb der dokumenteigenen reminder_days
   // (inklusive bereits abgelaufener), nur aktuelle Versionen.
-  app.get('/api/documents/expiring', async () => {
+  app.get('/api/documents/expiring', async (req) => {
+    const executive = executiveFilterSql(req, 'e', true);
     const documents = getDb()
       .prepare(
         `${DOC_SELECT}
          WHERE d.expiry_date IS NOT NULL
+           AND ${executive.sql}
            -- 'localtime' wie bei days_until_expiry (DOC_SELECT): sonst wichen
            -- Zähler und Erinnerungsliste zwischen 0 und 2 Uhr voneinander ab.
            AND date(d.expiry_date) <= date('now', 'localtime', '+' || d.reminder_days || ' days')
@@ -214,7 +221,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
            AND (d.employee_id IS NULL OR e.status = 'aktiv')
          ORDER BY d.expiry_date ASC`,
       )
-      .all();
+      .all(executive.params);
     return { documents };
   });
 
@@ -229,6 +236,7 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
     if (body.employee_id && !db.prepare('SELECT id FROM employees WHERE id = ?').get(body.employee_id)) {
       throw notFound('Mitarbeiter:in nicht gefunden');
     }
+    assertExecutiveAccess(req, body.employee_id, 'bearbeiten');
     let version = 1;
     if (body.supersedes_id) {
       const old = db
@@ -278,10 +286,12 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
   app.patch('/api/documents/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
     const existing = getDb().prepare('SELECT * FROM documents WHERE id = ?').get(id) as
-      | { file_id: number }
+      | { file_id: number; employee_id: number | null }
       | undefined;
     if (!existing) throw notFound('Dokument nicht gefunden');
     const patch = parse(documentPatchSchema, req.body);
+    assertExecutiveAccess(req, existing.employee_id, 'bearbeiten');
+    assertExecutiveAccess(req, patch.employee_id, 'bearbeiten');
     const cols = (
       ['employee_id', 'file_id', 'category', 'title', 'note', 'expiry_date', 'reminder_days', 'visibility'] as const
     ).filter((c) => patch[c] !== undefined);
@@ -330,10 +340,11 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
    */
   app.delete('/api/documents/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
-    const existing = getDb().prepare('SELECT title, file_id FROM documents WHERE id = ?').get(id) as
-      | { title: string; file_id: number }
+    const existing = getDb().prepare('SELECT title, file_id, employee_id FROM documents WHERE id = ?').get(id) as
+      | { title: string; file_id: number; employee_id: number | null }
       | undefined;
     if (!existing) throw notFound('Dokument nicht gefunden');
+    assertExecutiveAccess(req, existing.employee_id, 'bearbeiten');
     // Löschen und Audit in EINER Transaktion. Reihenfolge zwingend: erst die
     // eigene Zeile löschen, sonst hält die Referenzprüfung die Datei für
     // weiterhin gebraucht.

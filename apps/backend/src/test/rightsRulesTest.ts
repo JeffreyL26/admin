@@ -45,6 +45,8 @@ const full = { modules: [...MODULE_KEYS] };
 const noComm = { modules: MODULE_KEYS.filter((m) => m !== 'communication') };
 check('Vollversion: alle Bereiche', variantAreas(full).length === ADMIN_AREAS.length);
 check('Schwerbehinderung ist ein eigener Bereich am Personalmodul', ADMIN_AREAS.includes('schwerbehinderung') && variantAreas(full).includes('schwerbehinderung'));
+check('Leitungsebene ist ein eigener Bereich am Personalmodul', ADMIN_AREAS.includes('leitung') && variantAreas(full).includes('leitung'));
+check('Recht Leitungsebene zaehlt im Rang', levelsBeyond(with_({ leitung: 'lesen' }), none).join() === 'leitung');
 check(
   'Recht Schwerbehinderung zaehlt im Rang',
   levelsBeyond(with_({ schwerbehinderung: 'lesen' }), none).join() === 'schwerbehinderung',

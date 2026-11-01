@@ -129,6 +129,7 @@ function cellContent(e: EmployeeRow, columnId: string, seniorityFormat: Seniorit
           <span style={{ fontWeight: 600 }}>
             {e.first_name} {e.last_name}
           </span>
+          {e.executive === 1 && <Badge tone="navy">Leitungsebene</Badge>}
         </div>
       );
     case 'personnel_number':
@@ -208,6 +209,8 @@ const EmployeeTableRow = React.memo(function EmployeeTableRow({
         <input
           type="checkbox"
           checked={checked}
+          // Leitungsebene ohne das Recht: keine Massenbearbeitung (403 im Backend).
+          disabled={e.restricted === true}
           onChange={() => onToggle(e.id)}
           aria-label={`${e.first_name} ${e.last_name} auswählen`}
         />

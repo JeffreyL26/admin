@@ -977,6 +977,35 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     };
     check('Arbeitswoche: Betriebsruhe laesst Tage von Hand stehen', after.days_counted === 2 && after.days_manual === 1, after);
   }
+
+  // ------------------------------------------------------- Home Office ---
+  // Muster Di (2) und Do (4); 01.12.2026 ist ein Dienstag, 02.12. ein Mittwoch.
+  const pattern = await patchEmp({ home_office_weekdays: '4,2' });
+  check(
+    'Home Office: Muster gespeichert und sortiert',
+    pattern.statusCode === 200 && pattern.json().employee.home_office_weekdays === '2,4',
+    pattern.json(),
+  );
+  const office = await post('/api/absences/home-office', { employee_id: dora, date: '2026-12-01', home_office: false });
+  check('Home Office: Buerotag an einem Muster-Tag', office.statusCode === 200 && office.json().exception === 'buero', office.json());
+  const extra = await post('/api/absences/home-office', { employee_id: dora, date: '2026-12-02', home_office: true });
+  check('Home Office: zusaetzlicher Tag', extra.json().exception === 'homeoffice', extra.json());
+  const calendar = await get('/api/absences/calendar?year=2026&month=12');
+  const doraRow = (calendar.json().employees as { id: number; home_office_weekdays: string | null; home_office: { date: string; kind: string }[] }[]).find(
+    (e) => e.id === dora,
+  );
+  check(
+    'Home Office: Kalender liefert Muster und Ausnahmen',
+    doraRow?.home_office_weekdays === '2,4' &&
+      doraRow.home_office.some((x) => x.date === '2026-12-01' && x.kind === 'buero') &&
+      doraRow.home_office.some((x) => x.date === '2026-12-02' && x.kind === 'homeoffice'),
+    doraRow,
+  );
+  const back = await post('/api/absences/home-office', { employee_id: dora, date: '2026-12-01', home_office: true });
+  check('Home Office: zurueck zum Muster entfernt die Ausnahme', back.json().exception === null, back.json());
+  const removed = await app.inject({ method: 'DELETE', url: `/api/absences/home-office/${dora}/2026-12-02`, headers: auth });
+  const left = db.prepare('SELECT COUNT(*) AS n FROM home_office_exceptions WHERE employee_id = ?').get(dora) as { n: number };
+  check('Home Office: Ausnahme loeschen → 204, keine mehr', removed.statusCode === 204 && left.n === 0, left);
 }
 
 await app.close();

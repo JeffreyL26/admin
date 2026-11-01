@@ -28,6 +28,7 @@ import {
   REGION_SELECT_SQL,
 } from '../absences/service.js';
 import { requireEmployee } from './lib.js';
+import { homeOfficeExceptionsByEmployee } from '../absences/homeOfficeRoutes.js';
 
 /**
  * Farbe maskierter Einträge: `--gray-400` des Hell-Themes. Als konkreter
@@ -60,6 +61,9 @@ interface CalendarEmployeeRow {
   team_id: number | null;
   country: CountryCode;
   bundesland: RegionCode;
+  home_office_weekdays: string | null;
+  work_days_per_week: number | null;
+  work_weekdays: string | null;
 }
 
 export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
@@ -97,7 +101,7 @@ export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
     const defaults = companyRegionDefaults();
     const employees = db()
       .prepare(
-        `SELECT e.id, e.first_name, e.last_name, e.department_id, e.team_id,
+        `SELECT e.id, e.first_name, e.last_name, e.department_id, e.team_id, e.home_office_weekdays,
                 ${REGION_SELECT_SQL}
          FROM employees e
          ${REGION_JOIN_SQL}
@@ -149,10 +153,18 @@ export async function meCalendarRoutes(app: FastifyInstance): Promise<void> {
       .prepare('SELECT * FROM company_closures WHERE date_from <= ? AND date_to >= ? ORDER BY date_from')
       .all([to, from]);
 
-    const result: MeCalendarEmployee[] = employees.map((e) => ({
+    // Arbeitsort sieht das Portal (Home-Office-Tage der Kolleg:innen), die
+    // Arbeitswoche aus REGION_SELECT_SQL nicht: Sie bleibt in der HR.
+    const homeOffice = homeOfficeExceptionsByEmployee(
+      employees.map((e) => e.id),
+      from,
+      to,
+    );
+    const result: MeCalendarEmployee[] = employees.map(({ work_days_per_week: _w, work_weekdays: _wd, ...e }) => ({
       ...e,
       region: e.bundesland,
       absences: byEmployee.get(e.id) ?? [],
+      home_office: homeOffice.get(e.id) ?? [],
     }));
 
     return { range: { from, to }, employees: result, holidays, closures };

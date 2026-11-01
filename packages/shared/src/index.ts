@@ -11,6 +11,7 @@ export * from './absences.js';
 export * from './workSchedule.js';
 export * from './leaveEntitlement.js';
 export * from './disability.js';
+export * from './homeOffice.js';
 export * from './performance.js';
 export * from './compensation.js';
 export * from './datev.js';

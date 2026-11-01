@@ -20,6 +20,7 @@ import {
 } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import { permissionsFor } from '../../core/permissions.js';
+import { homeOfficeExceptionsByEmployee, homeOfficeRoutes } from './homeOfficeRoutes.js';
 import {
   allowedTypeIdsFor,
   assertBalanceCovers,
@@ -213,6 +214,7 @@ function withDisabilityShown<T extends { entitlement_detail: EntitlementDetail }
 
 export const absencesModule: FastifyPluginAsync = async (app) => {
   const db = () => getDb();
+  await app.register(homeOfficeRoutes);
 
   // ---------------------------------------------------------------- Arten ---
   /**
@@ -1183,7 +1185,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     const defaults = companyRegionDefaults();
     const employees = db()
       .prepare(
-        `SELECT e.id, e.first_name, e.last_name, e.department_id, e.team_id,
+        `SELECT e.id, e.first_name, e.last_name, e.department_id, e.team_id, e.home_office_weekdays,
                 ${REGION_SELECT_SQL}
          FROM employees e
          ${REGION_JOIN_SQL}
@@ -1317,11 +1319,13 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       else absencesByEmployee.set(a.employee_id, [a]);
     }
 
+    const homeOffice = homeOfficeExceptionsByEmployee(empIds, from, to);
     return {
       range: { from, to },
       employees: employees.map((e) => ({
         ...e,
         absences: absencesByEmployee.get(e.id) ?? [],
+        home_office: homeOffice.get(e.id) ?? [],
       })),
       holidays,
       closures,

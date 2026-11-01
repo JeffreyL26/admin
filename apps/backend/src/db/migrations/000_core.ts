@@ -301,4 +301,15 @@ export const coreMigrations: Migration[] = [
       WHERE name IN ('Geschäftsführung', 'Head of HR');
     `,
   },
+  {
+    // Rechtebereich 'leitung' (Leitungsebene, Chief-HR): Stammdaten, Vertraege,
+    // Dokumente und Verguetung der als C-Level gekennzeichneten Personen.
+    // Geschaeftsfuehrung und Head of HR bekommen ihn, HR-Sachbearbeitung nicht.
+    name: '011_admin_roles_leitung',
+    sql: `
+      INSERT OR IGNORE INTO admin_role_permissions (role_id, area, level)
+      SELECT id, 'leitung', 'bearbeiten' FROM admin_roles
+      WHERE name IN ('Geschäftsführung', 'Head of HR');
+    `,
+  },
 ];

@@ -1,3 +1,4 @@
+import { mayAccessExecutive } from '../../core/executiveGate.js';
 import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -359,15 +360,39 @@ function getRun(id: number): PayrollRunRow {
  * Personalnummer (Spalte freiwillig, Migration 104) bekommen die Profil-ID,
  * damit CSV, LODAS und Bescheinigung immer denselben Schluessel tragen.
  */
-function getItems(runId: number): (PayrollItemRow & { first_name: string; last_name: string; employee_type: string })[] {
+function getItems(
+  runId: number,
+): (PayrollItemRow & { first_name: string; last_name: string; employee_type: string; executive: number })[] {
   return getDb()
     .prepare(
-      `SELECT i.*, e.first_name, e.last_name, e.employee_type,
+      `SELECT i.*, e.first_name, e.last_name, e.employee_type, e.executive,
               ${PERSONNEL_KEY_SQL} AS personnel_number
        FROM payroll_items i JOIN employees e ON e.id = i.employee_id
        WHERE i.run_id = ? ORDER BY e.last_name, e.first_name`,
     )
-    .all(runId) as (PayrollItemRow & { first_name: string; last_name: string; employee_type: string })[];
+    .all(runId) as (PayrollItemRow & { first_name: string; last_name: string; employee_type: string; executive: number })[];
+}
+
+/** Liegt im Lauf eine Person der Leitungsebene (core/executiveGate.ts)? */
+function runHasExecutive(runId: number): boolean {
+  return !!getDb()
+    .prepare('SELECT 1 FROM payroll_items i JOIN employees e ON e.id = i.employee_id WHERE i.run_id = ? AND e.executive = 1 LIMIT 1')
+    .get(runId);
+}
+
+/**
+ * Positionen der Leitungsebene ohne das Recht: Name bleibt (der Lauf soll
+ * vollständig vorbereitet werden können), Beträge und Bestandteile nicht.
+ */
+function maskExecutiveItem(req: FastifyRequest, item: ReturnType<typeof itemToJson> & { executive?: number }) {
+  if (item.executive !== 1 || mayAccessExecutive(req, 'lesen')) return item;
+  const masked: Record<string, unknown> = { ...item, restricted: true };
+  for (const key of Object.keys(masked)) {
+    if (/_cents$/.test(key)) masked[key] = null;
+    if (['components', 'bonuses', 'warnings', 'flags'].includes(key)) masked[key] = [];
+    if (key.endsWith('_json')) masked[key] = null;
+  }
+  return masked;
 }
 
 function itemToJson(i: PayrollItemRow & { first_name?: string; last_name?: string; employee_type?: string }) {
@@ -504,13 +529,13 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
       return id;
     });
     reply.status(201);
-    return { run: getRun(runId), items: getItems(runId).map(itemToJson) };
+    return { run: getRun(runId), items: getItems(runId).map(itemToJson).map((i) => maskExecutiveItem(req, i)) };
   });
 
   app.get('/api/compensation/payroll-runs/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
     const run = getRun(id);
-    return { run, items: getItems(id).map(itemToJson) };
+    return { run, items: getItems(id).map(itemToJson).map((i) => maskExecutiveItem(req, i)) };
   });
 
   // Statuswechsel nur vorwärts: offen → geprueft → exportiert.
@@ -568,7 +593,14 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
    * allein darf sie deshalb nicht bekommen, sonst waere der Export der
    * Umweg an beiden Bereichen vorbei.
    */
-  function assertDatevAccess(req: FastifyRequest): void {
+  function assertDatevAccess(req: FastifyRequest, runId?: number): void {
+    // Leitungsebene im Lauf: Export und Pruefbericht nur mit dem Recht, statt
+    // die Personen still auszulassen (die Datei waere sonst unvollstaendig).
+    if (runId !== undefined && runHasExecutive(runId) && !mayAccessExecutive(req, 'lesen')) {
+      throw forbidden(
+        'Der Lauf enthält Personen der Leitungsebene; für Prüfbericht und Export fehlt Ihrer Rolle das Recht „Leitungsebene: Lesen“.',
+      );
+    }
     const rights = permissionsFor(req.user.admin_role_id ?? null);
     const missing = [
       permits(rights.personal, 'lesen') ? null : 'Personal',
@@ -597,8 +629,8 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
    * Personen je Umfang. Reine Leseroute, aendert nichts am Lauf.
    */
   app.get('/api/compensation/payroll-runs/:id/datev-check', async (req) => {
-    assertDatevAccess(req);
     const id = Number((req.params as { id: string }).id);
+    assertDatevAccess(req, id);
     const run = getRun(id);
     const ctx = buildDatevContext(run);
     const report = checkDatevExport(ctx);
@@ -638,8 +670,8 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
     '/api/compensation/payroll-runs/:id/export.datev',
     { exposeHeadRoute: false },
     async (req, reply: FastifyReply) => {
-      assertDatevAccess(req);
       const id = Number((req.params as { id: string }).id);
+      assertDatevAccess(req, id);
       const query = parse(
         z.object({
           kind: z.enum(['bewegungsdaten', 'stammdaten']).default('bewegungsdaten'),
@@ -689,6 +721,9 @@ export async function payrollRoutes(app: FastifyInstance): Promise<void> {
   // DATEV-Export die Pruefsumme der Datei. Kein HEAD, aus demselben Grund.
   app.get('/api/compensation/payroll-runs/:id/export.csv', { exposeHeadRoute: false }, async (req, reply: FastifyReply) => {
     const id = Number((req.params as { id: string }).id);
+    if (runHasExecutive(id) && !mayAccessExecutive(req, 'lesen')) {
+      throw forbidden('Der Lauf enthält Personen der Leitungsebene; für den Export fehlt Ihrer Rolle das Recht „Leitungsebene: Lesen“.');
+    }
     const run = getRun(id);
     markExported(req, run, 'csv');
     const items = getItems(id);

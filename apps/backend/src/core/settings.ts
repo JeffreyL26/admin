@@ -24,6 +24,11 @@ export interface CompanySettings {
    */
   portalShowOthersSickness: boolean;
   /**
+   * Wochenstunden einer Vollzeitstelle: Grundlage der Spalte FTE in der
+   * Gehaltsübersicht (Wochenstunden / Vollzeit). Vorgabe 40.
+   */
+  fullTimeWeeklyHours: number;
+  /**
    * DATEV-Lohnexport (modules/compensation/payrollExport, docs/datev-lohnexport.md).
    * Berater- und Mandantennummer sind ab Werk LEER: Ohne sie ist der Export
    * gesperrt, statt mit einer Demonummer beim falschen Mandanten zu landen.
@@ -54,6 +59,7 @@ const defaults: CompanySettings = {
   carryoverDeadline: '03-31',
   surveyMinParticipants: 5,
   portalShowOthersSickness: true,
+  fullTimeWeeklyHours: 40,
   datevBeraterNr: '',
   datevMandantenNr: '',
   datevProgramm: 'lodas',

@@ -38,6 +38,8 @@ interface ItemRow {
   gross_cents: number;
   bonus_cents: number;
   total_cents: number;
+  /** Leitungsebene ohne das Recht: Beträge null, Bestandteile leer (core/executiveGate.ts). */
+  restricted?: true;
   unpaid_absence_days: number;
   components: { kind: string; amount_cents: number; monthly_cents: number }[];
   bonuses: { id: number; kind: string; title: string; payout_cents: number }[];
@@ -167,7 +169,11 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
       )}
       <div className="grid-stats">
         <StatCard label="Status" value={statusBadge(run.status)} />
-        <StatCard label="Gesamtsumme" value={formatEuro(items.reduce((s, i) => s + i.total_cents, 0))} />
+        <StatCard
+          label="Gesamtsumme"
+          value={formatEuro(items.reduce((s, i) => s + (i.total_cents ?? 0), 0))}
+          sub={items.some((i) => i.restricted) ? 'ohne Leitungsebene' : undefined}
+        />
         <StatCard label="Mitarbeitende" value={items.length} />
         <StatCard label="Warnungen" value={warningCount} sub={warningCount > 0 ? 'Bitte vor Export prüfen' : 'Keine'} />
       </div>
@@ -199,12 +205,12 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
                             (c) =>
                               `${SALARY_COMPONENT_LABELS[c.kind as SalaryComponentKind] ?? c.kind}: ${formatEuro(c.monthly_cents)}`,
                           )
-                          .join(' · ') || 'Keine Komponenten'}
+                          .join(' · ') || (i.restricted ? 'Nur mit dem Recht „Leitungsebene“ sichtbar' : 'Keine Komponenten')}
                       </div>
                     </td>
-                    <td className="num">{formatEuro(i.gross_cents)}</td>
+                    <td className="num">{i.restricted ? 'Leitungsebene' : formatEuro(i.gross_cents)}</td>
                     <td className="num">
-                      {i.bonus_cents > 0 ? formatEuro(i.bonus_cents) : '—'}
+                      {i.restricted ? '—' : i.bonus_cents > 0 ? formatEuro(i.bonus_cents) : '—'}
                       {i.bonuses.length > 0 && (
                         <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
                           {i.bonuses.map((b) => b.title).join(', ')}
@@ -212,7 +218,7 @@ function RunDetail({ runId, onBack }: { runId: number; onBack: () => void }) {
                       )}
                     </td>
                     <td className="num" style={{ fontWeight: 600 }}>
-                      {formatEuro(i.total_cents)}
+                      {i.restricted ? '—' : formatEuro(i.total_cents)}
                     </td>
                     <td className="num">{i.unpaid_absence_days || '—'}</td>
                     <td>

@@ -31,6 +31,8 @@ interface Settings {
   surveyMinParticipants: number;
   /** Portal-Kalender: Krankheiten anderer (maskiert als „Abwesend“) anzeigen. */
   portalShowOthersSickness: boolean;
+  /** Wochenstunden einer Vollzeitstelle (Spalte FTE der Gehaltsübersicht). */
+  fullTimeWeeklyHours: number;
 }
 
 export function SettingsPage() {
@@ -67,6 +69,7 @@ export function SettingsPage() {
         carryoverDeadline: s.carryoverDeadline,
         surveyMinParticipants: s.surveyMinParticipants,
         portalShowOthersSickness: s.portalShowOthersSickness,
+        fullTimeWeeklyHours: s.fullTimeWeeklyHours,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['settings'] });
@@ -146,6 +149,17 @@ export function SettingsPage() {
                 min={2}
                 value={settings.surveyMinParticipants}
                 onChange={(e) => set({ surveyMinParticipants: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Vollzeit-Wochenstunden" hint="Grundlage der Spalte FTE in der Gehaltsübersicht">
+              <input
+                className="hm-input"
+                type="number"
+                min={1}
+                max={60}
+                step={0.5}
+                value={settings.fullTimeWeeklyHours ?? 40}
+                onChange={(e) => set({ fullTimeWeeklyHours: Number(e.target.value) })}
               />
             </Field>
             <div className="hm-field span-2">

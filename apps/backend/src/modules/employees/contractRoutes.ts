@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { assertExecutiveAccess } from '../../core/executiveGate.js';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { addDaysIso, todayIso } from '../../core/dates.js';
@@ -143,6 +144,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/employees/:id/contracts', async (req) => {
     const employeeId = Number((req.params as { id: string }).id);
     assertEmployee(employeeId);
+    assertExecutiveAccess(req, employeeId, 'lesen');
     const contracts = getDb()
       .prepare('SELECT * FROM contracts WHERE employee_id = ? ORDER BY valid_from DESC, id DESC')
       .all(employeeId);
@@ -155,6 +157,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/employees/:id/contracts', async (req, reply) => {
     const employeeId = Number((req.params as { id: string }).id);
     assertEmployee(employeeId);
+    assertExecutiveAccess(req, employeeId, 'bearbeiten');
     const body = parse(contractBodySchema, req.body);
     validateRange(body);
     assertMayLinkFiles(req, [body.document_file_id]);
@@ -207,6 +210,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
   app.patch('/api/contracts/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
     const existing = getContract(id);
+    assertExecutiveAccess(req, existing.employee_id, 'bearbeiten');
     const today = todayIso();
     if (!isCurrent(existing, today)) {
       throw conflict(

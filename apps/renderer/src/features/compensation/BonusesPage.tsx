@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Gift, Plus, Target, Trash2 } from 'lucide-react';
+import { Gift, Plus, Target, Trash2, X } from 'lucide-react';
 import {
   BONUS_KIND_LABELS,
   BONUS_STATUS_LABELS,
@@ -242,6 +243,9 @@ export function BonusesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('alle');
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  // Absprung aus der Gehaltsübersicht (Spalte "Extras"): nur diese Person.
+  const [params, setParams] = useSearchParams();
+  const personFilter = Number(params.get('person')) || null;
 
   const { data, isLoading } = useQuery({
     queryKey: ['compensation', 'bonuses', statusFilter],
@@ -251,7 +255,9 @@ export function BonusesPage() {
       ),
     select: (d) => d.bonuses,
   });
-  const { sort, toggle: sortBy, sorted } = useTableSort('bonuses', data, BONUS_SORT, BONUS_SORT_DEFAULT, bonusTieBreak);
+  const filtered = personFilter === null ? data : data?.filter((b) => b.employee_id === personFilter);
+  const filteredName = filtered?.[0] ? `${filtered[0].first_name} ${filtered[0].last_name}` : null;
+  const { sort, toggle: sortBy, sorted } = useTableSort('bonuses', filtered, BONUS_SORT, BONUS_SORT_DEFAULT, bonusTieBreak);
 
   const setStatus = useMutation({
     mutationFn: (p: { id: number; status: string }) =>
@@ -279,9 +285,16 @@ export function BonusesPage() {
         title="Boni & Variable Vergütung"
         subtitle="Zielboni, Provisionen und Einmalzahlungen mit Freigabe-Workflow"
         actions={
-          <button className="hm-btn hm-btn--primary" onClick={() => setCreateOpen(true)}>
-            <Plus size={16} /> Bonus anlegen
-          </button>
+          <>
+            {personFilter !== null && (
+              <button className="hm-btn hm-btn--secondary" onClick={() => setParams({}, { replace: true })}>
+                <X size={16} /> Nur {filteredName ?? 'eine Person'}: Filter aufheben
+              </button>
+            )}
+            <button className="hm-btn hm-btn--primary" onClick={() => setCreateOpen(true)}>
+              <Plus size={16} /> Bonus anlegen
+            </button>
+          </>
         }
       />
       <Card

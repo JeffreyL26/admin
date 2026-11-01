@@ -23,6 +23,7 @@ import {
   formatDate,
   readableTextColor,
   ABSENCE_STATUS_LABELS,
+  homeOfficeOn,
   isScheduledDay,
   workScheduleOf,
   type AbsenceType,
@@ -30,7 +31,11 @@ import {
   type CalendarAbsenceEntry,
 } from '@ohrganize/shared';
 import { Avatar, Card, EmptyState, PageHeader, Spinner, Tabs } from '../../components/ui';
-import { Modal } from '../../components/Modal';
+import { ConfirmDialog, Modal } from '../../components/Modal';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '../../api/client';
+import { useAuth } from '../../auth/AuthContext';
+import { useToast } from '../../components/Toast';
 import { Tooltip } from '../../components/Tooltip';
 import { ColorPicker } from '../../components/ColorPicker';
 import { useAbsenceTypes, useCalendar, useDepartments, useTeams, type CalendarData } from './api';
@@ -296,6 +301,10 @@ const Legend = React.forwardRef<HTMLDivElement, { types?: LegendType[]; onEditCo
         Wochenende, freier Tag
       </span>
       <span className="hm-cal-legend__item">
+        <span className="hm-cal-legend__swatch hm-cal-legend__swatch--homeoffice" />
+        Home-Office-Tag (Muster)
+      </span>
+      <span className="hm-cal-legend__item">
         <span className="hm-cal-legend__swatch hm-cal-legend__swatch--holiday" />
         Feiertag
       </span>
@@ -414,6 +423,30 @@ function MonthGrid({
   const today = todayIso();
   const todayIndex = days.indexOf(today);
 
+  // Arbeitsort je Tag (Home Office): Klick auf einen markierten Tag trägt
+  // einen Bürotag ein, auf einen anderen Arbeitstag einen Home-Office-Tag.
+  const { can } = useAuth();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [homeOfficeTarget, setHomeOfficeTarget] = useState<{
+    emp: CalendarEmployee;
+    date: string;
+    homeOffice: boolean;
+  } | null>(null);
+  const setHomeOffice = useMutation({
+    mutationFn: (t: { emp: CalendarEmployee; date: string; homeOffice: boolean }) =>
+      api.post('/api/absences/home-office', { employee_id: t.emp.id, date: t.date, home_office: t.homeOffice }),
+    onSuccess: (_r, t) => {
+      qc.invalidateQueries({ queryKey: ['absences', 'calendar'] });
+      toast.success(t.homeOffice ? 'Home-Office-Tag eingetragen' : 'Bürotag eingetragen');
+      setHomeOfficeTarget(null);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const onHomeOffice = can('abwesenheit', 'bearbeiten')
+    ? (emp: CalendarEmployee, date: string, homeOffice: boolean) => setHomeOfficeTarget({ emp, date, homeOffice })
+    : undefined;
+
   const closureDays = useMemo(() => {
     const set = new Set<string>();
     for (const c of data.closures) {
@@ -515,9 +548,25 @@ function MonthGrid({
               conflictByDayTeam={conflictByDayTeam}
               dayWidth={dayWidth}
               focused={emp.id === focusId}
+              onHomeOffice={onHomeOffice}
             />
           ))}
         </div>
+        <ConfirmDialog
+          open={homeOfficeTarget !== null}
+          title={homeOfficeTarget?.homeOffice ? 'Home-Office-Tag eintragen?' : 'Bürotag eintragen?'}
+          message={
+            homeOfficeTarget
+              ? `${homeOfficeTarget.emp.first_name} ${homeOfficeTarget.emp.last_name} ist am ${formatDate(homeOfficeTarget.date)} ${
+                  homeOfficeTarget.homeOffice ? 'im Home Office' : 'im Büro statt im Home Office'
+                }. Das Muster der Personalakte bleibt unverändert.`
+              : ''
+          }
+          confirmLabel={homeOfficeTarget?.homeOffice ? 'Home Office eintragen' : 'Bürotag eintragen'}
+          danger={false}
+          onConfirm={() => homeOfficeTarget && setHomeOffice.mutate(homeOfficeTarget)}
+          onClose={() => setHomeOfficeTarget(null)}
+        />
       </div>
     </Card>
   );
@@ -532,6 +581,7 @@ function EmployeeRow({
   conflictByDayTeam,
   dayWidth,
   focused,
+  onHomeOffice,
 }: {
   emp: CalendarEmployee;
   days: string[];
@@ -541,7 +591,11 @@ function EmployeeRow({
   conflictByDayTeam: Set<string>;
   dayWidth: number;
   focused: boolean;
+  /** Arbeitsort eines Tages ändern (nur mit Bearbeitungsrecht und Home-Office-Muster). */
+  onHomeOffice?: (emp: CalendarEmployee, date: string, homeOffice: boolean) => void;
 }) {
+  const homeOfficeExceptions = new Map((emp.home_office ?? []).map((x) => [x.date, x.kind] as const));
+  const hasHomeOffice = Boolean(emp.home_office_weekdays) || homeOfficeExceptions.size > 0;
   const n = days.length;
   const from = days[0];
   const to = days[n - 1];
@@ -612,9 +666,17 @@ function EmployeeRow({
             if (holidayName) notes.push(`Feiertag: ${holidayName}`);
             if (closure) notes.push('Betriebsruhe');
             if (conflict) notes.push('Konflikt: über 50 % des Teams abwesend');
+            const workday = !weekend && !closure && !holidayName;
+            const homeOffice = workday && hasHomeOffice && homeOfficeOn(emp.home_office_weekdays, homeOfficeExceptions, d);
+            const exception = homeOfficeExceptions.get(d);
+            if (homeOffice) notes.push(exception === 'homeoffice' ? 'Home Office (zusätzlicher Tag)' : 'Home Office');
+            else if (workday && exception === 'buero') notes.push('Bürotag statt Home Office');
+            const editable = workday && hasHomeOffice && onHomeOffice !== undefined;
+            if (editable) notes.push(homeOffice ? 'Klicken: Bürotag eintragen' : 'Klicken: Home-Office-Tag eintragen');
             const cell = (
               <div
                 key={d}
+                onClick={editable ? () => onHomeOffice!(emp, d, !homeOffice) : undefined}
                 className={
                   'hm-cal__cell' +
                   (closure
@@ -624,7 +686,9 @@ function EmployeeRow({
                       : weekend
                         ? ' hm-cal__cell--weekend'
                         : '') +
-                  (conflict ? ' hm-cal__cell--conflict' : '')
+                  (conflict ? ' hm-cal__cell--conflict' : '') +
+                  (homeOffice ? ' hm-cal__cell--homeoffice' : '') +
+                  (editable ? ' hm-cal__cell--editable' : '')
                 }
               />
             );

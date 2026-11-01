@@ -5,7 +5,7 @@ paths:
       summary: Gesamtübersicht aktuelles Monatsbrutto aller Mitarbeitenden (ohne Freiberufler)
       tags: [Vergütung]
       responses:
-        "200": { description: "Liste mit Monatsbrutto, Komponentenzahl und letzter Änderung" }
+        "200": { description: "Liste mit Monatsbrutto, Jahresbrutto (12 x Monatsbrutto), Stundenlohn (vereinbart oder gerechnet, hourly_derived), Wochenstunden, FTE (Einstellung fullTimeWeeklyHours), Extras (Bonusarten des laufenden Jahres), Komponentenzahl, letzter Aenderung und letzter Gehaltsanpassung (Grundgehalt oder Stundenlohn, schon gueltig)" }
   /api/compensation/employees/{id}/salary:
     get:
       summary: Aktuelle Vergütung einer Mitarbeiter:in (Komponenten + Summe)
