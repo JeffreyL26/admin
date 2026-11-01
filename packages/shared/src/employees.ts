@@ -638,7 +638,13 @@ export const CONTRACT_MIRRORED_FIELDS = [
   'work_week',
 ] as const satisfies readonly EntitlementFrozenField[];
 
-/** Spalten dieser Felder, gleich in Version und Akte (employees). */
+/**
+ * Spalten dieser Felder, gleich in Version und Akte (employees): Die
+ * geltende Version spiegelt sie auf die Akte (mirrorToEmployee), das
+ * Personalformular schreibt sie auf die Version zurueck
+ * (syncCurrentContract). Ein neues gespiegeltes Feld gehoert in
+ * CONTRACT_MIRRORED_FIELDS und ENTITLEMENT_FROZEN_COLUMNS, sonst nirgends.
+ */
 export type ContractMirroredColumn = (typeof ENTITLEMENT_FROZEN_COLUMNS)[(typeof CONTRACT_MIRRORED_FIELDS)[number]][number];
 export const CONTRACT_MIRRORED_COLUMNS: readonly ContractMirroredColumn[] = CONTRACT_MIRRORED_FIELDS.flatMap(
   (f) => ENTITLEMENT_FROZEN_COLUMNS[f],
