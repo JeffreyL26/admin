@@ -243,6 +243,37 @@ function fillFromEmployee(employeeId: number, body: ContractBody): void {
 }
 
 /**
+ * Felder, die eine abgeloeste Version offen liess und die die Akte bis dahin
+ * fuer sie trug: Art und Wochenstunden. Gilt sie spaeter wieder (der Beginn
+ * der Folgeversion wandert nach hinten), spiegelt die Akte sie vollstaendig
+ * zurueck; ohne sie behielte die Akte Art oder Stunden der verschobenen
+ * Version (Teilzeit mit 40 Stunden). Jahresurlaub und Arbeitswoche haelt
+ * freezeEntitlementInputs fest.
+ */
+const CLOSE_FILLED_COLUMNS = ['employee_type', 'weekly_hours'] as const;
+
+/**
+ * Beim Abloesen einer Version (POST einer neuen): Was sie bei Art und
+ * Wochenstunden offen liess, bekommt sie aus der Akte, die in diesem Moment
+ * genau sie spiegelt (nur eine geltende, gespiegelte Version; eine noch
+ * ausstehende wuerde Fremdes erben). Spaeter waere es geraten, deshalb nur
+ * hier. Liefert die gefuellten Felder fuer den Audit-Eintrag.
+ */
+function fillClosedVersion(current: ContractRow, today: string): string[] {
+  if (current.mirror_pending === 1 || current.valid_from > today) return [];
+  const akte = getDb()
+    .prepare(`SELECT ${CLOSE_FILLED_COLUMNS.join(', ')} FROM employees WHERE id = ?`)
+    .get(current.employee_id) as Record<(typeof CLOSE_FILLED_COLUMNS)[number], unknown> | undefined;
+  if (!akte) return [];
+  const fields = CLOSE_FILLED_COLUMNS.filter((c) => current[c] === null && akte[c] !== null);
+  if (fields.length === 0) return [];
+  getDb()
+    .prepare(`UPDATE contracts SET ${fields.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
+    .run(...fields.map((c) => akte[c]), current.id);
+  return [...fields];
+}
+
+/**
  * Geplante Versionen, deren Beginn erreicht ist, auf employees spiegeln
  * (`mirror_pending`, Migration 116). Je Person die zuletzt begonnene; aeltere
  * faellige sind damit erledigt. Laeuft beim Start des Moduls und stuendlich,
@@ -401,6 +432,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
     const db = getDb();
     const today = todayIso();
     let frozen: Frozen | null = null;
+    let closedFilled: { contract: number; fields: string[] } | null = null;
     const id = inTransaction(() => {
       const current = db
         .prepare(
@@ -420,6 +452,8 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         if (current.valid_to === null || current.valid_to > cutoff) {
           db.prepare('UPDATE contracts SET valid_to = ? WHERE id = ?').run(cutoff, current.id);
         }
+        const fields = fillClosedVersion(current, today);
+        if (fields.length) closedFilled = { contract: current.id, fields };
       }
       const info = db
         .prepare(
@@ -441,6 +475,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         contract_type: body.contract_type,
         valid_from: body.valid_from,
         ...frozenDetails(frozen),
+        ...(closedFilled ? { closed_filled: closedFilled } : {}),
       });
       return newId;
     });
@@ -535,6 +570,17 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       // jetzt der Akte entsprechen, wieder leer (unfreezeReopenedContract).
       if (reopenedId !== null) {
         const back = getContract(reopenedId);
+        // Was die Vorversion offen laesst, behielte die Akte von dieser Version
+        // (abgeloest vor fillClosedVersion): dann lieber nicht verschieben.
+        const unknown = CLOSE_FILLED_COLUMNS.filter(
+          (c) => back[c] === null && merged[c] !== null && merged[c] !== undefined,
+        );
+        if (unknown.length) {
+          const what = unknown.map((c) => (c === 'employee_type' ? 'keine Beschäftigungsart' : 'keine Wochenstunden'));
+          throw conflict(
+            `Der Beginn lässt sich nicht nach hinten verschieben: Die Vorversion gälte dann wieder, nennt aber ${what.join(' und ')}, und was bis dahin gilt, ist nicht bekannt. Bitte den Beginn beibehalten und die Werte dieser Version korrigieren.`,
+          );
+        }
         let backFrozen: Frozen | null = null;
         let mirrorError: string | null = null;
         try {

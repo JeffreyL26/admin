@@ -1898,6 +1898,15 @@ Vorversion. Die Vorversion bleibt in diesem Fall offen mit Grund
 (`mirror_error`, die Akte zeigt ihn) und wird wie eine faellige Version
 erneut versucht; gelingt das spaeter, werden die Felder dann leer.
 
+Was die Vorversion selbst offen laesst, kann die Akte nicht zurueckbekommen;
+sie behielte dafuer Art oder Stunden der verschobenen Version (im Test:
+Teilzeit mit 40 Stunden). Deshalb bekommt eine Version beim Abloesen (POST
+einer neuen) ihre offene Art und Wochenstunden aus der Akte: In genau diesem
+Moment spiegelt die Akte sie, die Werte sind also keine Schaetzung (anders als
+ein spaeteres Festhalten der Art, siehe oben). Fehlen sie bei einer Version,
+die vor dieser Regel abgeloest wurde, lehnt das Verschieben ab (409); welche
+Werte bis zum neuen Beginn gelten, ist dann nicht bekannt.
+
 **Grenzen:** Eine unbekannte Arbeitswoche (Teilzeit ohne Angabe) laesst sich
 nicht festhalten, sie folgt weiter der Akte. Die Art einer Version wird nie
 festgehalten: Sie ist die Historie der Beschaeftigungsart, und eine aus der
