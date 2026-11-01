@@ -11,7 +11,7 @@ import { Tooltip } from '../../components/Tooltip';
 import { initialsOf } from '../../components/ui';
 import { useToast } from '../../components/Toast';
 import {
-  AbsenceChartWidget, BirthdaysWidget, DepartmentChartWidget, InterviewsWidget,
+  AbsenceChartWidget, BirthdaysWidget, PersonnelDeadlinesWidget, DepartmentChartWidget, InterviewsWidget,
   LeadershipReportWidget, LeadershipTeamWidget, LicenseWidget, MeetingsWidget, SurveysWidget,
 } from './widgets';
 import type { DashboardData } from './api';
@@ -604,6 +604,7 @@ export function WidgetBody({ widgetKey, model, data }: { widgetKey: DashboardWid
     case 'meetings': body = <MeetingsWidget data={data} />; break;
     case 'surveys': body = <SurveysWidget data={data} />; break;
     case 'birthdays': body = <BirthdaysWidget data={data} />; break;
+    case 'personnel-deadlines': body = <PersonnelDeadlinesWidget data={data} />; break;
     case 'leadership-team': body = <LeadershipTeamWidget />; break;
     case 'leadership-report': body = <LeadershipReportWidget />; break;
     case 'license': body = <LicenseWidget />; break;

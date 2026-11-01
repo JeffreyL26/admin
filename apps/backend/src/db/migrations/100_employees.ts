@@ -361,4 +361,32 @@ export const employeesMigrations: Migration[] = [
         ON employees(photo_thumb_file_id) WHERE photo_thumb_file_id IS NOT NULL;
     `,
   },
+  {
+    // Rueckmeldungen aus dem ersten Kundentest: Staatsangehoerigkeit (ISO-2)
+    // samt Aufenthaltstitel ausserhalb von EU, EWR und Schweiz, hoechster
+    // Abschluss, und je Vertragsversion die Beschaeftigungsart, damit die
+    // Historie zeigt, seit wann jemand Vollzeit, Werkstudent usw. ist. Die
+    // jeweils neueste Version jeder Person uebernimmt die heutige Art der
+    // Stammdaten; aeltere Versionen bleiben ohne Angabe (unbekannt).
+    name: '112_employee_master_data',
+    sql: `
+      ALTER TABLE employees ADD COLUMN nationality TEXT;
+      ALTER TABLE employees ADD COLUMN residence_permit TEXT;
+      ALTER TABLE employees ADD COLUMN residence_permit_until TEXT;
+      ALTER TABLE employees ADD COLUMN highest_degree TEXT;
+      ALTER TABLE employees ADD COLUMN degree_field TEXT;
+      ALTER TABLE contracts ADD COLUMN employee_type TEXT;
+      UPDATE contracts SET employee_type = (
+        SELECT e.employee_type FROM employees e WHERE e.id = contracts.employee_id
+      )
+      WHERE id IN (
+        SELECT c.id FROM contracts c
+        WHERE NOT EXISTS (
+          SELECT 1 FROM contracts n
+          WHERE n.employee_id = c.employee_id
+            AND (n.valid_from > c.valid_from OR (n.valid_from = c.valid_from AND n.id > c.id))
+        )
+      );
+    `,
+  },
 ];

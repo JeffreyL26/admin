@@ -390,6 +390,66 @@ getDb()
   .prepare('UPDATE employees SET weekly_hours = ?, annual_leave_days = ? WHERE id = ?')
   .run(werkstudentHours, werkstudentLeave, werkstudentId);
 
+// ---------- Staatsangehoerigkeit, Abschluss, Beschaeftigungsart je Vertrag ----------
+const origin = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: {
+    nationality: 'TR',
+    residence_permit: 'blaue_karte_eu',
+    residence_permit_until: '2027-03-31',
+    highest_degree: 'master_diplom',
+    degree_field: 'Informatik',
+  },
+});
+check(
+  'Staatsangehoerigkeit, Aufenthaltstitel und Abschluss speichern',
+  origin.statusCode === 200 &&
+    origin.json().employee.nationality === 'TR' &&
+    origin.json().employee.residence_permit === 'blaue_karte_eu' &&
+    origin.json().employee.highest_degree === 'master_diplom',
+  origin.json(),
+);
+const badNationality = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { nationality: 'XX' },
+});
+check('Unbekannte Staatsangehoerigkeit → 400', badNationality.statusCode === 400);
+const badPermit = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { residence_permit: 'reisepass' },
+});
+check('Unbekannter Aufenthaltstitel → 400', badPermit.statusCode === 400);
+const typedContract = await app.inject({
+  method: 'POST',
+  url: `/api/employees/${empId}/contracts`,
+  headers: auth,
+  payload: { contract_type: 'unbefristet', employee_type: 'teilzeit', valid_from: '2026-02-01', weekly_hours: 30 },
+});
+check('Vertrag mit Beschaeftigungsart → 201', typedContract.statusCode === 201, typedContract.json());
+const typedEmployee = await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: auth });
+check(
+  'Beschaeftigungsart der aktuellen Version auf employees gespiegelt',
+  typedEmployee.json().employee.employee_type === 'teilzeit',
+  typedEmployee.json().employee,
+);
+check(
+  'Historie traegt die Art je Version',
+  typedContract.json().contract.employee_type === 'teilzeit',
+  typedContract.json().contract,
+);
+const dashboardDeadlines = await app.inject({ method: 'GET', url: '/api/dashboard', headers: auth });
+check(
+  'Dashboard liefert personnel_deadlines',
+  Array.isArray(dashboardDeadlines.json().personnel_deadlines),
+  dashboardDeadlines.json().personnel_deadlines,
+);
+
 // ---------- Org-Baum ----------
 const tree = await app.inject({ method: 'GET', url: '/api/org/tree', headers: auth });
 const roots = tree.json().tree as {

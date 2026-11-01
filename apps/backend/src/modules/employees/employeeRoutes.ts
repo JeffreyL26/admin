@@ -57,6 +57,8 @@ const SORT_COLUMNS = {
   weekly_hours: 'e.weekly_hours',
   annual_leave_days: 'e.annual_leave_days',
   exit_date: 'e.exit_date',
+  nationality: 'e.nationality',
+  highest_degree: 'e.highest_degree',
 } as const satisfies Record<EmployeeSortField, string>;
 
 /** Felder, deren Spalte die Richtung umgekehrt zur SQL-Spalte zeigt. */

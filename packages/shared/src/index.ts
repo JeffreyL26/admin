@@ -4,6 +4,7 @@ export * from './version.js';
 export * from './common.js';
 export * from './color.js';
 export * from './employees.js';
+export * from './nationality.js';
 export * from './orgChart.js';
 export * from './tableSort.js';
 export * from './absences.js';

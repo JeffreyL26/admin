@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../api/client';
-import type { AdminArea, FeedbackMeetingKind, InterviewKind } from '@ohrganize/shared';
+import type { AdminArea, FeedbackMeetingKind, InterviewKind, PersonnelDeadline } from '@ohrganize/shared';
 
 /**
  * Antwortform von GET /api/dashboard (Core, modulübergreifende Aggregation).
@@ -24,6 +24,8 @@ export interface DashboardData {
   upcomingBirthdays?: { id: number; first_name: string; last_name: string; birth_date: string; next_birthday: string }[];
   /** Alle mit Geburtstag heute (ohne die Grenze der Vorschau; 29.2. feiert sonst am 28.2.). */
   birthdays_today?: { id: number; first_name: string; last_name: string }[];
+  /** Probezeitende (acht Wochen voraus) und ablaufende Aufenthaltstitel. */
+  personnel_deadlines?: PersonnelDeadline[];
   runningSurveys?: { id: number; title: string; date_to: string; participations: number }[];
   upcomingInterviews?: { id: number; kind: InterviewKind; scheduled_at: string; posting_title: string; first_name: string; last_name: string }[];
 }

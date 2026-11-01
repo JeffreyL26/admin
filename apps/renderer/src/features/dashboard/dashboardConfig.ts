@@ -41,6 +41,7 @@ export type DashboardWidgetKey =
   | 'profile'
   | 'documents'
   | 'birthdays'
+  | 'personnel-deadlines'
   | 'department-chart'
   | 'salary'
   | 'interviews'
@@ -133,6 +134,11 @@ export const WIDGET_DEFS: Record<DashboardWidgetKey, DashboardWidgetDef> = {
     adminArea: 'personal', size: 'half',
     description: 'Wer demnächst feiert',
   },
+  'personnel-deadlines': {
+    key: 'personnel-deadlines', title: 'Fristen der Personalakte', icon: CalendarClock, accent: '--org-2',
+    area: 'personal', adminArea: 'personal', size: 'half',
+    description: 'Endende Probezeiten und ablaufende Aufenthaltstitel',
+  },
   'department-chart': {
     key: 'department-chart', title: 'Mitarbeitende je Abteilung', icon: Building2, accent: '--org-3', area: 'personal',
     adminArea: 'personal', size: 'half',
@@ -186,7 +192,7 @@ export const WIDGET_DEFS: Record<DashboardWidgetKey, DashboardWidgetDef> = {
 /** Reihenfolge in „Anpassen“ und in der Liste aller Widgets. */
 export const WIDGET_ORDER: DashboardWidgetKey[] = [
   'absent-today', 'sick', 'requests', 'plan', 'absence-chart', 'follow-ups', 'announcements', 'surveys',
-  'profile', 'documents', 'birthdays', 'department-chart', 'salary', 'interviews', 'onboarding', 'meetings',
+  'profile', 'documents', 'personnel-deadlines', 'birthdays', 'department-chart', 'salary', 'interviews', 'onboarding', 'meetings',
   'leadership-team', 'leadership-report', 'license',
 ];
 
@@ -237,7 +243,7 @@ export const DEFAULT_DASHBOARD_LAYOUT: DashboardLayout = {
   v: 2,
   widgets: [
     'absent-today', 'sick', 'plan', 'requests', 'onboarding', 'follow-ups', 'absence-chart',
-    'announcements', 'profile', 'documents', 'salary', 'birthdays', 'interviews',
+    'announcements', 'profile', 'documents', 'personnel-deadlines', 'salary', 'birthdays', 'interviews',
   ],
   sizes: {},
 };

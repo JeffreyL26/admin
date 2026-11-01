@@ -10,6 +10,7 @@ interface ContractRow {
   id: number;
   employee_id: number;
   contract_type: string;
+  employee_type: string | null;
   valid_from: string;
   valid_to: string | null;
   probation_end: string | null;
@@ -23,7 +24,7 @@ interface ContractRow {
 }
 
 const CONTRACT_COLUMNS = [
-  'contract_type', 'valid_from', 'valid_to', 'probation_end', 'notice_period_weeks',
+  'contract_type', 'employee_type', 'valid_from', 'valid_to', 'probation_end', 'notice_period_weeks',
   'weekly_hours', 'annual_leave_days', 'fixed_term_reason', 'document_file_id', 'note',
 ] as const;
 
@@ -61,8 +62,9 @@ function newestContract(employeeId: number): ContractRow | undefined {
 }
 
 /**
- * Wochenstunden/Urlaubsanspruch der aktuellen Vertragsversion auf employees
- * spiegeln, dort liegt die eine Quelle für alle anderen Module.
+ * Wochenstunden/Urlaubsanspruch und Beschaeftigungsart der aktuellen
+ * Vertragsversion auf employees spiegeln, dort liegt die eine Quelle für alle
+ * anderen Module.
  *
  * Vorher laufen die Typregeln der Person ueber den gespiegelten Stand: Ein
  * Vertrag mit 30 Wochenstunden fuer eine Werkstudentin liesse sich sonst
@@ -71,11 +73,16 @@ function newestContract(employeeId: number): ContractRow | undefined {
  */
 function mirrorToEmployee(
   employeeId: number,
-  contract: { weekly_hours?: number | null; annual_leave_days?: number | null },
+  contract: { weekly_hours?: number | null; annual_leave_days?: number | null; employee_type?: string | null },
 ): void {
   const sets: string[] = [];
   const params: unknown[] = [];
   const mirrored: Record<string, unknown> = {};
+  if (contract.employee_type !== null && contract.employee_type !== undefined) {
+    sets.push('employee_type = ?');
+    params.push(contract.employee_type);
+    mirrored.employee_type = contract.employee_type;
+  }
   if (contract.weekly_hours !== null && contract.weekly_hours !== undefined) {
     sets.push('weekly_hours = ?');
     params.push(contract.weekly_hours);
@@ -108,7 +115,9 @@ function mirrorToEmployee(
     // zu hohen Altstunden nicht scheitern.
     const merged = { ...employee, ...mirrored };
     if (!preexisting) assertTypeRules(merged);
-    else if (mirrored.weekly_hours !== undefined) assertWeeklyHoursWithinRule(merged);
+    else if (mirrored.weekly_hours !== undefined || mirrored.employee_type !== undefined) {
+      assertWeeklyHoursWithinRule(merged);
+    }
   } catch (e) {
     if (e instanceof AppError) {
       throw badRequest(

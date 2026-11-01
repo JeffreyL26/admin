@@ -12,6 +12,25 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Rueckmeldungen aus dem ersten Kundentest, Stammdaten (01.11.2026)
+- **Neu:** Staatsangehoerigkeit in den Stammdaten; bei Staatsangehoerigen
+  ausserhalb von EU, EWR und Schweiz zusaetzlich Art und Gueltigkeit des
+  Aufenthaltstitels (Auswahl nach AufenthG). Laeuft ein Titel in 90 Tagen ab
+  oder ist er abgelaufen, zeigen das Personalakte und Dashboard.
+- **Neu:** Hoechster Abschluss mit Fachrichtung.
+- **Neu:** Jede Vertragsversion traegt die Beschaeftigungsart (Vollzeit,
+  Werkstudent usw.). Die Vertragshistorie zeigt damit, seit wann jemand
+  welche Art hat; das Eintrittsdatum bleibt davon getrennt. Bestehende
+  Vertraege bekommen fuer die neueste Version die heutige Art.
+- **Neu:** Probezeit als Laenge (1 bis 6 Monate), das Enddatum rechnet sich
+  daraus und bleibt frei aenderbar. Personalakte und Vertragshistorie nennen
+  Laenge und Ende, der Kopf der Akte eine laufende Probezeit.
+- **Neu:** Dashboard-Widget "Fristen der Personalakte": "Fuer ... endet die
+  Probezeit in 4 Wochen." sowie ablaufende Aufenthaltstitel. Fuer
+  bestehende Dashboards ueber "Anpassen" hinzufuegen.
+- **Neu:** Im Portal sieht die Person Staatsangehoerigkeit, Aufenthaltstitel,
+  Abschluss und Probezeitende lesend unter Profil.
+
 ### Rueckmeldungen aus dem ersten Kundentest, Bedienung (01.11.2026)
 - **Neu:** Die Anmeldung merkt sich je Geraet die zuletzt erfolgreich
   benutzte E-Mail-Adresse und setzt den Cursor ins Passwortfeld (Desktop und

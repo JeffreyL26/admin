@@ -3,6 +3,13 @@ import {
   CHURCH_TAX_LABELS,
   EMPLOYEE_STATUS_LABELS,
   EMPLOYEE_TYPE_LABELS,
+  HIGHEST_DEGREES,
+  HIGHEST_DEGREE_LABELS,
+  NATIONALITY_CODES,
+  RESIDENCE_PERMIT_LABELS,
+  RESIDENCE_PERMIT_TYPES,
+  nationalityLabel,
+  needsResidencePermit,
   churchTaxOptionsFor,
   employeeTypeRulesFor,
   employeeTypesFor,
@@ -57,6 +64,11 @@ export interface EmployeeFormState {
   photo_file_id: number | null;
   /** Vorschaubild zum Foto, entsteht beim Hochladen (createPhotoThumbnail). */
   photo_thumb_file_id: number | null;
+  nationality: string;
+  residence_permit: string;
+  residence_permit_until: string;
+  highest_degree: string;
+  degree_field: string;
 }
 
 export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
@@ -92,6 +104,11 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
   annual_leave_days: '',
   photo_file_id: null,
   photo_thumb_file_id: null,
+  nationality: '',
+  residence_permit: '',
+  residence_permit_until: '',
+  highest_degree: '',
+  degree_field: '',
 };
 
 export function employeeToForm(e: EmployeeRow): EmployeeFormState {
@@ -129,6 +146,11 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
       e.annual_leave_days !== null && e.annual_leave_days !== undefined ? String(e.annual_leave_days) : '',
     photo_file_id: e.photo_file_id,
     photo_thumb_file_id: e.photo_thumb_file_id ?? null,
+    nationality: e.nationality ?? '',
+    residence_permit: e.residence_permit ?? '',
+    residence_permit_until: e.residence_permit_until ?? '',
+    highest_degree: e.highest_degree ?? '',
+    degree_field: e.degree_field ?? '',
   };
 }
 
@@ -186,8 +208,25 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     annual_leave_days: num(f.annual_leave_days),
     photo_file_id: f.photo_file_id,
     photo_thumb_file_id: f.photo_thumb_file_id,
+    nationality: str(f.nationality),
+    // Ohne Bedarf (EU, EWR, Schweiz oder keine Angabe) bleibt nichts stehen.
+    residence_permit: needsResidencePermit(f.nationality) ? str(f.residence_permit) : null,
+    residence_permit_until: needsResidencePermit(f.nationality) ? str(f.residence_permit_until) : null,
+    highest_degree: str(f.highest_degree),
+    degree_field: str(f.degree_field),
   };
 }
+
+/**
+ * Staatsangehörigkeiten nach deutschem Namen, das Land der Variante zuerst
+ * (der häufigste Fall steht oben). Einmal je Sitzung gebaut.
+ */
+const NATIONALITY_OPTIONS = [
+  COUNTRY,
+  ...[...NATIONALITY_CODES]
+    .filter((c) => c !== COUNTRY)
+    .sort((a, b) => nationalityLabel(a).localeCompare(nationalityLabel(b), 'de')),
+].map((code) => ({ code, label: nationalityLabel(code) }));
 
 /**
  * Kataloge des Landes der Variante (Spiegel der Server-Regeln in
@@ -275,6 +314,46 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
       <Field label="Ort">
         <input className="hm-input" value={form.private_city} onChange={(e) => set({ private_city: e.target.value })} />
       </Field>
+      <Field label="Staatsangehörigkeit">
+        <Select
+          className="hm-select"
+          value={form.nationality}
+          onChange={(e) => set({ nationality: e.target.value })}
+        >
+          <option value="">— keine Angabe —</option>
+          {NATIONALITY_OPTIONS.map((o) => (
+            <option key={o.code} value={o.code}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {needsResidencePermit(form.nationality) ? (
+        <>
+          <Field label="Aufenthaltstitel" hint="Außerhalb von EU, EWR und Schweiz">
+            <Select
+              className="hm-select"
+              value={form.residence_permit}
+              onChange={(e) => set({ residence_permit: e.target.value })}
+            >
+              <option value="">— nicht erfasst —</option>
+              {RESIDENCE_PERMIT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {RESIDENCE_PERMIT_LABELS[t]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Aufenthaltstitel gültig bis" hint="Leer bei unbefristeten Titeln; das Dashboard erinnert 90 Tage vorher">
+            <input
+              className="hm-input"
+              type="date"
+              value={form.residence_permit_until}
+              onChange={(e) => set({ residence_permit_until: e.target.value })}
+            />
+          </Field>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -413,6 +492,28 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
           step={1}
           value={form.annual_leave_days}
           onChange={(e) => set({ annual_leave_days: e.target.value })}
+        />
+      </Field>
+      <Field label="Höchster Abschluss">
+        <Select
+          className="hm-select"
+          value={form.highest_degree}
+          onChange={(e) => set({ highest_degree: e.target.value })}
+        >
+          <option value="">— keine Angabe —</option>
+          {HIGHEST_DEGREES.map((d) => (
+            <option key={d} value={d}>
+              {HIGHEST_DEGREE_LABELS[d]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Fachrichtung">
+        <input
+          className="hm-input"
+          value={form.degree_field}
+          onChange={(e) => set({ degree_field: e.target.value })}
+          placeholder="z. B. Informatik, Industriekauffrau"
         />
       </Field>
     </div>

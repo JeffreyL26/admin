@@ -157,6 +157,23 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `modules/employees/changeRequestService.ts` (Vorbild:
   `absences/service.ts`). Benachrichtigt wird niemand: HR sieht offene
   Anträge im Dashboard (Bereich Personal, Widget Stammdaten-Anträge) und unter Personal → Änderungsanträge.
+- **Stammdaten zu Herkunft, Abschluss und Fristen** (Migration
+  `112_employee_master_data`): Staatsangehörigkeit als ISO-2
+  (`packages/shared/src/nationality.ts`, Namen über `Intl.DisplayNames`,
+  keine zweite Länderliste), Aufenthaltstitel nur außerhalb von EU, EWR und
+  Schweiz (`needsResidencePermit`; das Formular blendet ihn sonst aus und
+  schickt null), höchster Abschluss (`HIGHEST_DEGREES`). Die
+  **Beschäftigungsart je Vertragsversion** (`contracts.employee_type`) ist die
+  Historie „seit wann Vollzeit/Werkstudent“; die aktuelle Version spiegelt sie
+  wie Stunden und Urlaub auf `employees` (`mirrorToEmployee`, Typregeln
+  laufen dort). Probezeit bleibt ein Datum am Vertrag; die Länge ist
+  abgeleitet (`probationEndFor`/`probationMonths`, Fristende nach §§ 187,
+  188 BGB, Test `src/test/masterDataTest.ts`). Das Dashboard-Widget
+  „Fristen der Personalakte“ liest `personnel_deadlines` aus
+  `GET /api/dashboard` (Probezeitende acht Wochen voraus,
+  Aufenthaltstitel 90 Tage voraus und abgelaufen); dieselben Grenzen zeigt
+  der Kopf der Personalakte. Im Portal lesend über `GET /api/me/profile`,
+  nicht in `EMPLOYEE_SELF_EDITABLE_FIELDS`.
 - **Führung & Bewertung — zwei Gates (Migration `310_leadership_ratings` im
   3xx-Kreis).** Die **Verwaltung** (Freischaltung, Zuständigkeit, Skala und
   Kategorien, Satisfaction-Report; alles unter `/api/leadership/*` außer `/me`)

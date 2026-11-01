@@ -92,6 +92,19 @@ export function addDaysIso(date: string, days: number): string {
 }
 
 /**
+ * ISO-Kalendertag plus/minus volle Monate. Fehlt der Tag im Zielmonat (31.01.
+ * plus ein Monat), gilt dessen letzter Tag, wie bei Fristen nach § 188 BGB.
+ */
+export function addMonthsIso(date: string, months: number): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const total = y * 12 + (m - 1) + months;
+  const year = Math.floor(total / 12);
+  const month = (total % 12) + 1;
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`;
+}
+
+/**
  * Initialen eines Anzeigenamens: erster Buchstabe des ersten und des LETZTEN
  * Wortes. "Bianka Marthina Simon" ergibt "BS", nicht "BM": Mittlere Vornamen
  * zaehlen nicht. Ein einzelnes Wort ergibt einen Buchstaben.

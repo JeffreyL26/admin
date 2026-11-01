@@ -4,6 +4,9 @@ import {
   COUNTRY_LABELS,
   DOCUMENT_CATEGORIES,
   EMPLOYEE_RULE_FIELD_LABELS,
+  HIGHEST_DEGREES,
+  NATIONALITY_CODES,
+  RESIDENCE_PERMIT_TYPES,
   churchTaxOptionsFor,
   employeeTypeRulesFor,
   employeeTypesFor,
@@ -98,6 +101,11 @@ export const employeeBodySchema = z.object({
   exit_date: isoDate.nullish(),
   weekly_hours: z.number().min(0).max(60).nullish(),
   annual_leave_days: z.number().min(0).max(100).nullish(),
+  nationality: z.enum(NATIONALITY_CODES).nullish(),
+  residence_permit: z.enum(RESIDENCE_PERMIT_TYPES).nullish(),
+  residence_permit_until: isoDate.nullish(),
+  highest_degree: z.enum(HIGHEST_DEGREES).nullish(),
+  degree_field: nullableString,
 });
 
 export const employeePatchSchema = employeeBodySchema.partial();
@@ -183,6 +191,9 @@ export function assertExitNotBeforeHire(employee: Record<string, unknown>): void
 
 export const contractBodySchema = z.object({
   contract_type: z.enum(['unbefristet', 'befristet', 'ausbildung', 'werkvertrag', 'praktikum']),
+  // Beschaeftigungsart dieser Version; geprueft gegen den Katalog des Landes
+  // wie employee_type der Stammdaten (employeeTypeEnum).
+  employee_type: employeeTypeEnum.nullish(),
   valid_from: isoDate,
   valid_to: isoDate.nullish(),
   probation_end: isoDate.nullish(),

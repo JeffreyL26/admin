@@ -88,6 +88,14 @@ export const meModule: FastifyPluginAsync = async (app) => {
                 e.private_street, e.private_zip, e.private_city, e.private_phone, e.private_email,
                 e.employee_type, e.job_title, e.hire_date, e.weekly_hours, e.annual_leave_days,
                 e.health_insurance,
+                e.nationality, e.residence_permit, e.residence_permit_until,
+                e.highest_degree, e.degree_field,
+                -- Probezeit der aktuellen Vertragsversion (nur das Ende, keine
+                -- weiteren Vertragsdaten): lesend fuer die Person selbst.
+                (SELECT c.probation_end FROM contracts c
+                  WHERE c.employee_id = e.id AND c.valid_from <= date('now', 'localtime')
+                    AND (c.valid_to IS NULL OR c.valid_to >= date('now', 'localtime'))
+                  ORDER BY c.valid_from DESC, c.id DESC LIMIT 1) AS probation_end,
                 d.name AS department_name, t.name AS team_name, l.name AS location_name,
                 CASE WHEN m.id IS NULL THEN NULL ELSE (m.first_name || ' ' || m.last_name) END AS manager_name
          FROM employees e

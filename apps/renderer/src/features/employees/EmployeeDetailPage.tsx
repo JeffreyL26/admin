@@ -9,10 +9,16 @@ import {
   DOCUMENT_CATEGORY_LABELS,
   EMPLOYEE_STATUS_LABELS,
   EMPLOYEE_TYPE_LABELS,
+  RESIDENCE_PERMIT_LABELS,
+  RESIDENCE_PERMIT_WARN_DAYS,
+  addDaysIso,
   formatDate,
+  probationText,
   todayIsoLocal,
   type AdminArea,
   type ContractDto,
+  type EmployeeType,
+  type ResidencePermitType,
 } from '@ohrganize/shared';
 import { useAuth } from '../../auth/AuthContext';
 import { ApiRequestError, api, downloadFile } from '../../api/client';
@@ -65,6 +71,9 @@ export function EmployeeDetailPage() {
   const setTab = (next: string) =>
     setParams(next === 'stammdaten' ? {} : { tab: next }, { replace: true, state: location.state });
   const backTo = useBackTo();
+  // Aktuelle Vertragsversion für den Probezeit-Hinweis im Kopf; derselbe
+  // Query-Key wie der Vertrag-Tab, also keine zweite Anfrage.
+  const { data: contracts } = useContracts(employeeId);
   // Kopf 56 px: Das Vorschaubild reicht bei jedem Zoom (Rechnung an PHOTO_THUMB_EDGE).
   const photo = usePhotoUrl(avatarFileId(data?.employee));
 
@@ -98,6 +107,7 @@ export function EmployeeDetailPage() {
             Eintritt {formatDate(e.hire_date)}
           </span>
         )}
+        <HeaderDeadlines employee={e} contracts={contracts} />
       </div>
 
       <Tabs
@@ -110,7 +120,7 @@ export function EmployeeDetailPage() {
             mitten in einer offenen Bearbeitung. Der dirty-Schutz im Tab gilt
             nur für Refetches DERSELBEN Person. */}
         {tab === 'stammdaten' && <MasterDataTab key={e.id} employee={e} />}
-        {tab === 'vertrag' && <ContractsTab employeeId={employeeId} />}
+        {tab === 'vertrag' && <ContractsTab employeeId={employeeId} employeeType={e.employee_type} />}
         {tab === 'dokumente' && <DocumentsTab employeeId={employeeId} />}
         {tab === 'organisation' && <OrgTab employee={e} reportingLine={data.reporting_line} />}
         {tab === 'abwesenheit' && <EmployeeAbsenceTab employeeId={employeeId} />}
@@ -119,6 +129,46 @@ export function EmployeeDetailPage() {
         )}
       </div>
       <div className="page__foot">{backButton}</div>
+    </>
+  );
+}
+
+/**
+ * Fristen im Kopf der Akte: laufende Probezeit der aktuellen Vertragsversion
+ * und ein Aufenthaltstitel, der in RESIDENCE_PERMIT_WARN_DAYS abläuft oder
+ * abgelaufen ist (dieselben Grenzen wie das Dashboard-Widget).
+ */
+function HeaderDeadlines({ employee, contracts }: { employee: EmployeeRow; contracts: ContractDto[] | undefined }) {
+  const today = todayIsoLocal();
+  const current = contracts?.find((c) => c.valid_from <= today && (c.valid_to === null || c.valid_to >= today));
+  const probation =
+    current?.probation_end && current.probation_end >= today
+      ? probationText(current.valid_from, current.probation_end, formatDate)
+      : null;
+  const permitUntil = employee.residence_permit_until;
+  const permitWarn = permitUntil !== null && permitUntil <= addDaysIso(today, RESIDENCE_PERMIT_WARN_DAYS);
+  const permitLabel = employee.residence_permit
+    ? (RESIDENCE_PERMIT_LABELS[employee.residence_permit as ResidencePermitType] ?? 'Aufenthaltstitel')
+    : 'Aufenthaltstitel';
+  return (
+    <>
+      {probation && <Badge tone="yellow">Probezeit {probation}</Badge>}
+      {permitWarn && permitUntil && (
+        <Tooltip
+          content={
+            <>
+              <span className="hm-tooltip__title">{permitLabel}</span>
+              <span className="hm-tooltip__line">gültig bis {formatDate(permitUntil)}</span>
+            </>
+          }
+        >
+          <span>
+            <Badge tone={permitUntil < today ? 'red' : 'yellow'}>
+              {permitUntil < today ? 'Aufenthaltstitel abgelaufen' : `Aufenthaltstitel bis ${formatDate(permitUntil)}`}
+            </Badge>
+          </span>
+        </Tooltip>
+      )}
     </>
   );
 }
@@ -331,7 +381,7 @@ function contractState(c: ContractDto, newest: boolean, today: string): 'aktuell
 
 const CONTRACT_STATE_LABELS = { aktuell: 'Aktuell', abgelaufen: 'Abgelaufen', abgeloest: 'Abgelöst' } as const;
 
-function ContractsTab({ employeeId }: { employeeId: number }) {
+function ContractsTab({ employeeId, employeeType }: { employeeId: number; employeeType: EmployeeType }) {
   const { data: contracts, isLoading } = useContracts(employeeId);
   const [modalOpen, setModalOpen] = useState(false);
   const [correct, setCorrect] = useState<ContractDto | null>(null);
@@ -380,6 +430,7 @@ function ContractsTab({ employeeId }: { employeeId: number }) {
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>
+                  {c.employee_type ? `${EMPLOYEE_TYPE_LABELS[c.employee_type]} · ` : ''}
                   {CONTRACT_TYPE_LABELS[c.contract_type]} · {formatDate(c.valid_from)} bis{' '}
                   {c.valid_to ? formatDate(c.valid_to) : 'unbefristet'}
                 </div>
@@ -388,7 +439,7 @@ function ContractsTab({ employeeId }: { employeeId: number }) {
                     c.weekly_hours !== null ? `${c.weekly_hours} Std./Woche` : null,
                     c.annual_leave_days !== null ? `${c.annual_leave_days} Urlaubstage` : null,
                     c.notice_period_weeks !== null ? `Kündigungsfrist ${c.notice_period_weeks} Wochen` : null,
-                    c.probation_end ? `Probezeit bis ${formatDate(c.probation_end)}` : null,
+                    c.probation_end ? `Probezeit ${probationText(c.valid_from, c.probation_end, formatDate)}` : null,
                     c.fixed_term_reason ? `Befristung: ${c.fixed_term_reason}` : null,
                   ]
                     .filter(Boolean)
@@ -428,7 +479,13 @@ function ContractsTab({ employeeId }: { employeeId: number }) {
           })}
         </div>
       )}
-      <ContractModal open={modalOpen} onClose={() => setModalOpen(false)} employeeId={employeeId} correct={correct} />
+      <ContractModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        employeeId={employeeId}
+        correct={correct}
+        employeeType={employeeType}
+      />
     </Card>
   );
 }

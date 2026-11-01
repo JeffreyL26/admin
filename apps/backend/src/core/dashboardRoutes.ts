@@ -1,5 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { ADMIN_AREAS, birthdayMonthDays, permits, type AdminArea } from '@ohrganize/shared';
+import {
+  ADMIN_AREAS,
+  PROBATION_NOTICE_DAYS,
+  RESIDENCE_PERMIT_WARN_DAYS,
+  birthdayMonthDays,
+  permits,
+  type AdminArea,
+} from '@ohrganize/shared';
 import { getDb } from '../db/db.js';
 import { permissionsFor } from './permissions.js';
 import { todayIso, addDaysIso } from './dates.js';
@@ -52,7 +59,29 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     let byDepartment: unknown[] | undefined;
     let upcomingBirthdays: unknown[] | undefined;
     let birthdays_today: unknown[] | undefined;
+    let personnel_deadlines: unknown[] | undefined;
     if (mayPersonal) {
+      // Fristen der Personalakte: Probezeitende der aktuellen Vertragsversion
+      // in den naechsten PROBATION_NOTICE_DAYS Tagen und Aufenthaltstitel, die
+      // in RESIDENCE_PERMIT_WARN_DAYS ablaufen oder schon abgelaufen sind.
+      const probationUntil = addDaysIso(today, PROBATION_NOTICE_DAYS);
+      const permitUntil = addDaysIso(today, RESIDENCE_PERMIT_WARN_DAYS);
+      personnel_deadlines = db
+        .prepare(
+          `SELECT e.id, e.first_name, e.last_name, 'probezeit' AS kind, c.probation_end AS date
+           FROM contracts c
+           JOIN employees e ON e.id = c.employee_id
+           WHERE e.status = 'aktiv' AND c.probation_end IS NOT NULL
+             AND c.probation_end >= ? AND c.probation_end <= ?
+             AND c.valid_from <= ? AND (c.valid_to IS NULL OR c.valid_to >= ?)
+           UNION ALL
+           SELECT id, first_name, last_name, 'aufenthaltstitel' AS kind, residence_permit_until AS date
+           FROM employees
+           WHERE status = 'aktiv' AND residence_permit_until IS NOT NULL AND residence_permit_until <= ?
+           ORDER BY date, last_name, first_name`,
+        )
+        .all([today, probationUntil, today, today, permitUntil]);
+
       byDepartment = db
         .prepare(
           `SELECT d.id AS department_id, COALESCE(d.name, 'Ohne Abteilung') AS department, COUNT(*) AS count
@@ -163,7 +192,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         ...(mayRecruiting ? { upcomingInterviewsCount } : {}),
       },
       // Neue Felder in snake_case (CLAUDE.md); die aelteren behalten ihren Namen.
-      ...(mayPersonal ? { byDepartment, upcomingBirthdays, birthdays_today } : {}),
+      ...(mayPersonal ? { byDepartment, upcomingBirthdays, birthdays_today, personnel_deadlines } : {}),
       ...(mayAbwesenheit ? { absenceDaysByMonth } : {}),
       ...(mayLeistung ? { upcomingMeetings } : {}),
       ...(mayKommunikation ? { runningSurveys } : {}),
