@@ -122,11 +122,11 @@ check(
 );
 check(
   'Festgehalten: Hinweis nennt die Felder',
-  entitlementFrozenNote('annual_leave_days,work_week') ===
-    'Urlaubstage und Arbeitswoche aus der Personalakte übernommen, als sich diese änderte; so bleibt der Urlaubsanspruch dieses Zeitraums gleich.' &&
-    entitlementFrozenNote('work_week')?.startsWith('Arbeitswoche aus der Personalakte') === true &&
-    entitlementFrozenNote('employee_type') === null,
-  entitlementFrozenNote('annual_leave_days,work_week'),
+  entitlementFrozenNote('work_week,employee_type,annual_leave_days') ===
+    'Beschäftigungsart, Urlaubstage und Arbeitswoche aus der Personalakte übernommen, weil die Version sie nicht nannte; so bleibt dieser Zeitraum gleich, auch wenn sich die Akte ändert.' &&
+    entitlementFrozenNote('weekly_hours')?.startsWith('Wochenstunden aus der Personalakte') === true &&
+    entitlementFrozenNote('unbekannt') === null,
+  entitlementFrozenNote('work_week,employee_type,annual_leave_days'),
 );
 
 if (failures > 0) {

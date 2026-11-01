@@ -1,5 +1,11 @@
 import type { FastifyInstance } from 'fastify';
-import { contractCorrectable, contractState, formatDate } from '@ohrganize/shared';
+import {
+  contractCorrectable,
+  contractState,
+  formatDate,
+  formatEntitlementFrozen,
+  parseEntitlementFrozen,
+} from '@ohrganize/shared';
 import { assertExecutiveAccess } from '../../core/executiveGate.js';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit, auditSystem } from '../../core/audit.js';
@@ -43,6 +49,8 @@ interface ContractRow {
   /** Arbeitswoche dieser Version (Migration 118); beides NULL = nicht hinterlegt. */
   work_weekdays: string | null;
   work_days_per_week: number | null;
+  /** Aus der Akte uebernommene Felder (Migration 120, ENTITLEMENT_FROZEN_FIELDS). */
+  entitlement_frozen: string | null;
   fixed_term_reason: string | null;
   document_file_id: number | null;
   note: string | null;
@@ -257,7 +265,9 @@ const CLOSE_FILLED_COLUMNS = ['employee_type', 'weekly_hours'] as const;
  * Wochenstunden offen liess, bekommt sie aus der Akte, die in diesem Moment
  * genau sie spiegelt (nur eine geltende, gespiegelte Version; eine noch
  * ausstehende wuerde Fremdes erben). Spaeter waere es geraten, deshalb nur
- * hier. Liefert die gefuellten Felder fuer den Audit-Eintrag.
+ * hier. Vermerkt in `entitlement_frozen` (der Tab Vertrag nennt sie, sonst
+ * saehen sie wie Eingaben aus). Liefert die gefuellten Felder fuer den
+ * Audit-Eintrag.
  */
 function fillClosedVersion(current: ContractRow, today: string): string[] {
   if (current.mirror_pending === 1 || current.valid_from > today) return [];
@@ -267,9 +277,10 @@ function fillClosedVersion(current: ContractRow, today: string): string[] {
   if (!akte) return [];
   const fields = CLOSE_FILLED_COLUMNS.filter((c) => current[c] === null && akte[c] !== null);
   if (fields.length === 0) return [];
+  const marker = formatEntitlementFrozen([...parseEntitlementFrozen(current.entitlement_frozen), ...fields]);
   getDb()
-    .prepare(`UPDATE contracts SET ${fields.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-    .run(...fields.map((c) => akte[c]), current.id);
+    .prepare(`UPDATE contracts SET ${fields.map((c) => `${c} = ?`).join(', ')}, entitlement_frozen = ? WHERE id = ?`)
+    .run(...fields.map((c) => akte[c]), marker, current.id);
   return [...fields];
 }
 
@@ -578,7 +589,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         if (unknown.length) {
           const what = unknown.map((c) => (c === 'employee_type' ? 'keine Beschäftigungsart' : 'keine Wochenstunden'));
           throw conflict(
-            `Der Beginn lässt sich nicht nach hinten verschieben: Die Vorversion gälte dann wieder, nennt aber ${what.join(' und ')}, und was bis dahin gilt, ist nicht bekannt. Bitte den Beginn beibehalten und die Werte dieser Version korrigieren.`,
+            `Der Beginn lässt sich nicht nach hinten verschieben: Die Vorversion gälte dann wieder, nennt aber ${what.join(' und ')}, und was bis dahin gilt, ist nicht bekannt. Stattdessen bitte diese Version auf die bisherigen Werte korrigieren und ab dem gewünschten Datum eine neue Version anlegen.`,
           );
         }
         let backFrozen: Frozen | null = null;

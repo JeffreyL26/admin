@@ -1909,11 +1909,15 @@ Werte bis zum neuen Beginn gelten, ist dann nicht bekannt.
 
 **Grenzen:** Eine unbekannte Arbeitswoche (Teilzeit ohne Angabe) laesst sich
 nicht festhalten, sie folgt weiter der Akte. Die Art einer Version wird nie
-festgehalten: Sie ist die Historie der Beschaeftigungsart, und eine aus der
-heutigen Akte geschaetzte Art stand im Test bei einem "Urspruenglichen
-Vollzeitvertrag" als Teilzeit im Kopf der Version. Eine Version ohne Art
-rechnet deshalb weiter mit der Art der Akte; das wirkt nur bei unbekannter
-Woche und freier Mitarbeit. Ohne jede Version rechnen alle
+nachtraeglich festgehalten: Sie ist die Historie der Beschaeftigungsart, und
+eine aus der heutigen Akte geschaetzte Art stand im Test bei einem
+"Urspruenglichen Vollzeitvertrag" als Teilzeit im Kopf der Version. Uebernommen
+wird sie nur beim Abloesen, wenn die Akte genau diese Version spiegelt (siehe
+oben); vermerkt ist das wie bei Urlaub und Woche, der Tab Vertrag nennt es.
+Eine abgelaufene Version ohne Art rechnet weiter mit der Art der Akte; das
+wirkt nur bei unbekannter Woche und freier Mitarbeit. Lehnt das Verschieben
+ab, bleibt der Weg ueber die aktuelle Version: auf die bisherigen Werte
+korrigieren und ab dem gewuenschten Datum eine neue Version anlegen. Ohne jede Version rechnen alle
 Jahre mit der Akte; der Hinweis in den Stammdaten sagt das, und eine Version
 ab dem Eintritt haelt die bisherigen Werte fest. Ein Feld, das eine
 Korrektur einer Version leert, folgt wieder der Akte.

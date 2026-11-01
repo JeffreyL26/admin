@@ -459,9 +459,11 @@ function akteWeekOf(
  *   syncCurrentContract fuer ihren ganzen Zeitraum, und eine aus alten Werten
  *   abgeleitete Woche bliebe sonst neben der korrigierten Art stehen),
  *   vermerkt in `contracts.entitlement_frozen`. Nicht die Art: Sie ist die
- *   Historie der Beschaeftigungsart, und eine aus der heutigen Akte geschaetzte
- *   Art verfaelschte sie (eine Version ohne Art rechnet weiter mit der Art der
- *   Akte; das wirkt nur bei unbekannter Woche und freier Mitarbeit),
+ *   Historie der Beschaeftigungsart, und eine hier aus der heutigen Akte
+ *   geschaetzte Art verfaelschte sie; die bekommt eine Version nur beim
+ *   Abloesen (fillClosedVersion in employees/contractRoutes.ts, dann spiegelt
+ *   die Akte genau sie). Eine Version ohne Art rechnet weiter mit der Art der
+ *   Akte; das wirkt nur bei unbekannter Woche und freier Mitarbeit,
  * - und, sobald es Versionen gibt, jeder Zeitraum bis gestern, den weder eine
  *   Version noch ein schon festgehaltener Zeitraum abdeckt (vor der ersten,
  *   zwischen zwei, nach der letzten Version), als Zeile in

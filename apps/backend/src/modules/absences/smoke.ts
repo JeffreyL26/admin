@@ -1252,7 +1252,7 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
             annual_leave_days: 30,
             work_weekdays: '1,2,3,4,5',
             work_days_per_week: 5,
-            entitlement_frozen: 'annual_leave_days,work_week',
+            entitlement_frozen: 'employee_type,weekly_hours,annual_leave_days,work_week',
           }) &&
         JSON.stringify(gapRows()) ===
           JSON.stringify([
@@ -1464,12 +1464,12 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
       'Wieder geltende Vorversion: Akte spiegelt sie, Urlaub und Woche wieder leer',
       same.v2 === 201 &&
         same.atClose.employee_type === 'vollzeit' &&
-        same.atClose.entitlement_frozen === 'annual_leave_days,work_week' &&
+        same.atClose.entitlement_frozen === 'employee_type,annual_leave_days,work_week' &&
         same.moved === 200 &&
         same.after.valid_to === dayIn(29) &&
         same.after.annual_leave_days === null &&
         same.after.work_weekdays === null &&
-        same.after.entitlement_frozen === null &&
+        same.after.entitlement_frozen === 'employee_type' &&
         same.after.mirror_pending === 0 &&
         same.akte.annual_leave_days === 30 &&
         same.akte.work_weekdays === '1,2,3,4,5' &&
@@ -1490,7 +1490,7 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         partTime.akte.weekly_hours === 40 &&
         partTime.akte.work_weekdays === '1,2,3,4,5' &&
         partTime.after.work_weekdays === null &&
-        partTime.after.entitlement_frozen === null,
+        partTime.after.entitlement_frozen === 'employee_type',
       partTime,
     );
     // Werkstudentin mit 30 Stunden (hoechstens 20): Die Spiegelung scheitert,
@@ -1566,6 +1566,7 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
       'Wieder geltende Vorversion ohne Art: Verschieben abgelehnt, nichts geaendert',
       refused.statusCode === 409 &&
         /keine Beschäftigungsart/.test(refused.json().error?.message ?? '') &&
+        /eine neue Version anlegen/.test(refused.json().error?.message ?? '') &&
         versionOf(legacyV1).valid_to === yesterday &&
         akteOf(legacyPerson).employee_type === 'teilzeit',
       { status: refused.statusCode, body: refused.json(), v1: versionOf(legacyV1) },
