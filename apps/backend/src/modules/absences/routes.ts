@@ -33,6 +33,7 @@ import {
   CREATED_BY_PROXY_SQL,
   companyRegionDefaults,
   seamlessPredecessorSickNoteId,
+  recountAfterHolidayRuleChange,
   recountRequestsOverlapping,
   placeFromRow,
   regionForEmployee,
@@ -214,6 +215,14 @@ function withDisabilityShown<T extends { entitlement_detail: EntitlementDetail }
 export const absencesModule: FastifyPluginAsync = async (app) => {
   const db = () => getDb();
   await app.register(homeOfficeRoutes);
+  // Geänderte Feiertagsregeln (Update) erreichen die kommenden Anträge; die
+  // Migrationen sind beim Registrieren der Module durch.
+  try {
+    const recounted = recountAfterHolidayRuleChange();
+    if (recounted.length > 0) app.log.info(`Feiertagsregeln geändert: ${recounted.length} kommende Anträge neu gezählt.`);
+  } catch (err) {
+    app.log.warn(`Neuzählung nach geänderten Feiertagsregeln gescheitert (${err instanceof Error ? err.message : String(err)}).`);
+  }
 
   // ---------------------------------------------------------------- Arten ---
   /**
@@ -721,7 +730,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     const requestRows = db()
       .prepare(
         `SELECT r.employee_id, r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status,
-                r.days_manual, r.days_counted
+                r.days_counted
          FROM absence_requests r
          JOIN absence_types t ON t.id = r.type_id
          WHERE t.affects_balance = 1 AND r.status IN ('genehmigt', 'beantragt')

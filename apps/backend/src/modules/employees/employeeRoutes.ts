@@ -22,10 +22,8 @@ import {
   mayAccessExecutive,
   projectDirectory,
 } from '../../core/executiveGate.js';
-import { recountUpcomingRequests } from '../absences/service.js';
-
-/** Spalten, von denen die Zählung der Abwesenheitstage abhängt. */
-const PLACE_COLUMNS = ['work_weekdays', 'work_days_per_week', 'location_id'] as const;
+import { COUNTING_EMPLOYEE_COLUMNS, recountUpcomingRequests } from '../absences/service.js';
+import { syncCurrentContract } from './contractRoutes.js';
 
 /**
  * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
@@ -424,6 +422,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     }
     let teamsCleared = 0;
     inTransaction(() => {
+      const contractsSynced: number[] = [];
       const update = db.prepare(
         `UPDATE employees SET ${fields.map(([k]) => `${k} = ?`).join(', ')},
          updated_at = datetime('now') WHERE id = ?`,
@@ -464,14 +463,18 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
           clearTeam.run(id);
           teamsCleared++;
         }
+        const synced = syncCurrentContract(id, set);
+        if (synced !== null) contractsSynced.push(synced);
       }
       // Ein neuer Standort bringt andere Feiertage (absences/service.ts).
-      const recounted = set.location_id !== undefined ? recountUpcomingRequests(ids) : [];
+      const setFields: Record<string, unknown> = set;
+      const recounted = COUNTING_EMPLOYEE_COLUMNS.some((c) => setFields[c] !== undefined) ? recountUpcomingRequests(ids) : [];
       audit(req, 'bulk_update', 'employee', undefined, {
         ids,
         set,
         teams_cleared: teamsCleared,
         ...(recounted.length ? { recounted_requests: recounted } : {}),
+        ...(contractsSynced.length ? { contracts_synced: contractsSynced } : {}),
       });
     });
     return { updated: ids.length, teams_cleared: teamsCleared };
@@ -604,11 +607,13 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       );
       // Arbeitswoche und Standort (Feiertage) bestimmen die Tage kommender
       // Anträge; vergangene bleiben, wie sie gezählt wurden.
-      const countingChanged = PLACE_COLUMNS.some((c) => patch[c] !== undefined && patch[c] !== existing[c]);
+      const countingChanged = COUNTING_EMPLOYEE_COLUMNS.some((c) => patch[c] !== undefined && patch[c] !== existing[c]);
       const recounted = countingChanged ? recountUpcomingRequests([id]) : [];
+      const contractSynced = syncCurrentContract(id, patch);
       audit(req, 'update', 'employee', id, {
         changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
         ...(recounted.length ? { recounted_requests: recounted } : {}),
+        ...(contractSynced !== null ? { contract_synced: contractSynced } : {}),
         ...(removedFile ? { removed_file: { id: removedFile.id, sha256: removedFile.sha256 } } : {}),
         ...(removedThumb ? { removed_thumb_file: { id: removedThumb.id, sha256: removedThumb.sha256 } } : {}),
       });

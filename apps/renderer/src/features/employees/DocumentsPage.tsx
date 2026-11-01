@@ -18,7 +18,6 @@ import {
   useDocumentPage,
   useExpiringDocuments,
   type DocumentRow,
-  type DocumentSortKey,
 } from './api';
 import { DocumentUploadModal } from './DocumentUploadModal';
 import { SourceBadge, VisibilityBadge, VisibilityToggle } from './documentVisibility';

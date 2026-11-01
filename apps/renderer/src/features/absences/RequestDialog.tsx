@@ -16,6 +16,7 @@ import {
   type BalanceExceededDetails,
 } from './api';
 import { Select } from '../../components/Select';
+import { LOCALE } from '../../lib/locale';
 
 /** Info-Zeichen neben der Beschriftung: erklaert die ausgegrauten Arten. */
 function EligibilityHint() {
@@ -241,7 +242,7 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
         {flexible && preview.data && (
           <Field
             label="Davon Arbeitstage"
-            hint={`Flexible Arbeitswoche (${preview.data.days_per_week.toLocaleString('de-DE')} Tage je Woche): Vorschlag ${preview.data.days_counted.toLocaleString('de-DE')} von ${(preview.data.weekdays ?? 0).toLocaleString('de-DE')} Werktagen. Tragen Sie ein, an wie vielen Tagen die Person im Zeitraum gearbeitet hätte.`}
+            hint={`Flexible Arbeitswoche (${preview.data.days_per_week.toLocaleString(LOCALE)} Tage je Woche): Vorschlag ${preview.data.days_counted.toLocaleString(LOCALE)} von ${(preview.data.weekdays ?? 0).toLocaleString(LOCALE)} Werktagen. Tragen Sie ein, an wie vielen Tagen die Person im Zeitraum gearbeitet hätte.`}
             span2
           >
             <input
@@ -252,7 +253,7 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
               max={preview.data.weekdays ?? undefined}
               step={0.5}
               value={daysOverride}
-              placeholder={preview.data.days_counted.toLocaleString('de-DE')}
+              placeholder={preview.data.days_counted.toLocaleString(LOCALE)}
               onChange={(e) => setDaysOverride(e.target.value)}
             />
           </Field>
@@ -277,7 +278,7 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
               <>
                 Gezählte Abwesenheitstage:{' '}
                 <strong style={{ color: 'var(--text-primary)' }}>
-                  {(overrideValue ?? preview.data.days_counted).toLocaleString('de-DE')}
+                  {(overrideValue ?? preview.data.days_counted).toLocaleString(LOCALE)}
                 </strong>{' '}
                 {flexible
                   ? overrideValue !== null

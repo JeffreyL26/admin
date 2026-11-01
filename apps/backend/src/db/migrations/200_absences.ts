@@ -225,4 +225,17 @@ export const absencesMigrations: Migration[] = [
         ON home_office_exceptions(created_by_user_id) WHERE created_by_user_id IS NOT NULL;
     `,
   },
+  {
+    // Fingerabdruck der Feiertagsregeln (core/holidays.ts), mit dem die
+    // Antraege zuletzt gezaehlt wurden. Aendert ein Update die Regeln, zaehlt
+    // der Start des Moduls die kommenden Antraege neu
+    // (absences/service.ts#recountAfterHolidayRuleChange). Eine Zeile.
+    name: '208_holiday_rules_state',
+    sql: `
+      CREATE TABLE _holiday_rules_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        fingerprint TEXT NOT NULL
+      );
+    `,
+  },
 ];
