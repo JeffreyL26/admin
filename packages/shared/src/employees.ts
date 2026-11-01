@@ -477,9 +477,10 @@ export interface ContractDto {
   work_weekdays: string | null;
   work_days_per_week: number | null;
   /**
-   * Felder, die beim Festhalten aus der Personalakte kamen (Liste wie
-   * "annual_leave_days,work_week", ENTITLEMENT_FROZEN_FIELDS); nur abgelaufene
-   * Versionen. Der Tab Vertrag nennt sie (entitlementFrozenNote).
+   * Felder, die aus der Personalakte kamen, weil die Version sie nicht
+   * nannte (Liste wie "employee_type,work_week", ENTITLEMENT_FROZEN_FIELDS):
+   * Art und Stunden beim Abloesen, Urlaub und Woche beim Festhalten. Der Tab
+   * Vertrag nennt sie (entitlementFrozenNote).
    */
   entitlement_frozen: string | null;
   fixed_term_reason: string | null;
@@ -520,16 +521,20 @@ export function contractCorrectable(state: ContractState, newest: boolean): bool
 }
 
 /**
- * Felder einer abgelaufenen Vertragsversion, die freezeEntitlementInputs
- * (absences/service.ts) aus der Personalakte uebernommen hat, bevor sich
- * diese aenderte (`contracts.entitlement_frozen`). `work_week` steht fuer
- * feste Tage und Zahl zusammen. Die Art gehoert nicht dazu (Historie der
- * Beschaeftigungsart, siehe freezeEntitlementInputs).
+ * Felder einer Vertragsversion, die sie aus der Personalakte uebernommen hat,
+ * weil sie sie nicht nannte (`contracts.entitlement_frozen`): Art und
+ * Wochenstunden beim Abloesen durch eine neue Version (fillClosedVersion in
+ * employees/contractRoutes.ts; genau dann spiegelt die Akte sie), Jahresurlaub
+ * und Arbeitswoche, bevor sich die Akte aendert (freezeEntitlementInputs in
+ * absences/service.ts; nie die Art, die waere dort nur geschaetzt).
+ * `work_week` steht fuer feste Tage und Zahl zusammen.
  */
-export const ENTITLEMENT_FROZEN_FIELDS = ['annual_leave_days', 'work_week'] as const;
+export const ENTITLEMENT_FROZEN_FIELDS = ['employee_type', 'weekly_hours', 'annual_leave_days', 'work_week'] as const;
 export type EntitlementFrozenField = (typeof ENTITLEMENT_FROZEN_FIELDS)[number];
 
 const ENTITLEMENT_FROZEN_LABELS: Record<EntitlementFrozenField, string> = {
+  employee_type: 'Beschäftigungsart',
+  weekly_hours: 'Wochenstunden',
   annual_leave_days: 'Urlaubstage',
   work_week: 'Arbeitswoche',
 };
@@ -548,15 +553,16 @@ export function formatEntitlementFrozen(fields: readonly EntitlementFrozenField[
 }
 
 /**
- * Hinweis im Tab Vertrag, z. B. "Urlaubstage und Arbeitswoche aus der
- * Personalakte übernommen, als sich diese änderte; so bleibt der
- * Urlaubsanspruch dieses Zeitraums gleich." Ohne festgehaltene Felder null.
+ * Hinweis im Tab Vertrag, z. B. "Beschäftigungsart und Arbeitswoche aus der
+ * Personalakte übernommen, weil die Version sie nicht nannte; so bleibt
+ * dieser Zeitraum gleich, auch wenn sich die Akte ändert." Ohne übernommene
+ * Felder null.
  */
 export function entitlementFrozenNote(value: string | null | undefined): string | null {
   const labels = parseEntitlementFrozen(value).map((f) => ENTITLEMENT_FROZEN_LABELS[f]);
   if (labels.length === 0) return null;
   const list = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} und ${labels[labels.length - 1]}`;
-  return `${list} aus der Personalakte übernommen, als sich diese änderte; so bleibt der Urlaubsanspruch dieses Zeitraums gleich.`;
+  return `${list} aus der Personalakte übernommen, weil die Version sie nicht nannte; so bleibt dieser Zeitraum gleich, auch wenn sich die Akte ändert.`;
 }
 
 /** Gilt die Version heute (begonnen und nicht abgelaufen)? Wie contractInEffect im Backend. */

@@ -194,7 +194,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   ändern, hält `freezeEntitlementInputs` (`absences/service.ts`) die
   bisherigen Werte fest: Jahresurlaub und Arbeitswoche in den leeren Feldern
   ABGELAUFENER Versionen, nicht die Art (sie ist die Historie der
-  Beschäftigungsart; vermerkt in `contracts.entitlement_frozen`, Migration
+  Beschäftigungsart und wäre hier nur geschätzt; Art und Stunden bekommt
+  eine Version nur beim Ablösen, siehe unten; vermerkt in
+  `contracts.entitlement_frozen`, Migration
   `120_contract_entitlement_frozen`, der Tab Vertrag nennt sie,
   `entitlementFrozenNote`) und für jeden vergangenen Zeitraum ohne Version
   (vor der ersten, dazwischen, nach der letzten) in `contract_gap_values`
@@ -210,7 +212,8 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (`unfreezeReopenedContract`, Audit `reopened`). Damit die Akte sie
   vollständig zurückbekommt, erhält eine Version beim Ablösen (POST einer
   neuen) ihre offene Art und Wochenstunden aus der Akte, die in diesem
-  Moment genau sie spiegelt (`fillClosedVersion`, Audit `closed_filled`);
+  Moment genau sie spiegelt (`fillClosedVersion`, Audit `closed_filled`,
+  vermerkt wie die festgehaltenen Felder);
   fehlen sie bei einer früher abgelösten Version, lehnt das Verschieben mit
   409 ab, statt Art oder Stunden der verschobenen Version stehen zu lassen. Sonst änderte
   ein Wechsel in Teilzeit rückwirkend den Anspruch. Jede Schreibstelle dieser
