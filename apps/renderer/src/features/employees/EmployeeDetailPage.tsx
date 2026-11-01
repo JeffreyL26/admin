@@ -209,6 +209,8 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
   const { can } = useAuth();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  // Für den Hinweis zu Vertragsversionen unter dem Jahresurlaub (gleicher Key wie der Kopf der Akte).
+  const { data: contracts } = useContracts(employee.id);
   const [form, setForm] = useState<EmployeeFormState>(() => employeeToForm(employee));
   const [dirty, setDirty] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -321,7 +323,11 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
         <PersonFields form={form} set={set} />
       </Card>
       <Card title="Beschäftigung">
-        <EmploymentFields form={form} set={set} versioned />
+        <EmploymentFields
+          form={form}
+          set={set}
+          contractNote={contracts === undefined ? undefined : contracts.length > 0 ? 'versioned' : 'none'}
+        />
       </Card>
       <Card title="Finanzen, Steuer & Sozialversicherung">
         <FinanceFields form={form} set={set} />

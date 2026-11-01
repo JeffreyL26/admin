@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   CONTRACT_TYPE_LABELS,
@@ -81,9 +81,15 @@ export function ContractModal({
   const [uploading, setUploading] = useState(false);
   const [docFile, setDocFile] = useState<File | null>(null);
   const set = (patch: Partial<ContractForm>) => setForm((f) => ({ ...f, ...patch }));
+  // Vorbelegung nur beim Öffnen: Lädt die Akte während des offenen Dialogs neu
+  // (Fokus, Menüwechsel, ein anderer Arbeitsplatz speichert), entstünde ein
+  // neues Objekt, und ein Effekt darauf überschriebe die Eingaben.
+  const employeeRef = useRef(employee);
+  employeeRef.current = employee;
 
   useEffect(() => {
     if (!open) return;
+    const employee = employeeRef.current;
     setDocFile(null);
     if (correct) {
       setForm({
@@ -109,7 +115,7 @@ export function ContractModal({
         ...(employee ? workScheduleToForm(employee) : {}),
       });
     }
-  }, [open, correct, employee]);
+  }, [open, correct]);
 
   // Probezeit als Länge: aus Beginn und Ende abgeleitet, nicht gespeichert.
   // Verschiebt sich der Beginn, wandert ein in Monaten gewähltes Ende mit.

@@ -431,7 +431,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       );
     }
     const patch = parse(contractPatchSchema, req.body);
-    settleWorkSchedule(patch);
+    settleWorkSchedule(patch, existing);
     const cols = CONTRACT_COLUMNS.filter((c) => patch[c] !== undefined);
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
     const merged = { ...existing, ...patch } as ContractRow;

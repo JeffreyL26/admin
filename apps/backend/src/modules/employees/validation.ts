@@ -138,16 +138,26 @@ export const employeeBodySchema = z.object({
 /**
  * Arbeitswoche vereinheitlichen: Feste Tage werden sortiert und bestimmen die
  * Zahl je Woche; wer die festen Tage entfernt und eine Zahl schickt, arbeitet
- * flexibel. Aufgerufen nach dem Parsen von POST und PATCH.
+ * flexibel. Aufgerufen nach dem Parsen von POST und PATCH. Beim PATCH mit
+ * dem Bestand (`existing`): Kommt nur die Zahl und passt sie nicht zu den
+ * bestehenden festen Tagen (oder kommt nur eine leere Zahl), fallen die
+ * festen Tage weg, sonst stuenden Tage und Zahl im Widerspruch.
  */
-export function settleWorkSchedule(body: {
-  work_weekdays?: string | null;
-  work_days_per_week?: number | null;
-  home_office_weekdays?: string | null;
-}): void {
+export function settleWorkSchedule(
+  body: {
+    work_weekdays?: string | null;
+    work_days_per_week?: number | null;
+    home_office_weekdays?: string | null;
+  },
+  existing?: { work_weekdays?: unknown },
+): void {
   if (body.home_office_weekdays) {
     const office = parseWeekdays(body.home_office_weekdays);
     body.home_office_weekdays = office ? formatWeekdays(office) : null;
+  }
+  if (existing && body.work_weekdays === undefined && body.work_days_per_week !== undefined) {
+    const fixed = parseWeekdays(typeof existing.work_weekdays === 'string' ? existing.work_weekdays : null);
+    if (fixed && fixed.length !== body.work_days_per_week) body.work_weekdays = null;
   }
   if (body.work_weekdays === undefined || body.work_weekdays === null) return;
   const days = parseWeekdays(body.work_weekdays);

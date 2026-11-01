@@ -577,7 +577,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       throw forbidden('Die Leitungsebene kennzeichnet nur, wer das Recht „Leitungsebene: Bearbeiten“ hat.');
     }
     assertDisabilityWrite(req, patch, existing);
-    settleWorkSchedule(patch);
+    settleWorkSchedule(patch, existing);
     settlePhotoThumb(patch, existing);
     assertNewPhotoFiles(patch, req.user.id, existing);
     const cols = EMPLOYEE_COLUMNS.filter((c) => patch[c] !== undefined);

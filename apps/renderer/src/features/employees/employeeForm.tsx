@@ -439,12 +439,20 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
 }
 
 /**
- * `versioned`: in der Personalakte, wo Stunden, Arbeitswoche und Urlaub zur
- * Vertragsversion gehören; dann erklärt ein Hinweis, wann eine neue Version
- * statt einer Korrektur nötig ist. Beim Anlegen einer Person gibt es noch
- * keine Version.
+ * `contractNote`: in der Personalakte ein Hinweis, wie Stunden, Arbeitswoche
+ * und Urlaub mit den Vertragsversionen zusammenhängen ('versioned': es gibt
+ * eine Version, Änderungen hier korrigieren sie; 'none': noch keine Version,
+ * die Werte gelten für alle Jahre). Beim Anlegen einer Person kein Hinweis.
  */
-export function EmploymentFields({ form, set, versioned = false }: { form: EmployeeFormState; set: SetForm; versioned?: boolean }) {
+export function EmploymentFields({
+  form,
+  set,
+  contractNote,
+}: {
+  form: EmployeeFormState;
+  set: SetForm;
+  contractNote?: 'versioned' | 'none';
+}) {
   const { can } = useAuth();
   const mayExecutive = can('leitung', 'bearbeiten');
   const { data: departments } = useDepartments();
@@ -608,12 +616,19 @@ export function EmploymentFields({ form, set, versioned = false }: { form: Emplo
           onChange={(e) => set({ annual_leave_days: e.target.value })}
         />
       </Field>
-      {versioned && (
+      {contractNote === 'versioned' && (
         <p style={{ gridColumn: '1 / -1', margin: 0, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
           Wochenstunden, Arbeitswoche und Jahresurlaub gehören zur Vertragsversion. Änderungen hier korrigieren die
           geltende Version für ihren ganzen Zeitraum. Ändern sie sich ab einem Datum, etwa beim Wechsel in Teilzeit,
           bitte im Tab „Vertrag“ eine neue Version anlegen; der Urlaubsanspruch wird dann für jeden Zeitraum anteilig
           berechnet.
+        </p>
+      )}
+      {contractNote === 'none' && (
+        <p style={{ gridColumn: '1 / -1', margin: 0, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+          Ohne Vertragsversion rechnet der Urlaubsanspruch aller Jahre mit diesen Werten. Ändern sie sich ab einem
+          Datum, etwa beim Wechsel in Teilzeit, bitte im Tab „Vertrag“ Versionen anlegen; dann wird für jeden Zeitraum
+          anteilig gerechnet.
         </p>
       )}
       <Field label="Höchster Abschluss">
