@@ -2,9 +2,15 @@ import { z } from 'zod';
 import {
   COUNTRY_CODES,
   COUNTRY_LABELS,
+  DISABILITY_DEGREES,
   DOCUMENT_CATEGORIES,
   EMPLOYEE_RULE_FIELD_LABELS,
+  HIGHEST_DEGREES,
+  NATIONALITY_CODES,
+  RESIDENCE_PERMIT_TYPES,
   churchTaxOptionsFor,
+  formatWeekdays,
+  parseWeekdays,
   employeeTypeRulesFor,
   employeeTypesFor,
   isRegionOf,
@@ -98,7 +104,40 @@ export const employeeBodySchema = z.object({
   exit_date: isoDate.nullish(),
   weekly_hours: z.number().min(0).max(60).nullish(),
   annual_leave_days: z.number().min(0).max(100).nullish(),
+  nationality: z.enum(NATIONALITY_CODES).nullish(),
+  residence_permit: z.enum(RESIDENCE_PERMIT_TYPES).nullish(),
+  residence_permit_until: isoDate.nullish(),
+  highest_degree: z.enum(HIGHEST_DEGREES).nullish(),
+  degree_field: nullableString,
+  // Arbeitswoche (shared/workSchedule.ts): feste Tage "1,2,4" oder nur die
+  // Zahl; settleWorkSchedule gleicht beides an.
+  work_weekdays: z
+    .string()
+    .regex(/^[1-7](,[1-7]){0,6}$/, 'Wochentage als Liste von 1 (Montag) bis 7 (Sonntag)')
+    .nullish(),
+  work_days_per_week: z.number().min(0.5).max(7).multipleOf(0.5).nullish(),
+  // Schwerbehinderung: nur mit dem Recht 'schwerbehinderung' (disability.ts).
+  disability_degree: z
+    .number()
+    .int()
+    .refine((n) => (DISABILITY_DEGREES as readonly number[]).includes(n), 'Grad der Behinderung in Zehnerstufen von 20 bis 100')
+    .nullish(),
+  disability_equal: z.union([z.literal(0), z.literal(1)]).optional(),
+  disability_valid_until: isoDate.nullish(),
+  disability_note: nullableString,
 });
+
+/**
+ * Arbeitswoche vereinheitlichen: Feste Tage werden sortiert und bestimmen die
+ * Zahl je Woche; wer die festen Tage entfernt und eine Zahl schickt, arbeitet
+ * flexibel. Aufgerufen nach dem Parsen von POST und PATCH.
+ */
+export function settleWorkSchedule(body: { work_weekdays?: string | null; work_days_per_week?: number | null }): void {
+  if (body.work_weekdays === undefined || body.work_weekdays === null) return;
+  const days = parseWeekdays(body.work_weekdays);
+  body.work_weekdays = days ? formatWeekdays(days) : null;
+  body.work_days_per_week = days ? days.length : (body.work_days_per_week ?? null);
+}
 
 export const employeePatchSchema = employeeBodySchema.partial();
 
@@ -183,6 +222,9 @@ export function assertExitNotBeforeHire(employee: Record<string, unknown>): void
 
 export const contractBodySchema = z.object({
   contract_type: z.enum(['unbefristet', 'befristet', 'ausbildung', 'werkvertrag', 'praktikum']),
+  // Beschaeftigungsart dieser Version; geprueft gegen den Katalog des Landes
+  // wie employee_type der Stammdaten (employeeTypeEnum).
+  employee_type: employeeTypeEnum.nullish(),
   valid_from: isoDate,
   valid_to: isoDate.nullish(),
   probation_end: isoDate.nullish(),

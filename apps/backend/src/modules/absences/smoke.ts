@@ -424,7 +424,16 @@ check(
 check('Saldo: Abschnitte liegen im Jahr und sind sortiert', !!bd && bd.segments.every((s, i) => s.date_from >= '2026-01-01' && s.date_to <= '2026-12-31' && (i === 0 || bd.segments[i - 1].date_from <= s.date_from)), bd);
 
 const balClara = await get('/api/absences/balance/3/2026');
-check('Saldo: Eintritt 01.07. → 6/12 von 24 = 12', balClara.json().balance.entitlement === 12, balClara.json());
+// § 5 BUrlG: Eintritt am 01.07. erfuellt die Wartezeit am 31.12., der gesetzliche
+// Teil (20 bei fuenf Tagen) steht voll zu; nur der vertragliche Mehrurlaub
+// (4) wird gezwoelftelt: 20 + 2 = 22.
+check(
+  'Saldo: Eintritt 01.07. → gesetzlich 20 voll, vertraglich 6/12 von 4 = 2',
+  balClara.json().balance.entitlement === 22 &&
+    balClara.json().balance.entitlement_detail?.statutory === 20 &&
+    balClara.json().balance.entitlement_detail?.contractual === 2,
+  balClara.json(),
+);
 check('Saldo: Aufschlüsselung ohne Anträge ist leer', balClara.json().balance.breakdown?.segments.length === 0, balClara.json());
 
 const balances = await get('/api/absences/balances/2026');
@@ -885,6 +894,89 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     fridaRow?.back_on === today && fridaRow.back_today === true && fridaRow.half_today === true,
     fridaRow,
   );
+}
+
+// ---------------------------------------------------------- Arbeitswoche ---
+// Eigene Person, damit die Arbeitswoche keine der Pruefungen oben veraendert.
+{
+  const dora = Number(
+    db
+      .prepare(
+        `INSERT INTO employees (first_name, last_name, status, hire_date, annual_leave_days, location_id, department_id,
+                                employee_type, weekly_hours, iban, tax_class, social_security_number)
+         VALUES ('Dora', 'Diehl', 'aktiv', '2020-01-01', 18, 1, 1,
+                 'teilzeit', 24, 'DE02120300000000202051', 'I', '12 010190 D 123')`,
+      )
+      .run().lastInsertRowid,
+  );
+  const patchEmp = (payload: Record<string, unknown>) =>
+    app.inject({ method: 'PATCH', url: `/api/employees/${dora}`, headers: auth, payload });
+
+  const fixed = await patchEmp({ work_weekdays: '4,2,3' });
+  check(
+    'Arbeitswoche: feste Tage sortiert, Zahl daraus',
+    fixed.statusCode === 200 && fixed.json().employee.work_weekdays === '2,3,4' && fixed.json().employee.work_days_per_week === 3,
+    fixed.json(),
+  );
+  // 07. bis 11.12.2026: Mo bis Fr ohne Feiertag; Di bis Do sind drei Tage.
+  const fixedPreview = await get(`/api/absences/preview?employee_id=${dora}&date_from=2026-12-07&date_to=2026-12-11`);
+  check(
+    'Arbeitswoche: feste Tage zaehlen nur Di bis Do',
+    fixedPreview.json().days_counted === 3 && fixedPreview.json().flexible === false,
+    fixedPreview.json(),
+  );
+  const fixedBalance = await get(`/api/absences/balance/${dora}/2026`);
+  check(
+    'Arbeitswoche: drei Tage → 12 gesetzlich + 6 vertraglich',
+    fixedBalance.json().balance.entitlement_detail?.statutory === 12 &&
+      fixedBalance.json().balance.entitlement_detail?.contractual === 6,
+    fixedBalance.json(),
+  );
+  const fixedOverride = await post('/api/absences/requests', {
+    employee_id: dora, type_id: urlaubType.id, date_from: '2026-12-07', date_to: '2026-12-11', days_override: 2,
+  });
+  check('Arbeitswoche: Tage von Hand bei fester Woche → 400', fixedOverride.statusCode === 400, fixedOverride.json());
+
+  const flexible = await patchEmp({ work_weekdays: null, work_days_per_week: 3 });
+  check(
+    'Arbeitswoche: flexibel ohne feste Tage',
+    flexible.statusCode === 200 && flexible.json().employee.work_weekdays === null && flexible.json().employee.work_days_per_week === 3,
+    flexible.json(),
+  );
+  const flexPreview = await get(`/api/absences/preview?employee_id=${dora}&date_from=2026-12-07&date_to=2026-12-11`);
+  check(
+    'Arbeitswoche: flexibel schlaegt 3 von 5 Werktagen vor',
+    flexPreview.json().days_counted === 3 && flexPreview.json().flexible === true && flexPreview.json().weekdays === 5,
+    flexPreview.json(),
+  );
+  const tooMany = await post('/api/absences/requests', {
+    employee_id: dora, type_id: urlaubType.id, date_from: '2026-12-07', date_to: '2026-12-11', days_override: 6,
+  });
+  check('Arbeitswoche: mehr Tage als Werktage → 400', tooMany.statusCode === 400, tooMany.json());
+  const manual = await post('/api/absences/requests', {
+    employee_id: dora, type_id: urlaubType.id, date_from: '2026-12-07', date_to: '2026-12-11', days_override: 2,
+  });
+  check(
+    'Arbeitswoche: Tage von Hand gespeichert',
+    manual.statusCode === 201 && manual.json().request.days_counted === 2 && manual.json().request.days_manual === 1,
+    manual.json(),
+  );
+  const flexBalance = await get(`/api/absences/balance/${dora}/2026`);
+  check(
+    'Arbeitswoche: Saldo nimmt die Tage von Hand',
+    flexBalance.json().balance.planned === 2 || flexBalance.json().balance.taken === 2,
+    flexBalance.json(),
+  );
+  // Eine Betriebsruhe im Zeitraum rechnet gezaehlte Antraege neu, die Zahl
+  // von Hand bleibt stehen.
+  const closure = await post('/api/absences/closures', { date_from: '2026-12-08', date_to: '2026-12-08', name: 'Brueckentag' });
+  if (closure.statusCode === 201 || closure.statusCode === 200) {
+    const after = db.prepare('SELECT days_counted, days_manual FROM absence_requests WHERE id = ?').get(manual.json().request.id) as {
+      days_counted: number;
+      days_manual: number;
+    };
+    check('Arbeitswoche: Betriebsruhe laesst Tage von Hand stehen', after.days_counted === 2 && after.days_manual === 1, after);
+  }
 }
 
 await app.close();

@@ -1,6 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CONTRACT_TYPE_LABELS, type ContractDto, type ContractType } from '@ohrganize/shared';
+import {
+  CONTRACT_TYPE_LABELS,
+  EMPLOYEE_TYPE_LABELS,
+  PROBATION_MONTH_OPTIONS,
+  employeeTypesFor,
+  probationEndFor,
+  probationMonths,
+  type ContractDto,
+  type ContractType,
+  type EmployeeType,
+} from '@ohrganize/shared';
+import { COUNTRY } from '../../lib/locale';
 import { api, uploadFile } from '../../api/client';
 import { Modal } from '../../components/Modal';
 import { Field } from '../../components/ui';
@@ -9,8 +20,12 @@ import { useToast } from '../../components/Toast';
 import { Select } from '../../components/Select';
 import { HalfStepHint } from '../../components/HalfStepHint';
 
+const EMPLOYEE_TYPES = employeeTypesFor(COUNTRY);
+
 interface ContractForm {
   contract_type: ContractType;
+  /** Beschäftigungsart dieser Version; '' = ohne Angabe (alte Versionen). */
+  employee_type: EmployeeType | '';
   valid_from: string;
   valid_to: string;
   probation_end: string;
@@ -24,6 +39,7 @@ interface ContractForm {
 
 const EMPTY: ContractForm = {
   contract_type: 'unbefristet',
+  employee_type: '',
   valid_from: '',
   valid_to: '',
   probation_end: '',
@@ -37,17 +53,22 @@ const EMPTY: ContractForm = {
 
 const num = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.')));
 
-/** `correct` gesetzt = Korrektur der offenen Version, sonst neue Version. */
+/**
+ * `correct` gesetzt = Korrektur der offenen Version, sonst neue Version.
+ * `employeeType`: heutige Beschäftigungsart, Vorgabe einer neuen Version.
+ */
 export function ContractModal({
   open,
   onClose,
   employeeId,
   correct,
+  employeeType,
 }: {
   open: boolean;
   onClose: () => void;
   employeeId: number;
   correct?: ContractDto | null;
+  employeeType?: EmployeeType;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
@@ -62,6 +83,7 @@ export function ContractModal({
     if (correct) {
       setForm({
         contract_type: correct.contract_type,
+        employee_type: correct.employee_type ?? '',
         valid_from: correct.valid_from,
         valid_to: correct.valid_to ?? '',
         probation_end: correct.probation_end ?? '',
@@ -73,14 +95,25 @@ export function ContractModal({
         document_file_id: correct.document_file_id,
       });
     } else {
-      setForm(EMPTY);
+      setForm({ ...EMPTY, employee_type: employeeType ?? '' });
     }
-  }, [open, correct]);
+  }, [open, correct, employeeType]);
+
+  // Probezeit als Länge: aus Beginn und Ende abgeleitet, nicht gespeichert.
+  // Verschiebt sich der Beginn, wandert ein in Monaten gewähltes Ende mit.
+  const months =
+    form.valid_from && form.probation_end ? probationMonths(form.valid_from, form.probation_end) : null;
+  const setValidFrom = (validFrom: string) =>
+    set({
+      valid_from: validFrom,
+      ...(months !== null && validFrom ? { probation_end: probationEndFor(validFrom, months) } : {}),
+    });
 
   const save = useMutation({
     mutationFn: () => {
       const payload = {
         contract_type: form.contract_type,
+        employee_type: form.employee_type || null,
         valid_from: form.valid_from,
         valid_to: form.valid_to || null,
         probation_end: form.probation_end || null,
@@ -147,13 +180,52 @@ export function ContractModal({
             ))}
           </Select>
         </Field>
+        <Field label="Beschäftigungsart" hint="Seit wann jemand Vollzeit, Werkstudent usw. ist, zeigt die Vertragshistorie">
+          <Select
+            className="hm-select"
+            value={form.employee_type}
+            onChange={(e) => set({ employee_type: e.target.value as EmployeeType | '' })}
+          >
+            <option value="">— ohne Angabe —</option>
+            {EMPLOYEE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {EMPLOYEE_TYPE_LABELS[t]}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field label="Gültig ab" required>
-          <input className="hm-input" type="date" value={form.valid_from} onChange={(e) => set({ valid_from: e.target.value })} />
+          <input className="hm-input" type="date" value={form.valid_from} onChange={(e) => setValidFrom(e.target.value)} />
         </Field>
         <Field label="Gültig bis" hint="Leer = unbefristet offen">
           <input className="hm-input" type="date" value={form.valid_to} onChange={(e) => set({ valid_to: e.target.value })} />
         </Field>
-        <Field label="Probezeit bis">
+        <Field label="Probezeit" hint={form.valid_from ? undefined : 'Erst den Beginn setzen'}>
+          <Select
+            className="hm-select"
+            value={months !== null ? String(months) : form.probation_end ? 'datum' : ''}
+            disabled={!form.valid_from}
+            onChange={(e) =>
+              set({
+                probation_end:
+                  e.target.value === ''
+                    ? ''
+                    : e.target.value === 'datum'
+                      ? form.probation_end
+                      : probationEndFor(form.valid_from, Number(e.target.value)),
+              })
+            }
+          >
+            <option value="">Keine Probezeit</option>
+            {PROBATION_MONTH_OPTIONS.map((m) => (
+              <option key={m} value={String(m)}>
+                {m} {m === 1 ? 'Monat' : 'Monate'}
+              </option>
+            ))}
+            {months === null && form.probation_end && <option value="datum">Eigenes Enddatum</option>}
+          </Select>
+        </Field>
+        <Field label="Probezeit bis" hint="Ergibt sich aus der Länge, lässt sich aber auch frei setzen">
           <input className="hm-input" type="date" value={form.probation_end} onChange={(e) => set({ probation_end: e.target.value })} />
         </Field>
         <Field label="Kündigungsfrist (Wochen)">

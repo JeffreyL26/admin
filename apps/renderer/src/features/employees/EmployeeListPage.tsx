@@ -6,7 +6,9 @@ import {
   EMPLOYEE_SORT_LABELS,
   EMPLOYEE_STATUS_LABELS,
   EMPLOYEE_TYPE_LABELS,
+  HIGHEST_DEGREE_LABELS,
   SENIORITY_FORMAT_LABELS,
+  nationalityLabel,
   formatDate,
   formatSeniority,
   type EmployeeColumnDef,
@@ -168,6 +170,10 @@ function cellContent(e: EmployeeRow, columnId: string, seniorityFormat: Seniorit
       return e.annual_leave_days != null ? `${e.annual_leave_days} Tage` : '—';
     case 'exit_date':
       return formatDate(e.exit_date);
+    case 'nationality':
+      return e.nationality ? nationalityLabel(e.nationality) : '—';
+    case 'highest_degree':
+      return e.highest_degree ? HIGHEST_DEGREE_LABELS[e.highest_degree] : '—';
     default:
       return null;
   }

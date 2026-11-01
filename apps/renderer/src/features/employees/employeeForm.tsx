@@ -3,6 +3,20 @@ import {
   CHURCH_TAX_LABELS,
   EMPLOYEE_STATUS_LABELS,
   EMPLOYEE_TYPE_LABELS,
+  HIGHEST_DEGREES,
+  HIGHEST_DEGREE_LABELS,
+  NATIONALITY_CODES,
+  RESIDENCE_PERMIT_LABELS,
+  RESIDENCE_PERMIT_TYPES,
+  DISABILITY_DEGREES,
+  WEEKDAY_SHORT,
+  disabilityNotes,
+  entitlementDaysPerWeek,
+  formatWeekdays,
+  nationalityLabel,
+  needsResidencePermit,
+  parseWeekdays,
+  statutoryLeaveDays,
   churchTaxOptionsFor,
   employeeTypeRulesFor,
   employeeTypesFor,
@@ -57,6 +71,23 @@ export interface EmployeeFormState {
   photo_file_id: number | null;
   /** Vorschaubild zum Foto, entsteht beim Hochladen (createPhotoThumbnail). */
   photo_thumb_file_id: number | null;
+  nationality: string;
+  residence_permit: string;
+  residence_permit_until: string;
+  highest_degree: string;
+  degree_field: string;
+  /**
+   * Arbeitswoche (shared/workSchedule.ts): '' = nicht hinterlegt (Bestand,
+   * gezählt wie Mo bis Fr), 'fest' = feste Wochentage, 'flexibel' = nur die
+   * Zahl Tage je Woche.
+   */
+  work_mode: '' | 'fest' | 'flexibel';
+  work_weekdays: number[];
+  work_days_per_week: string;
+  disability_degree: string;
+  disability_equal: boolean;
+  disability_valid_until: string;
+  disability_note: string;
 }
 
 export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
@@ -92,6 +123,19 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
   annual_leave_days: '',
   photo_file_id: null,
   photo_thumb_file_id: null,
+  nationality: '',
+  residence_permit: '',
+  residence_permit_until: '',
+  highest_degree: '',
+  degree_field: '',
+  // Neue Personen: feste Woche Mo bis Fr als Vorgabe, ausdrücklich hinterlegt.
+  work_mode: 'fest',
+  work_weekdays: [1, 2, 3, 4, 5],
+  work_days_per_week: '',
+  disability_degree: '',
+  disability_equal: false,
+  disability_valid_until: '',
+  disability_note: '',
 };
 
 export function employeeToForm(e: EmployeeRow): EmployeeFormState {
@@ -129,7 +173,28 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
       e.annual_leave_days !== null && e.annual_leave_days !== undefined ? String(e.annual_leave_days) : '',
     photo_file_id: e.photo_file_id,
     photo_thumb_file_id: e.photo_thumb_file_id ?? null,
+    nationality: e.nationality ?? '',
+    residence_permit: e.residence_permit ?? '',
+    residence_permit_until: e.residence_permit_until ?? '',
+    highest_degree: e.highest_degree ?? '',
+    degree_field: e.degree_field ?? '',
+    ...workScheduleToForm(e),
+    disability_degree: e.disability_degree != null ? String(e.disability_degree) : '',
+    disability_equal: e.disability_equal === 1,
+    disability_valid_until: e.disability_valid_until ?? '',
+    disability_note: e.disability_note ?? '',
   };
+}
+
+function workScheduleToForm(
+  e: Pick<EmployeeRow, 'work_weekdays' | 'work_days_per_week'>,
+): Pick<EmployeeFormState, 'work_mode' | 'work_weekdays' | 'work_days_per_week'> {
+  const fixed = parseWeekdays(e.work_weekdays);
+  if (fixed) return { work_mode: 'fest', work_weekdays: fixed, work_days_per_week: '' };
+  if (e.work_days_per_week !== null && e.work_days_per_week !== undefined) {
+    return { work_mode: 'flexibel', work_weekdays: [1, 2, 3, 4, 5], work_days_per_week: String(e.work_days_per_week) };
+  }
+  return { work_mode: '', work_weekdays: [1, 2, 3, 4, 5], work_days_per_week: '' };
 }
 
 const num = (s: string): number | null => (s.trim() === '' ? null : Number(s.replace(',', '.')));
@@ -186,8 +251,45 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     annual_leave_days: num(f.annual_leave_days),
     photo_file_id: f.photo_file_id,
     photo_thumb_file_id: f.photo_thumb_file_id,
+    nationality: str(f.nationality),
+    // Ohne Bedarf (EU, EWR, Schweiz oder keine Angabe) bleibt nichts stehen.
+    residence_permit: needsResidencePermit(f.nationality) ? str(f.residence_permit) : null,
+    residence_permit_until: needsResidencePermit(f.nationality) ? str(f.residence_permit_until) : null,
+    highest_degree: str(f.highest_degree),
+    degree_field: str(f.degree_field),
+    disability_degree: num(f.disability_degree),
+    disability_equal: f.disability_equal ? 1 : 0,
+    disability_valid_until: str(f.disability_valid_until),
+    disability_note: str(f.disability_note),
+    work_weekdays: f.work_mode === 'fest' && f.work_weekdays.length > 0 ? formatWeekdays(f.work_weekdays) : null,
+    work_days_per_week:
+      f.work_mode === 'fest'
+        ? f.work_weekdays.length || null
+        : f.work_mode === 'flexibel'
+          ? num(f.work_days_per_week)
+          : null,
   };
 }
+
+/** Arbeitstage je Woche laut Formular (für den Hinweis zum Mindesturlaub). */
+function formDaysPerWeek(f: EmployeeFormState): number | null {
+  return entitlementDaysPerWeek({
+    employee_type: f.employee_type,
+    work_weekdays: f.work_mode === 'fest' ? formatWeekdays(f.work_weekdays) : null,
+    work_days_per_week: f.work_mode === 'flexibel' ? num(f.work_days_per_week) : null,
+  });
+}
+
+/**
+ * Staatsangehörigkeiten nach deutschem Namen, das Land der Variante zuerst
+ * (der häufigste Fall steht oben). Einmal je Sitzung gebaut.
+ */
+const NATIONALITY_OPTIONS = [
+  COUNTRY,
+  ...[...NATIONALITY_CODES]
+    .filter((c) => c !== COUNTRY)
+    .sort((a, b) => nationalityLabel(a).localeCompare(nationalityLabel(b), 'de')),
+].map((code) => ({ code, label: nationalityLabel(code) }));
 
 /**
  * Kataloge des Landes der Variante (Spiegel der Server-Regeln in
@@ -275,6 +377,46 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
       <Field label="Ort">
         <input className="hm-input" value={form.private_city} onChange={(e) => set({ private_city: e.target.value })} />
       </Field>
+      <Field label="Staatsangehörigkeit">
+        <Select
+          className="hm-select"
+          value={form.nationality}
+          onChange={(e) => set({ nationality: e.target.value })}
+        >
+          <option value="">— keine Angabe —</option>
+          {NATIONALITY_OPTIONS.map((o) => (
+            <option key={o.code} value={o.code}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {needsResidencePermit(form.nationality) ? (
+        <>
+          <Field label="Aufenthaltstitel" hint="Außerhalb von EU, EWR und Schweiz">
+            <Select
+              className="hm-select"
+              value={form.residence_permit}
+              onChange={(e) => set({ residence_permit: e.target.value })}
+            >
+              <option value="">— nicht erfasst —</option>
+              {RESIDENCE_PERMIT_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {RESIDENCE_PERMIT_LABELS[t]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Aufenthaltstitel gültig bis" hint="Leer bei unbefristeten Titeln; das Dashboard erinnert 90 Tage vorher">
+            <input
+              className="hm-input"
+              type="date"
+              value={form.residence_permit_until}
+              onChange={(e) => set({ residence_permit_until: e.target.value })}
+            />
+          </Field>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -404,7 +546,13 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
           onChange={(e) => set({ weekly_hours: e.target.value })}
         />
       </Field>
-      <Field label="Jahresurlaub (Tage)" required={required.has('annual_leave_days')} labelAddon={<HalfStepHint />}>
+      <WorkWeekField form={form} set={set} />
+      <Field
+        label="Jahresurlaub (Tage)"
+        required={required.has('annual_leave_days')}
+        labelAddon={<HalfStepHint />}
+        hint={leaveHint(form)}
+      >
         <input
           className="hm-input"
           type="number"
@@ -415,6 +563,181 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
           onChange={(e) => set({ annual_leave_days: e.target.value })}
         />
       </Field>
+      <Field label="Höchster Abschluss">
+        <Select
+          className="hm-select"
+          value={form.highest_degree}
+          onChange={(e) => set({ highest_degree: e.target.value })}
+        >
+          <option value="">— keine Angabe —</option>
+          {HIGHEST_DEGREES.map((d) => (
+            <option key={d} value={d}>
+              {HIGHEST_DEGREE_LABELS[d]}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Fachrichtung">
+        <input
+          className="hm-input"
+          value={form.degree_field}
+          onChange={(e) => set({ degree_field: e.target.value })}
+          placeholder="z. B. Informatik, Industriekauffrau"
+        />
+      </Field>
+    </div>
+  );
+}
+
+/**
+ * Hinweis unter dem Jahresurlaub: gesetzlicher Mindesturlaub zur
+ * Arbeitswoche (§ 3 BUrlG) und, wenn der Eintrag darunter liegt, dass der
+ * Saldo das Minimum nimmt. Ohne bekannte Arbeitswoche ein Verweis darauf.
+ */
+function leaveHint(form: EmployeeFormState): string {
+  const days = formDaysPerWeek(form);
+  if (form.employee_type === 'freiberufler') return 'Freie Mitarbeit hat keinen Urlaubsanspruch nach BUrlG';
+  if (days === null) return 'Arbeitswoche hinterlegen, dann rechnet oHRganize den gesetzlichen Mindesturlaub';
+  const minimum = statutoryLeaveDays(days);
+  const entered = num(form.annual_leave_days);
+  const text = `Gesetzliches Minimum bei ${String(days).replace('.', ',')} Tagen je Woche: ${String(minimum).replace('.', ',')} Tage`;
+  return entered !== null && entered < minimum ? `${text}. Der Saldo rechnet mit dem Minimum.` : `${text}; der Rest ist vertraglicher Mehrurlaub.`;
+}
+
+/** Arbeitswoche: feste Wochentage zum Anklicken oder eine Zahl Tage ohne feste Tage. */
+function WorkWeekField({ form, set }: { form: EmployeeFormState; set: SetForm }) {
+  const toggleDay = (day: number) =>
+    set({
+      work_weekdays: form.work_weekdays.includes(day)
+        ? form.work_weekdays.filter((d) => d !== day)
+        : [...form.work_weekdays, day].sort((a, b) => a - b),
+    });
+  return (
+    <Field
+      label="Arbeitswoche"
+      span2
+      hint={
+        form.work_mode === 'fest'
+          ? 'Urlaub zählt nur an diesen Tagen; an den übrigen ist die Person im Kalender grau'
+          : form.work_mode === 'flexibel'
+            ? 'Ohne feste Tage: Anträge schlagen den Anteil der Werktage vor, die tatsächlichen Arbeitstage lassen sich im Antrag eintragen'
+            : 'Nicht hinterlegt: gezählt wird Mo bis Fr'
+      }
+    >
+      <div className="row row--wrap" style={{ gap: 10 }}>
+        <Select
+          className="hm-select"
+          style={{ width: 210 }}
+          value={form.work_mode}
+          onChange={(e) => set({ work_mode: e.target.value as EmployeeFormState['work_mode'] })}
+        >
+          <option value="">— nicht hinterlegt —</option>
+          <option value="fest">Feste Wochentage</option>
+          <option value="flexibel">Flexibel (Tage je Woche)</option>
+        </Select>
+        {form.work_mode === 'fest' && (
+          <div className="row" style={{ gap: 6 }} role="group" aria-label="Arbeitstage">
+            {WEEKDAY_SHORT.map((label, i) => {
+              const day = i + 1;
+              const on = form.work_weekdays.includes(day);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  className={`hm-chip${on ? ' is-active' : ''}`}
+                  aria-pressed={on}
+                  onClick={(e) => {
+                    // Sitzt im <label> des Feldes: sonst reichte der Browser den Klick weiter.
+                    e.preventDefault();
+                    toggleDay(day);
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {form.work_mode === 'flexibel' && (
+          <input
+            className="hm-input"
+            style={{ width: 120 }}
+            type="number"
+            min={0.5}
+            max={7}
+            step={0.5}
+            value={form.work_days_per_week}
+            onChange={(e) => set({ work_days_per_week: e.target.value })}
+            aria-label="Arbeitstage je Woche"
+            placeholder="z. B. 3"
+          />
+        )}
+      </div>
+    </Field>
+  );
+}
+
+/**
+ * Schwerbehinderung (nur mit dem Recht "Schwerbehinderung"): Grad,
+ * Gleichstellung, Ausweis, Notiz und darunter, was der Status mit sich bringt.
+ * `readOnly` bei "lesen"; das Backend sperrt das Schreiben zusätzlich.
+ */
+export function DisabilityFields({ form, set, readOnly }: { form: EmployeeFormState; set: SetForm; readOnly: boolean }) {
+  const degree = num(form.disability_degree);
+  const notes = disabilityNotes(degree, form.disability_equal);
+  return (
+    <div className="hm-form-grid">
+      <Field label="Grad der Behinderung">
+        <Select
+          className="hm-select"
+          value={form.disability_degree}
+          disabled={readOnly}
+          onChange={(e) => set({ disability_degree: e.target.value })}
+        >
+          <option value="">— keiner —</option>
+          {DISABILITY_DEGREES.map((d) => (
+            <option key={d} value={String(d)}>
+              GdB {d}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Ausweis gültig bis" hint="Leer bei unbefristetem Ausweis">
+        <input
+          className="hm-input"
+          type="date"
+          value={form.disability_valid_until}
+          disabled={readOnly}
+          onChange={(e) => set({ disability_valid_until: e.target.value })}
+        />
+      </Field>
+      <Field label="Gleichstellung" span2 hint="Gleichgestellt durch die Agentur für Arbeit (§ 2 Abs. 3 SGB IX), bei GdB 30 oder 40">
+        <label className="row" style={{ gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={form.disability_equal}
+            disabled={readOnly}
+            onChange={(e) => set({ disability_equal: e.target.checked })}
+          />
+          Schwerbehinderten Menschen gleichgestellt
+        </label>
+      </Field>
+      <Field label="Notiz" span2>
+        <textarea
+          className="hm-textarea"
+          rows={2}
+          value={form.disability_note}
+          disabled={readOnly}
+          onChange={(e) => set({ disability_note: e.target.value })}
+        />
+      </Field>
+      {notes.length > 0 && (
+        <ul className="span-2" style={{ margin: 0, paddingLeft: 18, color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
+          {notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

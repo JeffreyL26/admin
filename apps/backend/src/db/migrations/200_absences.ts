@@ -192,4 +192,14 @@ export const absencesMigrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_sick_notes_follow_up ON sick_notes(follow_up_of_id) WHERE follow_up_of_id IS NOT NULL;
     `,
   },
+  {
+    // Arbeitstage eines Antrags von Hand (flexible Arbeitswoche ohne feste
+    // Tage, shared/workSchedule.ts): Die Person oder die HR nennt, wie viele
+    // ihrer Arbeitstage im Zeitraum liegen. days_counted traegt dann diese
+    // Zahl, und das Neuzaehlen nach einer Betriebsruhe laesst sie stehen.
+    name: '206_absence_days_manual',
+    sql: `
+      ALTER TABLE absence_requests ADD COLUMN days_manual INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];

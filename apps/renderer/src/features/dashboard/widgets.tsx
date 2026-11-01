@@ -4,7 +4,7 @@ import {
   BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import {
-  formatDate, todayIsoLocal, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS,
+  formatDate, personnelDeadlineText, todayIsoLocal, FEEDBACK_MEETING_KIND_LABELS, INTERVIEW_KIND_LABELS,
 } from '@ohrganize/shared';
 import { useLeaderStatus, useLeadershipReport } from '../leadership/api';
 import { useAuth } from '../../auth/AuthContext';
@@ -333,6 +333,30 @@ export function LicenseWidget() {
     <Link to={LICENSE_PATH} style={{ color: 'inherit', textDecoration: 'none' }}>
       {body}
     </Link>
+  );
+}
+
+/** Probezeitende und Aufenthaltstitel; ein Klick öffnet die Akte (Vertrag bzw. Stammdaten). */
+export function PersonnelDeadlinesWidget({ data }: { data: DashboardData }) {
+  if (!data.personnel_deadlines) return <Restricted />;
+  if (data.personnel_deadlines.length === 0) {
+    return <Empty text="In den nächsten acht Wochen endet keine Probezeit, kein Aufenthaltstitel läuft bald ab." />;
+  }
+  const today = todayIsoLocal();
+  return (
+    <div className="hm-dash-list">
+      {data.personnel_deadlines.map((d) => (
+        <Row
+          key={`${d.kind}-${d.id}`}
+          to={`/personal/mitarbeitende/${d.id}${d.kind === 'probezeit' ? '?tab=vertrag' : ''}`}
+          avatar={initials(d.first_name, d.last_name)}
+          title={personnelDeadlineText(d, today)}
+          meta={d.kind === 'probezeit' ? 'Probezeit' : 'Aufenthaltstitel'}
+          chip={shortDate(d.date)}
+          chipMuted={d.kind === 'probezeit'}
+        />
+      ))}
+    </div>
   );
 }
 

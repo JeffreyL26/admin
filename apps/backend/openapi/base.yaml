@@ -201,7 +201,7 @@ paths:
     get:
       summary: Eigene Stammdaten lesen (ohne Bank-/Steuerdaten)
       responses:
-        "200": { description: "{ profile } inkl. Abteilungs-/Team-/Standortnamen" }
+        "200": { description: "{ profile } inkl. Abteilungs-/Team-/Standortnamen, Staatsangehörigkeit, Aufenthaltstitel, Abschluss und Probezeitende der aktuellen Vertragsversion" }
         "403":
           description: Kein verknüpftes oder kein aktives Personalprofil
           content:

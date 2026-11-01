@@ -67,6 +67,8 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [halfEnd, setHalfEnd] = useState(false);
   const [comment, setComment] = useState('');
   const [approve, setApprove] = useState(false);
+  /** Tatsächliche Arbeitstage bei flexibler Arbeitswoche; '' = Vorschlag übernehmen. */
+  const [daysOverride, setDaysOverride] = useState('');
   const [balanceWarning, setBalanceWarning] = useState<BalanceExceededDetails | null>(null);
   const selectedType = activeTypes.find((t) => t.id === typeId) ?? null;
   const needsApproval = selectedType ? selectedType.requires_approval === 1 : true;
@@ -89,8 +91,11 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
     setHalfEnd(false);
     setComment('');
     setApprove(false);
+    setDaysOverride('');
     setBalanceWarning(null);
   };
+  const flexible = preview.data?.flexible === true;
+  const overrideValue = flexible && daysOverride.trim() !== '' ? Number(daysOverride.replace(',', '.')) : null;
 
   const create = useMutation({
     mutationFn: (overrideBalance: boolean) =>
@@ -104,6 +109,7 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
         comment: comment.trim() || undefined,
         ...(overrideBalance ? { override_balance: true } : {}),
         ...(approve && needsApproval ? { approve: true } : {}),
+        ...(overrideValue !== null ? { days_override: overrideValue } : {}),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['absences'] });
@@ -225,6 +231,25 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
             Direkt genehmigen
           </label>
         </Field>
+        {flexible && preview.data && (
+          <Field
+            label="Davon Arbeitstage"
+            hint={`Flexible Arbeitswoche (${preview.data.days_per_week.toLocaleString('de-DE')} Tage je Woche): Vorschlag ${preview.data.days_counted.toLocaleString('de-DE')} von ${(preview.data.weekdays ?? 0).toLocaleString('de-DE')} Werktagen. Tragen Sie ein, an wie vielen Tagen die Person im Zeitraum gearbeitet hätte.`}
+            span2
+          >
+            <input
+              className="hm-input"
+              style={{ width: 140 }}
+              type="number"
+              min={0.5}
+              max={preview.data.weekdays ?? undefined}
+              step={0.5}
+              value={daysOverride}
+              placeholder={preview.data.days_counted.toLocaleString('de-DE')}
+              onChange={(e) => setDaysOverride(e.target.value)}
+            />
+          </Field>
+        )}
         <Field label="Kommentar" span2>
           <textarea className="hm-textarea" value={comment} onChange={(e) => setComment(e.target.value)} rows={2} />
         </Field>
@@ -245,9 +270,13 @@ export function RequestDialog({ open, onClose }: { open: boolean; onClose: () =>
               <>
                 Gezählte Abwesenheitstage:{' '}
                 <strong style={{ color: 'var(--text-primary)' }}>
-                  {preview.data.days_counted.toLocaleString('de-DE')}
+                  {(overrideValue ?? preview.data.days_counted).toLocaleString('de-DE')}
                 </strong>{' '}
-                (Bundesland {preview.data.bundesland}; Wochenenden, Feiertage und Betriebsruhe zählen nicht)
+                {flexible
+                  ? overrideValue !== null
+                    ? '(von Hand eingetragen)'
+                    : `(Vorschlag bei flexibler Arbeitswoche; Bundesland ${preview.data.bundesland})`
+                  : `(Bundesland ${preview.data.bundesland}; Tage außerhalb der Arbeitswoche, Feiertage und Betriebsruhe zählen nicht)`}
               </>
             )
             : 'Berechne gezählte Tage …'

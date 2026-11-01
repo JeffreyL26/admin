@@ -1,4 +1,5 @@
 // Typen des Moduls Personalverwaltung & Stammdaten.
+import { addDaysIso, addMonthsIso } from './common.js';
 import { type CountryCode } from './country.js';
 
 export type EmployeeType =
@@ -196,6 +197,107 @@ export const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
   praktikum: 'Praktikum',
 };
 
+/** Übliche Längen der Probezeit in Monaten (§ 622 Abs. 3 BGB: höchstens sechs). */
+export const PROBATION_MONTH_OPTIONS = [1, 2, 3, 4, 5, 6] as const;
+
+/**
+ * Ende einer Frist von `months` Monaten ab Beginn `validFrom` (§§ 187 Abs. 2,
+ * 188 Abs. 2 BGB): der Tag vor demselben Kalendertag. Gibt es diesen Tag im
+ * Zielmonat nicht (Beginn 31.01., ein Monat), endet sie am letzten Tag des
+ * Monats (§ 188 Abs. 3 BGB).
+ */
+export function probationEndFor(validFrom: string, months: number): string {
+  const target = addMonthsIso(validFrom, months);
+  if (target.slice(8) !== validFrom.slice(8)) return target;
+  return addDaysIso(target, -1);
+}
+
+/**
+ * Länge der Probezeit in vollen Monaten, wenn das Ende genau so fällt (sonst
+ * null; dann zeigt die Oberfläche nur das Datum).
+ */
+export function probationMonths(validFrom: string, probationEnd: string): number | null {
+  for (let months = 1; months <= 24; months++) {
+    const end = probationEndFor(validFrom, months);
+    if (end === probationEnd) return months;
+    if (end > probationEnd) return null;
+  }
+  return null;
+}
+
+/** So viele Tage vor dem Ende einer Probezeit nennt das Dashboard sie (acht Wochen). */
+export const PROBATION_NOTICE_DAYS = 56;
+
+/** Frist der Personalakte im Dashboard (GET /api/dashboard, `personnel_deadlines`). */
+export interface PersonnelDeadline {
+  id: number;
+  first_name: string;
+  last_name: string;
+  kind: 'probezeit' | 'aufenthaltstitel';
+  date: string;
+}
+
+/**
+ * Satz zu einer Frist, z. B. "Für Anna Berg endet die Probezeit in 4 Wochen."
+ * Bis 13 Tage in Tagen, darunter "heute"/"morgen", sonst in vollen Wochen.
+ */
+export function personnelDeadlineText(d: PersonnelDeadline, today: string): string {
+  const name = `${d.first_name} ${d.last_name}`;
+  const days = Math.round((Date.parse(`${d.date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  const when =
+    days < 0
+      ? null
+      : days === 0
+        ? 'heute'
+        : days === 1
+          ? 'morgen'
+          : days < 14
+            ? `in ${days} Tagen`
+            : `in ${Math.round(days / 7)} Wochen`;
+  if (d.kind === 'probezeit') return `Für ${name} endet die Probezeit ${when ?? 'heute'}.`;
+  return when === null
+    ? `Der Aufenthaltstitel von ${name} ist abgelaufen.`
+    : `Der Aufenthaltstitel von ${name} läuft ${when} ab.`;
+}
+
+/** Text zur Probezeit, z. B. "6 Monate, bis 31.12.2026" (Datum im Format der Anzeige). */
+export function probationText(validFrom: string, probationEnd: string, formatDay: (iso: string) => string): string {
+  const months = probationMonths(validFrom, probationEnd);
+  const until = `bis ${formatDay(probationEnd)}`;
+  if (months === null) return until;
+  return `${months} ${months === 1 ? 'Monat' : 'Monate'}, ${until}`;
+}
+
+/** Höchster Abschluss (Stammdaten): Schule, Ausbildung und Hochschule auf einer Leiter. */
+export const HIGHEST_DEGREES = [
+  'ohne_abschluss',
+  'hauptschule',
+  'mittlere_reife',
+  'fachhochschulreife',
+  'abitur',
+  'berufsausbildung',
+  'meister_techniker',
+  'bachelor',
+  'master_diplom',
+  'promotion',
+  'sonstiges',
+] as const;
+export type HighestDegree = (typeof HIGHEST_DEGREES)[number];
+
+export const HIGHEST_DEGREE_LABELS: Record<HighestDegree, string> = {
+  ohne_abschluss: 'Ohne Abschluss',
+  hauptschule: 'Hauptschulabschluss',
+  mittlere_reife: 'Mittlere Reife',
+  fachhochschulreife: 'Fachhochschulreife',
+  abitur: 'Abitur',
+  berufsausbildung: 'Abgeschlossene Berufsausbildung',
+  meister_techniker: 'Meister, Techniker, Fachwirt',
+  bachelor: 'Bachelor',
+  master_diplom: 'Master, Diplom, Magister, Staatsexamen',
+  promotion: 'Promotion',
+  sonstiges: 'Sonstiger Abschluss',
+};
+
 // ---------------------------------------------------------------------------
 // Dokumente
 // ---------------------------------------------------------------------------
@@ -290,6 +392,26 @@ export interface EmployeeDto extends EmployeeLiteDto {
   exit_date: string | null;
   weekly_hours: number | null;
   annual_leave_days: number | null;
+  /** Staatsangehörigkeit, ISO-2 (nationality.ts). */
+  nationality: string | null;
+  /** Art des Aufenthaltstitels (RESIDENCE_PERMIT_TYPES), nur außerhalb von EU, EWR und Schweiz. */
+  residence_permit: string | null;
+  residence_permit_until: string | null;
+  highest_degree: HighestDegree | null;
+  /** Fachrichtung des Abschlusses, frei. */
+  degree_field: string | null;
+  /** Feste Arbeitstage "1,2,4" (Mo = 1), NULL = keine festen Tage (workSchedule.ts). */
+  work_weekdays: string | null;
+  /** Arbeitstage je Woche; bei festen Tagen deren Anzahl. Beides NULL = nicht hinterlegt. */
+  work_days_per_week: number | null;
+  /**
+   * Schwerbehinderung (disability.ts). Fehlen ohne das Recht
+   * "Schwerbehinderung: lesen" ganz in der Antwort, daher optional.
+   */
+  disability_degree?: number | null;
+  disability_equal?: number;
+  disability_valid_until?: string | null;
+  disability_note?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -323,6 +445,12 @@ export interface ContractDto {
   id: number;
   employee_id: number;
   contract_type: ContractType;
+  /**
+   * Beschäftigungsart dieser Version (Vollzeit, Werkstudent, …). Die Folge
+   * der Versionen ist die Historie "seit wann Vollzeit"; die aktuelle Version
+   * spiegelt sie auf `employees.employee_type`. NULL bei alten Versionen.
+   */
+  employee_type: EmployeeType | null;
   valid_from: string;
   valid_to: string | null;
   probation_end: string | null;
@@ -516,6 +644,8 @@ export const EMPLOYEE_LIST_COLUMNS: EmployeeColumnDef[] = [
   { id: 'weekly_hours', label: 'Wochenstunden', sort: 'weekly_hours' },
   { id: 'annual_leave_days', label: 'Urlaubsanspruch', sort: 'annual_leave_days' },
   { id: 'exit_date', label: 'Austritt', sort: 'exit_date' },
+  { id: 'nationality', label: 'Staatsangehörigkeit', sort: 'nationality' },
+  { id: 'highest_degree', label: 'Höchster Abschluss', sort: 'highest_degree' },
 ];
 
 export type EmployeeSortField =
@@ -534,7 +664,9 @@ export type EmployeeSortField =
   | 'manager'
   | 'weekly_hours'
   | 'annual_leave_days'
-  | 'exit_date';
+  | 'exit_date'
+  | 'nationality'
+  | 'highest_degree';
 
 export const EMPLOYEE_SORT_LABELS: Record<EmployeeSortField, string> = {
   last_name: 'Nachname',
@@ -553,6 +685,8 @@ export const EMPLOYEE_SORT_LABELS: Record<EmployeeSortField, string> = {
   weekly_hours: 'Wochenstunden',
   annual_leave_days: 'Urlaubsanspruch',
   exit_date: 'Austritt',
+  nationality: 'Staatsangehörigkeit',
+  highest_degree: 'Höchster Abschluss',
 };
 
 // ===========================================================================

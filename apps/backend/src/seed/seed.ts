@@ -28,6 +28,7 @@ import { StartAccountMissingError, resetForReseed } from './forceReset.js';
 import { storeFile } from '../core/files.js';
 import { RESPONSE_ID_LIMIT } from '../modules/communication/surveyService.js';
 import { holidaysForYear } from '../core/holidays.js';
+import { probationEndFor } from '@ohrganize/shared';
 import type { CountryCode, RegionCode } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { eachDay, isWeekend } from '../core/dates.js';
@@ -251,11 +252,49 @@ inTransaction(() => {
       exit_date: e.exit ?? null,
       weekly_hours: e.hours ?? null,
       annual_leave_days: e.leave ?? null,
+      // Staatsangehoerigkeit: deutsch als Regelfall, einige Demo-Ausnahmen
+      // weiter unten (Aufenthaltstitel, EU-Freizuegigkeit).
+      nationality: 'DE',
+      // Arbeitswoche: Mo bis Fr, Ausnahmen unten; freie Mitarbeit ohne.
+      work_weekdays: e.type === 'freiberufler' ? null : '1,2,3,4,5',
+      work_days_per_week: e.type === 'freiberufler' ? null : 5,
+      highest_degree: e.type === 'werkstudent' || e.type === 'auszubildender' || e.type === 'praktikant' ? 'abitur' : 'berufsausbildung',
     });
     ids.push(id);
   });
 
   const [GF, HRL, HRR, CTO, TLB, DEV1, DEV2, TLF, DEV3, OPS1, VTL, AE1, AE2, AM1, MKT, CC, FIN, BUCH, AZUBI, WS1, WS2, PRAKT, MJ1, MJ2, FREI1, FREI2, SDR, EXIT] = ids;
+
+  // Staatsangehoerigkeit, Aufenthaltstitel und Abschluss (Beispiele): eine
+  // EU-Buergerin ohne Titel, ein unbefristeter und ein befristeter Titel, der
+  // in gut zwei Monaten ablaeuft (Dashboard-Widget "Fristen der Personalakte").
+  const permitSoon = new Date(Date.now() + 70 * 86_400_000).toISOString().slice(0, 10);
+  const setOrigin = db.prepare(
+    'UPDATE employees SET nationality = ?, residence_permit = ?, residence_permit_until = ?, highest_degree = ?, degree_field = ? WHERE id = ?',
+  );
+  setOrigin.run(['PL', null, null, 'master_diplom', 'Informatik', DEV2]);
+  setOrigin.run(['TR', 'niederlassungserlaubnis', null, 'bachelor', 'Wirtschaftsinformatik', DEV1]);
+  setOrigin.run(['NG', 'blaue_karte_eu', permitSoon, 'master_diplom', 'Elektrotechnik', OPS1]);
+  setOrigin.run(['DE', null, null, 'master_diplom', 'Betriebswirtschaft', GF]);
+  setOrigin.run(['DE', null, null, 'promotion', 'Informatik', CTO]);
+
+  // Arbeitswochen in Teilzeit (Beispiele fuer feste und flexible Tage): Der
+  // gesetzliche Mindesturlaub rechnet sich daraus (4 x Tage je Woche).
+  const setWeek = db.prepare('UPDATE employees SET work_weekdays = ?, work_days_per_week = ? WHERE id = ?');
+  setWeek.run(['1,2,3,4', 4, HRR]);
+  setWeek.run(['1,2,3,4', 4, DEV3]);
+  setWeek.run([null, 3, CC]);
+  setWeek.run(['2,4', 2, MJ1]);
+  setWeek.run([null, 2, MJ2]);
+  setWeek.run([null, 3, WS1]);
+  setWeek.run(['2,4', 2, WS2]);
+
+  // Schwerbehinderung (Beispiel): GdB 50 mit befristetem Ausweis. Sichtbar nur
+  // mit dem Recht "Schwerbehinderung"; der Saldo rechnet fuenf Tage Zusatzurlaub.
+  db.prepare('UPDATE employees SET disability_degree = 50, disability_valid_until = ? WHERE id = ?').run([
+    '2029-06-30',
+    BUCH,
+  ]);
 
   // Vorgesetzte + Abteilungs-/Teamleitungen
   const setMgr = db.prepare('UPDATE employees SET manager_id = ? WHERE id = ?');
@@ -332,7 +371,9 @@ inTransaction(() => {
       contract_type: contractByType[e.type],
       valid_from: e.hire,
       valid_to: e.exit ?? null,
-      probation_end: e.type === 'vollzeit' || e.type === 'teilzeit' ? `${e.hire.slice(0, 4)}-${e.hire.slice(5, 7)}-${e.hire.slice(8, 10)}` : null,
+      employee_type: e.type,
+      // Sechs Monate Probezeit fuer feste Stellen (Ende: Tag vor demselben Kalendertag).
+      probation_end: e.type === 'vollzeit' || e.type === 'teilzeit' ? probationEndFor(e.hire, 6) : null,
       notice_period_weeks: e.type === 'freiberufler' ? null : 4,
       weekly_hours: e.hours ?? null,
       annual_leave_days: e.leave ?? null,
@@ -340,8 +381,8 @@ inTransaction(() => {
     });
   });
   // Historie-Beispiel: Leonie Vogt wechselte 2024 von 40 auf 30 Stunden.
-  insert('contracts', { employee_id: DEV3, contract_type: 'unbefristet', valid_from: '2021-05-01', valid_to: '2024-06-30', notice_period_weeks: 4, weekly_hours: 40, annual_leave_days: 30, note: 'Ursprünglicher Vollzeitvertrag' });
-  db.prepare(`UPDATE contracts SET valid_from = '2024-07-01', note = 'Wechsel auf Teilzeit (30 h) auf eigenen Wunsch' WHERE employee_id = ? AND valid_to IS NULL`).run(DEV3);
+  insert('contracts', { employee_id: DEV3, contract_type: 'unbefristet', employee_type: 'vollzeit', valid_from: '2021-05-01', valid_to: '2024-06-30', probation_end: probationEndFor('2021-05-01', 6), notice_period_weeks: 4, weekly_hours: 40, annual_leave_days: 30, note: 'Ursprünglicher Vollzeitvertrag' });
+  db.prepare(`UPDATE contracts SET valid_from = '2024-07-01', probation_end = NULL, note = 'Wechsel auf Teilzeit (30 h) auf eigenen Wunsch' WHERE employee_id = ? AND valid_to IS NULL`).run(DEV3);
 
   // ======================= Dokumente =======================
   const doc = (emp: number | null, cat: string, title: string, expiry: string | null = null) =>

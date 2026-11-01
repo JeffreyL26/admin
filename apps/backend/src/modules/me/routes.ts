@@ -9,6 +9,7 @@
  */
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import { maskDisabilityEntitlement } from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
@@ -20,6 +21,7 @@ import {
   countAbsenceDays,
   createRequest,
   CREATED_BY_PROXY_SQL,
+  schedulePreview,
   seamlessPredecessorSickNoteId,
   type AbsenceTypeRow,
 } from '../absences/service.js';
@@ -40,6 +42,8 @@ const leaveRequestBodySchema = z.object({
   half_day_start: z.boolean().optional(),
   half_day_end: z.boolean().optional(),
   comment: z.string().trim().max(2000).optional(),
+  // Eigene Arbeitstage im Zeitraum bei flexibler Arbeitswoche (createRequest prueft).
+  days_override: z.number().positive().max(366).nullish(),
 });
 
 const sickNoteBodySchema = z.object({
@@ -88,6 +92,14 @@ export const meModule: FastifyPluginAsync = async (app) => {
                 e.private_street, e.private_zip, e.private_city, e.private_phone, e.private_email,
                 e.employee_type, e.job_title, e.hire_date, e.weekly_hours, e.annual_leave_days,
                 e.health_insurance,
+                e.nationality, e.residence_permit, e.residence_permit_until,
+                e.highest_degree, e.degree_field,
+                -- Probezeit der aktuellen Vertragsversion (nur das Ende, keine
+                -- weiteren Vertragsdaten): lesend fuer die Person selbst.
+                (SELECT c.probation_end FROM contracts c
+                  WHERE c.employee_id = e.id AND c.valid_from <= date('now', 'localtime')
+                    AND (c.valid_to IS NULL OR c.valid_to >= date('now', 'localtime'))
+                  ORDER BY c.valid_from DESC, c.id DESC LIMIT 1) AS probation_end,
                 d.name AS department_name, t.name AS team_name, l.name AS location_name,
                 CASE WHEN m.id IS NULL THEN NULL ELSE (m.first_name || ' ' || m.last_name) END AS manager_name
          FROM employees e
@@ -201,7 +213,10 @@ export const meModule: FastifyPluginAsync = async (app) => {
     const q = req.query as { year?: string };
     const year = q.year ? Number(q.year) : Number(todayIso().slice(0, 4));
     if (!Number.isInteger(year) || year < 2000 || year > 2100) throw badRequest('Ungültiges Jahr');
-    return { balance: computeBalance(emp, year) };
+    // Ohne benannten Zusatzurlaub: Das Portal zeigt keine Angaben zur
+    // Schwerbehinderung (shared/disability.ts), die Summe bleibt dieselbe.
+    const balance = computeBalance(emp, year);
+    return { balance: { ...balance, entitlement_detail: maskDisabilityEntitlement(balance.entitlement_detail) } };
   });
 
   /** Live-Vorschau der gezählten Tage für das Antragsformular. */
@@ -214,16 +229,23 @@ export const meModule: FastifyPluginAsync = async (app) => {
     if (q.date_to < q.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
     assertReasonableSpan(q.date_from, q.date_to);
     const place = regionForEmployee(emp.id);
-    const days = countAbsenceDays({
+    const countOpts = {
       place,
       dateFrom: q.date_from,
       dateTo: q.date_to,
       halfDayStart: q.half_day_start === '1' || q.half_day_start === 'true',
       halfDayEnd: q.half_day_end === '1' || q.half_day_end === 'true',
-    });
+    };
+    const days = countAbsenceDays(countOpts);
     // `bundesland` bleibt im Vertrag (das Portal zeigt es im Antragsformular);
     // `region` und `country` sind die landesneutralen Namen.
-    return { days_counted: days, bundesland: place.region, region: place.region, country: place.country };
+    return {
+      days_counted: days,
+      bundesland: place.region,
+      region: place.region,
+      country: place.country,
+      ...schedulePreview(countOpts),
+    };
   });
 
   // ---------------------------------------------------------- Krankmeldungen ---

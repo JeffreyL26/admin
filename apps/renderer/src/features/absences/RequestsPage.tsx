@@ -3,10 +3,13 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { CalendarPlus, Check, Inbox, X } from 'lucide-react';
 import {
+  entitlementPartLabels,
+  entitlementProrationNote,
   formatDate,
   nextSort,
   parseSortState,
   ABSENCE_STATUS_LABELS,
+  type AbsenceBalance,
   type AbsenceRequest,
   type AbsenceRequestStatus,
   type SortState,
@@ -36,6 +39,7 @@ import { Select } from '../../components/Select';
 import { Pagination, usePageState } from '../../components/Pagination';
 import { YearSelect } from './YearSelect';
 import { SortableTh } from '../../components/SortableTh';
+import { Tooltip } from '../../components/Tooltip';
 import { TableScroller } from '../../components/TableScroller';
 import { useTableSort } from '../../lib/useTableSort';
 import { readJson, writeJson } from '../../lib/localStore';
@@ -246,6 +250,35 @@ function RequestRows({
       </table>
     </TableScroller>
     </div>
+  );
+}
+
+/**
+ * Anspruch in der Saldenübersicht: die Zahl, darunter "anteilig" bei
+ * unterjährigem Ein- oder Austritt; der Tooltip nennt die Bestandteile.
+ */
+function EntitlementCell({ balance }: { balance: AbsenceBalance }) {
+  const fmt = (n: number) => n.toLocaleString(LOCALE);
+  const detail = balance.entitlement_detail;
+  if (!detail) return <>{fmt(balance.entitlement)}</>;
+  const note = entitlementProrationNote(detail, fmt);
+  return (
+    <Tooltip
+      content={
+        <>
+          <span className="hm-tooltip__title">Anspruch {fmt(balance.entitlement)} Tage</span>
+          <span className="hm-tooltip__line">{entitlementPartLabels(detail, fmt).join(' · ')}</span>
+          {note && <span className="hm-tooltip__line">{note}</span>}
+        </>
+      }
+    >
+      <span>
+        {fmt(balance.entitlement)}
+        {detail.prorated && (
+          <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontWeight: 400 }}>anteilig</div>
+        )}
+      </span>
+    </Tooltip>
   );
 }
 
@@ -664,7 +697,9 @@ function BalancesTab() {
                       {b.last_name}, {b.first_name}
                     </Link>
                   </td>
-                  <td className="num">{b.entitlement.toLocaleString(LOCALE)}</td>
+                  <td className="num">
+                    <EntitlementCell balance={b} />
+                  </td>
                   <td className="num">{b.carryover.toLocaleString(LOCALE)}</td>
                   <td className="num">{b.taken.toLocaleString(LOCALE)}</td>
                   <td className="num">{b.planned.toLocaleString(LOCALE)}</td>

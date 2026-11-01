@@ -44,6 +44,11 @@ check('Weniger ist nie darueber', levelsBeyond(none, FULL_ACCESS).length === 0);
 const full = { modules: [...MODULE_KEYS] };
 const noComm = { modules: MODULE_KEYS.filter((m) => m !== 'communication') };
 check('Vollversion: alle Bereiche', variantAreas(full).length === ADMIN_AREAS.length);
+check('Schwerbehinderung ist ein eigener Bereich am Personalmodul', ADMIN_AREAS.includes('schwerbehinderung') && variantAreas(full).includes('schwerbehinderung'));
+check(
+  'Recht Schwerbehinderung zaehlt im Rang',
+  levelsBeyond(with_({ schwerbehinderung: 'lesen' }), none).join() === 'schwerbehinderung',
+);
 check('Ohne Kommunikation: Bereich fehlt, Einstellungen bleiben', !variantAreas(noComm).includes('kommunikation') && variantAreas(noComm).includes('einstellungen'));
 const out = areasOutsideVariant(noComm, with_({ kommunikation: 'bearbeiten', personal: 'bearbeiten' }));
 check('Recht auf fehlendes Modul liegt ausserhalb', out.join() === 'kommunikation', out);

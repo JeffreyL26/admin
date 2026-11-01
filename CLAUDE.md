@@ -197,6 +197,19 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   deren Konten schlagartig Vollzugriff). Rang und Aussteller der Zugangsdaten
   (wer mehr Rechte bekommt, braucht ein Passwort von jemandem, der sie hatte):
   `core/accountRights.ts`, Einzelheiten unter „Rang eines Kontos“ bei Führung.
+- **Rechtebereich `schwerbehinderung` ist ein Feldrecht** (Migrationen
+  `010_admin_roles_schwerbehinderung`, `114_employee_disability`): Grad,
+  Gleichstellung, Ausweis und Notiz in der Personalakte sind Gesundheitsdaten
+  (Art. 9 DSGVO). Kein Eintrag in `ROUTE_AREAS`; `modules/employees/disability.ts`
+  entfernt die Felder aus jeder Antwort der Personal-Routen ohne
+  `schwerbehinderung: lesen` (`stripDisability`) und weist das Ändern eines
+  Wertes ohne `bearbeiten` mit 403 ab (`assertDisabilityWrite`; leere und
+  unveränderte Werte gehen durch, damit Formulare ohne das Recht speichern).
+  Der Saldo benennt den Zusatzurlaub (§ 208 SGB IX) nur mit dem Recht, sonst
+  steckt er im vertraglichen Teil (`maskDisabilityEntitlement`); das Portal
+  bekommt die Felder nie. Eine neue Route, die Personalzeilen ausliefert,
+  ruft `stripDisability`. In `/api/lookup` (`ANY_AREA_ROUTES`) zählt der
+  Bereich nicht als Fachbereich.
 - **Zwei getrennte Rollenbegriffe — nicht verwechseln.** `users.role` ist der
   **Systemzugang** und bleibt zweiwertig (`admin`/`mitarbeiter`); wer daran dreht,
   sperrt Konten aus. Die **Admin-Rolle** oben regelt Rechte innerhalb der
@@ -218,6 +231,30 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Lesefilter (`GET /api/me/leave-types`) nutzt `allowedTypeIdsFor` — Lese- und
   Schreibseite müssen sich decken, sonst bietet das Portal Arten an, die der POST
   ablehnt.
+- **Arbeitswoche und Urlaubsanspruch nach BUrlG** (Migrationen
+  `113_work_schedule`, `206_absence_days_manual`). Die Arbeitswoche einer
+  Person steht in `employees.work_weekdays` ("1,2,4", Mo = 1; feste Tage) und
+  `work_days_per_week` (ohne feste Tage: flexibel); Regeln DOM-frei in
+  `packages/shared/src/workSchedule.ts`. Sie reist mit dem Ort: `EmployeeRegion`
+  trägt `schedule`, `REGION_SELECT_SQL` lädt die Spalten mit, und jede
+  Sammelabfrage baut den Ort über `placeFromRow` (sonst zählte sie still Mo
+  bis Fr). `countAbsenceDays` zählt nur Tage der Arbeitswoche; bei
+  flexibler Woche liefert sie den Vorschlag `flexibleDays`, und ein Antrag
+  darf die tatsächlichen Arbeitstage von Hand tragen (`days_override` in
+  HR-Erfassung und Portal, gespeichert als `days_counted` mit
+  `days_manual = 1`; nur bei flexibler Woche, höchstens die Werktage Mo bis
+  Fr; `recountRequestsOverlapping` lässt solche Anträge stehen, Saldo und
+  Saldoprüfung lesen sie über `requestDaysIn`). Der Anspruch kommt allein
+  aus `leaveEntitlementFor` (`packages/shared/src/leaveEntitlement.ts`, Test
+  `src/test/leaveEntitlementTest.ts`): Mindesturlaub 4 × Arbeitstage je Woche
+  (§ 3 BUrlG), voll nach erfüllter Wartezeit, Zwölftel nur in den Fällen von
+  § 5 Abs. 1 mit Aufrundung ab einem halben Tag; vertraglicher Mehrurlaub
+  (`annual_leave_days` über dem Minimum) wird bei unterjährigem Ein- oder
+  Austritt immer gezwölftelt. Ohne bekannte Arbeitswoche (Teilzeit ohne
+  Angabe) gibt es keinen gesetzlichen Teil, und alles rechnet wie früher;
+  Vollzeit und Ausbildung gelten ohne Angabe als fünf Tage, freie Mitarbeit
+  hat keinen Anspruch. Der Saldo liefert die Aufteilung als
+  `entitlement_detail`; Salden tragen seither zwei Nachkommastellen.
 - **Vier-Augen-Prinzip:** `approve` und `reject` in `absences/routes.ts` weisen
   den eigenen Antrag mit 403 ab (Vergleich `req.user.employee_id` gegen
   `absence_requests.employee_id`). `cancel` bleibt erlaubt (Rückzug, kein
@@ -260,6 +297,23 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `modules/employees/changeRequestService.ts` (Vorbild:
   `absences/service.ts`). Benachrichtigt wird niemand: HR sieht offene
   Anträge im Dashboard (Bereich Personal, Widget Stammdaten-Anträge) und unter Personal → Änderungsanträge.
+- **Stammdaten zu Herkunft, Abschluss und Fristen** (Migration
+  `112_employee_master_data`): Staatsangehörigkeit als ISO-2
+  (`packages/shared/src/nationality.ts`, Namen über `Intl.DisplayNames`,
+  keine zweite Länderliste), Aufenthaltstitel nur außerhalb von EU, EWR und
+  Schweiz (`needsResidencePermit`; das Formular blendet ihn sonst aus und
+  schickt null), höchster Abschluss (`HIGHEST_DEGREES`). Die
+  **Beschäftigungsart je Vertragsversion** (`contracts.employee_type`) ist die
+  Historie „seit wann Vollzeit/Werkstudent“; die aktuelle Version spiegelt sie
+  wie Stunden und Urlaub auf `employees` (`mirrorToEmployee`, Typregeln
+  laufen dort). Probezeit bleibt ein Datum am Vertrag; die Länge ist
+  abgeleitet (`probationEndFor`/`probationMonths`, Fristende nach §§ 187,
+  188 BGB, Test `src/test/masterDataTest.ts`). Das Dashboard-Widget
+  „Fristen der Personalakte“ liest `personnel_deadlines` aus
+  `GET /api/dashboard` (Probezeitende acht Wochen voraus,
+  Aufenthaltstitel 90 Tage voraus und abgelaufen); dieselben Grenzen zeigt
+  der Kopf der Personalakte. Im Portal lesend über `GET /api/me/profile`,
+  nicht in `EMPLOYEE_SELF_EDITABLE_FIELDS`.
 - **Führung & Bewertung — zwei Gates (Migration `310_leadership_ratings` im
   3xx-Kreis).** Die **Verwaltung** (Freischaltung, Zuständigkeit, Skala und
   Kategorien, Satisfaction-Report; alles unter `/api/leadership/*` außer `/me`)
@@ -1129,7 +1183,7 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **DATEV-Lohnexport** (docs/datev-lohnexport.md): Alle Adapter lesen EINEN
   Kontext (`payrollExport/context.ts`: Snapshot des Laufs, Personalakte
   zum Exportzeitpunkt, genehmigte Fehltage des Monats gezaehlt wie
-  `countAbsenceDays`, also ohne Wochenende, Feiertage und Betriebsruhe, je
+  `countAbsenceDays`, also ohne freie Tage der Arbeitswoche, Feiertage und Betriebsruhe, je
   Tag ein Eintrag mit Krankheit vor Urlaub; gelesen in Sammelabfragen) und
   EINEN Pruefbericht (`check.ts`). Was in welche Datei kommt, entscheidet
   allein `positions.ts` (Bewegungen, Festbezuege, Lohnarten je Datei);

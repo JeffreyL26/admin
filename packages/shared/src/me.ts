@@ -69,6 +69,14 @@ export interface MeProfile {
   weekly_hours: number | null;
   annual_leave_days: number | null;
   health_insurance: string | null;
+  /** Staatsangehörigkeit (ISO-2) und Aufenthaltstitel: lesend, Änderungen meldet die Person der HR. */
+  nationality: string | null;
+  residence_permit: string | null;
+  residence_permit_until: string | null;
+  highest_degree: string | null;
+  degree_field: string | null;
+  /** Ende der Probezeit laut aktueller Vertragsversion. */
+  probation_end: string | null;
   department_name: string | null;
   team_name: string | null;
   location_name: string | null;

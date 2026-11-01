@@ -22,6 +22,8 @@ export function NewRequestPage() {
   const [halfStart, setHalfStart] = useState(false);
   const [halfEnd, setHalfEnd] = useState(false);
   const [comment, setComment] = useState('');
+  /** Eigene Arbeitstage bei flexibler Arbeitswoche; '' = Vorschlag übernehmen. */
+  const [daysOverride, setDaysOverride] = useState('');
   const [apiError, setApiError] = useState<string | null>(null);
 
   const selectedType = (types ?? []).find((t) => t.id === typeId);
@@ -40,7 +42,9 @@ export function NewRequestPage() {
     return [...byCategory.entries()];
   }, [types]);
 
-  const days = preview.data?.days_counted;
+  const flexible = preview.data?.flexible === true;
+  const overrideValue = flexible && daysOverride.trim() !== '' ? Number(daysOverride.replace(',', '.')) : null;
+  const days = overrideValue ?? preview.data?.days_counted;
   // Jahresuebergreifend prueft das Backend je Kalenderjahr; eine Differenz
   // gegen den Saldo EINES Jahres waere hier falsch.
   const spansYears = !!dateFrom && !!dateTo && dateFrom.slice(0, 4) !== dateTo.slice(0, 4);
@@ -63,6 +67,7 @@ export function NewRequestPage() {
         half_day_start: halfStart,
         half_day_end: halfEnd && !singleDay,
         comment: comment.trim() || undefined,
+        ...(overrideValue !== null ? { days_override: overrideValue } : {}),
       },
       {
         onSuccess: (res) => {
@@ -163,6 +168,25 @@ export function NewRequestPage() {
                 />
                 Letzter Tag nur halb
               </label>
+              {flexible && preview.data && (
+                <Field
+                  label="Davon Ihre Arbeitstage"
+                  hint={`Ohne feste Arbeitstage schlägt das Portal ${formatDays(preview.data.days_counted)} von ${formatDays(preview.data.weekdays ?? 0)} Werktagen vor. Tragen Sie ein, an wie vielen Tagen Sie im Zeitraum gearbeitet hätten.`}
+                  span2
+                >
+                  <input
+                    className="pt-input"
+                    style={{ maxWidth: 160 }}
+                    type="number"
+                    min={0.5}
+                    max={preview.data.weekdays ?? undefined}
+                    step={0.5}
+                    value={daysOverride}
+                    placeholder={formatDays(preview.data.days_counted)}
+                    onChange={(e) => setDaysOverride(e.target.value)}
+                  />
+                </Field>
+              )}
               <Field label="Kommentar an die Personalabteilung" span2>
                 <textarea
                   className="pt-textarea"
@@ -194,7 +218,11 @@ export function NewRequestPage() {
                     <strong>
                       {formatDays(days)} {days === 1 ? 'Arbeitstag' : 'Arbeitstage'}
                     </strong>{' '}
-                    (ohne Wochenenden, Feiertage und Betriebsruhe).
+                    {flexible
+                      ? overrideValue !== null
+                        ? '(von Ihnen eingetragen).'
+                        : '(Vorschlag bei flexibler Arbeitswoche).'
+                      : '(ohne freie Tage Ihrer Arbeitswoche, Feiertage und Betriebsruhe).'}
                   </p>
                   {spansYears && selectedType?.affects_balance === 1 && (
                     <p style={{ marginTop: 4 }}>

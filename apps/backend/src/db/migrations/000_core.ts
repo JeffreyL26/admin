@@ -288,4 +288,17 @@ export const coreMigrations: Migration[] = [
     `,
     run: markStartAccount,
   },
+  {
+    // Neuer Rechtebereich 'schwerbehinderung' (Gesundheitsdaten der
+    // Personalakte). Fehlt die Zeile, gilt 'kein' (fail closed); die
+    // ausgelieferten Rollen Geschaeftsfuehrung und Head of HR bekommen ihn wie
+    // die uebrigen Bereiche, HR-Sachbearbeitung nicht. Umbenannte Rollen
+    // bleiben bei 'kein', bis die Rechteverwaltung sie anpasst.
+    name: '010_admin_roles_schwerbehinderung',
+    sql: `
+      INSERT OR IGNORE INTO admin_role_permissions (role_id, area, level)
+      SELECT id, 'schwerbehinderung', 'bearbeiten' FROM admin_roles
+      WHERE name IN ('Geschäftsführung', 'Head of HR');
+    `,
+  },
 ];

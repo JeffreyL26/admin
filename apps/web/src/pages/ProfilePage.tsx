@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { EMPLOYEE_TYPE_LABELS, type EmployeeType } from '@ohrganize/shared';
+import {
+  EMPLOYEE_TYPE_LABELS,
+  HIGHEST_DEGREE_LABELS,
+  RESIDENCE_PERMIT_LABELS,
+  nationalityLabel,
+  todayIsoLocal,
+  type EmployeeType,
+  type HighestDegree,
+  type ResidencePermitType,
+} from '@ohrganize/shared';
 import { ApiRequestError } from '../api/client';
 import { useMyProfile } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
@@ -170,6 +179,9 @@ export function ProfilePage() {
                 <Row label="Standort" value={profile.location_name} />
                 <Row label="Führungskraft" value={profile.manager_name} />
                 <Row label="Im Unternehmen seit" value={profile.hire_date ? formatDate(profile.hire_date) : null} />
+                {profile.probation_end && profile.probation_end >= todayIsoLocal() && (
+                  <Row label="Probezeit bis" value={formatDate(profile.probation_end)} />
+                )}
                 <Row
                   label="Wochenstunden"
                   value={profile.weekly_hours !== null ? formatDays(profile.weekly_hours) : null}
@@ -182,6 +194,35 @@ export function ProfilePage() {
                       : null
                   }
                 />
+                <Row
+                  label="Höchster Abschluss"
+                  value={
+                    profile.highest_degree
+                      ? [
+                          HIGHEST_DEGREE_LABELS[profile.highest_degree as HighestDegree] ?? profile.highest_degree,
+                          profile.degree_field,
+                        ]
+                          .filter(Boolean)
+                          .join(', ')
+                      : profile.degree_field
+                  }
+                />
+                <Row
+                  label="Staatsangehörigkeit"
+                  value={profile.nationality ? nationalityLabel(profile.nationality) : null}
+                />
+                {profile.residence_permit && (
+                  <Row
+                    label="Aufenthaltstitel"
+                    value={[
+                      RESIDENCE_PERMIT_LABELS[profile.residence_permit as ResidencePermitType] ??
+                        profile.residence_permit,
+                      profile.residence_permit_until ? `gültig bis ${formatDate(profile.residence_permit_until)}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(', ')}
+                  />
+                )}
               </div>
             )}
           </Card>

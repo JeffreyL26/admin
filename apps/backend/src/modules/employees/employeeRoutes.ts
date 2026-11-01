@@ -13,7 +13,9 @@ import {
   bulkBodySchema,
   employeeBodySchema,
   employeePatchSchema,
+  settleWorkSchedule,
 } from './validation.js';
+import { assertDisabilityWrite, stripDisability } from './disability.js';
 
 /**
  * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
@@ -57,6 +59,8 @@ const SORT_COLUMNS = {
   weekly_hours: 'e.weekly_hours',
   annual_leave_days: 'e.annual_leave_days',
   exit_date: 'e.exit_date',
+  nationality: 'e.nationality',
+  highest_degree: 'e.highest_degree',
 } as const satisfies Record<EmployeeSortField, string>;
 
 /** Felder, deren Spalte die Richtung umgekehrt zur SQL-Spalte zeigt. */
@@ -344,7 +348,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     const query = parse(listQuerySchema, req.query ?? {});
     const rows = queryEmployees(query);
     if (query.fields === 'lite') return { employees: rows.map(toLite) };
-    return { employees: rows };
+    return { employees: rows.map((r) => stripDisability(req, r)) };
   });
 
   // CSV-Export (BOM + Semikolon für deutsches Excel), gleiche Filter wie die Liste.
@@ -429,7 +433,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/employees/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
-    const employee = getEmployeeOr404(id);
+    const employee = stripDisability(req, getEmployeeOr404(id));
     return { employee, reporting_line: reportingLine(id) };
   });
 
@@ -457,6 +461,8 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/employees', async (req, reply) => {
     const body = parse(employeeBodySchema, req.body);
+    assertDisabilityWrite(req, body);
+    settleWorkSchedule(body);
     settlePhotoThumb(body);
     assertNewPhotoFiles(body, req.user.id);
     assertTypeRules(body);
@@ -481,7 +487,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       return newId;
     });
     reply.status(201);
-    return { employee: getEmployeeOr404(id) };
+    return { employee: stripDisability(req, getEmployeeOr404(id)) };
   });
 
   app.patch('/api/employees/:id', async (req) => {
@@ -499,6 +505,8 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       );
     }
     const patch = parse(employeePatchSchema, req.body);
+    assertDisabilityWrite(req, patch, existing);
+    settleWorkSchedule(patch);
     settlePhotoThumb(patch, existing);
     assertNewPhotoFiles(patch, req.user.id, existing);
     const cols = EMPLOYEE_COLUMNS.filter((c) => patch[c] !== undefined);
@@ -547,7 +555,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       return [removedFile, removedThumb];
     });
     for (const file of detached) removeDetachedBlob(file);
-    return { employee: getEmployeeOr404(id) };
+    return { employee: stripDisability(req, getEmployeeOr404(id)) };
   });
 
   app.delete('/api/employees/:id', async (req, reply) => {

@@ -361,4 +361,57 @@ export const employeesMigrations: Migration[] = [
         ON employees(photo_thumb_file_id) WHERE photo_thumb_file_id IS NOT NULL;
     `,
   },
+  {
+    // Rueckmeldungen aus dem ersten Kundentest: Staatsangehoerigkeit (ISO-2)
+    // samt Aufenthaltstitel ausserhalb von EU, EWR und Schweiz, hoechster
+    // Abschluss, und je Vertragsversion die Beschaeftigungsart, damit die
+    // Historie zeigt, seit wann jemand Vollzeit, Werkstudent usw. ist. Die
+    // jeweils neueste Version jeder Person uebernimmt die heutige Art der
+    // Stammdaten; aeltere Versionen bleiben ohne Angabe (unbekannt).
+    name: '112_employee_master_data',
+    sql: `
+      ALTER TABLE employees ADD COLUMN nationality TEXT;
+      ALTER TABLE employees ADD COLUMN residence_permit TEXT;
+      ALTER TABLE employees ADD COLUMN residence_permit_until TEXT;
+      ALTER TABLE employees ADD COLUMN highest_degree TEXT;
+      ALTER TABLE employees ADD COLUMN degree_field TEXT;
+      ALTER TABLE contracts ADD COLUMN employee_type TEXT;
+      UPDATE contracts SET employee_type = (
+        SELECT e.employee_type FROM employees e WHERE e.id = contracts.employee_id
+      )
+      WHERE id IN (
+        SELECT c.id FROM contracts c
+        WHERE NOT EXISTS (
+          SELECT 1 FROM contracts n
+          WHERE n.employee_id = c.employee_id
+            AND (n.valid_from > c.valid_from OR (n.valid_from = c.valid_from AND n.id > c.id))
+        )
+      );
+    `,
+  },
+  {
+    // Arbeitswoche einer Person (shared/workSchedule.ts): feste Wochentage
+    // als "1,2,4" (Mo = 1) oder nur die Zahl Tage je Woche (flexibel). Davon
+    // haengen der gesetzliche Mindesturlaub (shared/leaveEntitlement.ts) und
+    // die Zaehlung von Antraegen ab. Beides NULL heisst "nicht hinterlegt":
+    // gezaehlt wird wie bisher Mo bis Fr, und Bestandssalden aendern sich
+    // erst, wenn die HR die Woche eintraegt (Vollzeit gilt als fuenf Tage).
+    name: '113_work_schedule',
+    sql: `
+      ALTER TABLE employees ADD COLUMN work_days_per_week REAL;
+      ALTER TABLE employees ADD COLUMN work_weekdays TEXT;
+    `,
+  },
+  {
+    // Schwerbehinderung (shared/disability.ts): Grad der Behinderung, Gleichstellung
+    // (§ 2 Abs. 3 SGB IX), Gueltigkeit des Ausweises, Notiz. Lesen und Schreiben
+    // nur mit dem Rechtebereich 'schwerbehinderung' (modules/employees/disability.ts).
+    name: '114_employee_disability',
+    sql: `
+      ALTER TABLE employees ADD COLUMN disability_degree INTEGER;
+      ALTER TABLE employees ADD COLUMN disability_equal INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE employees ADD COLUMN disability_valid_until TEXT;
+      ALTER TABLE employees ADD COLUMN disability_note TEXT;
+    `,
+  },
 ];

@@ -765,6 +765,13 @@ button {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-numeric);
 }
+/* Bestandteile des Anspruchs (gesetzlich, vertraglich, anteilig) unter der Zahl. */
+.pt-ledger__note {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
 .pt-meter {
   display: flex;
   height: 6px;

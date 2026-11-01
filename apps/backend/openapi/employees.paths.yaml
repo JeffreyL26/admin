@@ -10,7 +10,7 @@ paths:
         - { name: department_id, in: query, schema: { type: integer } }
         - { name: team_id, in: query, schema: { type: integer } }
         - { name: location_id, in: query, schema: { type: integer } }
-        - { name: sort, in: query, schema: { type: string, enum: [last_name, first_name, personnel_number, hire_date, job_title, department, employee_type, seniority, location, status, email, phone, manager, weekly_hours, annual_leave_days, exit_date] }, description: "Sortierfeld (Vorgabe last_name); seniority aufsteigend = kuerzeste Betriebszugehoerigkeit zuerst. Leere Werte stehen am Ende." }
+        - { name: sort, in: query, schema: { type: string, enum: [last_name, first_name, personnel_number, hire_date, job_title, department, employee_type, seniority, location, status, email, phone, manager, weekly_hours, annual_leave_days, exit_date, nationality, highest_degree] }, description: "Sortierfeld (Vorgabe last_name); seniority aufsteigend = kuerzeste Betriebszugehoerigkeit zuerst. Leere Werte stehen am Ende." }
         - { name: dir, in: query, schema: { type: string, enum: [asc, desc] } }
         - { name: fields, in: query, schema: { type: string, enum: [lite, full] } }
       responses:
@@ -88,7 +88,7 @@ paths:
       responses:
         "200": { description: "{ contracts: [...] }" }
     post:
-      summary: Neue Vertragsversion (schließt die offene Vorversion auf den Vortag; spiegelt Stunden/Urlaub auf employees)
+      summary: Neue Vertragsversion (schließt die offene Vorversion auf den Vortag; spiegelt Stunden, Urlaub und Beschäftigungsart auf employees)
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:

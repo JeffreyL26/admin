@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { PORTAL_ABSENCE_CAPTURE, type AbsenceRequest, type MeCalendarEmployee } from '@ohrganize/shared';
+import {
+  PORTAL_ABSENCE_CAPTURE,
+  entitlementPartLabels,
+  entitlementProrationNote,
+  type AbsenceRequest,
+  type MeCalendarEmployee,
+} from '@ohrganize/shared';
 import { useMyBalance, useMyCalendar, useMyChangeRequests, useMyProfile, useMyRequests } from '../api/hooks';
 import { useAuth } from '../auth/AuthContext';
 import { Card, ChangeStatusChip, EmptyState, LoadError, Skeleton, SkeletonRows, StatusChip } from '../components/ui';
@@ -59,6 +65,16 @@ function BalanceCard() {
         <div className="pt-ledger__item">
           <span className="pt-label">Anspruch</span>
           <span className="pt-ledger__value">{formatDays(balance.entitlement)}</span>
+          {balance.entitlement_detail && (
+            <span className="pt-ledger__note">
+              {[
+                entitlementPartLabels(balance.entitlement_detail, formatDays, false).join(' + '),
+                entitlementProrationNote(balance.entitlement_detail, formatDays),
+              ]
+                .filter(Boolean)
+                .join(', ')}
+            </span>
+          )}
         </div>
         <div className="pt-ledger__item">
           <span className="pt-label">Übertrag</span>

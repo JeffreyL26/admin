@@ -70,6 +70,61 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Rueckmeldungen aus dem ersten Kundentest, Schwerbehinderung (01.11.2026)
+- **Neu:** Angaben zur Schwerbehinderung in der Personalakte: Grad der
+  Behinderung, Gleichstellung, Gueltigkeit des Ausweises und Notiz, dazu die
+  Hinweise, was der Status mit sich bringt (Zusatzurlaub nach § 208 SGB IX,
+  Kuendigung nur mit Zustimmung des Integrationsamts, Mindestfrist vier
+  Wochen, Beteiligung der Schwerbehindertenvertretung).
+- **Neu:** Eigener Rechtebereich "Schwerbehinderung" (Kein Zugriff, Nur
+  lesen, Bearbeiten). Ohne ihn sind die Angaben nicht sichtbar. Die
+  ausgelieferten Rollen Geschaeftsfuehrung und Head of HR bekommen ihn,
+  HR-Sachbearbeitung nicht; eigene Rollen stehen auf "Kein Zugriff".
+- **Neu:** Ab einem Grad von 50 rechnet der Urlaubsanspruch den Zusatzurlaub
+  ein (eine Arbeitswoche, bei unterjaehrigem Eintritt anteilig). Konten ohne
+  das Recht und das Portal sehen nur die Summe.
+
+### Rueckmeldungen aus dem ersten Kundentest, Arbeitswoche und Urlaub (01.11.2026)
+- **Neu:** Arbeitswoche je Person in der Personalakte: feste Wochentage
+  (z. B. Di, Mi, Do) oder eine Zahl Tage je Woche ohne feste Tage.
+- **Neu:** Der gesetzliche Mindesturlaub rechnet sich aus der Arbeitswoche
+  (4 Wochen, also 20 Tage bei fuenf, 12 bei drei Arbeitstagen). Das Feld
+  "Jahresurlaub" ist der Gesamtanspruch laut Vertrag; was darueber liegt, ist
+  vertraglicher Mehrurlaub. Personalakte, Saldenuebersicht und Portal zeigen
+  die Aufteilung.
+- **Geaendert:** Unterjaehriger Ein- und Austritt nach § 5 BUrlG: Der
+  gesetzliche Teil steht voll zu, sobald die Wartezeit von sechs Monaten im
+  Jahr erfuellt ist (Eintritt bis 1. Juli) und niemand in der ersten
+  Jahreshaelfte ausscheidet; sonst ein Zwoelftel je vollem Monat,
+  Bruchteile ab einem halben Tag aufgerundet. Der vertragliche Mehrurlaub
+  wird weiter gezwoelftelt. Beispiel Eintritt 01.07. mit 32 Tagen: 20 + 6 = 26
+  (bisher 16). Volle Monate zaehlen ab dem Eintrittstag, nicht nur ab dem
+  Monatsersten. Salden zeigen dafuer zwei Nachkommastellen.
+- **Geaendert:** Antraege zaehlen nur Tage der Arbeitswoche; freie Tage sind
+  im Kalender grau wie Wochenenden, auch im Teamkonflikt und im
+  DATEV-Kalendarium. Bei flexibler Woche schlaegt der Antrag den Anteil der
+  Werktage vor, und HR wie Portal koennen die tatsaechlichen Arbeitstage
+  eintragen.
+
+### Rueckmeldungen aus dem ersten Kundentest, Stammdaten (01.11.2026)
+- **Neu:** Staatsangehoerigkeit in den Stammdaten; bei Staatsangehoerigen
+  ausserhalb von EU, EWR und Schweiz zusaetzlich Art und Gueltigkeit des
+  Aufenthaltstitels (Auswahl nach AufenthG). Laeuft ein Titel in 90 Tagen ab
+  oder ist er abgelaufen, zeigen das Personalakte und Dashboard.
+- **Neu:** Hoechster Abschluss mit Fachrichtung.
+- **Neu:** Jede Vertragsversion traegt die Beschaeftigungsart (Vollzeit,
+  Werkstudent usw.). Die Vertragshistorie zeigt damit, seit wann jemand
+  welche Art hat; das Eintrittsdatum bleibt davon getrennt. Bestehende
+  Vertraege bekommen fuer die neueste Version die heutige Art.
+- **Neu:** Probezeit als Laenge (1 bis 6 Monate), das Enddatum rechnet sich
+  daraus und bleibt frei aenderbar. Personalakte und Vertragshistorie nennen
+  Laenge und Ende, der Kopf der Akte eine laufende Probezeit.
+- **Neu:** Dashboard-Widget "Fristen der Personalakte": "Fuer ... endet die
+  Probezeit in 4 Wochen." sowie ablaufende Aufenthaltstitel. Fuer
+  bestehende Dashboards ueber "Anpassen" hinzufuegen.
+- **Neu:** Im Portal sieht die Person Staatsangehoerigkeit, Aufenthaltstitel,
+  Abschluss und Probezeitende lesend unter Profil.
+
 ### Rueckmeldungen aus dem ersten Kundentest, Bedienung (01.11.2026)
 - **Neu:** Die Anmeldung merkt sich je Geraet die zuletzt erfolgreich
   benutzte E-Mail-Adresse und setzt den Cursor ins Passwortfeld (Desktop und
