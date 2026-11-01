@@ -189,21 +189,36 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `leaveEntitlementForPeriods`: Anteil am Jahr in Monaten, ein Wechsel zum
   Monatsersten ergibt genau 9/12 und 3/12), damit ein Wechsel in Teilzeit
   frühere Jahre und den Übertrag nicht ändert. Was eine Version offen lässt
-  und was keine Version abdeckt, rechnet mit den Werten der Personalakte. Mit
+  und was keine Version abdeckt, rechnet mit den Werten der Personalakte;
+  bevor sich Beschäftigungsart, Jahresurlaub oder Arbeitswoche der Akte
+  ändern, hält `freezeEntitlementInputs` (`absences/service.ts`) die
+  bisherigen Werte fest: in den leeren Feldern begonnener Versionen und für
+  jeden vergangenen Zeitraum ohne Version (vor der ersten, dazwischen, nach
+  der letzten) in `contract_gap_values` (Migration `119_contract_gap_values`,
+  geladen über `CONTRACT_PERIODS_SQL`; Versionen gehen vor). Sonst änderte
+  ein Wechsel in Teilzeit rückwirkend den Anspruch. Jede Schreibstelle dieser
+  Spalten der Akte ruft es in ihrer Transaktion vor dem UPDATE und nennt das
+  Ergebnis im Audit (`frozen`); statisch geprüft von
+  `src/test/placeChangeCheck.ts` (`ENTITLEMENT_EMPLOYEE_COLUMNS`). Ohne
+  Versionen gelten die Werte der Akte für alle Jahre (so sagt es der Hinweis).
+  Mit
   mehreren Abschnitten trägt `entitlement_detail.periods` den Beitrag je
   Abschnitt (Hinweis `entitlementPeriodNote` im Abwesenheit-Tab; benachbarte
   Abschnitte mit gleicher Woche und gleichem Urlaub zählen als einer, den
   Rundungsrest zur Summe trägt der größte Beitrag; ohne Recht
-  `schwerbehinderung` bleiben die Abschnitte, ihre Beiträge enthalten den
-  Zusatzurlaub ungenannt wie die Summe, `maskDisabilityEntitlement`; fielen
-  sie nur bei Zusatzurlaub weg, verriete gerade das Fehlen den Grad). Kommt beim PATCH nur die Zahl der
+  `schwerbehinderung` bleiben die Abschnitte für JEDE Person, aber ohne
+  Urlaubstage, `maskDisabilityEntitlement`: Ihre Beiträge enthalten den
+  Zusatzurlaub ungenannt wie die Summe, und ein Unterschied nur bei
+  Zusatzurlaub verriete den Grad; errechenbar bleibt er aus Summe und
+  Vertragsdaten, bewusste Grenze in docs/entscheidungen.md). Kommt beim PATCH nur die Zahl der
   Arbeitstage und passt sie nicht zu den festen Tagen, fallen diese weg
   (`settleWorkSchedule` mit Bestand), in Akte und Version gleich. Die
   Arbeitswoche einer Version wird wie Stunden und Urlaub gespiegelt (und
   zählt kommende Anträge neu); eine neue Version ohne Arbeitswoche oder
   Urlaub im Rumpf übernimmt die der Akte. Vertragsdialog und Stammdaten
   erklären das mit Hinweistexten (Stammdaten je nachdem, ob heute eine
-  Version gilt: `contractNoteFor` in `employeeForm.tsx`). Der Anspruch kommt allein
+  Version gilt: `contractNoteFor` in `shared/employees.ts`, Test
+  `src/test/masterDataTest.ts`). Der Anspruch kommt allein
   aus `leaveEntitlementFor` (`packages/shared/src/leaveEntitlement.ts`, Test
   `src/test/leaveEntitlementTest.ts`): Mindesturlaub 4 × Arbeitstage je Woche
   (§ 3 BUrlG), voll nach erfüllter Wartezeit, Zwölftel nur in den Fällen von

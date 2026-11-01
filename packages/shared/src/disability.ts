@@ -4,7 +4,7 @@
  * `schwerbehinderung` (admin.ts), das Portal bekommt die Felder nie.
  * Durchsetzung im Backend: modules/employees/disability.ts.
  */
-import type { EntitlementDetail } from './leaveEntitlement.js';
+import { roundDays, type EntitlementDetail } from './leaveEntitlement.js';
 
 /** Spalten der Personalakte, die nur mit dem Recht "Schwerbehinderung" sichtbar sind. */
 export const DISABILITY_FIELDS = [
@@ -62,18 +62,22 @@ export function disabilityNotes(
  * die Summe bleibt gleich.
  */
 export function maskDisabilityEntitlement(detail: EntitlementDetail): EntitlementDetail {
-  if (detail.disability === 0 && detail.full_year.disability === 0) return detail;
-  // Die Zeitabschnitte (periods) bleiben: Ihre Beiträge enthalten den
-  // Zusatzurlaub ungenannt wie die Summe. Fielen sie nur hier weg, verriete
-  // gerade das Fehlen des Hinweises den Grad der Behinderung.
-  const sum = (a: number, b: number) => Math.round((a + b) * 100) / 100;
+  // Die Zeitabschnitte (periods) bleiben, aber ohne Urlaubstage, und das für
+  // JEDE Person: Ihre Beiträge enthalten den Zusatzurlaub ungenannt wie die
+  // Summe, und daneben stünden sonst Urlaubstage, zu denen der Beitrag
+  // sichtbar nicht passt. Fehlten Abschnitte oder Tage nur bei Zusatzurlaub,
+  // verriete gerade das den Grad der Behinderung. Errechenbar bleibt er aus
+  // Summe und Vertragsdaten (bewusste Grenze, docs/entscheidungen.md).
+  const periods = detail.periods?.map((p) => ({ ...p, annual_leave_days: null }));
+  const masked = periods ? { ...detail, periods } : detail;
+  if (detail.disability === 0 && detail.full_year.disability === 0) return masked;
   return {
-    ...detail,
-    contractual: sum(detail.contractual, detail.disability),
+    ...masked,
+    contractual: roundDays(detail.contractual + detail.disability),
     disability: 0,
     full_year: {
       ...detail.full_year,
-      contractual: sum(detail.full_year.contractual, detail.full_year.disability),
+      contractual: roundDays(detail.full_year.contractual + detail.full_year.disability),
       disability: 0,
     },
   };

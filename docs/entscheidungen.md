@@ -1777,3 +1777,41 @@ Migration eines anderen Moduls); eine geloeschte Art hinterlaesst einen
 toten Eintrag ohne Wirkung. Der Export liest Stammdaten und Fehltage beim
 Export, nicht beim Anlegen des Laufs; die Pruefsumme im Audit belegt die
 Fassung.
+
+
+## Urlaubsanspruch je Vertragsversion: Festhalten statt Rueckrechnen, Zusatzurlaub ungenannt
+
+**Warum Werte festgehalten werden, statt alles aus der Akte zu rechnen:**
+Der Anspruch eines Jahres rechnet je Zeitabschnitt mit Arbeitswoche und
+Jahresurlaub der jeweils geltenden Vertragsversion. Was keine Version
+abdeckt (vor der ersten, zwischen zwei, nach der letzten) und was eine
+Version offen laesst (alle Versionen vor Migration 118 bis auf die damals
+geltende), rechnete mit den HEUTIGEN Werten der Akte. Eine neue
+Teilzeitversion spiegelt ihre Woche in die Akte, und damit aenderte sich
+rueckwirkend der Anspruch frueherer Jahre samt Uebertrag (nachgestellt:
+Eintritt 15.03.2024, Anspruch 2024 von 27,5 auf 25,5). Deshalb haelt
+`freezeEntitlementInputs` vor jeder Aenderung von Beschaeftigungsart,
+Jahresurlaub oder Arbeitswoche der Akte die bisherigen Werte fest: in den
+leeren Feldern begonnener Versionen und als Zeile in `contract_gap_values`
+fuer jeden vergangenen Zeitraum ohne Version. Festgehalten wird erst bei der
+Aenderung, nicht per Migration fuer alle: Bis dahin rechnen dieselben Werte
+ohnehin aus der Akte, und eine Migration haette jeder alten Version Werte
+gegeben, die niemand eingetragen hat. Versionen gehen vor festgehaltenen
+Zeitraeumen, damit eine spaeter nachgetragene Version gilt.
+
+**Grenzen:** Eine unbekannte Arbeitswoche (Teilzeit ohne Angabe) laesst sich
+nicht festhalten, sie folgt weiter der Akte. Ohne jede Version rechnen alle
+Jahre mit der Akte; der Hinweis in den Stammdaten sagt das, und eine Version
+ab dem Eintritt haelt die bisherigen Werte fest. Ein Feld, das eine
+Korrektur einer Version leert, folgt wieder der Akte.
+
+**Warum der Zusatzurlaub ungenannt, aber errechenbar bleibt:** Konten ohne
+das Recht "Schwerbehinderung" sehen den Zusatzurlaub (§ 208 SGB IX) nicht
+benannt, er steckt im vertraglichen Teil. Wer Summe und Vertragsdaten kennt,
+kann die Differenz trotzdem ausrechnen; den Anspruch falsch auszuweisen, um
+das zu verhindern, kam nicht in Frage (Grundlage der Abrechnung und des
+Uebertrags). Wichtig ist nur, dass die Oberflaeche keinen ZUSAETZLICHEN
+Hinweis gibt: Die Zeitabschnitte bleiben deshalb fuer jede Person stehen,
+aber ohne Urlaubstage (`maskDisabilityEntitlement`). Fielen sie nur bei
+Zusatzurlaub weg, oder stuenden Urlaubstage neben einem Beitrag, der sichtbar
+nicht zu ihnen passt, waere gerade das das Kennzeichen.
