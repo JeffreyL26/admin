@@ -1834,6 +1834,62 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         /gilt eine neue Vertragsversion/.test(isoForm.json().error?.message ?? ''),
       { correction: correction.json(), v2: versionOf(unchangedV2), isoForm: isoForm.json() },
     );
+    // Derselbe Stand als ISO-Zeit ist nicht veraltet.
+    const isoPerson = newPerson('Ilse');
+    db.prepare("UPDATE employees SET updated_at = '2000-01-01 00:00:00' WHERE id = ?").run(isoPerson);
+    const isoSame = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${isoPerson}`,
+      headers: auth,
+      payload: { phone: '+49 30 6', expected_updated_at: '2000-01-01T00:00:00.000Z' },
+    });
+    // Eine Uebernahme, die die Akte nicht veraendert (Urlaub 30 wie vorher),
+    // ist kein Grund in der Meldung: Die spaetere Aenderung war jemand anderes.
+    const noopPerson = newPerson('Olga');
+    db.prepare(
+      `INSERT INTO contracts (employee_id, contract_type, valid_from, valid_to, employee_type, annual_leave_days, weekly_hours)
+       VALUES (?, 'unbefristet', '2023-01-01', ?, 'vollzeit', 30, 40)`,
+    ).run(noopPerson, dayIn(-1));
+    db.prepare(
+      `INSERT INTO contracts (employee_id, contract_type, valid_from, annual_leave_days, mirror_pending)
+       VALUES (?, 'unbefristet', ?, 30, 1)`,
+    ).run(noopPerson, dayIn(0));
+    db.prepare("UPDATE employees SET updated_at = '2000-01-01 00:00:00' WHERE id = ?").run(noopPerson);
+    await app.inject({ method: 'PATCH', url: `/api/employees/${noopPerson}`, headers: auth, payload: { phone: '+49 30 7' } });
+    const noopStale = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${noopPerson}`,
+      headers: auth,
+      payload: { phone: '+49 30 8', expected_updated_at: '2000-01-01 00:00:00' },
+    });
+    // Nur die alte Zahl der Arbeitstage nach einer Uebernahme fester Tage:
+    // settleWorkSchedule laesst die festen Tage fallen, das waere die alte Woche.
+    const daysPerson = newPerson('Doro');
+    db.prepare(
+      `INSERT INTO contracts (employee_id, contract_type, valid_from, valid_to, employee_type, annual_leave_days, weekly_hours)
+       VALUES (?, 'unbefristet', '2023-01-01', ?, 'vollzeit', 30, 40)`,
+    ).run(daysPerson, dayIn(-1));
+    db.prepare(
+      `INSERT INTO contracts (employee_id, contract_type, valid_from, work_weekdays, work_days_per_week, mirror_pending)
+       VALUES (?, 'unbefristet', ?, '1,2,3', 3, 1)`,
+    ).run(daysPerson, dayIn(0));
+    db.prepare("UPDATE employees SET updated_at = '2000-01-01 00:00:00' WHERE id = ?").run(daysPerson);
+    const oldDays = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${daysPerson}`,
+      headers: auth,
+      payload: { work_days_per_week: 5, expected_updated_at: '2000-01-01 00:00:00' },
+    });
+    check(
+      'Stand als ISO-Zeit gleich, Uebernahme ohne Aenderung kein Grund, alte Zahl der Tage nach fester Woche abgelehnt',
+      isoSame.statusCode === 200 &&
+        noopStale.statusCode === 409 &&
+        /jemand anderem/.test(noopStale.json().error?.message ?? '') &&
+        oldDays.statusCode === 409 &&
+        /zeigt jetzt deren Arbeitswoche\./.test(oldDays.json().error?.message ?? '') &&
+        akteOf(daysPerson).work_weekdays === '1,2,3',
+      { isoSame: isoSame.json(), noopStale: noopStale.json(), oldDays: oldDays.json(), akte: akteOf(daysPerson) },
+    );
 
     // Offene Uebernahme einer abgeloesten Version ist mit ihrem Ende erledigt.
     const openPerson = newPerson('Pia');

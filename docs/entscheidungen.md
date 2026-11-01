@@ -1837,11 +1837,14 @@ Korrektur traefe jetzt die neue Version); eine Telefonnummer, ein unveraendert
 mitgeschickter Wert, ein Feld, das die Version mit dem alten Wert nennt, und
 eine gleichwertig geschriebene Woche (verglichen nach `settleWorkSchedule`)
 gehen durch. Die Meldung nennt die Version und die Felder, die sich geaendert
-haben. Hat der stuendliche Lauf sie schon vor dem Speichern uebernommen
-(Protokoll `contract.mirrored` nach dem Stand des Formulars, auch fuer einen
-Stand als ISO-Zeit), nennt die Meldung sie ebenso, schliesst aber weitere
-Aenderungen anderer nicht aus: Der Stand traegt nur Sekunden und verraet
-nicht, ob die Uebernahme die einzige Aenderung war (offener Punkt PERF-3).
+haben (`changedMirroredFields`, dieselbe Regel in beiden Faellen). Hat der
+stuendliche Lauf sie schon vor dem Speichern uebernommen, liest die Meldung
+die geaenderten Felder aus dem Protokoll (`contract.mirrored`,
+`changed_fields`); eine Uebernahme, die nichts geaendert hat, ist kein Grund.
+Sie schliesst dann weitere Aenderungen anderer nicht aus: Der Stand traegt nur
+Sekunden und verraet nicht, ob die Uebernahme die einzige Aenderung war
+(offener Punkt PERF-3). Der Stand wird in beiden Formen verglichen, die
+`datetime()` liest; ein Client mit ISO-Zeit trifft also denselben Stand.
 
 Was die Vorversion selbst offen laesst, kann die Akte nicht zurueckbekommen;
 sie behielte dafuer Art oder Stunden der verschobenen Version (im Test:

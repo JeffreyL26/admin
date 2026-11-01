@@ -2,8 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   ENTITLEMENT_FROZEN_COLUMNS,
+  changedMirroredFields,
   contractMirroredFields,
   entitlementFieldsLabel,
+  parseEntitlementFrozen,
   formatDate,
   type ContractDto,
   type EmployeeSortField,
@@ -105,35 +107,63 @@ const concurrencySchema = z.object({
   expected_updated_at: z.string().nullish(),
 });
 
+/**
+ * Stand des Formulars gegen den der Akte, beide in der Form von updated_at
+ * (UTC, ganze Sekunden): Ein Client, der den Stand als ISO-Zeit schickt,
+ * trifft so denselben Stand. `expected` ist der Stand in dieser Form, bei
+ * Unlesbarem null (dann ist er nie gleich).
+ */
+function compareStand(expected: string, stored: unknown): { same: boolean; expected: string | null } {
+  if (expected === stored) return { same: true, expected };
+  const row = getDb().prepare('SELECT datetime(?) AS e, datetime(?) AS s').get([expected, stored ?? null]) as {
+    e: string | null;
+    s: string | null;
+  };
+  return { same: row.e !== null && row.e === row.s, expected: row.e };
+}
+
 type MirroredVersion = Pick<
   ContractDto,
   'valid_from' | 'employee_type' | 'weekly_hours' | 'annual_leave_days' | 'work_weekdays' | 'work_days_per_week'
 >;
-const MIRRORED_VERSION_SELECT =
-  'c.valid_from, c.employee_type, c.weekly_hours, c.annual_leave_days, c.work_weekdays, c.work_days_per_week';
 
 /**
- * Juengste Vertragsversion der Person, die seit `since` (updated_at-Stand des
- * Formulars) Werte in die Akte uebernommen hat (Protokoll
- * `contract.mirrored`, stuendlich oder beim Speichern). Nur fuer die Meldung:
- * Sie nennt dann die Version, statt allein jemand anderen. CROSS JOIN legt
- * die Reihenfolge fest: erst die wenigen Versionen der Person
- * (idx_contracts_employee), dann je Version ihr Protokoll (idx_audit_entity).
- * `datetime(?)` bringt den Stand in die Form von created_at (UTC, Sekunden),
- * auch wenn ein Client ihn als ISO-Zeit schickt; Unlesbares trifft nichts.
- * Ob ausser der Uebernahme noch jemand etwas geaendert hat, verraet der
- * sekundengenaue Stand nicht (PERF-3 in docs/offene-punkte.md).
+ * Juengste Uebernahme einer Vertragsversion der Person seit `since` (Stand
+ * des Formulars, schon in der Form von created_at), die die Akte geaendert
+ * hat (Protokoll `contract.mirrored`, stuendlich oder beim Speichern), mit
+ * den geaenderten Feldern (`changed_fields`; aeltere Eintraege ohne das Feld:
+ * die Felder, die die Version nennt). Nur fuer die Meldung: Sie nennt dann
+ * die Version, statt allein jemand anderen. CROSS JOIN legt die Reihenfolge
+ * fest: erst die wenigen Versionen der Person (idx_contracts_employee), dann
+ * je Version ihr Protokoll (idx_audit_entity). Ob ausser der Uebernahme noch
+ * jemand etwas geaendert hat, verraet der sekundengenaue Stand nicht (PERF-3
+ * in docs/offene-punkte.md).
  */
-function versionMirroredSince(employeeId: number, since: string): MirroredVersion | null {
+function versionMirroredSince(
+  employeeId: number,
+  since: string,
+): { valid_from: string; fields: EntitlementFrozenField[] } | null {
   const rows = getDb()
     .prepare(
-      `SELECT DISTINCT ${MIRRORED_VERSION_SELECT} FROM contracts c CROSS JOIN audit_log a
+      `SELECT c.valid_from, c.employee_type, c.weekly_hours, c.annual_leave_days, c.work_weekdays, c.work_days_per_week,
+              a.details
+       FROM contracts c CROSS JOIN audit_log a
        WHERE c.employee_id = ? AND a.entity = 'contract' AND a.entity_id = c.id
-         AND a.action = 'contract.mirrored' AND a.created_at >= datetime(?)
-       ORDER BY c.valid_from DESC`,
+         AND a.action = 'contract.mirrored' AND a.created_at >= ?
+       ORDER BY a.id DESC`,
     )
-    .all([employeeId, since]) as MirroredVersion[];
-  return rows.find((v) => contractMirroredFields(v).length > 0) ?? null;
+    .all([employeeId, since]) as (MirroredVersion & { details: string | null })[];
+  for (const row of rows) {
+    let recorded: unknown;
+    try {
+      recorded = row.details ? (JSON.parse(row.details) as { changed_fields?: unknown }).changed_fields : undefined;
+    } catch {
+      recorded = undefined;
+    }
+    const fields = Array.isArray(recorded) ? parseEntitlementFrozen(recorded.join(',')) : contractMirroredFields(row);
+    if (fields.length > 0) return { valid_from: row.valid_from, fields };
+  }
+  return null;
 }
 
 const RELOAD_HINT = 'Bitte laden Sie die Personalakte neu und übernehmen Sie Ihre Änderungen erneut.';
@@ -143,8 +173,6 @@ function newVersionText(validFrom: string, fields: readonly EntitlementFrozenFie
   return `Seit dem ${formatDate(validFrom)} gilt eine neue Vertragsversion, die Personalakte zeigt jetzt deren ${entitlementFieldsLabel(fields)}`;
 }
 
-/** Felder der Akte, die eine Version setzen kann, je mit ihren Spalten (die Woche als Paar). */
-const MIRROR_FIELDS = ['employee_type', 'weekly_hours', 'annual_leave_days', 'work_week'] as const satisfies readonly EntitlementFrozenField[];
 const sameValue = (a: unknown, b: unknown) => (a ?? null) === (b ?? null);
 
 const listQuerySchema = z.object({
@@ -635,13 +663,14 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     // Der Vergleich VOR dem UPDATE genügt: better-sqlite3 arbeitet synchron im
     // einzigen Prozess, zwischen Lesen und Schreiben läuft kein zweiter Request.
     const { expected_updated_at } = parse(concurrencySchema, req.body);
-    if (expected_updated_at != null && expected_updated_at !== existing.updated_at) {
+    const stand = expected_updated_at == null ? null : compareStand(expected_updated_at, existing.updated_at);
+    if (stand && !stand.same) {
       // Ob ausser der Uebernahme noch jemand etwas geaendert hat, verraet der
       // Stand nicht (Sekunden, PERF-3); die Meldung schliesst es deshalb nicht aus.
-      const version = versionMirroredSince(id, expected_updated_at);
-      if (version) {
+      const change = stand.expected ? versionMirroredSince(id, stand.expected) : null;
+      if (change) {
         throw conflict(
-          `Die Personalakte wurde zwischenzeitlich geändert. ${newVersionText(version.valid_from, contractMirroredFields(version))}; weitere Änderungen anderer sind möglich. ${RELOAD_HINT}`,
+          `Die Personalakte wurde zwischenzeitlich geändert. ${newVersionText(change.valid_from, change.fields)}; weitere Änderungen anderer sind möglich. ${RELOAD_HINT}`,
         );
       }
       throw conflict(`Der Datensatz wurde zwischenzeitlich von jemand anderem geändert. ${RELOAD_HINT}`);
@@ -670,9 +699,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       // Werte und andere Felder gehen durch. Erst nach settleWorkSchedule, das
       // die Woche in die gespeicherte Form bringt.
       const sent: Record<string, unknown> = patch;
-      const changedFields = MIRROR_FIELDS.filter((f) =>
-        ENTITLEMENT_FROZEN_COLUMNS[f].some((c) => !sameValue(loaded[c], existing[c])),
-      );
+      const changedFields = changedMirroredFields(loaded, existing);
       const overwritten = changedFields.some((f) =>
         ENTITLEMENT_FROZEN_COLUMNS[f].some((c) => sent[c] !== undefined && !sameValue(sent[c], existing[c])),
       );
