@@ -11,11 +11,13 @@ import {
   homeOfficeExceptionFor,
   homeOfficeOn,
   entitlementPartLabels,
+  entitlementPeriodNote,
   entitlementProrationNote,
   flexibleDays,
   fullMonthsBetween,
   isScheduledDay,
   leaveEntitlementFor,
+  leaveEntitlementForPeriods,
   parseWeekdays,
   statutoryLeaveDays,
   workScheduleOf,
@@ -147,6 +149,54 @@ check('ganzes Jahr ohne Hinweis', entitlementProrationNote(full, fmt) === null);
 check('Zusatzurlaub benannt', entitlementPartLabels(disabled, fmt).join(' + ') === 'gesetzlich 20 + vertraglich 10 + Zusatzurlaub 5');
 check('Zusatzurlaub ohne Recht im vertraglichen Teil', entitlementPartLabels(disabled, fmt, false).join(' + ') === 'gesetzlich 20 + vertraglich 15');
 check('unbekannte Woche nur vertraglich', entitlementPartLabels(unknown, fmt).join() === 'vertraglich 12,5', entitlementPartLabels(unknown, fmt));
+
+// Zeitabschnitte (Vertragsversionen): Wechsel von Vollzeit (5 Tage, 30
+// Urlaubstage) auf Teilzeit (3 Tage, 18) zum 01.10.: 9/12 und 3/12.
+{
+  const person = { hire_date: '2020-01-01', exit_date: null };
+  const changeOctober = leaveEntitlementForPeriods(
+    person,
+    [
+      { from: '2026-01-01', to: '2026-09-30', annual_leave_days: 30, days_per_week: 5 },
+      { from: '2026-10-01', to: '2026-12-31', annual_leave_days: 18, days_per_week: 3 },
+    ],
+    2026,
+  );
+  check(
+    'Abschnitte: 30 x 9/12 + 18 x 3/12 = 27 (gesetzlich 18, vertraglich 9)',
+    changeOctober.total === 27 && changeOctober.statutory === 18 && changeOctober.contractual === 9 && changeOctober.periods?.length === 2,
+    changeOctober,
+  );
+  check(
+    'Abschnitte: Beitrag je Abschnitt 22,5 und 4,5',
+    changeOctober.periods?.[0].total === 22.5 && changeOctober.periods?.[1].total === 4.5,
+    changeOctober.periods,
+  );
+  const periodNote = entitlementPeriodNote(changeOctober, fmt);
+  check(
+    'Abschnitte: Hinweis im Saldo',
+    periodNote ===
+      'je Vertragsversion: 22,5 bis 30.09.2026 (5 Tage je Woche, 30 Urlaubstage) + 4,5 ab 01.10.2026 (3 Tage je Woche, 18 Urlaubstage)',
+    periodNote,
+  );
+  const one =leaveEntitlementForPeriods(person, [{ from: '2026-01-01', to: '2026-12-31', annual_leave_days: 30, days_per_week: 5 }], 2026);
+  const plain = leaveEntitlementFor({ ...person, annual_leave_days: 30, days_per_week: 5 }, 2026);
+  check('Abschnitte: ein Abschnitt rechnet wie bisher, ohne periods', JSON.stringify(one) === JSON.stringify(plain), one);
+  // Abschnitte ausserhalb des Jahres und der Beschaeftigung zaehlen nicht.
+  const lateHire = leaveEntitlementForPeriods(
+    { hire_date: '2026-07-01', exit_date: null },
+    [
+      { from: '2025-01-01', to: '2026-06-30', annual_leave_days: 40, days_per_week: 5 },
+      { from: '2026-07-01', to: '2026-12-31', annual_leave_days: 32, days_per_week: 5 },
+    ],
+    2026,
+  );
+  check(
+    'Abschnitte: nur die Beschaeftigungszeit zaehlt (Eintritt 01.07., wie ohne Abschnitte)',
+    lateHire.total === leaveEntitlementFor({ ...base, hire_date: '2026-07-01', annual_leave_days: 32 }, 2026).total,
+    lateHire,
+  );
+}
 
 if (failures > 0) {
   console.log(`leaveEntitlementTest: ${failures} Fehler`);

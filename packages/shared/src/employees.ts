@@ -469,6 +469,13 @@ export interface ContractDto {
   notice_period_weeks: number | null;
   weekly_hours: number | null;
   annual_leave_days: number | null;
+  /**
+   * Arbeitswoche dieser Version (Form wie in den Stammdaten); der
+   * Urlaubsanspruch rechnet je Zeitabschnitt mit ihr. Beides NULL = nicht
+   * hinterlegt, dann gelten die Werte der Personalakte.
+   */
+  work_weekdays: string | null;
+  work_days_per_week: number | null;
   fixed_term_reason: string | null;
   document_file_id: number | null;
   note: string | null;

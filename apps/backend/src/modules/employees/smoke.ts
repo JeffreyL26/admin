@@ -697,6 +697,56 @@ check(
     getDb().prepare('DELETE FROM contracts WHERE id = ?').run(legacyId);
     getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
   }
+
+  // Arbeitswoche je Vertragsversion: Das Formular korrigiert die geltende
+  // Version, eine neue Version spiegelt ihre Woche in die Akte; Migration 118
+  // gibt der geltenden Version die Woche der Akte.
+  {
+    const weekOf = (cid: number) =>
+      getDb().prepare('SELECT work_weekdays, work_days_per_week FROM contracts WHERE id = ?').get(cid) as {
+        work_weekdays: string | null;
+        work_days_per_week: number | null;
+      };
+    const formWeek = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${empId}`,
+      headers: auth,
+      payload: { work_weekdays: '4,1,2,3' },
+    });
+    const synced = weekOf(typedId);
+    const todayLocal = getDb().prepare("SELECT date('now', 'localtime') AS d").get() as { d: string };
+    const newWeek = await app.inject({
+      method: 'POST',
+      url: `/api/employees/${empId}/contracts`,
+      headers: auth,
+      payload: { contract_type: 'unbefristet', valid_from: todayLocal.d, work_weekdays: '2,1' },
+    });
+    const newId = newWeek.json().contract?.id as number;
+    const person = (await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: auth })).json().employee;
+    check(
+      'Arbeitswoche je Vertragsversion: Formular korrigiert die geltende, neue Version spiegelt in die Akte',
+      formWeek.statusCode === 200 &&
+        synced.work_weekdays === '1,2,3,4' &&
+        synced.work_days_per_week === 4 &&
+        newWeek.statusCode === 201 &&
+        newWeek.json().contract.work_weekdays === '1,2' &&
+        person.work_weekdays === '1,2' &&
+        person.work_days_per_week === 2,
+      { formWeek: formWeek.json(), synced, newWeek: newWeek.json(), person: { w: person.work_weekdays, d: person.work_days_per_week } },
+    );
+    getDb().prepare('DELETE FROM contracts WHERE id = ?').run(newId ?? -1);
+    getDb().prepare('UPDATE contracts SET valid_to = NULL, work_weekdays = NULL, work_days_per_week = NULL WHERE id = ?').run(typedId);
+    const { employeesMigrations } = await import('../../db/migrations/100_employees.js');
+    employeesMigrations.find((m) => m.name === '118_contract_work_schedule')!.run!(getDb());
+    const backfilled = weekOf(typedId);
+    check(
+      'Migration 118: geltende Version bekommt die Arbeitswoche der Akte',
+      backfilled.work_weekdays === '1,2' && backfilled.work_days_per_week === 2,
+      backfilled,
+    );
+    getDb().prepare('UPDATE employees SET work_weekdays = NULL, work_days_per_week = NULL WHERE id = ?').run(empId);
+    getDb().prepare('UPDATE contracts SET work_weekdays = NULL, work_days_per_week = NULL WHERE id = ?').run(typedId);
+  }
   await app.inject({
     method: 'PATCH',
     url: `/api/employees/${empId}`,

@@ -16,11 +16,12 @@ import {
   flexibleDays,
   isOwnPersonDecision,
   isScheduledDay,
-  leaveEntitlementFor,
+  leaveEntitlementForPeriods,
   regionCodesFor,
   workScheduleOf,
   type CountryCode,
   type EntitlementDetail,
+  type EntitlementPeriod,
   type RegionCode,
   type WorkSchedule,
 } from '@ohrganize/shared';
@@ -360,11 +361,72 @@ export interface BalanceContext {
   carryoverDeadline?: string;
   closures?: Set<string>;
   requests?: BalanceRequestRow[];
+  /** Vertragsversionen der Person (contractPeriodsSql), sonst selbst geladen. */
+  contracts?: ContractPeriodRow[];
   /**
    * Aufschluesselung der Kacheln mitliefern (Personalakte). Verlangt Zeilen
    * mit id, type_name und type_color; die eigene Abfrage liefert sie.
    */
   breakdown?: boolean;
+}
+
+/** Werte einer Vertragsversion, mit denen der Urlaubsanspruch ihren Zeitraum rechnet. */
+export interface ContractPeriodRow {
+  employee_id: number;
+  valid_from: string;
+  valid_to: string | null;
+  employee_type: string | null;
+  annual_leave_days: number | null;
+  work_weekdays: string | null;
+  work_days_per_week: number | null;
+}
+
+/** Spalten fuer ContractPeriodRow, aufsteigend je Person (Sammelabfragen haengen ein WHERE an). */
+export const CONTRACT_PERIOD_COLUMNS =
+  'employee_id, valid_from, valid_to, employee_type, annual_leave_days, work_weekdays, work_days_per_week';
+
+/**
+ * Zeitabschnitte eines Jahres fuer den Urlaubsanspruch: je Vertragsversion
+ * ihr Zeitraum mit ihrer Arbeitswoche und ihrem Jahresurlaub, bis zum Beginn
+ * der naechsten Version. Was eine Version offen laesst und was keine Version
+ * abdeckt, rechnet mit den Werten der Personalakte (wie vor den Versionen).
+ */
+export function entitlementPeriods(emp: EmployeeRow, contracts: readonly ContractPeriodRow[], year: number): EntitlementPeriod[] {
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+  const fromEmployee = (from: string, to: string): EntitlementPeriod => ({
+    from,
+    to,
+    annual_leave_days: emp.annual_leave_days,
+    days_per_week: entitlementDaysPerWeek(emp),
+  });
+  const sorted = [...contracts].sort((a, b) => a.valid_from.localeCompare(b.valid_from));
+  const periods: EntitlementPeriod[] = [];
+  let cursor = yearStart;
+  sorted.forEach((c, i) => {
+    const nextStart = sorted[i + 1]?.valid_from;
+    let to = c.valid_to ?? yearEnd;
+    if (nextStart && nextStart <= to) to = addDaysIso(nextStart, -1);
+    const from = c.valid_from > yearStart ? c.valid_from : yearStart;
+    if (to > yearEnd) to = yearEnd;
+    if (from > to || from > yearEnd) return;
+    if (from > cursor) periods.push(fromEmployee(cursor, addDaysIso(from, -1)));
+    const type = c.employee_type ?? emp.employee_type;
+    const ownWeek = c.work_weekdays !== null || c.work_days_per_week !== null;
+    periods.push({
+      from,
+      to,
+      annual_leave_days: c.annual_leave_days ?? emp.annual_leave_days,
+      days_per_week: entitlementDaysPerWeek(
+        ownWeek
+          ? { employee_type: type, work_weekdays: c.work_weekdays, work_days_per_week: c.work_days_per_week }
+          : { ...emp, employee_type: type },
+      ),
+    });
+    cursor = addDaysIso(to, 1);
+  });
+  if (cursor <= yearEnd) periods.push(fromEmployee(cursor, yearEnd));
+  return periods;
 }
 
 /**
@@ -429,11 +491,17 @@ export function computeBalance(
   const entitlementInput = {
     hire_date: emp.hire_date,
     exit_date: emp.exit_date,
-    annual_leave_days: emp.annual_leave_days,
-    days_per_week: entitlementDaysPerWeek(emp),
     disability_degree: emp.disability_degree ?? null,
     disability_equal: emp.disability_equal === 1,
   };
+  // Arbeitswoche und Jahresurlaub je Vertragsversion: ein Wechsel (etwa in
+  // Teilzeit) aendert den Anspruch nur ab seinem Beginn, fruehere Jahre und der
+  // Uebertrag bleiben (leaveEntitlementForPeriods).
+  const contracts =
+    ctx?.contracts ??
+    (db
+      .prepare(`SELECT ${CONTRACT_PERIOD_COLUMNS} FROM contracts WHERE employee_id = ? ORDER BY valid_from, id`)
+      .all(emp.id) as ContractPeriodRow[]);
   const deadlineMmDd = ctx?.carryoverDeadline ?? getSetting('carryoverDeadline');
 
   const hireYear = emp.hire_date ? Number(emp.hire_date.slice(0, 4)) : null;
@@ -464,7 +532,9 @@ export function computeBalance(
 
   // Anspruch je Jahr nach BUrlG (gesetzlich, vertraglich, Zusatzurlaub),
   // Regeln und Rundung in shared/leaveEntitlement.ts.
-  const entitlementFor = (y: number): number => leaveEntitlementFor(entitlementInput, y).total;
+  const entitlementOf = (y: number) =>
+    leaveEntitlementForPeriods(entitlementInput, entitlementPeriods(emp, contracts, y), y);
+  const entitlementFor = (y: number): number => entitlementOf(y).total;
 
   const approved = rows.filter((r) => r.status === 'genehmigt');
   const takenAllIn = (y: number) =>
@@ -488,7 +558,7 @@ export function computeBalance(
     }
   }
 
-  const entitlementDetail = leaveEntitlementFor(entitlementInput, year);
+  const entitlementDetail = entitlementOf(year);
   const entitlement = entitlementDetail.total;
   const yearStart = `${year}-01-01`;
   const yearEnd = `${year}-12-31`;
@@ -914,6 +984,9 @@ export function assertBalanceCovers(
     carryoverDeadline: getSetting('carryoverDeadline'),
     closures: chainClosures,
     requests,
+    contracts: db
+      .prepare(`SELECT ${CONTRACT_PERIOD_COLUMNS} FROM contracts WHERE employee_id = ? ORDER BY valid_from, id`)
+      .all(employeeId) as ContractPeriodRow[],
   };
   // Betriebsruhe des Antragszeitraums selbst: vom Aufrufer übernommen, sonst
   // deckt das Ketten-Superset sie mit ab (countAbsenceDays fragt nur `has`).

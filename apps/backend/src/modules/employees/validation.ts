@@ -247,6 +247,13 @@ export const contractBodySchema = z.object({
   notice_period_weeks: z.number().int().min(0).max(104).nullish(),
   weekly_hours: z.number().min(0).max(60).nullish(),
   annual_leave_days: z.number().min(0).max(100).nullish(),
+  // Arbeitswoche dieser Version (Form wie in den Stammdaten, settleWorkSchedule):
+  // Der Urlaubsanspruch rechnet je Zeitabschnitt mit ihr.
+  work_weekdays: z
+    .string()
+    .regex(/^[1-7](,[1-7]){0,6}$/, 'Wochentage als Liste von 1 (Montag) bis 7 (Sonntag)')
+    .nullish(),
+  work_days_per_week: z.number().min(0.5).max(7).multipleOf(0.5).nullish(),
   fixed_term_reason: nullableString,
   document_file_id: z.number().int().positive().nullish(),
   note: nullableString,

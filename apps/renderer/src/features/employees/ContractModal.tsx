@@ -19,10 +19,12 @@ import { FilePicker } from '../../components/FilePicker';
 import { useToast } from '../../components/Toast';
 import { Select } from '../../components/Select';
 import { HalfStepHint } from '../../components/HalfStepHint';
+import type { EmployeeRow } from './api';
+import { WorkWeekControls, workScheduleToForm, workScheduleToPayload, type WorkWeekState } from './employeeForm';
 
 const EMPLOYEE_TYPES = employeeTypesFor(COUNTRY);
 
-interface ContractForm {
+interface ContractForm extends WorkWeekState {
   contract_type: ContractType;
   /** Beschäftigungsart dieser Version; '' = ohne Angabe (alte Versionen). */
   employee_type: EmployeeType | '';
@@ -38,6 +40,7 @@ interface ContractForm {
 }
 
 const EMPTY: ContractForm = {
+  ...workScheduleToForm({ work_weekdays: null, work_days_per_week: null }),
   contract_type: 'unbefristet',
   employee_type: '',
   valid_from: '',
@@ -55,20 +58,22 @@ const num = (s: string) => (s.trim() === '' ? null : Number(s.replace(',', '.'))
 
 /**
  * `correct` gesetzt = Korrektur der offenen Version, sonst neue Version.
- * `employeeType`: heutige Beschäftigungsart, Vorgabe einer neuen Version.
+ * `employee`: heutige Stammdaten, Vorgabe einer neuen Version
+ * (Beschäftigungsart, Stunden, Urlaub, Arbeitswoche); geändert wird meist nur
+ * ein Wert.
  */
 export function ContractModal({
   open,
   onClose,
   employeeId,
   correct,
-  employeeType,
+  employee,
 }: {
   open: boolean;
   onClose: () => void;
   employeeId: number;
   correct?: ContractDto | null;
-  employeeType?: EmployeeType;
+  employee?: Pick<EmployeeRow, 'employee_type' | 'weekly_hours' | 'annual_leave_days' | 'work_weekdays' | 'work_days_per_week'>;
 }) {
   const toast = useToast();
   const qc = useQueryClient();
@@ -93,11 +98,18 @@ export function ContractModal({
         fixed_term_reason: correct.fixed_term_reason ?? '',
         note: correct.note ?? '',
         document_file_id: correct.document_file_id,
+        ...workScheduleToForm(correct),
       });
     } else {
-      setForm({ ...EMPTY, employee_type: employeeType ?? '' });
+      setForm({
+        ...EMPTY,
+        employee_type: employee?.employee_type ?? '',
+        weekly_hours: employee?.weekly_hours != null ? String(employee.weekly_hours) : '',
+        annual_leave_days: employee?.annual_leave_days != null ? String(employee.annual_leave_days) : '',
+        ...(employee ? workScheduleToForm(employee) : {}),
+      });
     }
-  }, [open, correct, employeeType]);
+  }, [open, correct, employee]);
 
   // Probezeit als Länge: aus Beginn und Ende abgeleitet, nicht gespeichert.
   // Verschiebt sich der Beginn, wandert ein in Monaten gewähltes Ende mit.
@@ -120,6 +132,7 @@ export function ContractModal({
         notice_period_weeks: form.notice_period_weeks.trim() === '' ? null : Number(form.notice_period_weeks),
         weekly_hours: num(form.weekly_hours),
         annual_leave_days: num(form.annual_leave_days),
+        ...workScheduleToPayload(form),
         fixed_term_reason: form.fixed_term_reason.trim() || null,
         document_file_id: form.document_file_id,
         note: form.note.trim() || null,
@@ -160,12 +173,13 @@ export function ContractModal({
         </>
       }
     >
-      {!correct && (
-        <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
-          Eine bestehende offene Version wird automatisch zum Vortag des neuen Beginns geschlossen.
-          Die Historie bleibt vollständig erhalten.
-        </p>
-      )}
+      <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)', marginBottom: 14 }}>
+        {correct
+          ? 'Eine Korrektur ändert diese Version für ihren ganzen Zeitraum. Ändern sich Wochenstunden, Arbeitswoche oder Jahresurlaub erst ab einem Datum, bitte eine neue Version anlegen.'
+          : 'Eine bestehende offene Version wird automatisch zum Vortag des neuen Beginns geschlossen. Die Historie bleibt vollständig erhalten.'}{' '}
+        Ändern sich Arbeitswoche oder Jahresurlaub im Lauf eines Jahres, rechnet der Urlaubsanspruch für jeden Zeitraum
+        mit den Werten der jeweils geltenden Version.
+      </p>
       <div className="hm-form-grid">
         <Field label="Vertragsart" required>
           <Select
@@ -238,7 +252,7 @@ export function ContractModal({
             onChange={(e) => set({ notice_period_weeks: e.target.value })}
           />
         </Field>
-        <Field label="Wochenstunden" hint="Wird auf die Stammdaten gespiegelt" labelAddon={<HalfStepHint />}>
+        <Field label="Wochenstunden" hint="Wird ab Beginn auf die Stammdaten gespiegelt" labelAddon={<HalfStepHint />}>
           <input
             className="hm-input"
             type="number"
@@ -249,7 +263,7 @@ export function ContractModal({
             onChange={(e) => set({ weekly_hours: e.target.value })}
           />
         </Field>
-        <Field label="Jahresurlaub (Tage)" hint="Wird auf die Stammdaten gespiegelt" labelAddon={<HalfStepHint />}>
+        <Field label="Jahresurlaub (Tage)" hint="Wird ab Beginn auf die Stammdaten gespiegelt" labelAddon={<HalfStepHint />}>
           <input
             className="hm-input"
             type="number"
@@ -259,6 +273,13 @@ export function ContractModal({
             value={form.annual_leave_days}
             onChange={(e) => set({ annual_leave_days: e.target.value })}
           />
+        </Field>
+        <Field
+          label="Arbeitswoche"
+          span2
+          hint="Gilt ab Beginn dieser Version und wird dann auf die Stammdaten gespiegelt; kommende Anträge zählen danach neu"
+        >
+          <WorkWeekControls value={form} onChange={set} />
         </Field>
         {form.contract_type === 'befristet' && (
           <Field label="Befristungsgrund" span2 hint="Sachgrund nach TzBfG oder sachgrundlos">

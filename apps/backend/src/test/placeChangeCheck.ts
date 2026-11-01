@@ -30,7 +30,6 @@ import { EMPLOYEE_SELF_EDITABLE_FIELDS } from '@ohrganize/shared';
 // das Dateien im Entwicklungsverzeichnis an.
 process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-placecheck-'));
 const { COUNTING_EMPLOYEE_COLUMNS } = await import('../modules/absences/service.js');
-const { MIRRORED_COLUMNS } = await import('../modules/employees/contractRoutes.js');
 
 const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const counting: readonly string[] = COUNTING_EMPLOYEE_COLUMNS;
@@ -43,9 +42,6 @@ const violations: string[] = [];
  * nicht ausgenommen.
  */
 const EXEMPT: Record<string, () => string | null> = {
-  // Spiegelt nur Stunden, Urlaub und Beschäftigungsart der Vertragsversion.
-  'modules/employees/contractRoutes.ts#mirrorToEmployee': () =>
-    MIRRORED_COLUMNS.some((c) => counting.includes(c)) ? 'MIRRORED_COLUMNS enthält eine Zählspalte' : null,
   // Schreibt nur Felder aus EMPLOYEE_SELF_EDITABLE_FIELDS.
   'modules/employees/changeRequestService.ts#decideRequest': () =>
     EMPLOYEE_SELF_EDITABLE_FIELDS.some((f) => counting.includes(f.field))

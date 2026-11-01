@@ -13,6 +13,8 @@ import {
   RESIDENCE_PERMIT_LABELS,
   RESIDENCE_PERMIT_WARN_DAYS,
   addDaysIso,
+  parseWeekdays,
+  weekdaysLabel,
   contractCorrectable,
   contractState,
   formatDate,
@@ -21,10 +23,10 @@ import {
   type AdminArea,
   type ContractDto,
   type ContractState,
-  type EmployeeType,
   type ResidencePermitType,
 } from '@ohrganize/shared';
 import { useAuth } from '../../auth/AuthContext';
+import { LOCALE } from '../../lib/locale';
 import { ApiRequestError, api, downloadFile } from '../../api/client';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs, type BadgeTone } from '../../components/ui';
 import { ConfirmDialog } from '../../components/Modal';
@@ -141,7 +143,7 @@ export function EmployeeDetailPage() {
             mitten in einer offenen Bearbeitung. Der dirty-Schutz im Tab gilt
             nur für Refetches DERSELBEN Person. */}
         {tab === 'stammdaten' && <MasterDataTab key={e.id} employee={e} />}
-        {tab === 'vertrag' && <ContractsTab employeeId={employeeId} employeeType={e.employee_type} />}
+        {tab === 'vertrag' && <ContractsTab employeeId={employeeId} employee={e} />}
         {tab === 'dokumente' && <DocumentsTab employeeId={employeeId} />}
         {tab === 'organisation' && <OrgTab employee={e} reportingLine={data.reporting_line} />}
         {tab === 'abwesenheit' && <EmployeeAbsenceTab employeeId={employeeId} />}
@@ -319,7 +321,7 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
         <PersonFields form={form} set={set} />
       </Card>
       <Card title="Beschäftigung">
-        <EmploymentFields form={form} set={set} />
+        <EmploymentFields form={form} set={set} versioned />
       </Card>
       <Card title="Finanzen, Steuer & Sozialversicherung">
         <FinanceFields form={form} set={set} />
@@ -402,6 +404,14 @@ function Notice({ tone, children }: { tone: 'warning' | 'danger'; children: Reac
 // Verträge (Historie als Timeline)
 // ---------------------------------------------------------------------------
 
+/** Arbeitswoche einer Version für die Zeile im Tab Vertrag; ohne Angabe nichts. */
+function contractWeekLabel(c: ContractDto): string | null {
+  const fixed = parseWeekdays(c.work_weekdays);
+  if (fixed) return `Arbeitstage ${weekdaysLabel(fixed)}`;
+  if (c.work_days_per_week !== null) return `${c.work_days_per_week.toLocaleString(LOCALE)} Tage je Woche, flexibel`;
+  return null;
+}
+
 /** Farbe je Zustand (Regel und Texte: contractState in @ohrganize/shared, wie im Backend). */
 const CONTRACT_STATE_TONES: Record<ContractState, BadgeTone> = {
   aktuell: 'green',
@@ -410,7 +420,7 @@ const CONTRACT_STATE_TONES: Record<ContractState, BadgeTone> = {
   abgelaufen: 'neutral',
 };
 
-function ContractsTab({ employeeId, employeeType }: { employeeId: number; employeeType: EmployeeType }) {
+function ContractsTab({ employeeId, employee }: { employeeId: number; employee: EmployeeRow }) {
   const { data: contracts, isLoading } = useContracts(employeeId);
   const [modalOpen, setModalOpen] = useState(false);
   const [correct, setCorrect] = useState<ContractDto | null>(null);
@@ -467,6 +477,7 @@ function ContractsTab({ employeeId, employeeType }: { employeeId: number; employ
                   {[
                     c.weekly_hours !== null ? `${c.weekly_hours} Std./Woche` : null,
                     c.annual_leave_days !== null ? `${c.annual_leave_days} Urlaubstage` : null,
+                    contractWeekLabel(c),
                     c.notice_period_weeks !== null ? `Kündigungsfrist ${c.notice_period_weeks} Wochen` : null,
                     c.probation_end ? `Probezeit ${probationText(c.valid_from, c.probation_end, formatDate)}` : null,
                     c.fixed_term_reason ? `Befristung: ${c.fixed_term_reason}` : null,
@@ -527,7 +538,7 @@ function ContractsTab({ employeeId, employeeType }: { employeeId: number; employ
         onClose={() => setModalOpen(false)}
         employeeId={employeeId}
         correct={correct}
-        employeeType={employeeType}
+        employee={employee}
       />
     </Card>
   );

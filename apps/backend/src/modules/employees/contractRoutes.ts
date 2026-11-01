@@ -6,7 +6,15 @@ import { audit, auditSystem } from '../../core/audit.js';
 import { addDaysIso, todayIso } from '../../core/dates.js';
 import { AppError, badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { assertMayLinkFiles } from '../../core/files.js';
-import { assertTypeRules, assertWeeklyHoursWithinRule, contractBodySchema, contractPatchSchema, type ContractBody } from './validation.js';
+import { recountUpcomingRequests } from '../absences/service.js';
+import {
+  assertTypeRules,
+  assertWeeklyHoursWithinRule,
+  contractBodySchema,
+  contractPatchSchema,
+  settleWorkSchedule,
+  type ContractBody,
+} from './validation.js';
 
 interface ContractRow {
   id: number;
@@ -19,6 +27,9 @@ interface ContractRow {
   notice_period_weeks: number | null;
   weekly_hours: number | null;
   annual_leave_days: number | null;
+  /** Arbeitswoche dieser Version (Migration 118); beides NULL = nicht hinterlegt. */
+  work_weekdays: string | null;
+  work_days_per_week: number | null;
   fixed_term_reason: string | null;
   document_file_id: number | null;
   note: string | null;
@@ -31,7 +42,8 @@ interface ContractRow {
 
 const CONTRACT_COLUMNS = [
   'contract_type', 'employee_type', 'valid_from', 'valid_to', 'probation_end', 'notice_period_weeks',
-  'weekly_hours', 'annual_leave_days', 'fixed_term_reason', 'document_file_id', 'note',
+  'weekly_hours', 'annual_leave_days', 'work_weekdays', 'work_days_per_week', 'fixed_term_reason',
+  'document_file_id', 'note',
 ] as const;
 
 /**
@@ -39,7 +51,12 @@ const CONTRACT_COLUMNS = [
  * und die umgekehrt das Personalformular auf sie zurückschreibt
  * (syncCurrentContract).
  */
-export const MIRRORED_COLUMNS = ['weekly_hours', 'annual_leave_days', 'employee_type'] as const;
+export const MIRRORED_COLUMNS = [
+  'weekly_hours', 'annual_leave_days', 'employee_type', 'work_weekdays', 'work_days_per_week',
+] as const;
+
+/** Die Arbeitswoche wandert immer als Paar (feste Tage und Zahl gehoeren zusammen). */
+const SCHEDULE_COLUMNS = ['work_weekdays', 'work_days_per_week'] as const;
 
 function assertEmployee(id: number): void {
   const row = getDb().prepare('SELECT id FROM employees WHERE id = ?').get(id);
@@ -101,7 +118,13 @@ function contractInEffect(employeeId: number, today = todayIso()): ContractRow |
  */
 function mirrorToEmployee(
   employeeId: number,
-  contract: { weekly_hours?: number | null; annual_leave_days?: number | null; employee_type?: string | null },
+  contract: {
+    weekly_hours?: number | null;
+    annual_leave_days?: number | null;
+    employee_type?: string | null;
+    work_weekdays?: string | null;
+    work_days_per_week?: number | null;
+  },
   apply = true,
 ): void {
   const sets: string[] = [];
@@ -121,6 +144,16 @@ function mirrorToEmployee(
     sets.push('annual_leave_days = ?');
     params.push(contract.annual_leave_days);
     mirrored.annual_leave_days = contract.annual_leave_days;
+  }
+  // Arbeitswoche als Paar; eine Version ohne Angabe (beides leer) laesst die
+  // Akte stehen.
+  const scheduleGiven = SCHEDULE_COLUMNS.some((c) => contract[c] !== null && contract[c] !== undefined);
+  if (scheduleGiven) {
+    for (const c of SCHEDULE_COLUMNS) {
+      sets.push(`${c} = ?`);
+      params.push(contract[c] ?? null);
+      mirrored[c] = contract[c] ?? null;
+    }
   }
   if (sets.length === 0) return;
   const employee = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(employeeId) as
@@ -160,6 +193,30 @@ function mirrorToEmployee(
   getDb()
     .prepare(`UPDATE employees SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`)
     .run(...params, employeeId);
+  // Neue Arbeitswoche: kommende Antraege zaehlen nach ihr (absences/service.ts).
+  if (scheduleGiven && SCHEDULE_COLUMNS.some((c) => (employee[c] ?? null) !== (mirrored[c] ?? null))) {
+    recountUpcomingRequests([employeeId]);
+  }
+}
+
+/**
+ * Arbeitswoche und Jahresurlaub einer neuen Version, die der Rumpf nicht
+ * nennt: aus der Personalakte. So traegt jede Version die Werte, mit denen
+ * der Urlaubsanspruch ihren Zeitraum rechnet; eine Version ohne sie rechnete
+ * spaeter mit den dann aktuellen Werten der Akte. Wochenstunden bleiben, wie
+ * sie kommen (sie spiegeln und pruefen die Typregeln, der Anspruch braucht sie
+ * nicht).
+ */
+function fillFromEmployee(employeeId: number, body: ContractBody): void {
+  const e = getDb()
+    .prepare('SELECT annual_leave_days, work_weekdays, work_days_per_week FROM employees WHERE id = ?')
+    .get(employeeId) as Pick<ContractRow, 'annual_leave_days' | 'work_weekdays' | 'work_days_per_week'> | undefined;
+  if (!e) return;
+  if (body.work_weekdays === undefined && body.work_days_per_week === undefined) {
+    body.work_weekdays = e.work_weekdays;
+    body.work_days_per_week = e.work_days_per_week;
+  }
+  if (body.annual_leave_days === undefined) body.annual_leave_days = e.annual_leave_days;
 }
 
 /**
@@ -300,6 +357,8 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
     assertEmployee(employeeId);
     assertExecutiveAccess(req, employeeId, 'bearbeiten');
     const body = parse(contractBodySchema, req.body);
+    settleWorkSchedule(body);
+    fillFromEmployee(employeeId, body);
     validateRange(body);
     assertMayLinkFiles(req, [body.document_file_id]);
 
@@ -372,6 +431,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       );
     }
     const patch = parse(contractPatchSchema, req.body);
+    settleWorkSchedule(patch);
     const cols = CONTRACT_COLUMNS.filter((c) => patch[c] !== undefined);
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
     const merged = { ...existing, ...patch } as ContractRow;
@@ -415,6 +475,10 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
           : Object.fromEntries(
               MIRRORED_COLUMNS.filter((c) => patch[c] !== undefined && patch[c] !== existing[c]).map((c) => [c, patch[c]]),
             );
+        // Die Arbeitswoche geht nur als Paar: Aendert sich ein Teil, beide aus der Version.
+        if (SCHEDULE_COLUMNS.some((c) => c in changed)) {
+          for (const c of SCHEDULE_COLUMNS) changed[c] = merged[c];
+        }
         mirrorToEmployee(existing.employee_id, changed, !planned);
         if ((existing.mirror_pending === 1) !== planned) {
           db.prepare('UPDATE contracts SET mirror_pending = ?, mirror_error = NULL WHERE id = ?').run(planned ? 1 : 0, id);
