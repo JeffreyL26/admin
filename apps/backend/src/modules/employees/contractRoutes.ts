@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  CONTRACT_MIRRORED_COLUMNS,
   changedMirroredFields,
   contractCorrectable,
   contractState,
@@ -74,9 +75,7 @@ const CONTRACT_COLUMNS = [
  * und die umgekehrt das Personalformular auf sie zurückschreibt
  * (syncCurrentContract).
  */
-export const MIRRORED_COLUMNS = [
-  'weekly_hours', 'annual_leave_days', 'employee_type', 'work_weekdays', 'work_days_per_week',
-] as const;
+export const MIRRORED_COLUMNS = CONTRACT_MIRRORED_COLUMNS;
 
 /** Die Arbeitswoche wandert immer als Paar (feste Tage und Zahl gehoeren zusammen). */
 const SCHEDULE_COLUMNS = ['work_weekdays', 'work_days_per_week'] as const;

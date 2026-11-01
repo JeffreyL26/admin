@@ -544,15 +544,16 @@ export type EntitlementFrozenField = (typeof ENTITLEMENT_FROZEN_FIELDS)[number];
 /**
  * Spalten der Version je uebernommenem Feld; als Felder von ContractDto
  * typisiert, damit eine umbenannte Spalte hier am Typecheck scheitert
- * (employees/smoke.ts prueft sie zusaetzlich gegen die Tabelle).
+ * (employees/smoke.ts prueft sie zusaetzlich gegen die Tabelle). `as const`,
+ * damit sich die Spalten als Typ ableiten lassen (ContractMirroredColumn).
  */
-export const ENTITLEMENT_FROZEN_COLUMNS: Record<EntitlementFrozenField, readonly (keyof ContractDto)[]> = {
+export const ENTITLEMENT_FROZEN_COLUMNS = {
   employee_type: ['employee_type'],
   weekly_hours: ['weekly_hours'],
   annual_leave_days: ['annual_leave_days'],
   work_week: ['work_weekdays', 'work_days_per_week'],
   work_week_default: ['work_weekdays', 'work_days_per_week'],
-};
+} as const satisfies Record<EntitlementFrozenField, readonly (keyof ContractDto)[]>;
 
 const ENTITLEMENT_FROZEN_LABELS: Record<EntitlementFrozenField, string> = {
   employee_type: 'Beschäftigungsart',
@@ -637,14 +638,20 @@ export const CONTRACT_MIRRORED_FIELDS = [
   'work_week',
 ] as const satisfies readonly EntitlementFrozenField[];
 
+/** Spalten dieser Felder, gleich in Version und Akte (employees). */
+export type ContractMirroredColumn = (typeof ENTITLEMENT_FROZEN_COLUMNS)[(typeof CONTRACT_MIRRORED_FIELDS)[number]][number];
+export const CONTRACT_MIRRORED_COLUMNS: readonly ContractMirroredColumn[] = CONTRACT_MIRRORED_FIELDS.flatMap(
+  (f) => ENTITLEMENT_FROZEN_COLUMNS[f],
+);
+
 /**
  * Felder, die eine Version beim Uebernehmen in die Akte schreibt: was sie
  * nennt. Was sie offen laesst, bleibt in der Akte stehen.
  */
-export function contractMirroredFields(
-  c: Pick<ContractDto, 'employee_type' | 'weekly_hours' | 'annual_leave_days' | 'work_weekdays' | 'work_days_per_week'>,
-): EntitlementFrozenField[] {
-  return CONTRACT_MIRRORED_FIELDS.filter((f) => ENTITLEMENT_FROZEN_COLUMNS[f].some((col) => c[col as keyof typeof c] !== null));
+export function contractMirroredFields(c: Pick<ContractDto, ContractMirroredColumn>): EntitlementFrozenField[] {
+  return CONTRACT_MIRRORED_FIELDS.filter((f) =>
+    ENTITLEMENT_FROZEN_COLUMNS[f].some((col: ContractMirroredColumn) => (c[col] ?? null) !== null),
+  );
 }
 
 /** Felder, in denen sich zwei Staende der Akte unterscheiden (vor und nach einer Uebernahme). */
