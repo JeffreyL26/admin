@@ -359,8 +359,12 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   wie Stunden und Urlaub auf `employees` (`mirrorToEmployee`, Typregeln
   laufen dort; eine Korrektur der Version spiegelt nur, was sie ändert).
   Umgekehrt gilt eine Änderung dieser Felder im Personalformular oder in der
-  Sammeländerung als Korrektur der aktuellen Version (`syncCurrentContract`);
-  eine Änderung ab einem Datum ist eine neue Version. Probezeit bleibt ein Datum am Vertrag; die Länge ist
+  Sammeländerung als Korrektur der aktuellen Version (`syncCurrentContract`,
+  eigener Audit-Eintrag `update` an `contract` mit altem und neuem Wert);
+  beginnt die jüngste Version erst künftig, bleibt sie unangetastet und die
+  Antwort nennt sie (`contract_notice`, bei der Sammeländerung
+  `contracts_not_synced`). Eine Änderung ab einem Datum ist eine neue
+  Version. Probezeit bleibt ein Datum am Vertrag; die Länge ist
   abgeleitet (`probationEndFor`/`probationMonths`, Fristende nach §§ 187,
   188 BGB, Test `src/test/masterDataTest.ts`). Das Dashboard-Widget
   „Fristen der Personalakte“ liest `personnel_deadlines` aus
@@ -1328,7 +1332,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `OHRGANIZE_BUNDLED`, und `audit()` schreibt den Eintrag trotzdem und meldet
   den Fehler im Log (die Änderung ist dort schon geschrieben, ein Wurf ließe
   sie ohne Eintrag). Beide Wege prüft `src/test/smoke.ts`
-  (`setAuditThrowsOutsideTransaction`, nur für Tests). Einträge ohne fachliche Änderung (Anmeldung, Fehlversuch, Signatur,
+  (`setAuditThrowsOutsideTransaction`, nur für Tests). Einträge ohne Konto,
+  die kein Request auslöst (Dienststart, getauschte Lizenzdatei), schreiben
+  über `auditSystem()` (`user_id` NULL), bei einer Änderung in ihrem Commit.
+  Einträge ohne fachliche Änderung (Anmeldung, Fehlversuch, Signatur,
   Lizenzdatei) schreiben ausdrücklich über `auditStandalone()`, und
   `src/test/auditTransactionCheck.ts` (Teil von `npm test`) prüft statisch,
   dass jeder `audit(`-Aufruf im Callback eines `inTransaction(` oder

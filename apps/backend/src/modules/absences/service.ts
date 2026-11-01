@@ -27,7 +27,7 @@ import {
 } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import { AppError, badRequest, conflict, forbidden } from '../../core/errors.js';
-import { audit } from '../../core/audit.js';
+import { audit, auditSystem } from '../../core/audit.js';
 
 export interface EmployeeRow {
   id: number;
@@ -149,22 +149,22 @@ export interface CountOptions {
 }
 
 /**
- * Tage der Arbeitswoche zwischen from und to (feste Tage, flexibel Mo bis
- * Fr), ohne Feiertage und Betriebsruhe. Halbe Randtage des Zeitraums zählen
- * halb, wenn sie in from bis to liegen.
+ * DIE Zählregel eines Tages: Tag der Arbeitswoche (feste Tage, flexibel Mo
+ * bis Fr), kein Feiertag, keine Betriebsruhe; halbe Randtage des Zeitraums
+ * zählen halb. Ganze Zeiträume (scheduledDays) und Anteile (dayProfile)
+ * rechnen beide hiermit.
  */
+function dayWeight(opts: CountOptions, schedule: WorkSchedule, closures: Set<string>, d: string): number {
+  if (!isScheduledDay(schedule, d) || closures.has(d) || isHoliday(d, opts.place.country, opts.place.region)) return 0;
+  const half =
+    (opts.halfDayStart && d === opts.dateFrom) || (opts.halfDayEnd && d === opts.dateTo && opts.dateTo !== opts.dateFrom);
+  return half ? 0.5 : 1;
+}
+
+/** Tage nach `dayWeight` zwischen from und to. */
 function scheduledDays(opts: CountOptions, schedule: WorkSchedule, closures: Set<string>, from: string, to: string): number {
-  if (from > to) return 0;
-  const counted = new Set<string>();
-  for (const d of eachDay(from, to)) {
-    if (!isScheduledDay(schedule, d)) continue;
-    if (closures.has(d)) continue;
-    if (isHoliday(d, opts.place.country, opts.place.region)) continue;
-    counted.add(d);
-  }
-  let total = counted.size;
-  if (opts.halfDayStart && counted.has(opts.dateFrom)) total -= 0.5;
-  if (opts.halfDayEnd && opts.dateTo !== opts.dateFrom && counted.has(opts.dateTo)) total -= 0.5;
+  let total = 0;
+  for (const d of eachDay(from, to)) total += dayWeight(opts, schedule, closures, d);
   return total;
 }
 
@@ -186,12 +186,7 @@ function dayProfile(opts: CountOptions, schedule: WorkSchedule, closures: Set<st
   const cumulative = new Map<string, number>();
   let sum = 0;
   for (const d of days) {
-    if (isScheduledDay(schedule, d) && !closures.has(d) && !isHoliday(d, opts.place.country, opts.place.region)) {
-      const half =
-        (opts.halfDayStart && d === opts.dateFrom) ||
-        (opts.halfDayEnd && d === opts.dateTo && opts.dateTo !== opts.dateFrom);
-      sum += half ? 0.5 : 1;
-    }
+    sum += dayWeight(opts, schedule, closures, d);
     cumulative.set(d, sum);
   }
   const all = sum;
@@ -729,11 +724,7 @@ export function recountAfterHolidayRuleChange(today = todayIso()): number[] {
        ON CONFLICT(id) DO UPDATE SET fingerprint = excluded.fingerprint`,
     ).run(fingerprint);
     if (recounted.length > 0) {
-      db.prepare('INSERT INTO audit_log (user_id, action, entity, details) VALUES (NULL, ?, ?, ?)').run(
-        'absence_request.recount_holidays',
-        'absence_request',
-        JSON.stringify({ recounted_requests: recounted }),
-      );
+      auditSystem('absence_request.recount_holidays', 'absence_request', { recounted_requests: recounted });
     }
     return recounted;
   });

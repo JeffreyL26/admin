@@ -89,15 +89,20 @@ export function BulkEditModal({
   };
 
   const mutation = useMutation({
-    mutationFn: () => api.post<{ updated: number; teams_cleared?: number }>('/api/employees/bulk', { ids, set: buildSet() }),
+    mutationFn: () =>
+      api.post<{ updated: number; teams_cleared?: number; contracts_not_synced?: number }>('/api/employees/bulk', {
+        ids,
+        set: buildSet(),
+      }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       qc.invalidateQueries({ queryKey: ['org'] });
-      toast.success(
-        res.teams_cleared
-          ? `${res.updated} Mitarbeitende aktualisiert, bei ${res.teams_cleared} das Team der alten Abteilung entfernt`
-          : `${res.updated} Mitarbeitende aktualisiert`,
-      );
+      const teams = res.teams_cleared ? `, bei ${res.teams_cleared} das Team der alten Abteilung entfernt` : '';
+      // Geplante Vertragsversionen passt die Sammelaenderung nicht an (Backend: syncCurrentContract).
+      const planned = res.contracts_not_synced
+        ? `. Bei ${res.contracts_not_synced} Person(en) ist eine Vertragsversion geplant; Werte ab dann bitte im Tab „Vertrag“ prüfen`
+        : '';
+      toast.success(`${res.updated} Mitarbeitende aktualisiert${teams}${planned}`);
       setState(INITIAL);
       onDone();
       onClose();

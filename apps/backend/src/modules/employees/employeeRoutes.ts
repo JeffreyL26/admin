@@ -23,7 +23,7 @@ import {
   projectDirectory,
 } from '../../core/executiveGate.js';
 import { COUNTING_EMPLOYEE_COLUMNS, recountUpcomingRequests } from '../absences/service.js';
-import { syncCurrentContract } from './contractRoutes.js';
+import { syncCurrentContract, type ContractSync } from './contractRoutes.js';
 
 /**
  * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
@@ -421,8 +421,8 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       assertSeatsAvailable(reactivating);
     }
     let teamsCleared = 0;
+    let contractsNotSynced = 0;
     inTransaction(() => {
-      const contractsSynced: number[] = [];
       const update = db.prepare(
         `UPDATE employees SET ${fields.map(([k]) => `${k} = ?`).join(', ')},
          updated_at = datetime('now') WHERE id = ?`,
@@ -463,8 +463,15 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
           clearTeam.run(id);
           teamsCleared++;
         }
-        const synced = syncCurrentContract(id, set);
-        if (synced !== null) contractsSynced.push(synced);
+        const contract = syncCurrentContract(id, set);
+        if (contract.synced) {
+          audit(req, 'update', 'contract', contract.synced.id, {
+            employee_id: id,
+            changed: contract.synced.changed,
+            source: 'sammelaenderung',
+          });
+        }
+        if (contract.notice) contractsNotSynced++;
       }
       // Ein neuer Standort bringt andere Feiertage (absences/service.ts).
       const setFields: Record<string, unknown> = set;
@@ -474,10 +481,14 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
         set,
         teams_cleared: teamsCleared,
         ...(recounted.length ? { recounted_requests: recounted } : {}),
-        ...(contractsSynced.length ? { contracts_synced: contractsSynced } : {}),
       });
     });
-    return { updated: ids.length, teams_cleared: teamsCleared };
+    // Personen mit geplanter Vertragsversion: dort nicht angepasst (syncCurrentContract).
+    return {
+      updated: ids.length,
+      teams_cleared: teamsCleared,
+      ...(contractsNotSynced ? { contracts_not_synced: contractsNotSynced } : {}),
+    };
   });
 
   app.get('/api/employees/:id', async (req) => {
@@ -595,6 +606,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     // Aenderung, Entfernen der Dateieintraege und Audit in EINER Transaktion;
     // die Blobs auf der Platte erst nach dem Commit, sie nimmt kein Rollback
     // zurueck (detachUnreferencedFile/removeDetachedBlob in core/files.ts).
+    let contract: ContractSync = {};
     const detached = inTransaction(() => {
       getDb()
         .prepare(
@@ -609,18 +621,27 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       // Anträge; vergangene bleiben, wie sie gezählt wurden.
       const countingChanged = COUNTING_EMPLOYEE_COLUMNS.some((c) => patch[c] !== undefined && patch[c] !== existing[c]);
       const recounted = countingChanged ? recountUpcomingRequests([id]) : [];
-      const contractSynced = syncCurrentContract(id, patch);
       audit(req, 'update', 'employee', id, {
         changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
         ...(recounted.length ? { recounted_requests: recounted } : {}),
-        ...(contractSynced !== null ? { contract_synced: contractSynced } : {}),
         ...(removedFile ? { removed_file: { id: removedFile.id, sha256: removedFile.sha256 } } : {}),
         ...(removedThumb ? { removed_thumb_file: { id: removedThumb.id, sha256: removedThumb.sha256 } } : {}),
       });
+      contract = syncCurrentContract(id, patch);
+      if (contract.synced) {
+        audit(req, 'update', 'contract', contract.synced.id, {
+          employee_id: id,
+          changed: contract.synced.changed,
+          source: 'personalakte',
+        });
+      }
       return [removedFile, removedThumb];
     });
     for (const file of detached) removeDetachedBlob(file);
-    return { employee: stripDisability(req, getEmployeeOr404(id)) };
+    return {
+      employee: stripDisability(req, getEmployeeOr404(id)),
+      ...(contract.notice ? { contract_notice: contract.notice } : {}),
+    };
   });
 
   app.delete('/api/employees/:id', async (req, reply) => {

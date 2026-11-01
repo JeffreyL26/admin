@@ -236,11 +236,11 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
   };
 
   const save = useMutation({
-    mutationFn: async (): Promise<{ employee: EmployeeRow }> => {
+    mutationFn: async (): Promise<{ employee: EmployeeRow; contract_notice?: string }> => {
       const changes = formToPayload(form, base.form);
       // Zurückgetippte Eingaben ergeben ein leeres Diff — nichts zu speichern.
       if (Object.keys(changes).length === 0) return { employee };
-      return api.patch<{ employee: EmployeeRow }>(`/api/employees/${employee.id}`, {
+      return api.patch<{ employee: EmployeeRow; contract_notice?: string }>(`/api/employees/${employee.id}`, {
         ...changes,
         expected_updated_at: base.updated_at,
       });
@@ -248,7 +248,8 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       qc.invalidateQueries({ queryKey: ['org'] });
-      toast.success('Stammdaten gespeichert');
+      // Eine geplante Vertragsversion passt das Backend nicht an, es sagt das hier.
+      toast.success(res.contract_notice ? `Stammdaten gespeichert. ${res.contract_notice}` : 'Stammdaten gespeichert');
       setConflictMessage(null);
       setDirty(false);
       // Snapshot direkt aus der PATCH-Antwort setzen statt auf den Refetch zu

@@ -67,6 +67,18 @@ export function auditStandalone(
   insertAuditRow(req, action, entity, entityId, details);
 }
 
+/**
+ * Audit-Eintrag ohne Konto (`user_id` NULL) für Vorgänge, die kein Request
+ * auslöst: Dienststart (Neuzählung nach geänderten Feiertagsregeln), eine
+ * Lizenzdatei, die im Datenverzeichnis getauscht wurde. Gibt es eine
+ * fachliche Änderung, gehört der Aufruf in ihren Commit.
+ */
+export function auditSystem(action: string, entity: string, details?: unknown, entityId?: number): void {
+  getDb()
+    .prepare('INSERT INTO audit_log (user_id, action, entity, entity_id, details) VALUES (NULL, ?, ?, ?, ?)')
+    .run(action, entity, entityId ?? null, details ? JSON.stringify(details) : null);
+}
+
 export function auditTrail(entity: string, entityId: number) {
   return getDb()
     .prepare(

@@ -1014,11 +1014,26 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
   // Eine neue Arbeitswoche zaehlt kommende Antraege neu; vergangene bleiben,
   // wie sie gezaehlt wurden (sonst aenderte sie genommene Tage rueckwirkend).
   {
-    const { countAbsenceDays, regionForEmployee } = await import('./service.js');
+    const { closureDates, countAbsenceDays, regionForEmployee } = await import('./service.js');
     const { todayIso, addDaysIso } = await import('../../core/dates.js');
-    const { isoWeekday } = await import('@ohrganize/shared');
+    const { isHoliday } = await import('../../core/holidays.js');
+    const { isoWeekday, regionCodesFor } = await import('@ohrganize/shared');
     const today = todayIso();
     const mondayIn = (weeks: number) => addDaysIso(today, 1 - isoWeekday(today) + 7 * weeks);
+    // Kommende Testwochen ohne Feiertag (in keinem Bundesland, der Ort
+    // wechselt unten) und ohne Betriebsruhe dieser Datenbank: Sonst haengen
+    // die Erwartungen am Kalender und scheitern in einzelnen Wochen, etwa
+    // um die Betriebsruhe zum Jahreswechsel.
+    const closed = closureDates(today, addDaysIso(today, 400));
+    const cleanMondayFrom = (start: string) => {
+      for (let monday = start, i = 0; i < 40; monday = addDaysIso(monday, 7), i++) {
+        const week = [0, 1, 2, 3, 4].map((n) => addDaysIso(monday, n));
+        if (week.every((d) => !closed.has(d) && regionCodesFor('DE').every((r) => !isHoliday(d, 'DE', r)))) return monday;
+      }
+      throw new Error('Keine Testwoche ohne Feiertag und Betriebsruhe gefunden');
+    };
+    const upMonday = cleanMondayFrom(mondayIn(3));
+    const manualMonday = cleanMondayFrom(addDaysIso(upMonday, 14));
     const emil = Number(
       db
         .prepare(
@@ -1030,16 +1045,16 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         )
         .run().lastInsertRowid,
     );
-    const capture = (weeks: number) =>
+    const capture = (monday: string) =>
       post('/api/absences/requests', {
         employee_id: emil,
         type_id: urlaubType.id,
-        date_from: mondayIn(weeks),
-        date_to: addDaysIso(mondayIn(weeks), 4),
+        date_from: monday,
+        date_to: addDaysIso(monday, 4),
         approve: true,
       });
-    const past = await capture(-3);
-    const upcoming = await capture(3);
+    const past = await capture(mondayIn(-3));
+    const upcoming = await capture(upMonday);
     const daysOf = (id: number) =>
       (db.prepare('SELECT days_counted FROM absence_requests WHERE id = ?').get(id) as { days_counted: number }).days_counted;
     const pastId = past.json().request?.id as number;
@@ -1047,7 +1062,7 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     const pastBefore = pastId ? daysOf(pastId) : -1;
     const upcomingBefore = upcomingId ? daysOf(upcomingId) : -1;
     const patched = await app.inject({ method: 'PATCH', url: `/api/employees/${emil}`, headers: auth, payload: { work_weekdays: '1,2' } });
-    const expected = countAbsenceDays({ place: regionForEmployee(emil), dateFrom: mondayIn(3), dateTo: addDaysIso(mondayIn(3), 4) });
+    const expected = countAbsenceDays({ place: regionForEmployee(emil), dateFrom: upMonday, dateTo: addDaysIso(upMonday, 4) });
     check(
       'Arbeitswoche: neue Woche zaehlt kommende Antraege neu, vergangene bleiben',
       past.statusCode === 201 &&
@@ -1063,7 +1078,7 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     // src/test/placeChangeCheck.ts): Die gespeicherte Zahl wird verfaelscht,
     // der Weg muss sie richtigstellen.
     const correct = () =>
-      countAbsenceDays({ place: regionForEmployee(emil), dateFrom: mondayIn(3), dateTo: addDaysIso(mondayIn(3), 4) });
+      countAbsenceDays({ place: regionForEmployee(emil), dateFrom: upMonday, dateTo: addDaysIso(upMonday, 4) });
     const spoil = () => db.prepare('UPDATE absence_requests SET days_counted = 99 WHERE id = ?').run(upcomingId);
     const viaWay = async (label: string, act: () => Promise<{ statusCode: number }>) => {
       spoil();
@@ -1098,8 +1113,8 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     const manualReq = await post('/api/absences/requests', {
       employee_id: emil,
       type_id: urlaubType.id,
-      date_from: mondayIn(5),
-      date_to: addDaysIso(mondayIn(5), 4),
+      date_from: manualMonday,
+      date_to: addDaysIso(manualMonday, 4),
       days_override: 1,
       approve: true,
     });
@@ -1107,7 +1122,7 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     const manualRow = db
       .prepare('SELECT days_counted, days_manual FROM absence_requests WHERE id = ?')
       .get(manualReq.json().request?.id ?? -1) as { days_counted: number; days_manual: number } | undefined;
-    const fixedCount = countAbsenceDays({ place: regionForEmployee(emil), dateFrom: mondayIn(5), dateTo: addDaysIso(mondayIn(5), 4) });
+    const fixedCount = countAbsenceDays({ place: regionForEmployee(emil), dateFrom: manualMonday, dateTo: addDaysIso(manualMonday, 4) });
     check(
       'Wechsel auf feste Woche zaehlt Tage von Hand neu',
       manualReq.statusCode === 201 && toFixed.statusCode === 200 && manualRow?.days_manual === 0 && manualRow.days_counted === fixedCount,

@@ -27,11 +27,8 @@ import { ensureDefaultAdmin } from '../core/auth.js';
 import { StartAccountMissingError, resetForReseed } from './forceReset.js';
 import { storeFile } from '../core/files.js';
 import { RESPONSE_ID_LIMIT } from '../modules/communication/surveyService.js';
-import { holidaysForYear } from '../core/holidays.js';
-import { flexibleDays, isScheduledDay, probationEndFor, workScheduleOf } from '@ohrganize/shared';
-import type { CountryCode, RegionCode, WorkSchedule } from '@ohrganize/shared';
-import { VARIANT } from '@variant-manifest';
-import { eachDay } from '../core/dates.js';
+import { probationEndFor } from '@ohrganize/shared';
+import { closureCoveredFlag, countAbsenceDays, regionForEmployee } from '../modules/absences/service.js';
 import { periodForDate, shiftPeriod } from '@ohrganize/shared';
 
 const FORCE = process.argv.includes('--force');
@@ -128,33 +125,6 @@ function insert(table: string, row: Record<string, unknown>): number {
     .prepare(`INSERT INTO ${table} (${keys.join(', ')}) VALUES (${keys.map(() => '?').join(', ')})`)
     .run(...keys.map((k) => row[k]));
   return Number(info.lastInsertRowid);
-}
-
-/** Arbeitstage im Zeitraum (Mo–Fr, ohne Feiertage des Bundeslands, ohne Betriebsruhe). */
-/**
- * Tage eines Antrags wie absences/service.ts#countAbsenceDays: Tage der
- * Arbeitswoche (ohne Angabe Mo bis Fr) ohne Feiertage und Betriebsruhe, bei
- * flexibler Woche der anteilige Vorschlag. Der Saldo liest die gespeicherte
- * Zahl, eine Zaehlung nur nach Mo bis Fr stimmte fuer Teilzeitkraefte nicht.
- */
-function countDays(
-  from: string,
-  to: string,
-  place: { country: CountryCode; region: RegionCode; schedule: WorkSchedule },
-  halfStart = false,
-  halfEnd = false,
-  withClosures = true,
-): number {
-  const years = new Set(eachDay(from, to).map((d) => d.slice(0, 4)));
-  const holidays = new Set(
-    [...years].flatMap((y) => holidaysForYear(Number(y), place.country, place.region).map((h) => h.date)),
-  );
-  const closures = new Set(withClosures ? eachDay('2026-12-24', '2026-12-31') : []);
-  const days = eachDay(from, to).filter((d) => isScheduledDay(place.schedule, d) && !holidays.has(d) && !closures.has(d));
-  let n = days.length;
-  if (halfStart && days.includes(from)) n -= 0.5;
-  if (halfEnd && from !== to && days.includes(to)) n -= 0.5;
-  return place.schedule.weekdays === null ? flexibleDays(n, place.schedule.daysPerWeek) : n;
 }
 
 function demoFile(name: string, content: string): number {
@@ -490,33 +460,22 @@ inTransaction(() => {
 
   insert('company_closures', { date_from: '2026-12-24', date_to: '2026-12-31', name: 'Betriebsruhe Jahreswechsel' });
 
-  // Die Arbeitswochen stehen schon (oben gesetzt), die Zaehlung nimmt sie mit.
-  const placeOf = (emp: number): { country: CountryCode; region: RegionCode; schedule: WorkSchedule } => {
-    const row = db
-      .prepare(
-        `SELECT l.country AS c, l.bundesland AS b, e.work_weekdays, e.work_days_per_week
-         FROM employees e LEFT JOIN locations l ON l.id = e.location_id WHERE e.id = ?`,
-      )
-      .get(emp) as { c: string | null; b: string | null; work_weekdays: string | null; work_days_per_week: number | null };
-    return { country: (row.c ?? VARIANT.country) as CountryCode, region: row.b ?? 'BY', schedule: workScheduleOf(row) };
-  };
-  const req = (emp: number, type: number, from: string, to: string, status: string, opts: { comment?: string; rejection?: string; halfStart?: boolean } = {}) =>
-    insert('absence_requests', {
+  // Gezaehlt wie im Betrieb (absences/service.ts): Arbeitswoche (oben
+  // gesetzt), Feiertage des Orts, die eben angelegte Betriebsruhe.
+  const req = (emp: number, type: number, from: string, to: string, status: string, opts: { comment?: string; rejection?: string; halfStart?: boolean } = {}) => {
+    const count = { place: regionForEmployee(emp), dateFrom: from, dateTo: to, halfDayStart: opts.halfStart === true };
+    const days = countAbsenceDays(count);
+    return insert('absence_requests', {
       employee_id: emp, type_id: type, date_from: from, date_to: to,
       half_day_start: opts.halfStart ? 1 : 0, half_day_end: 0,
-      days_counted: countDays(from, to, placeOf(emp), opts.halfStart),
-      // Wie absences/service.ts#closureCoveredFlag: 1 nur, wenn erst die
-      // Betriebsruhe den Zeitraum auf 0 bringt.
-      closure_covered:
-        countDays(from, to, placeOf(emp), opts.halfStart) === 0 &&
-        countDays(from, to, placeOf(emp), opts.halfStart, false, false) > 0
-          ? 1
-          : 0,
+      days_counted: days,
+      closure_covered: closureCoveredFlag(days, count),
       status, comment: opts.comment ?? null, rejection_reason: opts.rejection ?? null,
       decided_by_user_id: status === 'beantragt' ? null : adminId,
       decided_at: status === 'beantragt' ? null : `${TODAY} 09:00:00`,
       created_by_user_id: adminId,
     });
+  };
 
   // Genommene und geplante Urlaube
   req(DEV1, tUrlaub, '2026-03-30', '2026-04-10', 'genehmigt', { comment: 'Osterurlaub' });

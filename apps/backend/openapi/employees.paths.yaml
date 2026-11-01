@@ -39,7 +39,7 @@ paths:
     post:
       summary: Massenbearbeitung (nur department_id, team_id, location_id, manager_id, status, weekly_hours, annual_leave_days; transaktional, auditiert)
       responses:
-        "200": { description: "{ updated: n }" }
+        "200": { description: "{ updated, teams_cleared, contracts_not_synced? }; Stunden und Urlaub korrigieren die aktuelle Vertragsversion, außer bei geplanter Version (gezählt)" }
         "400": { description: "Unzulässiges Feld, Typregel-Verletzung oder Team passt nicht zur Abteilung" }
   /api/employees/change-requests:
     get:
@@ -72,7 +72,7 @@ paths:
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
-        "200": { description: Aktualisierte:r Mitarbeiter:in }
+        "200": { description: "{ employee, contract_notice? }; Art, Stunden und Urlaub gelten als Korrektur der aktuellen Vertragsversion, contract_notice nennt eine geplante Version, die nicht angepasst wurde" }
         "400": { description: "Validierungsfehler (u. a. Vorschaubild ohne Foto, neue Foto-ID kein eigener, unverknüpfter Bild-Upload; unveränderte IDs gehen durch)" }
     delete:
       summary: "Mitarbeiter:in endgültig löschen: Verträge, Dokumente, Abwesenheiten, Gehaltsdaten und Bewertungen fallen per CASCADE, nicht mehr referenzierte Dateien werden aus dem Storage entfernt"

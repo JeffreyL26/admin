@@ -9,10 +9,12 @@
  * `UPDATE employees SET` mit dynamischer Spaltenliste oder einer Spalte aus
  * COUNTING_EMPLOYEE_COLUMNS, `UPDATE locations SET` mit dynamischer Liste
  * oder Land/Region, `DELETE FROM locations` und `setSetting(` mit
- * dynamischem Schlüssel oder `defaultBundesland`. Die umgebende Funktion
- * (Route oder Funktion auf oberster Ebene) muss `recountUpcomingRequests(`
- * enthalten oder unten mit Begründung ausgenommen sein; Ausnahmen prüfen ihre
- * Begründung, wo sie sich prüfen lässt.
+ * dynamischem Schlüssel oder `defaultBundesland`. Als dynamisch gilt auch
+ * ein SQL-Text, der mit `+` weiter zusammengesetzt wird. Die umgebende
+ * Funktion (Route oder Funktion auf oberster Ebene) muss
+ * `recountUpcomingRequests` AUFRUFEN (gesucht im Syntaxbaum, ein Kommentar
+ * zählt nicht) oder unten mit Datei und Name begründet ausgenommen sein;
+ * Ausnahmen prüfen ihre Begründung, wo sie sich prüfen lässt.
  *
  * Aufruf: npx tsx src/test/placeChangeCheck.ts (Teil von npm test).
  */
@@ -34,21 +36,44 @@ const counting: readonly string[] = COUNTING_EMPLOYEE_COLUMNS;
 
 const violations: string[] = [];
 
-/** Ausnahmen: Funktionsname (wie `nameOf` ihn bildet) und warum dort nichts zu zählen ist. */
+/**
+ * Ausnahmen: `<Datei relativ zu src>#<Funktion oder Route>` und warum dort
+ * nichts zu zählen ist. Eine gleichnamige Funktion in einer anderen Datei ist
+ * nicht ausgenommen.
+ */
 const EXEMPT: Record<string, () => string | null> = {
   // Spiegelt nur Stunden, Urlaub und Beschäftigungsart der Vertragsversion.
-  mirrorToEmployee: () =>
+  'modules/employees/contractRoutes.ts#mirrorToEmployee': () =>
     MIRRORED_COLUMNS.some((c) => counting.includes(c)) ? 'MIRRORED_COLUMNS enthält eine Zählspalte' : null,
   // Schreibt nur Felder aus EMPLOYEE_SELF_EDITABLE_FIELDS.
-  decideRequest: () =>
+  'modules/employees/changeRequestService.ts#decideRequest': () =>
     EMPLOYEE_SELF_EDITABLE_FIELDS.some((f) => counting.includes(f.field))
       ? 'EMPLOYEE_SELF_EDITABLE_FIELDS enthält eine Zählspalte'
       : null,
   // Das Schema der Route nennt nur DATEV-Schlüssel.
-  'put /api/settings/datev': () => null,
-  // Definition von setSetting selbst; geprüft werden ihre Aufrufer.
-  setSetting: () => null,
+  'core/settingsRoutes.ts#put /api/settings/datev': () => null,
 };
+
+/** Ruft die Funktion `recountUpcomingRequests` auf (Syntaxbaum, nicht Text)? */
+function callsRecount(fn: ts.Node): boolean {
+  let found = false;
+  const walk = (n: ts.Node) => {
+    if (found) return;
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'recountUpcomingRequests') {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(fn);
+  return found;
+}
+
+/** Wird dieser Text per `+` weiter zusammengesetzt? */
+function concatenated(node: ts.Node): boolean {
+  const parent = node.parent;
+  return !!parent && ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.PlusToken;
+}
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -100,7 +125,7 @@ function enclosing(node: ts.Node): { fn: ts.Node; name: string } | null {
 function placeWrite(node: ts.Node): string | null {
   if (ts.isNoSubstitutionTemplateLiteral(node) || ts.isStringLiteral(node) || ts.isTemplateExpression(node)) {
     const text = node.getText();
-    const dynamic = ts.isTemplateExpression(node);
+    const dynamic = ts.isTemplateExpression(node) || concatenated(node);
     const mentions = (cols: readonly string[]) => cols.some((c) => new RegExp(`\\b${c}\\b`).test(text));
     if (/UPDATE\s+employees\s+SET/i.test(text) && (dynamic || mentions(counting))) return 'UPDATE employees';
     if (/UPDATE\s+locations\s+SET/i.test(text) && (dynamic || mentions(['country', 'bundesland']))) return 'UPDATE locations';
@@ -129,8 +154,8 @@ for (const file of sourceFiles(srcDir)) {
       const where = `${rel}:${line} (${what}${owner ? ` in ${owner.name}` : ''})`;
       if (!owner) {
         violations.push(`${where}: außerhalb einer Funktion`);
-      } else if (!owner.fn.getText().includes('recountUpcomingRequests(')) {
-        const exempt = EXEMPT[owner.name];
+      } else if (!callsRecount(owner.fn)) {
+        const exempt = EXEMPT[`${rel}#${owner.name}`];
         if (!exempt) violations.push(`${where}: ohne recountUpcomingRequests und ohne Ausnahme`);
         else {
           const broken = exempt();
