@@ -1227,7 +1227,9 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     });
     const after = await entitlementIn(2024);
     const legacy = db
-      .prepare('SELECT employee_type, annual_leave_days, work_weekdays, work_days_per_week FROM contracts WHERE id = ?')
+      .prepare(
+        'SELECT employee_type, annual_leave_days, work_weekdays, work_days_per_week, entitlement_frozen FROM contracts WHERE id = ?',
+      )
       .get(legacyId);
     const gapRows = () =>
       db
@@ -1245,7 +1247,13 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         before === 27.5 &&
         after === before &&
         JSON.stringify(legacy) ===
-          JSON.stringify({ employee_type: 'vollzeit', annual_leave_days: 30, work_weekdays: '1,2,3,4,5', work_days_per_week: 5 }) &&
+          JSON.stringify({
+            employee_type: null,
+            annual_leave_days: 30,
+            work_weekdays: '1,2,3,4,5',
+            work_days_per_week: 5,
+            entitlement_frozen: 'annual_leave_days,work_week',
+          }) &&
         JSON.stringify(gapRows()) ===
           JSON.stringify([
             { valid_from: '0000-01-01', valid_to: '2024-05-31', employee_type: 'vollzeit', annual_leave_days: 30, work_weekdays: '1,2,3,4,5' },
@@ -1309,6 +1317,60 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         tail[0].annual_leave_days === 30 &&
         tail[0].work_weekdays === '1,2,3,4,5',
       { status: toPartTime.statusCode, body: toPartTime.json(), before, after, tail },
+    );
+    // Weitere Laeufe ohne Aenderung der Werte: Die Zeile waechst, statt sich zu verdoppeln.
+    const { freezeEntitlementInputs } = await import('./service.js');
+    const dayIn = (days: number) =>
+      (db.prepare(`SELECT date('now', 'localtime', '+${days} days') AS d`).get() as { d: string }).d;
+    freezeEntitlementInputs(hanna, dayIn(10));
+    freezeEntitlementInputs(hanna, dayIn(20));
+    const rows = db
+      .prepare('SELECT valid_from, valid_to FROM contract_gap_values WHERE employee_id = ? ORDER BY valid_from')
+      .all(hanna) as { valid_from: string; valid_to: string }[];
+    check(
+      'Festhalten: gleiche Werte im Anschluss verlaengern die Zeile',
+      rows.length === 2 && rows[1].valid_to === dayIn(19),
+      rows,
+    );
+  }
+
+  // Die heute geltende Version haelt nichts fest: Eine Korrektur der Art in den
+  // Stammdaten trifft sie fuer ihren ganzen Zeitraum, ohne eine aus Vollzeit
+  // abgeleitete Woche Mo bis Fr stehen zu lassen.
+  {
+    const ida = Number(
+      db
+        .prepare(
+          `INSERT INTO employees (first_name, last_name, status, hire_date, annual_leave_days, location_id, department_id,
+                                  employee_type, weekly_hours, iban, tax_class, social_security_number)
+           VALUES ('Ida', 'Igel', 'aktiv', '2023-01-01', 30, 1, 1,
+                   'vollzeit', 40, 'DE02120300000000202051', 'I', '12 010190 I 123')`,
+        )
+        .run().lastInsertRowid,
+    );
+    const versionId = Number(
+      db
+        .prepare(
+          `INSERT INTO contracts (employee_id, contract_type, valid_from, annual_leave_days, weekly_hours)
+           VALUES (?, 'unbefristet', '2023-01-01', 30, 40)`,
+        )
+        .run(ida).lastInsertRowid,
+    );
+    const corrected = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${ida}`,
+      headers: auth,
+      payload: { employee_type: 'teilzeit', weekly_hours: 20 },
+    });
+    const version = db
+      .prepare('SELECT employee_type, work_weekdays, work_days_per_week, entitlement_frozen FROM contracts WHERE id = ?')
+      .get(versionId);
+    check(
+      'Festhalten: geltende Version bleibt frei, die Korrektur gilt fuer ihren ganzen Zeitraum',
+      corrected.statusCode === 200 &&
+        JSON.stringify(version) ===
+          JSON.stringify({ employee_type: 'teilzeit', work_weekdays: null, work_days_per_week: null, entitlement_frozen: null }),
+      { status: corrected.statusCode, body: corrected.json(), version },
     );
   }
 

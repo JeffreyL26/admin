@@ -13,6 +13,9 @@ import {
   contractCorrectable,
   contractNoteFor,
   contractState,
+  entitlementFrozenNote,
+  formatEntitlementFrozen,
+  parseEntitlementFrozen,
   formatDate,
   needsResidencePermit,
   personnelDeadlineText,
@@ -110,6 +113,21 @@ check('Drittstaat braucht Titel', needsResidencePermit('TR') && needsResidencePe
   check('Hinweis: abgelaufen und geplant', contractNoteFor([ended, planned], today) === 'uncovered');
   check('Hinweis: beginnt heute', contractNoteFor([{ valid_from: today, valid_to: null }], today) === 'versioned');
 }
+
+// Festgehaltene Felder einer Version: Liste in fester Reihenfolge, Hinweis im Tab Vertrag.
+check('Festgehalten: ohne Felder kein Hinweis', entitlementFrozenNote(null) === null && formatEntitlementFrozen([]) === null);
+check(
+  'Festgehalten: Reihenfolge fest, Doppel und Unbekanntes fallen weg',
+  formatEntitlementFrozen(parseEntitlementFrozen('work_week,annual_leave_days,work_week,foo')) === 'annual_leave_days,work_week',
+);
+check(
+  'Festgehalten: Hinweis nennt die Felder',
+  entitlementFrozenNote('annual_leave_days,work_week') ===
+    'Urlaubstage und Arbeitswoche aus der Personalakte übernommen, als sich diese änderte; so bleibt der Urlaubsanspruch dieses Zeitraums gleich.' &&
+    entitlementFrozenNote('work_week')?.startsWith('Arbeitswoche aus der Personalakte') === true &&
+    entitlementFrozenNote('employee_type') === null,
+  entitlementFrozenNote('annual_leave_days,work_week'),
+);
 
 if (failures > 0) {
   console.log(`masterDataTest: ${failures} Fehler`);

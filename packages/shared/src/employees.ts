@@ -476,6 +476,12 @@ export interface ContractDto {
    */
   work_weekdays: string | null;
   work_days_per_week: number | null;
+  /**
+   * Felder, die beim Festhalten aus der Personalakte kamen (Liste wie
+   * "annual_leave_days,work_week", ENTITLEMENT_FROZEN_FIELDS); nur abgelaufene
+   * Versionen. Der Tab Vertrag nennt sie (entitlementFrozenNote).
+   */
+  entitlement_frozen: string | null;
   fixed_term_reason: string | null;
   document_file_id: number | null;
   note: string | null;
@@ -511,6 +517,46 @@ export function contractState(
 /** Korrigieren lässt sich nur die jüngste Version, solange sie nicht abgelaufen ist. */
 export function contractCorrectable(state: ContractState, newest: boolean): boolean {
   return newest && state !== 'abgelaufen';
+}
+
+/**
+ * Felder einer abgelaufenen Vertragsversion, die freezeEntitlementInputs
+ * (absences/service.ts) aus der Personalakte uebernommen hat, bevor sich
+ * diese aenderte (`contracts.entitlement_frozen`). `work_week` steht fuer
+ * feste Tage und Zahl zusammen. Die Art gehoert nicht dazu (Historie der
+ * Beschaeftigungsart, siehe freezeEntitlementInputs).
+ */
+export const ENTITLEMENT_FROZEN_FIELDS = ['annual_leave_days', 'work_week'] as const;
+export type EntitlementFrozenField = (typeof ENTITLEMENT_FROZEN_FIELDS)[number];
+
+const ENTITLEMENT_FROZEN_LABELS: Record<EntitlementFrozenField, string> = {
+  annual_leave_days: 'Urlaubstage',
+  work_week: 'Arbeitswoche',
+};
+
+/** Gespeicherte Liste lesen: bekannte Felder, ohne Doppel, in fester Reihenfolge. */
+export function parseEntitlementFrozen(value: string | null | undefined): EntitlementFrozenField[] {
+  const given = new Set((value ?? '').split(',').map((s) => s.trim()));
+  return ENTITLEMENT_FROZEN_FIELDS.filter((f) => given.has(f));
+}
+
+/** Liste zum Speichern; leer wird NULL. */
+export function formatEntitlementFrozen(fields: readonly EntitlementFrozenField[]): string | null {
+  const set = new Set(fields);
+  const list = ENTITLEMENT_FROZEN_FIELDS.filter((f) => set.has(f));
+  return list.length ? list.join(',') : null;
+}
+
+/**
+ * Hinweis im Tab Vertrag, z. B. "Urlaubstage und Arbeitswoche aus der
+ * Personalakte übernommen, als sich diese änderte; so bleibt der
+ * Urlaubsanspruch dieses Zeitraums gleich." Ohne festgehaltene Felder null.
+ */
+export function entitlementFrozenNote(value: string | null | undefined): string | null {
+  const labels = parseEntitlementFrozen(value).map((f) => ENTITLEMENT_FROZEN_LABELS[f]);
+  if (labels.length === 0) return null;
+  const list = labels.length === 1 ? labels[0] : `${labels.slice(0, -1).join(', ')} und ${labels[labels.length - 1]}`;
+  return `${list} aus der Personalakte übernommen, als sich diese änderte; so bleibt der Urlaubsanspruch dieses Zeitraums gleich.`;
 }
 
 /** Gilt die Version heute (begonnen und nicht abgelaufen)? Wie contractInEffect im Backend. */

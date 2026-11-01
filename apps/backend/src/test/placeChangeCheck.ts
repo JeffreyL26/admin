@@ -20,9 +20,11 @@
  * Zweite Regel, gleiche Suche: Ein `UPDATE employees SET` mit dynamischer
  * Spaltenliste oder einer Spalte aus ENTITLEMENT_EMPLOYEE_COLUMNS
  * (Beschäftigungsart, Jahresurlaub, Arbeitswoche) muss in seiner Funktion
- * `freezeEntitlementInputs` aufrufen, sonst rechneten Versionen ohne eigene
- * Angabe und die Zeit vor der ersten Version rückwirkend mit den neuen Werten
- * (Ausnahmen in EXEMPT_FREEZE).
+ * `freezeEntitlementInputs` aufrufen, und zwar VOR der Ausführung des UPDATE
+ * (`.run` am `prepare` oder an der Variablen, der es zugewiesen ist; nach
+ * dem UPDATE hielte es schon die neuen Werte fest), sonst rechneten Versionen
+ * ohne eigene Angabe und Zeiträume ohne Version rückwirkend mit den neuen
+ * Werten (Ausnahmen in EXEMPT_FREEZE).
  *
  * Aufruf: npx tsx src/test/placeChangeCheck.ts (Teil von npm test).
  */
@@ -75,9 +77,13 @@ function callsRecount(fn: ts.Node): boolean {
 
 /** Ruft die Funktion `name` auf (auch als `x.name`; ein Kommentar zählt nicht)? */
 function calls(fn: ts.Node, wanted: string): boolean {
-  let found = false;
+  return firstCall(fn, wanted) !== null;
+}
+
+/** Position des ersten Aufrufs von `wanted` in der Funktion (Syntaxbaum), sonst null. */
+function firstCall(fn: ts.Node, wanted: string): number | null {
+  let first: number | null = null;
   const walk = (n: ts.Node) => {
-    if (found) return;
     if (ts.isCallExpression(n)) {
       const callee = n.expression;
       const name = ts.isIdentifier(callee)
@@ -85,15 +91,47 @@ function calls(fn: ts.Node, wanted: string): boolean {
         : ts.isPropertyAccessExpression(callee)
           ? callee.name.text
           : null;
-      if (name === wanted) {
-        found = true;
-        return;
-      }
+      if (name === wanted && (first === null || n.getStart() < first)) first = n.getStart();
     }
     ts.forEachChild(n, walk);
   };
   walk(fn);
-  return found;
+  return first;
+}
+
+/**
+ * Wo das UPDATE ausgeführt wird: `.run(` direkt am `prepare(<sql>)`, sonst
+ * der erste `<variable>.run(` der Variablen, der das `prepare` zugewiesen
+ * ist (Sammeländerung), sonst der SQL-Text selbst.
+ */
+function executionStart(sql: ts.Node, fn: ts.Node): number {
+  const prep = sql.parent;
+  if (!prep || !ts.isCallExpression(prep) || !ts.isPropertyAccessExpression(prep.expression)) return sql.getStart();
+  if (prep.expression.name.text !== 'prepare') return sql.getStart();
+  const chained = prep.parent;
+  if (chained && ts.isPropertyAccessExpression(chained) && chained.parent && ts.isCallExpression(chained.parent)) {
+    return chained.parent.getStart();
+  }
+  if (chained && ts.isVariableDeclaration(chained) && ts.isIdentifier(chained.name)) {
+    const variable = chained.name.text;
+    let first: number | null = null;
+    const walk = (n: ts.Node) => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        ts.isIdentifier(n.expression.expression) &&
+        n.expression.expression.text === variable &&
+        n.expression.name.text === 'run' &&
+        (first === null || n.getStart() < first)
+      ) {
+        first = n.getStart();
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(fn);
+    if (first !== null) return first;
+  }
+  return sql.getStart();
 }
 
 /** Wird dieser Text weiter zusammengesetzt (`+`, Array, zum Beispiel für `.join`, `.concat`)? */
@@ -217,12 +255,17 @@ for (const file of sourceFiles(srcDir)) {
       const where = `${rel}:${line} (UPDATE employees${owner ? ` in ${owner.name}` : ''})`;
       if (!owner) {
         violations.push(`${where}: außerhalb einer Funktion`);
-      } else if (!calls(owner.fn, 'freezeEntitlementInputs')) {
-        const exempt = EXEMPT_FREEZE[`${rel}#${owner.name}`];
-        if (!exempt) violations.push(`${where}: ohne freezeEntitlementInputs und ohne Ausnahme`);
-        else {
-          const broken = exempt();
-          if (broken) violations.push(`${where}: Ausnahme gilt nicht mehr (${broken})`);
+      } else {
+        const freeze = firstCall(owner.fn, 'freezeEntitlementInputs');
+        if (freeze === null) {
+          const exempt = EXEMPT_FREEZE[`${rel}#${owner.name}`];
+          if (!exempt) violations.push(`${where}: ohne freezeEntitlementInputs und ohne Ausnahme`);
+          else {
+            const broken = exempt();
+            if (broken) violations.push(`${where}: Ausnahme gilt nicht mehr (${broken})`);
+          }
+        } else if (freeze > executionStart(node, owner.fn)) {
+          violations.push(`${where}: freezeEntitlementInputs erst nach dem UPDATE`);
         }
       }
     }
