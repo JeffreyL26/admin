@@ -1745,10 +1745,54 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         phoneOnly.json().employee?.phone === '+49 30 1' &&
         akteOf(phonePerson).employee_type === 'teilzeit' &&
         laterForm.statusCode === 409 &&
-        laterForm.json().error?.message?.startsWith(`Seit dem ${dayIn(0).split('-').reverse().join('.')} gilt eine neue Vertragsversion`) &&
+        laterForm.json().error?.message?.startsWith(
+          `Die Personalakte wurde zwischenzeitlich geändert. Seit dem ${dayIn(0).split('-').reverse().join('.')} gilt eine neue Vertragsversion, die Personalakte zeigt jetzt deren Beschäftigungsart, Wochenstunden und Urlaubstage; weitere Änderungen anderer sind möglich.`,
+        ) &&
         otherStale.statusCode === 409 &&
         /jemand anderem/.test(otherStale.json().error?.message ?? ''),
       { phoneOnly: phoneOnly.json(), laterForm: laterForm.json(), otherStale: otherStale.json() },
+    );
+    // Ein Formular, das alle Felder mitschickt: Die Werte, die die Version
+    // nicht nennt oder die ihr gleichen, gehen durch; abgelehnt wird nur der
+    // alte Urlaub gegen den neuen, und die Meldung nennt nur ihn.
+    const dueOnlyLeave = (first: string) => {
+      const person = newPerson(first);
+      db.prepare(
+        `INSERT INTO contracts (employee_id, contract_type, valid_from, valid_to, employee_type, annual_leave_days, weekly_hours)
+         VALUES (?, 'unbefristet', '2023-01-01', ?, 'vollzeit', 30, 40)`,
+      ).run(person, dayIn(-1));
+      db.prepare(
+        `INSERT INTO contracts (employee_id, contract_type, valid_from, annual_leave_days, mirror_pending)
+         VALUES (?, 'unbefristet', ?, 25, 1)`,
+      ).run(person, dayIn(0));
+      db.prepare("UPDATE employees SET updated_at = '2000-01-01 00:00:00' WHERE id = ?").run(person);
+      return person;
+    };
+    const fullForm = (person: number, annual: number) =>
+      app.inject({
+        method: 'PATCH',
+        url: `/api/employees/${person}`,
+        headers: auth,
+        payload: {
+          employee_type: 'vollzeit',
+          weekly_hours: 40,
+          annual_leave_days: annual,
+          phone: '+49 30 4',
+          expected_updated_at: '2000-01-01 00:00:00',
+        },
+      });
+    const sameValues = await fullForm(dueOnlyLeave('Xaver'), 25);
+    const oldLeavePerson = dueOnlyLeave('Yara');
+    const oldLeave = await fullForm(oldLeavePerson, 30);
+    check(
+      'Uebernahme beim Speichern: gleiche Werte gehen durch, nur der ueberschriebene Urlaub wird abgelehnt und genannt',
+      sameValues.statusCode === 200 &&
+        sameValues.json().employee?.annual_leave_days === 25 &&
+        oldLeave.statusCode === 409 &&
+        oldLeave.json().error?.message ===
+          `Seit dem ${dayIn(0).split('-').reverse().join('.')} gilt eine neue Vertragsversion, die Personalakte zeigt jetzt deren Urlaubstage. Bitte laden Sie die Personalakte neu und übernehmen Sie Ihre Änderungen erneut.` &&
+        akteOf(oldLeavePerson).annual_leave_days === 25,
+      { sameValues: sameValues.json(), oldLeave: oldLeave.json() },
     );
 
     // Offene Uebernahme einer abgeloesten Version ist mit ihrem Ende erledigt.
