@@ -279,10 +279,18 @@ export function mirrorDueContracts(today = todayIso(), employeeIds?: readonly nu
         const frozen = mirrorToEmployee(c.employee_id, c, true, today);
         setState.run(0, null, c.id);
         mirrored.push(c.id);
+        // Eine wieder geltende Vorversion, deren Spiegelung erst jetzt gelingt:
+        // festgehaltene Felder gleich der Akte wieder leer (sonst leer, nichts zu tun).
+        const unfrozen = unfreezeReopenedContract(c.id, today);
         auditSystem(
           'contract.mirrored',
           'contract',
-          { employee_id: c.employee_id, valid_from: c.valid_from, ...frozenDetails(frozen) },
+          {
+            employee_id: c.employee_id,
+            valid_from: c.valid_from,
+            ...frozenDetails(frozen),
+            ...(unfrozen.length ? { unfrozen } : {}),
+          },
           c.id,
         );
       } catch (e) {
@@ -470,7 +478,8 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
 
     const db = getDb();
     let frozen: Frozen | null = null;
-    let unfrozen: { contract: number; fields: string[] } | null = null;
+    let reopenedId: number | null = null;
+    let reopened: Record<string, unknown> | null = null;
     inTransaction(() => {
       if (patch.valid_from !== undefined && patch.valid_from !== existing.valid_from) {
         const prev = db
@@ -485,14 +494,11 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
               `valid_from muss nach dem Beginn der Vorversion (${prev.valid_from}) liegen`,
             );
           }
-          db.prepare('UPDATE contracts SET valid_to = ? WHERE id = ?').run(
-            addDaysIso(patch.valid_from, -1),
-            prev.id,
-          );
-          // Gilt die Vorversion dadurch wieder, folgt sie wie jede geltende
-          // Version der Korrektur (unfreezeReopenedContract).
-          const fields = unfreezeReopenedContract(prev.id, today);
-          if (fields.length) unfrozen = { contract: prev.id, fields };
+          const prevTo = addDaysIso(patch.valid_from, -1);
+          db.prepare('UPDATE contracts SET valid_to = ? WHERE id = ?').run(prevTo, prev.id);
+          // War die Vorversion abgelaufen und gilt jetzt wieder, spiegelt die
+          // Akte sie (unten, nach dieser Version).
+          if (prev.valid_to !== null && prev.valid_to < today && prevTo >= today) reopenedId = prev.id;
         }
       }
       db.prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(
@@ -520,11 +526,42 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
           db.prepare('UPDATE contracts SET mirror_pending = ?, mirror_error = NULL WHERE id = ?').run(planned ? 1 : 0, id);
         }
       }
+      // Gilt die Vorversion wieder (der Beginn dieser Version wanderte nach
+      // hinten), spiegelt die Akte sie bis zum neuen Beginn; sonst rechneten
+      // Lohnlauf, FTE und kommende Antraege zu frueh mit dieser Version. Passt
+      // sie nicht zu den Typregeln, bleibt sie mit Grund offen (mirror_error,
+      // die Akte zeigt ihn) und wird wie eine faellige Version erneut versucht
+      // (mirrorDueContracts). Danach werden ihre festgehaltenen Felder, die
+      // jetzt der Akte entsprechen, wieder leer (unfreezeReopenedContract).
+      if (reopenedId !== null) {
+        const back = getContract(reopenedId);
+        let backFrozen: Frozen | null = null;
+        let mirrorError: string | null = null;
+        try {
+          backFrozen = mirrorToEmployee(
+            existing.employee_id,
+            Object.fromEntries(MIRRORED_COLUMNS.map((c) => [c, back[c]])),
+            true,
+            today,
+          );
+        } catch (e) {
+          if (!(e instanceof AppError)) throw e;
+          mirrorError = e.message;
+          db.prepare('UPDATE contracts SET mirror_pending = 1, mirror_error = ? WHERE id = ?').run(e.message, reopenedId);
+        }
+        const unfrozen = unfreezeReopenedContract(reopenedId, today);
+        reopened = {
+          contract: reopenedId,
+          ...(mirrorError ? { mirror_error: mirrorError } : {}),
+          ...frozenDetails(backFrozen),
+          ...(unfrozen.length ? { unfrozen } : {}),
+        };
+      }
       audit(req, 'update', 'contract', id, {
         employee_id: existing.employee_id,
         changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
         ...frozenDetails(frozen),
-        ...(unfrozen ? { unfrozen } : {}),
+        ...(reopened ? { reopened } : {}),
       });
     });
     return { contract: getContract(id) };

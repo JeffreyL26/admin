@@ -629,7 +629,8 @@ check(
   }
 
   // Beginn einer geplanten Version auf heute vorziehen: sofort ganz gespiegelt;
-  // wieder in die Zukunft schieben: offen, die Akte bleibt.
+  // wieder in die Zukunft schieben: offen, und die Vorversion gilt wieder und
+  // geht zurueck in die Akte (eine geplante Version erst zum Beginn).
   const todayLocal = getDb().prepare("SELECT date('now', 'localtime') AS d").get() as { d: string };
   const moving = await app.inject({
     method: 'POST',
@@ -645,16 +646,23 @@ check(
   const pulledHours = await hoursOf();
   const pulledPending = pendingOf();
   const pushed = await app.inject({ method: 'PATCH', url: `/api/contracts/${movingId}`, headers: auth, payload: { valid_from: plannedFrom } });
+  const previous = getDb().prepare('SELECT weekly_hours, mirror_pending FROM contracts WHERE id = ?').get(typedId) as {
+    weekly_hours: number | null;
+    mirror_pending: number;
+  };
   check(
-    'Geplante Version vorgezogen: sofort gespiegelt; wieder verschoben: offen, Akte bleibt',
+    'Geplante Version vorgezogen: sofort gespiegelt; wieder verschoben: offen, Akte wieder mit der Vorversion',
     moving.statusCode === 201 &&
       pulled.statusCode === 200 &&
       pulledHours === 16 &&
       pulledPending === 0 &&
       pushed.statusCode === 200 &&
       pendingOf() === 1 &&
-      (await hoursOf()) === 16,
-    { moving: moving.json(), pulled: pulled.json(), pulledHours, pulledPending, pushed: pushed.json(), pending: pendingOf() },
+      previous.weekly_hours !== null &&
+      previous.weekly_hours !== 16 &&
+      previous.mirror_pending === 0 &&
+      (await hoursOf()) === previous.weekly_hours,
+    { moving: moving.json(), pulled: pulled.json(), pulledHours, pulledPending, pushed: pushed.json(), pending: pendingOf(), previous, hours: await hoursOf() },
   );
   getDb().prepare('DELETE FROM contracts WHERE id = ?').run(movingId ?? -1);
   getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
@@ -870,24 +878,27 @@ check(
 
   // Zusatzurlaub im Saldo: benannt nur mit dem Recht (Bereich Abwesenheit fehlt
   // den Rollen oben, deshalb der Vollzugriff als Gegenprobe). Er bemisst sich
-  // an der Arbeitswoche, ohne sie gibt es keinen.
+  // an der Arbeitswoche, ohne sie gibt es keinen. Eigene Person ohne
+  // Vertragsversionen: Die Woche kommt allein aus der Akte (Versionen der
+  // Person oben tragen inzwischen festgehaltene Wochen).
   const year = new Date().getFullYear();
+  const zora = Number(
+    getDb()
+      .prepare(
+        `INSERT INTO employees (first_name, last_name, status, hire_date, annual_leave_days, employee_type, weekly_hours,
+                                disability_degree)
+         VALUES ('Zora', 'Zusatz', 'aktiv', '2020-01-01', 28, 'teilzeit', 30, 50)`,
+      )
+      .run().lastInsertRowid,
+  );
   const balanceDetail = async () =>
-    (await app.inject({ method: 'GET', url: `/api/absences/balance/${empId}/${year}`, headers: auth })).json().balance
+    (await app.inject({ method: 'GET', url: `/api/absences/balance/${zora}/${year}`, headers: auth })).json().balance
       ?.entitlement_detail as { disability: number; statutory_known: boolean } | undefined;
-  const weekBackup = getDb()
-    .prepare('SELECT employee_type, work_weekdays, work_days_per_week FROM employees WHERE id = ?')
-    .get(empId) as { employee_type: string; work_weekdays: string | null; work_days_per_week: number | null };
   // Teilzeit ohne hinterlegte Woche: keine bekannte Woche, also kein Zusatzurlaub.
-  getDb()
-    .prepare("UPDATE employees SET employee_type = 'teilzeit', work_weekdays = NULL, work_days_per_week = NULL WHERE id = ?")
-    .run(empId);
   const withoutWeek = await balanceDetail();
-  getDb().prepare("UPDATE employees SET work_weekdays = '1,2,3,4,5', work_days_per_week = 5 WHERE id = ?").run(empId);
+  getDb().prepare("UPDATE employees SET work_weekdays = '1,2,3,4,5', work_days_per_week = 5 WHERE id = ?").run(zora);
   const withWeek = await balanceDetail();
-  getDb()
-    .prepare('UPDATE employees SET employee_type = ?, work_weekdays = ?, work_days_per_week = ? WHERE id = ?')
-    .run(weekBackup.employee_type, weekBackup.work_weekdays, weekBackup.work_days_per_week, empId);
+  getDb().prepare('DELETE FROM employees WHERE id = ?').run(zora);
   check(
     'Saldo mit Vollzugriff nennt den Zusatzurlaub, nur mit bekannter Arbeitswoche',
     withWeek?.disability === 5 && withoutWeek?.statutory_known === false && withoutWeek.disability === 0,
