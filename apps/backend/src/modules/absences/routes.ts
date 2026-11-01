@@ -43,6 +43,8 @@ import {
   REGION_SELECT_SQL,
   type AbsenceTypeRow as TypeRow,
   type BalanceRequestRow,
+  CONTRACT_PERIOD_COLUMNS,
+  type ContractPeriodRow,
   type EmployeeRow,
   type RegionRow,
 } from './service.js';
@@ -744,6 +746,15 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       if (list) list.push(r);
       else requestsByEmployee.set(r.employee_id, [r]);
     }
+    // Vertragsversionen (Anspruch je Zeitabschnitt) ebenfalls in EINER Abfrage.
+    const contractsByEmployee = new Map<number, ContractPeriodRow[]>();
+    for (const c of db()
+      .prepare(`SELECT ${CONTRACT_PERIOD_COLUMNS} FROM contracts ORDER BY employee_id, valid_from, id`)
+      .all() as ContractPeriodRow[]) {
+      const list = contractsByEmployee.get(c.employee_id);
+      if (list) list.push(c);
+      else contractsByEmployee.set(c.employee_id, [c]);
+    }
 
     const carryoverDeadline = getSetting('carryoverDeadline');
     const today = todayIso();
@@ -753,6 +764,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         carryoverDeadline,
         closures,
         requests: requestsByEmployee.get(e.id) ?? [],
+        contracts: contractsByEmployee.get(e.id) ?? [],
       })),
       first_name: e.first_name,
       last_name: e.last_name,

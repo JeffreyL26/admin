@@ -195,9 +195,12 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
   };
 }
 
-function workScheduleToForm(
+/** Arbeitswoche im Formular: Art, feste Tage, Zahl (als Text der Eingabe). */
+export type WorkWeekState = Pick<EmployeeFormState, 'work_mode' | 'work_weekdays' | 'work_days_per_week'>;
+
+export function workScheduleToForm(
   e: Pick<EmployeeRow, 'work_weekdays' | 'work_days_per_week'>,
-): Pick<EmployeeFormState, 'work_mode' | 'work_weekdays' | 'work_days_per_week'> {
+): WorkWeekState {
   const fixed = parseWeekdays(e.work_weekdays);
   if (fixed) return { work_mode: 'fest', work_weekdays: fixed, work_days_per_week: '' };
   if (e.work_days_per_week !== null && e.work_days_per_week !== undefined) {
@@ -208,6 +211,15 @@ function workScheduleToForm(
 
 const num = (s: string): number | null => (s.trim() === '' ? null : Number(s.replace(',', '.')));
 const str = (s: string): string | null => (s.trim() === '' ? null : s.trim());
+
+/** Arbeitswoche fuer die API (Stammdaten und Vertragsversion gleich). */
+export function workScheduleToPayload(f: WorkWeekState): { work_weekdays: string | null; work_days_per_week: number | null } {
+  return {
+    work_weekdays: f.work_mode === 'fest' && f.work_weekdays.length > 0 ? formatWeekdays(f.work_weekdays) : null,
+    work_days_per_week:
+      f.work_mode === 'fest' ? f.work_weekdays.length || null : f.work_mode === 'flexibel' ? num(f.work_days_per_week) : null,
+  };
+}
 
 /**
  * Formular → API-Payload (snake_case, '' → null, Zahlen konvertiert).
@@ -272,13 +284,7 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     disability_valid_until: str(f.disability_valid_until),
     disability_note: str(f.disability_note),
     executive: f.executive ? 1 : 0,
-    work_weekdays: f.work_mode === 'fest' && f.work_weekdays.length > 0 ? formatWeekdays(f.work_weekdays) : null,
-    work_days_per_week:
-      f.work_mode === 'fest'
-        ? f.work_weekdays.length || null
-        : f.work_mode === 'flexibel'
-          ? num(f.work_days_per_week)
-          : null,
+    ...workScheduleToPayload(f),
   };
 }
 
@@ -432,7 +438,13 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
   );
 }
 
-export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: SetForm }) {
+/**
+ * `versioned`: in der Personalakte, wo Stunden, Arbeitswoche und Urlaub zur
+ * Vertragsversion gehören; dann erklärt ein Hinweis, wann eine neue Version
+ * statt einer Korrektur nötig ist. Beim Anlegen einer Person gibt es noch
+ * keine Version.
+ */
+export function EmploymentFields({ form, set, versioned = false }: { form: EmployeeFormState; set: SetForm; versioned?: boolean }) {
   const { can } = useAuth();
   const mayExecutive = can('leitung', 'bearbeiten');
   const { data: departments } = useDepartments();
@@ -596,6 +608,14 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
           onChange={(e) => set({ annual_leave_days: e.target.value })}
         />
       </Field>
+      {versioned && (
+        <p style={{ gridColumn: '1 / -1', margin: 0, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
+          Wochenstunden, Arbeitswoche und Jahresurlaub gehören zur Vertragsversion. Änderungen hier korrigieren die
+          geltende Version für ihren ganzen Zeitraum. Ändern sie sich ab einem Datum, etwa beim Wechsel in Teilzeit,
+          bitte im Tab „Vertrag“ eine neue Version anlegen; der Urlaubsanspruch wird dann für jeden Zeitraum anteilig
+          berechnet.
+        </p>
+      )}
       <Field label="Höchster Abschluss">
         <Select
           className="hm-select"
@@ -694,12 +714,6 @@ function HomeOfficeField({ form, set }: { form: EmployeeFormState; set: SetForm 
 
 /** Arbeitswoche: feste Wochentage zum Anklicken oder eine Zahl Tage ohne feste Tage. */
 function WorkWeekField({ form, set }: { form: EmployeeFormState; set: SetForm }) {
-  const toggleDay = (day: number) =>
-    set({
-      work_weekdays: form.work_weekdays.includes(day)
-        ? form.work_weekdays.filter((d) => d !== day)
-        : [...form.work_weekdays, day].sort((a, b) => a - b),
-    });
   return (
     <Field
       label="Arbeitswoche"
@@ -712,6 +726,22 @@ function WorkWeekField({ form, set }: { form: EmployeeFormState; set: SetForm })
             : 'Nicht hinterlegt: gezählt wird Mo bis Fr'
       }
     >
+      <WorkWeekControls value={form} onChange={set} />
+    </Field>
+  );
+}
+
+/** Bedienelemente der Arbeitswoche, in den Stammdaten und im Vertragsdialog gleich. */
+export function WorkWeekControls({ value, onChange }: { value: WorkWeekState; onChange: (patch: Partial<WorkWeekState>) => void }) {
+  const form = value;
+  const set = onChange;
+  const toggleDay = (day: number) =>
+    set({
+      work_weekdays: form.work_weekdays.includes(day)
+        ? form.work_weekdays.filter((d) => d !== day)
+        : [...form.work_weekdays, day].sort((a, b) => a - b),
+    });
+  return (
       <div className="row row--wrap" style={{ gap: 10 }}>
         <Select
           className="hm-select"
@@ -761,7 +791,6 @@ function WorkWeekField({ form, set }: { form: EmployeeFormState; set: SetForm })
           />
         )}
       </div>
-    </Field>
   );
 }
 

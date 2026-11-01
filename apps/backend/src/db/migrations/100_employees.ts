@@ -489,4 +489,44 @@ export const employeesMigrations: Migration[] = [
       }
     },
   },
+  {
+    // Arbeitswoche je Vertragsversion: Der Urlaubsanspruch eines Jahres
+    // rechnet je Zeitabschnitt mit Arbeitswoche und Jahresurlaub der jeweils
+    // geltenden Version (absences/service.ts, shared leaveEntitlementForPeriods),
+    // sonst aenderte ein Wechsel in Teilzeit rueckwirkend den Anspruch frueherer
+    // Jahre. Die heute geltende Version uebernimmt Arbeitswoche (und fehlenden
+    // Jahresurlaub) aus der Personalakte; aeltere bleiben leer und rechnen wie
+    // bisher mit den Werten der Akte.
+    name: '118_contract_work_schedule',
+    sql: `
+      ALTER TABLE contracts ADD COLUMN work_weekdays TEXT;
+      ALTER TABLE contracts ADD COLUMN work_days_per_week REAL;
+    `,
+    run: (db) => {
+      const today = todayIsoLocal();
+      const versions = db
+        .prepare(
+          `SELECT c.id, e.work_weekdays, e.work_days_per_week, e.annual_leave_days
+           FROM contracts c
+           JOIN employees e ON e.id = c.employee_id
+           WHERE c.id = (
+             SELECT c2.id FROM contracts c2
+              WHERE c2.employee_id = c.employee_id AND c2.valid_from <= ?
+                AND (c2.valid_to IS NULL OR c2.valid_to >= ?)
+              ORDER BY c2.valid_from DESC, c2.id DESC LIMIT 1
+           )`,
+        )
+        .all([today, today]) as {
+        id: number;
+        work_weekdays: string | null;
+        work_days_per_week: number | null;
+        annual_leave_days: number | null;
+      }[];
+      const update = db.prepare(
+        `UPDATE contracts SET work_weekdays = ?, work_days_per_week = ?,
+           annual_leave_days = COALESCE(annual_leave_days, ?) WHERE id = ?`,
+      );
+      for (const v of versions) update.run([v.work_weekdays, v.work_days_per_week, v.annual_leave_days, v.id]);
+    },
+  },
 ];

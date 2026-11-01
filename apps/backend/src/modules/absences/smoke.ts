@@ -1148,6 +1148,48 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     );
   }
 
+  // Anspruch je Vertragsversion: Wechsel von Vollzeit (5 Tage, 30) auf Teilzeit
+  // (3 Tage, 18) zum 01.10.2026. 2026 rechnet 9/12 und 3/12 (27), 2025 bleibt
+  // bei 30, auch wenn die Akte heute 3 Tage und 18 traegt.
+  {
+    const frieda = Number(
+      db
+        .prepare(
+          `INSERT INTO employees (first_name, last_name, status, hire_date, annual_leave_days, location_id, department_id,
+                                  employee_type, weekly_hours, iban, tax_class, social_security_number,
+                                  work_weekdays, work_days_per_week)
+           VALUES ('Frieda', 'Fink', 'aktiv', '2020-01-01', 18, 1, 1,
+                   'teilzeit', 24, 'DE02120300000000202051', 'I', '12 010190 F 123', '1,2,3', 3)`,
+        )
+        .run().lastInsertRowid,
+    );
+    const version = db.prepare(
+      `INSERT INTO contracts (employee_id, contract_type, valid_from, valid_to, annual_leave_days, work_weekdays, work_days_per_week)
+       VALUES (?, 'unbefristet', ?, ?, ?, ?, ?)`,
+    );
+    version.run(frieda, '2025-01-01', '2026-09-30', 30, '1,2,3,4,5', 5);
+    version.run(frieda, '2026-10-01', null, 18, '1,2,3', 3);
+    const balanceOf = async (year: number) =>
+      (await get(`/api/absences/balance/${frieda}/${year}`)).json().balance as {
+        entitlement: number;
+        carryover: number;
+        entitlement_detail: { periods?: { total: number }[] };
+      };
+    const b2026 = await balanceOf(2026);
+    const b2025 = await balanceOf(2025);
+    check(
+      'Anspruch je Vertragsversion: 2026 anteilig 27 mit zwei Abschnitten, 2025 bleibt 30',
+      b2026.entitlement === 27 && b2026.entitlement_detail.periods?.length === 2 && b2025.entitlement === 30,
+      { b2026, b2025 },
+    );
+    // Uebertrag vor dem Stichtag (Anfang Februar), nichts genommen: der
+    // volle Anspruch 2025, gerechnet mit der damaligen Version.
+    const { computeBalance } = await import('./service.js');
+    const friedaRow = db.prepare('SELECT * FROM employees WHERE id = ?').get(frieda) as Parameters<typeof computeBalance>[0];
+    const february = computeBalance(friedaRow, 2026, '2026-02-01');
+    check('Anspruch je Vertragsversion: Uebertrag aus 2025 mit 30 Tagen', february.carryover === 30, february);
+  }
+
   // ------------------------------------------------------- Home Office ---
   // Muster Di (2) und Do (4); 01.12.2026 ist ein Dienstag, 02.12. ein Mittwoch.
   const pattern = await patchEmp({ home_office_weekdays: '4,2' });

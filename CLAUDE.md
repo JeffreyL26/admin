@@ -283,9 +283,22 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Tagen wird gezählt und `days_manual` fällt weg. Ändert ein Update die
   Feiertagsregeln, zählt der Start des Moduls die kommenden Anträge neu
   (`recountAfterHolidayRuleChange`, Fingerabdruck in `_holiday_rules_state`,
-  Migration `208_holiday_rules_state`, Protokoll ohne Konto). Grenze: Der Anspruch früherer
-  Jahre rechnet weiter mit der heutigen Woche und dem heutigen Jahresurlaub
-  (keine Historie je Vertragsversion). Der Anspruch kommt allein
+  Migration `208_holiday_rules_state`, Protokoll ohne Konto). **Anspruch je
+  Vertragsversion:** Arbeitswoche (`contracts.work_weekdays`/
+  `work_days_per_week`, Migration `118_contract_work_schedule`) und
+  Jahresurlaub stehen an der Version; der Saldo rechnet jedes Jahr je
+  Zeitabschnitt mit den Werten der jeweils geltenden Version
+  (`entitlementPeriods` in `absences/service.ts`, gewichtet in
+  `leaveEntitlementForPeriods`: Anteil am Jahr in Monaten, ein Wechsel zum
+  Monatsersten ergibt genau 9/12 und 3/12), damit ein Wechsel in Teilzeit
+  frühere Jahre und den Übertrag nicht ändert. Was eine Version offen lässt
+  und was keine Version abdeckt, rechnet mit den Werten der Personalakte. Mit
+  mehreren Abschnitten trägt `entitlement_detail.periods` den Beitrag je
+  Abschnitt (Hinweis `entitlementPeriodNote` im Abwesenheit-Tab). Die
+  Arbeitswoche einer Version wird wie Stunden und Urlaub gespiegelt (und
+  zählt kommende Anträge neu); eine neue Version ohne Arbeitswoche oder
+  Urlaub im Rumpf übernimmt die der Akte. Vertragsdialog und Stammdaten
+  erklären das mit Hinweistexten. Der Anspruch kommt allein
   aus `leaveEntitlementFor` (`packages/shared/src/leaveEntitlement.ts`, Test
   `src/test/leaveEntitlementTest.ts`): Mindesturlaub 4 × Arbeitstage je Woche
   (§ 3 BUrlG), voll nach erfüllter Wartezeit, Zwölftel nur in den Fällen von

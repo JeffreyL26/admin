@@ -27,7 +27,7 @@
  *   Ausbildung gelten ohne Angabe als fünf Tage, freie Mitarbeit hat keinen
  *   Anspruch (`entitlementDaysPerWeek`).
  */
-import { addDaysIso, addMonthsIso } from './common.js';
+import { addDaysIso, addMonthsIso, formatDate } from './common.js';
 import { parseWeekdays } from './workSchedule.js';
 
 export interface EntitlementInput {
@@ -58,6 +58,11 @@ export interface EntitlementDetail extends EntitlementParts {
   prorated: boolean;
   /** Ist der Mindesturlaub berechnet (Arbeitswoche bekannt)? */
   statutory_known: boolean;
+  /**
+   * Nur bei mehreren Zeitabschnitten im Jahr (Wechsel der Arbeitswoche oder
+   * des Jahresurlaubs, leaveEntitlementForPeriods): Beitrag je Abschnitt.
+   */
+  periods?: EntitlementPeriodPart[];
 }
 
 /** Tage auf zwei Stellen, ohne Gleitkommareste (8,333 statt 8,3333333). */
@@ -141,6 +146,119 @@ export function leaveEntitlementFor(input: EntitlementInput, year: number): Enti
 }
 
 /**
+ * Zeitabschnitt eines Jahres mit eigener Arbeitswoche und eigenem
+ * Jahresurlaub, in der Regel eine Vertragsversion (beide Grenzen
+ * einschließlich).
+ */
+export interface EntitlementPeriod {
+  from: string;
+  to: string;
+  annual_leave_days: number | null;
+  /** Wie EntitlementInput.days_per_week; null = unbekannt. */
+  days_per_week: number | null;
+}
+
+/** Anteil eines Abschnitts am Anspruch des Jahres (für die Anzeige). */
+export interface EntitlementPeriodPart {
+  from: string;
+  to: string;
+  annual_leave_days: number | null;
+  days_per_week: number | null;
+  /** Tage, die dieser Abschnitt zum Anspruch des Jahres beiträgt. */
+  total: number;
+}
+
+const daysInMonth = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).getUTCDate();
+
+/**
+ * Anteil von from bis to (einschließlich) an einem Jahr, in Monaten
+ * gemessen: ein voller Kalendermonat zählt 1/12, ein angebrochener
+ * tagesgenau seinen Teil davon. So ergibt ein Wechsel zum Monatsersten genau
+ * die Monate (9/12 und 3/12).
+ */
+function yearShare(from: string, to: string): number {
+  let share = 0;
+  for (let d = from; d <= to; ) {
+    const y = Number(d.slice(0, 4));
+    const m = Number(d.slice(5, 7));
+    const monthEnd = `${d.slice(0, 7)}-${String(daysInMonth(y, m)).padStart(2, '0')}`;
+    const end = monthEnd < to ? monthEnd : to;
+    share += (Number(end.slice(8)) - Number(d.slice(8)) + 1) / daysInMonth(y, m);
+    d = addDaysIso(end, 1);
+  }
+  return share / 12;
+}
+
+/**
+ * Anspruch eines Jahres aus Zeitabschnitten mit eigener Arbeitswoche und
+ * eigenem Jahresurlaub (Vertragsversionen): Ändert sich die Arbeitswoche im
+ * Lauf des Jahres, rechnet jeder Abschnitt nach `leaveEntitlementFor` und
+ * zählt mit seinem Anteil an der Beschäftigungszeit des Jahres
+ * (Zeitabschnitte wie in der Rechtsprechung zu § 3 BUrlG; in Vollzeit
+ * erworbener Urlaub wird durch Teilzeit nicht gekürzt). Ein- und Austritt
+ * regelt weiter `leaveEntitlementFor` je Abschnitt. Mit nur einem Abschnitt
+ * ist das Ergebnis genau `leaveEntitlementFor`; sonst trägt es `periods`.
+ * Die Abschnitte sollen das Jahr lückenlos abdecken (der Aufrufer füllt
+ * Lücken mit den Werten der Personalakte).
+ */
+export function leaveEntitlementForPeriods(
+  input: Omit<EntitlementInput, 'annual_leave_days' | 'days_per_week'>,
+  periods: readonly EntitlementPeriod[],
+  year: number,
+): EntitlementDetail {
+  const yearStart = `${year}-01-01`;
+  const yearEnd = `${year}-12-31`;
+  const start = input.hire_date && input.hire_date > yearStart ? input.hire_date : yearStart;
+  const end = input.exit_date && input.exit_date < yearEnd ? input.exit_date : yearEnd;
+  const clipped = periods
+    .map((p) => ({ ...p, from: p.from > start ? p.from : start, to: p.to < end ? p.to : end }))
+    .filter((p) => p.from <= p.to);
+  const single = (p: EntitlementPeriod | undefined) =>
+    leaveEntitlementFor(
+      { ...input, annual_leave_days: p?.annual_leave_days ?? null, days_per_week: p?.days_per_week ?? null },
+      year,
+    );
+  if (clipped.length <= 1) return single(clipped[0] ?? periods[periods.length - 1]);
+
+  const whole = yearShare(start, end);
+  const parts = clipped.map((p) => ({ period: p, weight: yearShare(p.from, p.to) / whole, detail: single(p) }));
+  const weighted = (pick: (d: EntitlementParts) => number) =>
+    round2(parts.reduce((sum, x) => sum + pick(x.detail) * x.weight, 0));
+  const weightedFull = (pick: (d: EntitlementParts) => number) =>
+    round2(parts.reduce((sum, x) => sum + pick(x.detail.full_year) * x.weight, 0));
+  const statutory = weighted((d) => d.statutory);
+  const contractual = weighted((d) => d.contractual);
+  const disability = weighted((d) => d.disability);
+  const total = round2(statutory + contractual + disability);
+  const fullStatutory = weightedFull((d) => d.statutory);
+  const fullContractual = weightedFull((d) => d.contractual);
+  const fullDisability = weightedFull((d) => d.disability);
+  const full: EntitlementParts = {
+    statutory: fullStatutory,
+    contractual: fullContractual,
+    disability: fullDisability,
+    total: round2(fullStatutory + fullContractual + fullDisability),
+  };
+  return {
+    statutory,
+    contractual,
+    disability,
+    total,
+    months: parts[0].detail.months,
+    full_year: full,
+    prorated: total !== full.total,
+    statutory_known: parts.some((x) => x.detail.statutory_known),
+    periods: parts.map((x) => ({
+      from: x.period.from,
+      to: x.period.to,
+      annual_leave_days: x.period.annual_leave_days,
+      days_per_week: x.period.days_per_week,
+      total: round2(x.detail.total * x.weight),
+    })),
+  };
+}
+
+/**
  * Arbeitstage je Woche für den Mindesturlaub: hinterlegte Arbeitswoche, sonst
  * fünf bei Vollzeit und Ausbildung, sonst unbekannt (null). Freie Mitarbeit
  * hat keinen Urlaubsanspruch nach BUrlG.
@@ -180,6 +298,31 @@ export function entitlementPartLabels(
 }
 
 /** Hinweis bei unterjährigem Anspruch, z. B. "anteilig, 6 von 12 Monaten (ganzes Jahr 30)". */
+/**
+ * Hinweis bei mehreren Zeitabschnitten im Jahr (Vertragsversionen mit anderer
+ * Arbeitswoche oder anderem Jahresurlaub), z. B. "je Vertragsversion: 22,5 bis
+ * 30.09.2026 (5 Tage je Woche, 30 Urlaubstage) + 4,5 ab 01.10.2026 (3 Tage je
+ * Woche, 18 Urlaubstage)". Ohne Abschnitte null.
+ */
+export function entitlementPeriodNote(detail: EntitlementDetail, format: (n: number) => string): string | null {
+  const periods = detail.periods;
+  if (!periods || periods.length < 2) return null;
+  const parts = periods.map((p, i) => {
+    const range =
+      i === 0
+        ? `bis ${formatDate(p.to)}`
+        : i === periods.length - 1
+          ? `ab ${formatDate(p.from)}`
+          : `${formatDate(p.from)} bis ${formatDate(p.to)}`;
+    const values = [
+      p.days_per_week !== null ? `${format(p.days_per_week)} Tage je Woche` : null,
+      p.annual_leave_days !== null ? `${format(p.annual_leave_days)} Urlaubstage` : null,
+    ].filter(Boolean);
+    return `${format(p.total)} ${range}${values.length ? ` (${values.join(', ')})` : ''}`;
+  });
+  return `je Vertragsversion: ${parts.join(' + ')}`;
+}
+
 export function entitlementProrationNote(detail: EntitlementDetail, format: (n: number) => string): string | null {
   if (!detail.prorated) return null;
   return `anteilig, ${detail.months} von 12 Monaten (ganzes Jahr ${format(detail.full_year.total)})`;

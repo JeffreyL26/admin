@@ -5,6 +5,7 @@ import { CalendarDays, ExternalLink, Receipt, Wallet } from 'lucide-react';
 import {
   ABSENCE_STATUS_LABELS,
   entitlementPartLabels,
+  entitlementPeriodNote,
   entitlementProrationNote,
   formatDate,
   formatEuro,
@@ -296,13 +297,15 @@ export function EmployeeCompensationTab({ employeeId, employeeName }: { employee
 
 /**
  * Unterzeile des Anspruchs: Bestandteile nach BUrlG (gesetzlich, vertraglich,
- * Zusatzurlaub), ein Hinweis bei unterjährigem Anspruch und der Übertrag.
+ * Zusatzurlaub), ein Hinweis bei unterjährigem Anspruch, die Zeitabschnitte
+ * bei einem Wechsel der Arbeitswoche im Jahr und der Übertrag.
  */
 function entitlementSub(balance: AbsenceBalance): string | undefined {
   const fmt = (n: number) => n.toLocaleString(LOCALE);
   const detail = balance.entitlement_detail;
   const parts = detail ? entitlementPartLabels(detail, fmt).join(' + ') : '';
   const note = detail ? entitlementProrationNote(detail, fmt) : null;
+  const periods = detail ? entitlementPeriodNote(detail, fmt) : null;
   const carry = balance.carryover > 0 ? `+ ${fmt(balance.carryover)} Übertrag` : null;
-  return [parts, note, carry].filter(Boolean).join(' · ') || undefined;
+  return [parts, note, periods, carry].filter(Boolean).join(' · ') || undefined;
 }

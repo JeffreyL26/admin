@@ -88,7 +88,7 @@ paths:
       responses:
         "200": { description: "{ contracts: [...] }" }
     post:
-      summary: "Neue Vertragsversion (schließt die offene Vorversion auf den Vortag; spiegelt Stunden, Urlaub und Beschäftigungsart auf employees, eine geplante Version erst zum Beginn)"
+      summary: "Neue Vertragsversion (schließt die offene Vorversion auf den Vortag; spiegelt Stunden, Urlaub, Beschäftigungsart und Arbeitswoche work_weekdays/work_days_per_week auf employees, eine geplante Version erst zum Beginn; ohne Arbeitswoche und Urlaub im Rumpf gelten die der Personalakte, der Urlaubsanspruch rechnet je Version)"
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
