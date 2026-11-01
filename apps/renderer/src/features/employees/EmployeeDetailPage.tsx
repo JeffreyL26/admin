@@ -248,8 +248,12 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       qc.invalidateQueries({ queryKey: ['org'] });
-      // Eine geplante Vertragsversion passt das Backend nicht an, es sagt das hier.
-      toast.success(res.contract_notice ? `Stammdaten gespeichert. ${res.contract_notice}` : 'Stammdaten gespeichert');
+      // Stunden, Urlaub und Art korrigieren auch die geltende Vertragsversion.
+      qc.invalidateQueries({ queryKey: ['contracts'] });
+      // Eine geplante Vertragsversion bleibt; der Hinweis verlangt eine Pruefung
+      // und steht deshalb laenger als die Erfolgsmeldung.
+      if (res.contract_notice) toast.success(`Stammdaten gespeichert. ${res.contract_notice}`, { duration: 15000 });
+      else toast.success('Stammdaten gespeichert');
       setConflictMessage(null);
       setDirty(false);
       // Snapshot direkt aus der PATCH-Antwort setzen statt auf den Refetch zu

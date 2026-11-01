@@ -97,12 +97,14 @@ export function BulkEditModal({
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['employees'] });
       qc.invalidateQueries({ queryKey: ['org'] });
+      // Stunden und Urlaub korrigieren auch die geltenden Vertragsversionen.
+      qc.invalidateQueries({ queryKey: ['contracts'] });
       const teams = res.teams_cleared ? `, bei ${res.teams_cleared} das Team der alten Abteilung entfernt` : '';
       // Geplante Vertragsversionen passt die Sammelaenderung nicht an (Backend: syncCurrentContract).
       const planned = res.contracts_not_synced
-        ? `. Bei ${res.contracts_not_synced} Person(en) ist eine Vertragsversion geplant; Werte ab dann bitte im Tab „Vertrag“ prüfen`
+        ? `. Bei ${res.contracts_not_synced} Person(en) ist eine Vertragsversion geplant; ab ihrem Beginn gelten deren Werte, bitte im Tab „Vertrag“ prüfen`
         : '';
-      toast.success(`${res.updated} Mitarbeitende aktualisiert${teams}${planned}`);
+      toast.success(`${res.updated} Mitarbeitende aktualisiert${teams}${planned}`, planned ? { duration: 15000 } : undefined);
       setState(INITIAL);
       onDone();
       onClose();

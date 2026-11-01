@@ -423,4 +423,16 @@ export const employeesMigrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_employees_executive ON employees(executive) WHERE executive = 1;
     `,
   },
+  {
+    // Geplante Vertragsversion (Beginn kuenftig): Stunden, Urlaub und Art
+    // gehen erst zum Beginn auf employees (contractRoutes.ts#mirrorDueContracts),
+    // nicht schon beim Anlegen, sonst rechneten Lohnlauf, FTE und Typregeln
+    // vorzeitig damit. 1 = steht noch aus. Bestehende Versionen gelten als
+    // gespiegelt (sie wurden es beim Anlegen).
+    name: '116_contract_mirror_pending',
+    sql: `
+      ALTER TABLE contracts ADD COLUMN mirror_pending INTEGER NOT NULL DEFAULT 0 CHECK (mirror_pending IN (0, 1));
+      CREATE INDEX IF NOT EXISTS idx_contracts_mirror_pending ON contracts(valid_from) WHERE mirror_pending = 1;
+    `,
+  },
 ];

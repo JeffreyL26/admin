@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { formatDate } from '@ohrganize/shared';
 import { assertExecutiveAccess } from '../../core/executiveGate.js';
 import { getDb, inTransaction } from '../../db/db.js';
-import { audit } from '../../core/audit.js';
+import { audit, auditSystem } from '../../core/audit.js';
 import { addDaysIso, todayIso } from '../../core/dates.js';
 import { AppError, badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { assertMayLinkFiles } from '../../core/files.js';
@@ -22,6 +22,8 @@ interface ContractRow {
   fixed_term_reason: string | null;
   document_file_id: number | null;
   note: string | null;
+  /** 1: geplante Version, Spiegelung auf employees steht zum Beginn noch aus. */
+  mirror_pending: number;
   created_at: string;
 }
 
@@ -71,6 +73,19 @@ function newestContract(employeeId: number): ContractRow | undefined {
 }
 
 /**
+ * Version, die heute gilt: begonnen und nicht abgelaufen, bei mehreren die
+ * zuletzt begonnene. Eine geplante Version (Beginn kuenftig) gilt noch nicht.
+ */
+function contractInEffect(employeeId: number, today = todayIso()): ContractRow | undefined {
+  return getDb()
+    .prepare(
+      `SELECT * FROM contracts WHERE employee_id = @employee_id AND valid_from <= @today AND ${CURRENT_SQL}
+       ORDER BY valid_from DESC, id DESC LIMIT 1`,
+    )
+    .get({ employee_id: employeeId, today }) as ContractRow | undefined;
+}
+
+/**
  * Wochenstunden/Urlaubsanspruch und Beschaeftigungsart der aktuellen
  * Vertragsversion auf employees spiegeln, dort liegt die eine Quelle für alle
  * anderen Module.
@@ -78,11 +93,14 @@ function newestContract(employeeId: number): ContractRow | undefined {
  * Vorher laufen die Typregeln der Person ueber den gespiegelten Stand: Ein
  * Vertrag mit 30 Wochenstunden fuer eine Werkstudentin liesse sich sonst
  * anlegen und schriebe still einen Wert in die Personalakte, den der
- * Stammdaten-PATCH mit 400 abweist.
+ * Stammdaten-PATCH mit 400 abweist. Mit `apply: false` nur pruefen (eine
+ * geplante Version: Fehler zeigen sich beim Anlegen, geschrieben wird zum
+ * Beginn).
  */
 function mirrorToEmployee(
   employeeId: number,
   contract: { weekly_hours?: number | null; annual_leave_days?: number | null; employee_type?: string | null },
+  apply = true,
 ): void {
   const sets: string[] = [];
   const params: unknown[] = [];
@@ -136,15 +154,53 @@ function mirrorToEmployee(
     }
     throw e;
   }
+  if (!apply) return;
   getDb()
     .prepare(`UPDATE employees SET ${sets.join(', ')}, updated_at = datetime('now') WHERE id = ?`)
     .run(...params, employeeId);
 }
 
+/**
+ * Geplante Versionen, deren Beginn erreicht ist, auf employees spiegeln
+ * (`mirror_pending`, Migration 116). Je Person die zuletzt begonnene; alle
+ * faelligen gelten danach als erledigt. Laeuft beim Start des Moduls und
+ * stuendlich. Passen die Werte inzwischen nicht mehr zu den Typregeln der
+ * Person, bleibt die Personalakte stehen und ein Protokolleintrag ohne Konto
+ * (`contract.mirror_failed`) nennt den Grund; sonst `contract.mirrored`.
+ * Liefert die IDs der gespiegelten Versionen.
+ */
+export function mirrorDueContracts(today = todayIso()): number[] {
+  const db = getDb();
+  return inTransaction(() => {
+    const due = db
+      .prepare(
+        `SELECT * FROM contracts WHERE mirror_pending = 1 AND valid_from <= ?
+         ORDER BY employee_id, valid_from DESC, id DESC`,
+      )
+      .all(today) as ContractRow[];
+    const mirrored: number[] = [];
+    const seen = new Set<number>();
+    for (const c of due) {
+      db.prepare('UPDATE contracts SET mirror_pending = 0 WHERE id = ?').run(c.id);
+      if (seen.has(c.employee_id) || !isCurrent(c, today)) continue;
+      seen.add(c.employee_id);
+      try {
+        mirrorToEmployee(c.employee_id, c);
+        mirrored.push(c.id);
+        auditSystem('contract.mirrored', 'contract', { employee_id: c.employee_id, valid_from: c.valid_from }, c.id);
+      } catch (e) {
+        if (!(e instanceof AppError)) throw e;
+        auditSystem('contract.mirror_failed', 'contract', { employee_id: c.employee_id, reason: e.message }, c.id);
+      }
+    }
+    return mirrored;
+  });
+}
+
 export interface ContractSync {
   /** Angepasste Version mit altem und neuem Wert je Feld; der Aufrufer protokolliert sie. */
   synced?: { id: number; changed: Record<string, { from: unknown; to: unknown }> };
-  /** Hinweis für die Oberfläche, wenn eine künftige Version besteht und nichts angepasst wurde. */
+  /** Hinweis für die Oberfläche, wenn eine geplante Version besteht (sie bleibt unangetastet). */
   notice?: string;
 }
 
@@ -155,35 +211,38 @@ export interface ContractSync {
  * die Vertragshistorie weiter den alten Stand, und der Korrekturdialog
  * belegte ihn vor. Eine Änderung ab einem Datum ist eine neue Version.
  *
- * Beginnt die jüngste Version erst künftig (eine geplante Änderung), wird
- * nichts angepasst: Die Korrektur landete sonst auf der geplanten Version und
- * überschriebe sie still, die laufende bliebe falsch. Dann kommt `notice`.
- * Läuft in der Transaktion der Personaländerung; das Audit schreibt der
- * Aufrufer in derselben Transaktion (Eintrag `update` an `contract`).
+ * Angepasst wird die Version, die HEUTE gilt; die Personalakte spiegelt
+ * genau sie (geplante Versionen erst zum Beginn, mirrorDueContracts). Eine
+ * geplante Version bleibt unangetastet, sonst ueberschriebe die Korrektur
+ * still die geplante Aenderung; ab ihrem Beginn gelten ihre Werte, und
+ * `notice` sagt das. Läuft in der Transaktion der Personaländerung; das
+ * Audit schreibt der Aufrufer in derselben Transaktion (Eintrag `update` an
+ * `contract`).
  */
 export function syncCurrentContract(
   employeeId: number,
   changed: Partial<Record<string, unknown>>,
   today = todayIso(),
 ): ContractSync {
+  // Ohne Vertragsfeld im Rumpf keine Abfrage (jeder Personal-PATCH kommt hier vorbei).
+  if (!MIRRORED_COLUMNS.some((c) => changed[c] !== undefined)) return {};
+  const result: ContractSync = {};
   const newest = newestContract(employeeId);
-  if (!newest || !isCurrent(newest, today)) return {};
-  const cols = MIRRORED_COLUMNS.filter((c) => changed[c] !== undefined && changed[c] !== newest[c]);
-  if (cols.length === 0) return {};
-  if (newest.valid_from > today) {
-    return {
-      notice: `Die geplante Vertragsversion ab ${formatDate(newest.valid_from)} wurde nicht angepasst. Wochenstunden, Urlaub und Beschäftigungsart ab dann bitte im Tab „Vertrag“ prüfen.`,
-    };
+  if (newest && newest.valid_from > today && isCurrent(newest, today)) {
+    result.notice = `Ab ${formatDate(newest.valid_from)} gilt die geplante Vertragsversion mit ihren eigenen Werten; die Änderung gilt bis dahin. Bitte im Tab „Vertrag“ prüfen.`;
   }
+  const inEffect = contractInEffect(employeeId, today);
+  if (!inEffect) return result;
+  const cols = MIRRORED_COLUMNS.filter((c) => changed[c] !== undefined && changed[c] !== inEffect[c]);
+  if (cols.length === 0) return result;
   getDb()
     .prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
-    .run(...cols.map((c) => changed[c] ?? null), newest.id);
-  return {
-    synced: {
-      id: newest.id,
-      changed: Object.fromEntries(cols.map((c) => [c, { from: newest[c], to: changed[c] ?? null }])),
-    },
+    .run(...cols.map((c) => changed[c] ?? null), inEffect.id);
+  result.synced = {
+    id: inEffect.id,
+    changed: Object.fromEntries(cols.map((c) => [c, { from: inEffect[c], to: changed[c] ?? null }])),
   };
+  return result;
 }
 
 function validateRange(body: Pick<ContractBody, 'valid_from' | 'valid_to'>): void {
@@ -193,6 +252,21 @@ function validateRange(body: Pick<ContractBody, 'valid_from' | 'valid_to'>): voi
 }
 
 export async function contractRoutes(app: FastifyInstance): Promise<void> {
+  // Geplante Versionen zum Beginn spiegeln: beim Start (die Migrationen sind
+  // durch) und stuendlich, wie die Umfragen in communication/routes.ts.
+  const dueCheck = () => {
+    try {
+      const mirrored = mirrorDueContracts();
+      if (mirrored.length > 0) app.log.info(`${mirrored.length} geplante Vertragsversion(en) zum Beginn uebernommen.`);
+    } catch (err) {
+      app.log.warn(`Uebernahme geplanter Vertragsversionen gescheitert (${err instanceof Error ? err.message : String(err)}).`);
+    }
+  };
+  dueCheck();
+  const dueTimer = setInterval(dueCheck, 60 * 60 * 1000);
+  dueTimer.unref();
+  app.addHook('onClose', async () => clearInterval(dueTimer));
+
   // Vertragshistorie eines Mitarbeitenden (neueste Version zuerst).
   app.get('/api/employees/:id/contracts', async (req) => {
     const employeeId = Number((req.params as { id: string }).id);
@@ -244,7 +318,13 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         )
         .run(employeeId, ...CONTRACT_COLUMNS.map((c) => body[c] ?? null));
       const newId = Number(info.lastInsertRowid);
-      if (isCurrent({ valid_to: body.valid_to ?? null }, today)) mirrorToEmployee(employeeId, body);
+      if (isCurrent({ valid_to: body.valid_to ?? null }, today)) {
+        // Geplante Version: jetzt nur pruefen, gespiegelt wird zum Beginn
+        // (mirrorDueContracts), sonst rechneten Lohnlauf und FTE vorzeitig damit.
+        const planned = body.valid_from > today;
+        mirrorToEmployee(employeeId, body, !planned);
+        if (planned) db.prepare('UPDATE contracts SET mirror_pending = 1 WHERE id = ?').run(newId);
+      }
       // Audit in derselben Transaktion: kein neuer Vertrag ohne Protokoll.
       audit(req, 'create', 'contract', newId, {
         employee_id: employeeId,
@@ -309,12 +389,20 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       );
       // Nur spiegeln, was diese Korrektur aendert: Unveraenderte Werte stimmen
       // schon mit den Stammdaten ueberein (syncCurrentContract), ein Altwert
-      // aus der Zeit davor setzte sie sonst still zurueck.
+      // aus der Zeit davor setzte sie sonst still zurueck. Eine geplante
+      // Version (Beginn kuenftig) wird nur geprueft und zum Beginn gespiegelt;
+      // stand die Spiegelung noch aus und gilt die Version jetzt, geht sie ganz.
       if (isCurrent({ valid_to: merged.valid_to ?? null }, today)) {
-        const changed = Object.fromEntries(
-          MIRRORED_COLUMNS.filter((c) => patch[c] !== undefined && patch[c] !== existing[c]).map((c) => [c, patch[c]]),
-        );
-        mirrorToEmployee(existing.employee_id, changed);
+        const planned = merged.valid_from > today;
+        const changed = existing.mirror_pending === 1 && !planned
+          ? Object.fromEntries(MIRRORED_COLUMNS.map((c) => [c, merged[c]]))
+          : Object.fromEntries(
+              MIRRORED_COLUMNS.filter((c) => patch[c] !== undefined && patch[c] !== existing[c]).map((c) => [c, patch[c]]),
+            );
+        mirrorToEmployee(existing.employee_id, changed, !planned);
+        if ((existing.mirror_pending === 1) !== planned) {
+          db.prepare('UPDATE contracts SET mirror_pending = ? WHERE id = ?').run(planned ? 1 : 0, id);
+        }
       }
       audit(req, 'update', 'contract', id, {
         employee_id: existing.employee_id,
