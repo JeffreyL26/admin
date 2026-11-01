@@ -207,7 +207,12 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (passt sie nicht zu den Typregeln: offen mit `mirror_error`, erneut
   versucht wie eine fällige Version), und ihre festgehaltenen Felder, die
   danach der Akte entsprechen, werden wieder leer
-  (`unfreezeReopenedContract`, Audit `reopened`). Sonst änderte
+  (`unfreezeReopenedContract`, Audit `reopened`). Damit die Akte sie
+  vollständig zurückbekommt, erhält eine Version beim Ablösen (POST einer
+  neuen) ihre offene Art und Wochenstunden aus der Akte, die in diesem
+  Moment genau sie spiegelt (`fillClosedVersion`, Audit `closed_filled`);
+  fehlen sie bei einer früher abgelösten Version, lehnt das Verschieben mit
+  409 ab, statt Art oder Stunden der verschobenen Version stehen zu lassen. Sonst änderte
   ein Wechsel in Teilzeit rückwirkend den Anspruch. Jede Schreibstelle dieser
   Spalten der Akte ruft es in ihrer Transaktion vor der Ausführung des UPDATE
   und nennt das Ergebnis im Audit (`frozen`); statisch geprüft von

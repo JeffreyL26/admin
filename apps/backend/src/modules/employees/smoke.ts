@@ -632,11 +632,17 @@ check(
   // wieder in die Zukunft schieben: offen, und die Vorversion gilt wieder und
   // geht zurueck in die Akte (eine geplante Version erst zum Beginn).
   const todayLocal = getDb().prepare("SELECT date('now', 'localtime') AS d").get() as { d: string };
+  // Stunden der verschobenen Version: sicher andere als die der Vorversion,
+  // damit die Rueckspiegelung sichtbar ist (unabhaengig von frueheren Bloecken).
+  const previousHours = (getDb().prepare('SELECT weekly_hours FROM contracts WHERE id = ?').get(typedId) as {
+    weekly_hours: number | null;
+  }).weekly_hours;
+  const movingHours = previousHours === 16 ? 17 : 16;
   const moving = await app.inject({
     method: 'POST',
     url: `/api/employees/${empId}/contracts`,
     headers: auth,
-    payload: { contract_type: 'unbefristet', valid_from: plannedFrom, weekly_hours: 16 },
+    payload: { contract_type: 'unbefristet', valid_from: plannedFrom, weekly_hours: movingHours },
   });
   const movingId = moving.json().contract?.id as number;
   const pulled = await app.inject({ method: 'PATCH', url: `/api/contracts/${movingId}`, headers: auth, payload: { valid_from: todayLocal.d } });
@@ -654,12 +660,11 @@ check(
     'Geplante Version vorgezogen: sofort gespiegelt; wieder verschoben: offen, Akte wieder mit der Vorversion',
     moving.statusCode === 201 &&
       pulled.statusCode === 200 &&
-      pulledHours === 16 &&
+      pulledHours === movingHours &&
       pulledPending === 0 &&
       pushed.statusCode === 200 &&
       pendingOf() === 1 &&
       previous.weekly_hours !== null &&
-      previous.weekly_hours !== 16 &&
       previous.mirror_pending === 0 &&
       (await hoursOf()) === previous.weekly_hours,
     { moving: moving.json(), pulled: pulled.json(), pulledHours, pulledPending, pushed: pushed.json(), pending: pendingOf(), previous, hours: await hoursOf() },
