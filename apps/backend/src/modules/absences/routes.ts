@@ -736,7 +736,8 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
          FROM absence_requests r
          JOIN absence_types t ON t.id = r.type_id
          WHERE t.affects_balance = 1 AND r.status IN ('genehmigt', 'beantragt')
-           AND r.date_from <= ? AND r.date_to >= ?`,
+           AND r.date_from <= ? AND r.date_to >= ?
+           AND r.employee_id IN (SELECT id FROM employees WHERE status = 'aktiv')`,
       )
       .all([spanTo, spanFrom]) as (BalanceRequestRow & { employee_id: number })[];
     const closures = closuresCovering(requestRows, spanFrom, spanTo);

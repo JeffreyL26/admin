@@ -177,7 +177,7 @@ check('unbekannte Woche nur vertraglich', entitlementPartLabels(unknown, fmt).jo
   check(
     'Abschnitte: Hinweis im Saldo',
     periodNote ===
-      'je Vertragsversion: 22,5 bis 30.09.2026 (5 Tage je Woche, 30 Urlaubstage) + 4,5 ab 01.10.2026 (3 Tage je Woche, 18 Urlaubstage)',
+      'je Zeitraum: 22,5 bis 30.09.2026 (5 Tage je Woche, 30 Urlaubstage) + 4,5 ab 01.10.2026 (3 Tage je Woche, 18 Urlaubstage)',
     periodNote,
   );
   const one =leaveEntitlementForPeriods(person, [{ from: '2026-01-01', to: '2026-12-31', annual_leave_days: 30, days_per_week: 5 }], 2026);
@@ -218,7 +218,24 @@ check('unbekannte Woche nur vertraglich', entitlementPartLabels(unknown, fmt).jo
   );
   const partSum = Math.round((midMonth.periods ?? []).reduce((s, p) => s + p.total, 0) * 100) / 100;
   check('Abschnitte: Beitraege ergeben den Anspruch', partSum === midMonth.total, { partSum, midMonth });
-  // Ohne Recht "Schwerbehinderung": Abschnitte fallen weg, die Summe bleibt.
+  // Wechsel in freie Mitarbeit (kein Anspruch): Der Abschnitt traegt genau 0
+  // bei, den Rundungsrest traegt der groesste (nachgestellt: sonst -0,01).
+  const toFreelance = leaveEntitlementForPeriods(
+    person,
+    [
+      { from: '2026-01-01', to: '2026-07-09', annual_leave_days: 30, days_per_week: 5 },
+      { from: '2026-07-10', to: '2026-12-31', annual_leave_days: 0, days_per_week: null },
+    ],
+    2026,
+  );
+  const freelanceSum = Math.round((toFreelance.periods ?? []).reduce((s, p) => s + p.total, 0) * 100) / 100;
+  check(
+    'Abschnitte: Abschnitt ohne Anspruch bleibt 0, Summe stimmt',
+    toFreelance.periods?.[1].total === 0 && freelanceSum === toFreelance.total,
+    toFreelance.periods,
+  );
+  // Ohne Recht "Schwerbehinderung": Abschnitte bleiben (sonst verriete ihr
+  // Fehlen den Grad), Zusatzurlaub ungenannt im vertraglichen Teil, gerundet.
   const withExtra = leaveEntitlementForPeriods(
     { ...person, disability_degree: 50 },
     [
@@ -228,11 +245,29 @@ check('unbekannte Woche nur vertraglich', entitlementPartLabels(unknown, fmt).jo
     2026,
   );
   const masked = maskDisabilityEntitlement(withExtra);
+  const twoDecimals = (n: number) => Math.round(n * 100) / 100 === n;
   check(
-    'Abschnitte: Maskierung entfernt die Abschnitte, Summe gleich',
-    withExtra.periods?.length === 2 && masked.periods === undefined && masked.total === withExtra.total && masked.disability === 0,
+    'Abschnitte: Maskierung behaelt die Abschnitte, Summe gleich, Teile gerundet',
+    withExtra.disability > 0 &&
+      JSON.stringify(masked.periods) === JSON.stringify(withExtra.periods) &&
+      masked.total === withExtra.total &&
+      masked.disability === 0 &&
+      twoDecimals(masked.contractual) &&
+      twoDecimals(masked.full_year.contractual),
     masked,
   );
+  // Gleitkommarest der Maskierung (nachgestellt: 15.879999999999999).
+  const odd = maskDisabilityEntitlement(
+    leaveEntitlementForPeriods(
+      { ...person, disability_degree: 50 },
+      [
+        { from: '2026-01-01', to: '2026-01-31', annual_leave_days: 28, days_per_week: 4.5 },
+        { from: '2026-02-01', to: '2026-12-31', annual_leave_days: 31, days_per_week: 5 },
+      ],
+      2026,
+    ),
+  );
+  check('Maskierung: vertraglicher Teil auf zwei Stellen', twoDecimals(odd.contractual) && twoDecimals(odd.full_year.contractual), odd);
 }
 
 if (failures > 0) {

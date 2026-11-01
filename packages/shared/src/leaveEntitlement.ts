@@ -256,6 +256,12 @@ export function leaveEntitlementForPeriods(
     disability: fullDisability,
     total: round2(fullStatutory + fullContractual + fullDisability),
   };
+  // Beiträge je Abschnitt: Den Rundungsrest zur Summe trägt der größte, damit
+  // die Beiträge genau den Anspruch ergeben und ein Abschnitt ohne Anspruch
+  // (etwa freie Mitarbeit) bei 0 bleibt statt bei -0,01.
+  const shares = parts.map((x) => round2(x.detail.total * x.weight));
+  const largest = shares.reduce((best, s, i) => (s > shares[best] ? i : best), 0);
+  shares[largest] = round2(total - shares.reduce((sum, s, i) => (i === largest ? sum : sum + s), 0));
   return {
     statutory,
     contractual,
@@ -265,16 +271,12 @@ export function leaveEntitlementForPeriods(
     full_year: full,
     prorated: total !== full.total,
     statutory_known: parts.some((x) => x.detail.statutory_known),
-    // Der letzte Beitrag ist der Rest, damit die Beiträge genau den Anspruch ergeben.
     periods: parts.map((x, i) => ({
       from: x.period.from,
       to: x.period.to,
       annual_leave_days: x.period.annual_leave_days,
       days_per_week: x.period.days_per_week,
-      total:
-        i < parts.length - 1
-          ? round2(x.detail.total * x.weight)
-          : round2(total - parts.slice(0, -1).reduce((sum, y) => sum + round2(y.detail.total * y.weight), 0)),
+      total: shares[i],
     })),
   };
 }
@@ -310,7 +312,7 @@ export function entitlementPartLabels(
   format: (n: number) => string,
   withDisability = true,
 ): string[] {
-  const contractual = withDisability ? detail.contractual : detail.contractual + detail.disability;
+  const contractual = withDisability ? detail.contractual : round2(detail.contractual + detail.disability);
   const parts: string[] = [];
   if (detail.statutory_known) parts.push(`gesetzlich ${format(detail.statutory)}`);
   if (contractual > 0 || !detail.statutory_known) parts.push(`vertraglich ${format(contractual)}`);
@@ -320,9 +322,11 @@ export function entitlementPartLabels(
 
 /**
  * Hinweis bei mehreren Zeitabschnitten im Jahr (Vertragsversionen mit anderer
- * Arbeitswoche oder anderem Jahresurlaub), z. B. "je Vertragsversion: 22,5 bis
+ * Arbeitswoche oder anderem Jahresurlaub), z. B. "je Zeitraum: 22,5 bis
  * 30.09.2026 (5 Tage je Woche, 30 Urlaubstage) + 4,5 ab 01.10.2026 (3 Tage je
- * Woche, 18 Urlaubstage)". Ohne Abschnitte null.
+ * Woche, 18 Urlaubstage)". "Zeitraum", nicht "Vertragsversion": Gleiche
+ * Nachbarn sind einer, und was keine Version abdeckt, kommt aus der
+ * Personalakte. Ohne Abschnitte null.
  */
 export function entitlementPeriodNote(detail: EntitlementDetail, format: (n: number) => string): string | null {
   const periods = detail.periods;
@@ -340,7 +344,7 @@ export function entitlementPeriodNote(detail: EntitlementDetail, format: (n: num
     ].filter(Boolean);
     return `${format(p.total)} ${range}${values.length ? ` (${values.join(', ')})` : ''}`;
   });
-  return `je Vertragsversion: ${parts.join(' + ')}`;
+  return `je Zeitraum: ${parts.join(' + ')}`;
 }
 
 /** Hinweis bei unterjährigem Anspruch, z. B. "anteilig, 6 von 12 Monaten (ganzes Jahr 30)". */

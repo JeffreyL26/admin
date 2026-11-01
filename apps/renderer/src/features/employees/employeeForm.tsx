@@ -10,6 +10,7 @@ import {
   RESIDENCE_PERMIT_TYPES,
   DISABILITY_DEGREES,
   WEEKDAY_SHORT,
+  contractState,
   disabilityNotes,
   entitlementDaysPerWeek,
   formatWeekdays,
@@ -21,6 +22,7 @@ import {
   employeeTypeRulesFor,
   employeeTypesFor,
   taxClassesFor,
+  type ContractDto,
   type EmployeeRuleField,
   type EmployeeStatus,
   type EmployeeType,
@@ -439,11 +441,41 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
 }
 
 /**
- * `contractNote`: in der Personalakte ein Hinweis, wie Stunden, Arbeitswoche
- * und Urlaub mit den Vertragsversionen zusammenhängen ('versioned': es gibt
- * eine Version, Änderungen hier korrigieren sie; 'none': noch keine Version,
- * die Werte gelten für alle Jahre). Beim Anlegen einer Person kein Hinweis.
+ * Hinweis in der Personalakte, wie Stunden, Arbeitswoche und Urlaub mit den
+ * Vertragsversionen zusammenhängen: 'versioned' (heute gilt eine Version,
+ * Änderungen hier korrigieren sie, syncCurrentContract), 'uncovered' (es gibt
+ * Versionen, aber heute gilt keine: nur abgelaufene oder geplante) und
+ * 'none' (keine Version, die Werte gelten für alle Jahre).
  */
+export type ContractNote = 'versioned' | 'uncovered' | 'none';
+
+const CONTRACT_NOTES: Record<ContractNote, string> = {
+  versioned:
+    'Wochenstunden, Arbeitswoche und Jahresurlaub gehören zur Vertragsversion. Änderungen hier korrigieren die ' +
+    'geltende Version für ihren ganzen Zeitraum. Ändern sie sich ab einem Datum, etwa beim Wechsel in Teilzeit, ' +
+    'bitte im Tab „Vertrag“ eine neue Version anlegen; der Urlaubsanspruch wird dann für jeden Zeitraum anteilig ' +
+    'berechnet.',
+  uncovered:
+    'Heute gilt keine Vertragsversion. Mit diesen Werten rechnet der Urlaubsanspruch die Zeiträume, die keine ' +
+    'Version abdeckt; die Versionen selbst bleiben unverändert. Ändern sie sich ab einem Datum, bitte im Tab ' +
+    '„Vertrag“ eine neue Version anlegen.',
+  none:
+    'Ohne Vertragsversion rechnet der Urlaubsanspruch aller Jahre mit diesen Werten. Ändern sie sich ab einem ' +
+    'Datum, etwa beim Wechsel in Teilzeit, bitte im Tab „Vertrag“ Versionen anlegen; dann wird für jeden Zeitraum ' +
+    'anteilig gerechnet.',
+};
+
+/** Welcher Hinweis gilt (Zustand je Version wie im Tab Vertrag, contractState). */
+export function contractNoteFor(contracts: readonly ContractDto[], today: string): ContractNote {
+  if (contracts.length === 0) return 'none';
+  const inEffect = contracts.some((c) => {
+    const state = contractState(c, false, today);
+    return state !== 'abgelaufen' && state !== 'geplant';
+  });
+  return inEffect ? 'versioned' : 'uncovered';
+}
+
+/** `contractNote`: Hinweis in der Personalakte (contractNoteFor); beim Anlegen einer Person keiner. */
 export function EmploymentFields({
   form,
   set,
@@ -451,7 +483,7 @@ export function EmploymentFields({
 }: {
   form: EmployeeFormState;
   set: SetForm;
-  contractNote?: 'versioned' | 'none';
+  contractNote?: ContractNote;
 }) {
   const { can } = useAuth();
   const mayExecutive = can('leitung', 'bearbeiten');
@@ -616,19 +648,9 @@ export function EmploymentFields({
           onChange={(e) => set({ annual_leave_days: e.target.value })}
         />
       </Field>
-      {contractNote === 'versioned' && (
+      {contractNote && (
         <p style={{ gridColumn: '1 / -1', margin: 0, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-          Wochenstunden, Arbeitswoche und Jahresurlaub gehören zur Vertragsversion. Änderungen hier korrigieren die
-          geltende Version für ihren ganzen Zeitraum. Ändern sie sich ab einem Datum, etwa beim Wechsel in Teilzeit,
-          bitte im Tab „Vertrag“ eine neue Version anlegen; der Urlaubsanspruch wird dann für jeden Zeitraum anteilig
-          berechnet.
-        </p>
-      )}
-      {contractNote === 'none' && (
-        <p style={{ gridColumn: '1 / -1', margin: 0, color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
-          Ohne Vertragsversion rechnet der Urlaubsanspruch aller Jahre mit diesen Werten. Ändern sie sich ab einem
-          Datum, etwa beim Wechsel in Teilzeit, bitte im Tab „Vertrag“ Versionen anlegen; dann wird für jeden Zeitraum
-          anteilig gerechnet.
+          {CONTRACT_NOTES[contractNote]}
         </p>
       )}
       <Field label="Höchster Abschluss">
