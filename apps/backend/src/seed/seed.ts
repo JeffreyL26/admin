@@ -255,6 +255,9 @@ inTransaction(() => {
       // Staatsangehoerigkeit: deutsch als Regelfall, einige Demo-Ausnahmen
       // weiter unten (Aufenthaltstitel, EU-Freizuegigkeit).
       nationality: 'DE',
+      // Arbeitswoche: Mo bis Fr, Ausnahmen unten; freie Mitarbeit ohne.
+      work_weekdays: e.type === 'freiberufler' ? null : '1,2,3,4,5',
+      work_days_per_week: e.type === 'freiberufler' ? null : 5,
       highest_degree: e.type === 'werkstudent' || e.type === 'auszubildender' || e.type === 'praktikant' ? 'abitur' : 'berufsausbildung',
     });
     ids.push(id);
@@ -274,6 +277,17 @@ inTransaction(() => {
   setOrigin.run(['NG', 'blaue_karte_eu', permitSoon, 'master_diplom', 'Elektrotechnik', OPS1]);
   setOrigin.run(['DE', null, null, 'master_diplom', 'Betriebswirtschaft', GF]);
   setOrigin.run(['DE', null, null, 'promotion', 'Informatik', CTO]);
+
+  // Arbeitswochen in Teilzeit (Beispiele fuer feste und flexible Tage): Der
+  // gesetzliche Mindesturlaub rechnet sich daraus (4 x Tage je Woche).
+  const setWeek = db.prepare('UPDATE employees SET work_weekdays = ?, work_days_per_week = ? WHERE id = ?');
+  setWeek.run(['1,2,3,4', 4, HRR]);
+  setWeek.run(['1,2,3,4', 4, DEV3]);
+  setWeek.run([null, 3, CC]);
+  setWeek.run(['2,4', 2, MJ1]);
+  setWeek.run([null, 2, MJ2]);
+  setWeek.run([null, 3, WS1]);
+  setWeek.run(['2,4', 2, WS2]);
 
   // Vorgesetzte + Abteilungs-/Teamleitungen
   const setMgr = db.prepare('UPDATE employees SET manager_id = ? WHERE id = ?');

@@ -23,6 +23,8 @@ import {
   formatDate,
   readableTextColor,
   ABSENCE_STATUS_LABELS,
+  isScheduledDay,
+  workScheduleOf,
   type AbsenceType,
   type CalendarEmployee,
   type CalendarAbsenceEntry,
@@ -68,6 +70,14 @@ const isWeekendDay = (date: string) => {
   const wd = weekdayOf(date);
   return wd === 0 || wd === 6;
 };
+
+/**
+ * Freier Tag der Person: Wochenende oder, bei festen Arbeitstagen
+ * (shared/workSchedule.ts), ein Tag außerhalb davon. Wird grau wie ein
+ * Wochenende gezeichnet und nicht als Abwesenheit gezählt.
+ */
+const isOffDay = (emp: CalendarEmployee, date: string) =>
+  emp.work_weekdays ? !isScheduledDay(workScheduleOf(emp), date) : isWeekendDay(date);
 
 function todayIso(): string {
   const d = new Date();
@@ -283,7 +293,7 @@ const Legend = React.forwardRef<HTMLDivElement, { types?: LegendType[]; onEditCo
       </span>
       <span className="hm-cal-legend__item">
         <span className="hm-cal-legend__swatch hm-cal-legend__swatch--weekend" />
-        Wochenende
+        Wochenende, freier Tag
       </span>
       <span className="hm-cal-legend__item">
         <span className="hm-cal-legend__swatch hm-cal-legend__swatch--holiday" />
@@ -593,7 +603,7 @@ function EmployeeRow({
         <div className="hm-cal__days" style={{ gridTemplateColumns: `repeat(${n}, 1fr)` }}>
           {days.map((d) => {
             const holidayName = holidays?.get(d);
-            const weekend = isWeekendDay(d);
+            const weekend = isOffDay(emp, d);
             const closure = closureDays.has(d);
             const conflict = emp.team_id !== null && conflictByDayTeam.has(`${d}|${emp.team_id}`);
             // Nur besondere Tage erklären — ein Tooltip auf jeder leeren Zelle
@@ -748,7 +758,7 @@ function YearGrid({
           byType.set(a.type_id, entry);
         }
         for (const d of eachDayLocal(a.date_from < from ? from : a.date_from, a.date_to > to ? to : a.date_to)) {
-          if (!isWeekendDay(d) && !closureDays.has(d) && !holidays?.has(d)) {
+          if (!isOffDay(emp, d) && !closureDays.has(d) && !holidays?.has(d)) {
             counted.add(d);
             entry.days.add(d);
           }

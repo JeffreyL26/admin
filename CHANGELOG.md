@@ -12,6 +12,28 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Rueckmeldungen aus dem ersten Kundentest, Arbeitswoche und Urlaub (01.11.2026)
+- **Neu:** Arbeitswoche je Person in der Personalakte: feste Wochentage
+  (z. B. Di, Mi, Do) oder eine Zahl Tage je Woche ohne feste Tage.
+- **Neu:** Der gesetzliche Mindesturlaub rechnet sich aus der Arbeitswoche
+  (4 Wochen, also 20 Tage bei fuenf, 12 bei drei Arbeitstagen). Das Feld
+  "Jahresurlaub" ist der Gesamtanspruch laut Vertrag; was darueber liegt, ist
+  vertraglicher Mehrurlaub. Personalakte, Saldenuebersicht und Portal zeigen
+  die Aufteilung.
+- **Geaendert:** Unterjaehriger Ein- und Austritt nach § 5 BUrlG: Der
+  gesetzliche Teil steht voll zu, sobald die Wartezeit von sechs Monaten im
+  Jahr erfuellt ist (Eintritt bis 1. Juli) und niemand in der ersten
+  Jahreshaelfte ausscheidet; sonst ein Zwoelftel je vollem Monat,
+  Bruchteile ab einem halben Tag aufgerundet. Der vertragliche Mehrurlaub
+  wird weiter gezwoelftelt. Beispiel Eintritt 01.07. mit 32 Tagen: 20 + 6 = 26
+  (bisher 16). Volle Monate zaehlen ab dem Eintrittstag, nicht nur ab dem
+  Monatsersten. Salden zeigen dafuer zwei Nachkommastellen.
+- **Geaendert:** Antraege zaehlen nur Tage der Arbeitswoche; freie Tage sind
+  im Kalender grau wie Wochenenden, auch im Teamkonflikt und im
+  DATEV-Kalendarium. Bei flexibler Woche schlaegt der Antrag den Anteil der
+  Werktage vor, und HR wie Portal koennen die tatsaechlichen Arbeitstage
+  eintragen.
+
 ### Rueckmeldungen aus dem ersten Kundentest, Stammdaten (01.11.2026)
 - **Neu:** Staatsangehoerigkeit in den Stammdaten; bei Staatsangehoerigen
   ausserhalb von EU, EWR und Schweiz zusaetzlich Art und Gueltigkeit des

@@ -8,6 +8,8 @@ import {
   NATIONALITY_CODES,
   RESIDENCE_PERMIT_TYPES,
   churchTaxOptionsFor,
+  formatWeekdays,
+  parseWeekdays,
   employeeTypeRulesFor,
   employeeTypesFor,
   isRegionOf,
@@ -106,7 +108,26 @@ export const employeeBodySchema = z.object({
   residence_permit_until: isoDate.nullish(),
   highest_degree: z.enum(HIGHEST_DEGREES).nullish(),
   degree_field: nullableString,
+  // Arbeitswoche (shared/workSchedule.ts): feste Tage "1,2,4" oder nur die
+  // Zahl; settleWorkSchedule gleicht beides an.
+  work_weekdays: z
+    .string()
+    .regex(/^[1-7](,[1-7]){0,6}$/, 'Wochentage als Liste von 1 (Montag) bis 7 (Sonntag)')
+    .nullish(),
+  work_days_per_week: z.number().min(0.5).max(7).multipleOf(0.5).nullish(),
 });
+
+/**
+ * Arbeitswoche vereinheitlichen: Feste Tage werden sortiert und bestimmen die
+ * Zahl je Woche; wer die festen Tage entfernt und eine Zahl schickt, arbeitet
+ * flexibel. Aufgerufen nach dem Parsen von POST und PATCH.
+ */
+export function settleWorkSchedule(body: { work_weekdays?: string | null; work_days_per_week?: number | null }): void {
+  if (body.work_weekdays === undefined || body.work_weekdays === null) return;
+  const days = parseWeekdays(body.work_weekdays);
+  body.work_weekdays = days ? formatWeekdays(days) : null;
+  body.work_days_per_week = days ? days.length : (body.work_days_per_week ?? null);
+}
 
 export const employeePatchSchema = employeeBodySchema.partial();
 

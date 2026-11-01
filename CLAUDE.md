@@ -115,6 +115,30 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Lesefilter (`GET /api/me/leave-types`) nutzt `allowedTypeIdsFor` — Lese- und
   Schreibseite müssen sich decken, sonst bietet das Portal Arten an, die der POST
   ablehnt.
+- **Arbeitswoche und Urlaubsanspruch nach BUrlG** (Migrationen
+  `113_work_schedule`, `206_absence_days_manual`). Die Arbeitswoche einer
+  Person steht in `employees.work_weekdays` ("1,2,4", Mo = 1; feste Tage) und
+  `work_days_per_week` (ohne feste Tage: flexibel); Regeln DOM-frei in
+  `packages/shared/src/workSchedule.ts`. Sie reist mit dem Ort: `EmployeeRegion`
+  trägt `schedule`, `REGION_SELECT_SQL` lädt die Spalten mit, und jede
+  Sammelabfrage baut den Ort über `placeFromRow` (sonst zählte sie still Mo
+  bis Fr). `countAbsenceDays` zählt nur Tage der Arbeitswoche; bei
+  flexibler Woche liefert sie den Vorschlag `flexibleDays`, und ein Antrag
+  darf die tatsächlichen Arbeitstage von Hand tragen (`days_override` in
+  HR-Erfassung und Portal, gespeichert als `days_counted` mit
+  `days_manual = 1`; nur bei flexibler Woche, höchstens die Werktage Mo bis
+  Fr; `recountRequestsOverlapping` lässt solche Anträge stehen, Saldo und
+  Saldoprüfung lesen sie über `requestDaysIn`). Der Anspruch kommt allein
+  aus `leaveEntitlementFor` (`packages/shared/src/leaveEntitlement.ts`, Test
+  `src/test/leaveEntitlementTest.ts`): Mindesturlaub 4 × Arbeitstage je Woche
+  (§ 3 BUrlG), voll nach erfüllter Wartezeit, Zwölftel nur in den Fällen von
+  § 5 Abs. 1 mit Aufrundung ab einem halben Tag; vertraglicher Mehrurlaub
+  (`annual_leave_days` über dem Minimum) wird bei unterjährigem Ein- oder
+  Austritt immer gezwölftelt. Ohne bekannte Arbeitswoche (Teilzeit ohne
+  Angabe) gibt es keinen gesetzlichen Teil, und alles rechnet wie früher;
+  Vollzeit und Ausbildung gelten ohne Angabe als fünf Tage, freie Mitarbeit
+  hat keinen Anspruch. Der Saldo liefert die Aufteilung als
+  `entitlement_detail`; Salden tragen seither zwei Nachkommastellen.
 - **Vier-Augen-Prinzip:** `approve` und `reject` in `absences/routes.ts` weisen
   den eigenen Antrag mit 403 ab (Vergleich `req.user.employee_id` gegen
   `absence_requests.employee_id`). `cancel` bleibt erlaubt (Rückzug, kein
@@ -1042,7 +1066,7 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **DATEV-Lohnexport** (docs/datev-lohnexport.md): Alle Adapter lesen EINEN
   Kontext (`payrollExport/context.ts`: Snapshot des Laufs, Personalakte
   zum Exportzeitpunkt, genehmigte Fehltage des Monats gezaehlt wie
-  `countAbsenceDays`, also ohne Wochenende, Feiertage und Betriebsruhe, je
+  `countAbsenceDays`, also ohne freie Tage der Arbeitswoche, Feiertage und Betriebsruhe, je
   Tag ein Eintrag mit Krankheit vor Urlaub; gelesen in Sammelabfragen) und
   EINEN Pruefbericht (`check.ts`). Was in welche Datei kommt, entscheidet
   allein `positions.ts` (Bewegungen, Festbezuege, Lohnarten je Datei);

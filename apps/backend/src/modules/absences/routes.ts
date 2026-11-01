@@ -7,7 +7,14 @@ import { assertMayLinkFiles, detachUnreferencedFile, removeDetachedBlob } from '
 import { pageOffsetOf, pageRequest } from '../../core/paging.js';
 import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../core/dates.js';
 import { holidaysByRegion, isHoliday } from '../../core/holidays.js';
-import { nextWorkdayIso, type CountryCode, type RegionCode } from '@ohrganize/shared';
+import {
+  DEFAULT_WORK_SCHEDULE,
+  isScheduledDay,
+  nextWorkdayIso,
+  workScheduleOf,
+  type CountryCode,
+  type RegionCode,
+} from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import {
   allowedTypeIdsFor,
@@ -22,13 +29,16 @@ import {
   companyRegionDefaults,
   seamlessPredecessorSickNoteId,
   recountRequestsOverlapping,
+  placeFromRow,
   regionForEmployee,
   regionSelectParams,
+  schedulePreview,
   REGION_JOIN_SQL,
   REGION_SELECT_SQL,
   type AbsenceTypeRow as TypeRow,
   type BalanceRequestRow,
   type EmployeeRow,
+  type RegionRow,
 } from './service.js';
 
 /** Konflikt-Schwelle Kalender: > 50 % eines Teams gleichzeitig abwesend. */
@@ -95,6 +105,8 @@ const requestBodySchema = z.object({
   // Portal-Schema (me/routes.ts) kennt beide Felder bewusst nicht.
   override_balance: z.boolean().optional(),
   approve: z.boolean().optional(),
+  // Arbeitstage von Hand bei flexibler Arbeitswoche (createRequest prueft).
+  days_override: z.number().positive().max(366).nullish(),
 });
 
 /** Body ist optional — bestehende Clients schicken keinen. */
@@ -128,6 +140,7 @@ interface RequestRow {
   half_day_start: number;
   half_day_end: number;
   days_counted: number;
+  days_manual: number;
   status: string;
 }
 
@@ -509,16 +522,23 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     if (q.date_to < q.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
     assertSpanWithinLimit(q.date_from, q.date_to);
     const place = regionForEmployee(employeeId);
-    const days = countAbsenceDays({
+    const countOpts = {
       place,
       dateFrom: q.date_from,
       dateTo: q.date_to,
       halfDayStart: q.half_day_start === '1' || q.half_day_start === 'true',
       halfDayEnd: q.half_day_end === '1' || q.half_day_end === 'true',
-    });
+    };
+    const days = countAbsenceDays(countOpts);
     // `bundesland` bleibt aus Kompatibilitaet im Vertrag (Desktop und Portal
     // zeigen es im Antragsformular); `region` und `country` sind die neuen Namen.
-    return { days_counted: days, bundesland: place.region, region: place.region, country: place.country };
+    return {
+      days_counted: days,
+      bundesland: place.region,
+      region: place.region,
+      country: place.country,
+      ...schedulePreview(countOpts),
+    };
   });
 
   app.post('/api/absences/requests', async (req, reply) => {
@@ -575,6 +595,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
             date_to: row.date_to,
             half_day_start: row.half_day_start === 1,
             half_day_end: row.half_day_end === 1,
+            days_override: row.days_manual === 1 ? row.days_counted : null,
           },
           row.id,
         );
@@ -684,7 +705,8 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     const closures = closureDates(spanFrom, spanTo);
     const requestRows = db()
       .prepare(
-        `SELECT r.employee_id, r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status
+        `SELECT r.employee_id, r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status,
+                r.days_manual, r.days_counted
          FROM absence_requests r
          JOIN absence_types t ON t.id = r.type_id
          WHERE t.affects_balance = 1 AND r.status IN ('genehmigt', 'beantragt')
@@ -702,7 +724,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     const today = todayIso();
     const balances = employees.map((e) => ({
       ...computeBalance(e, y, today, {
-        place: { country: e.country, region: e.bundesland },
+        place: placeFromRow(e),
         carryoverDeadline,
         closures,
         requests: requestsByEmployee.get(e.id) ?? [],
@@ -793,8 +815,8 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
          ${REGION_JOIN_SQL}
          WHERE e.id IN (${employeeIds.map(() => '?').join(',')})`,
       )
-      .all([...regionSelectParams(), ...employeeIds]) as { id: number; country: CountryCode; bundesland: RegionCode }[];
-    for (const p of placeRows) places.set(p.id, { country: p.country, region: p.bundesland });
+      .all([...regionSelectParams(), ...employeeIds]) as (RegionRow & { id: number })[];
+    for (const p of placeRows) places.set(p.id, placeFromRow(p));
 
     // Betriebsruhetage EINMAL für die Spanne aller gezählten Zeiträume statt
     // einer Abfrage je Zeile (countAbsenceDays ohne `closures` lädt selbst).
@@ -900,6 +922,8 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       half_day_end: number;
       country: CountryCode;
       bundesland: RegionCode;
+      work_days_per_week: number | null;
+      work_weekdays: string | null;
       [key: string]: unknown;
     }[];
     if (rows.length === 0) return { absences: [] };
@@ -927,9 +951,13 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     // Vorlauf fuer Feiertage und Betriebsruhe direkt nach dem Ende.
     const closures = closureDates(addDaysIso(today, 1), addDaysIso(lastEnd, 60));
     return {
-      absences: rows.map(({ country, bundesland, ...r }) => {
+      absences: rows.map(({ country, bundesland, work_days_per_week, work_weekdays, ...r }) => {
         const own = later.filter((l) => l.employee_id === r.employee_id);
+        // Zurueck ist die Person am naechsten Tag ihrer Arbeitswoche (feste
+        // Tage), sonst am naechsten Werktag.
+        const schedule = workScheduleOf({ work_days_per_week, work_weekdays });
         const isOff = (d: string) =>
+          !isScheduledDay(schedule, d) ||
           closures.has(d) ||
           Boolean(isHoliday(d, country, bundesland)) ||
           own.some((l) => fullyOff(l, d));
@@ -1222,12 +1250,10 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
            ${REGION_JOIN_SQL}
            WHERE e.status = 'aktiv' AND e.team_id IS NOT NULL`,
         )
-        .all(...regionSelectParams(defaults)) as {
+        .all(...regionSelectParams(defaults)) as (RegionRow & {
         id: number;
         team_id: number;
-        country: CountryCode;
-        bundesland: RegionCode;
-      }[]).map((e) => [e.id, { team_id: e.team_id, country: e.country, region: e.bundesland }]),
+      })[]).map((e) => [e.id, { team_id: e.team_id, ...placeFromRow(e) }]),
     );
     const closureDays = closureDates(from, to);
     // Alle relevanten Abwesenheiten (unabhängig vom Abteilungs-/Teamfilter),
@@ -1248,7 +1274,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       const start = a.date_from > from ? a.date_from : from;
       const end = a.date_to < to ? a.date_to : to;
       for (const d of eachDay(start, end)) {
-        if (isWeekend(d)) continue;
+        if (!isScheduledDay(member.schedule ?? DEFAULT_WORK_SCHEDULE, d)) continue;
         if (closureDays.has(d)) continue;
         if (isHoliday(d, member.country, member.region)) continue;
         const key = `${d}|${teamId}`;

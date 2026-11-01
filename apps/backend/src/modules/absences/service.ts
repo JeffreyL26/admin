@@ -1,13 +1,26 @@
 /**
  * Fachlogik des Abwesenheitsmanagements: Zählung von Abwesenheitstagen
- * (Arbeitstage Mo–Fr minus Feiertage des Mitarbeiter-Bundeslands minus
- * Betriebsruhe, halbe Tage an Randtagen) und Urlaubssaldo-Berechnung.
+ * (Arbeitstage der Arbeitswoche, ohne Angabe Mo bis Fr, minus Feiertage des
+ * Mitarbeiter-Bundeslands minus Betriebsruhe, halbe Tage an Randtagen) und
+ * Urlaubssaldo-Berechnung (Anspruch nach BUrlG: shared/leaveEntitlement.ts).
  */
 import { getDb, inTransaction } from '../../db/db.js';
 import { addDaysIso, eachDay, isWeekend, todayIso } from '../../core/dates.js';
 import { isHoliday } from '../../core/holidays.js';
 import { VARIANT } from '@variant-manifest';
-import { isOwnPersonDecision, type CountryCode, type RegionCode } from '@ohrganize/shared';
+import {
+  DEFAULT_WORK_SCHEDULE,
+  entitlementDaysPerWeek,
+  flexibleDays,
+  isOwnPersonDecision,
+  isScheduledDay,
+  leaveEntitlementFor,
+  workScheduleOf,
+  type CountryCode,
+  type EntitlementDetail,
+  type RegionCode,
+  type WorkSchedule,
+} from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import { AppError, badRequest, conflict, forbidden } from '../../core/errors.js';
 import { audit } from '../../core/audit.js';
@@ -17,9 +30,14 @@ export interface EmployeeRow {
   first_name: string;
   last_name: string;
   status: string;
+  employee_type: string;
   hire_date: string | null;
   exit_date: string | null;
   annual_leave_days: number | null;
+  work_days_per_week?: number | null;
+  work_weekdays?: string | null;
+  disability_degree?: number | null;
+  disability_equal?: number | null;
   location_id: number | null;
   department_id: number | null;
   team_id: number | null;
@@ -33,6 +51,11 @@ export interface EmployeeRow {
 export interface EmployeeRegion {
   country: CountryCode;
   region: RegionCode;
+  /**
+   * Arbeitswoche der Person (shared/workSchedule.ts). Reist mit dem Ort, weil
+   * jede Zählung beides braucht; ohne Angabe gilt Mo bis Fr wie früher.
+   */
+  schedule?: WorkSchedule;
 }
 
 /**
@@ -54,14 +77,28 @@ export function companyRegionDefaults(): EmployeeRegion {
  * `region` zusaetzlich.
  */
 export const REGION_SELECT_SQL =
-  'COALESCE(l.country, ?) AS country, COALESCE(l.bundesland, ?) AS bundesland';
+  'COALESCE(l.country, ?) AS country, COALESCE(l.bundesland, ?) AS bundesland, ' +
+  'e.work_days_per_week AS work_days_per_week, e.work_weekdays AS work_weekdays';
 export const REGION_JOIN_SQL = 'LEFT JOIN locations l ON l.id = e.location_id';
 
 export function regionSelectParams(defaults = companyRegionDefaults()): [string, string] {
   return [defaults.country, defaults.region];
 }
 
-/** Land und Region eines Mitarbeitenden: Standort, sonst Firmenvorgabe. */
+/** Zeile aus einer Abfrage mit REGION_SELECT_SQL. */
+export interface RegionRow {
+  country: string;
+  bundesland: string;
+  work_days_per_week?: number | null;
+  work_weekdays?: string | null;
+}
+
+/** Ort und Arbeitswoche aus einer Zeile mit REGION_SELECT_SQL. */
+export function placeFromRow(row: RegionRow): EmployeeRegion {
+  return { country: row.country as CountryCode, region: row.bundesland, schedule: workScheduleOf(row) };
+}
+
+/** Land, Region und Arbeitswoche eines Mitarbeitenden: Standort, sonst Firmenvorgabe. */
 export function regionForEmployee(employeeId: number): EmployeeRegion {
   const row = getDb()
     .prepare(
@@ -69,11 +106,9 @@ export function regionForEmployee(employeeId: number): EmployeeRegion {
        ${REGION_JOIN_SQL}
        WHERE e.id = ?`,
     )
-    .get([...regionSelectParams(), employeeId]) as
-    | { country: string; bundesland: string }
-    | undefined;
+    .get([...regionSelectParams(), employeeId]) as RegionRow | undefined;
   if (!row) return companyRegionDefaults();
-  return { country: row.country as CountryCode, region: row.bundesland };
+  return placeFromRow(row);
 }
 
 /** Alle Betriebsruhetage (als ISO-Datums-Set) im Zeitraum from..to. */
@@ -105,18 +140,22 @@ export interface CountOptions {
 }
 
 /**
- * Zählt Abwesenheitstage: Mo–Fr, ohne Feiertage des Bundeslands, ohne
- * Betriebsruhe. Halbe Tage gelten nur, wenn der jeweilige Randtag zählt
- * und innerhalb des Ausschnitts liegt.
+ * Zählt Abwesenheitstage: die Tage der Arbeitswoche (feste Tage, sonst Mo bis Fr),
+ * ohne Feiertage des Bundeslands, ohne Betriebsruhe. Halbe Tage gelten nur,
+ * wenn der jeweilige Randtag zählt und innerhalb des Ausschnitts liegt. Bei
+ * flexibler Woche (eine Zahl Tage ohne feste Tage) ist das Ergebnis der
+ * anteilige Vorschlag `flexibleDays`; die tatsächliche Zahl kann der Antrag
+ * von Hand tragen (days_manual).
  */
 export function countAbsenceDays(opts: CountOptions): number {
   const from = opts.clipFrom && opts.clipFrom > opts.dateFrom ? opts.clipFrom : opts.dateFrom;
   const to = opts.clipTo && opts.clipTo < opts.dateTo ? opts.clipTo : opts.dateTo;
   if (from > to) return 0;
+  const schedule = opts.place.schedule ?? DEFAULT_WORK_SCHEDULE;
   const closures = opts.closures ?? closureDates(from, to);
   const counted = new Set<string>();
   for (const d of eachDay(from, to)) {
-    if (isWeekend(d)) continue;
+    if (!isScheduledDay(schedule, d)) continue;
     if (closures.has(d)) continue;
     if (isHoliday(d, opts.place.country, opts.place.region)) continue;
     counted.add(d);
@@ -124,7 +163,52 @@ export function countAbsenceDays(opts: CountOptions): number {
   let total = counted.size;
   if (opts.halfDayStart && counted.has(opts.dateFrom)) total -= 0.5;
   if (opts.halfDayEnd && opts.dateTo !== opts.dateFrom && counted.has(opts.dateTo)) total -= 0.5;
-  return total;
+  return schedule.weekdays === null ? flexibleDays(total, schedule.daysPerWeek) : total;
+}
+
+/**
+ * Werktage Mo bis Fr im Zeitraum (ohne Feiertage und Betriebsruhe), unabhängig
+ * von der Arbeitswoche: Obergrenze für die von Hand genannten Arbeitstage
+ * eines Antrags bei flexibler Woche.
+ */
+export function countWeekdays(opts: CountOptions): number {
+  return countAbsenceDays({ ...opts, place: { ...opts.place, schedule: DEFAULT_WORK_SCHEDULE } });
+}
+
+/**
+ * Felder der Antragsvorschau zur Arbeitswoche (HR und Portal gleich): Bei
+ * flexibler Woche zeigt das Formular "Davon Arbeitstage" mit dem Vorschlag
+ * `days_counted` und der Obergrenze `weekdays` (Werktage Mo bis Fr).
+ */
+export function schedulePreview(opts: CountOptions): { flexible: boolean; days_per_week: number; weekdays: number | null } {
+  const schedule = opts.place.schedule ?? DEFAULT_WORK_SCHEDULE;
+  const flexible = schedule.weekdays === null;
+  return { flexible, days_per_week: schedule.daysPerWeek, weekdays: flexible ? countWeekdays(opts) : null };
+}
+
+/**
+ * Tage eines gespeicherten Antrags in einem Ausschnitt. Trägt der Antrag eine
+ * Zahl von Hand (`days_manual`), gilt sie für den ganzen Zeitraum und wird
+ * für einen Ausschnitt (Jahreswechsel) im Verhältnis der gezählten Tage
+ * aufgeteilt; sonst wird gezählt.
+ */
+export function requestDaysIn(
+  r: { date_from: string; date_to: string; half_day_start: number; half_day_end: number; days_manual?: number; days_counted?: number },
+  opts: Omit<CountOptions, 'dateFrom' | 'dateTo' | 'halfDayStart' | 'halfDayEnd'>,
+): number {
+  const base = {
+    ...opts,
+    dateFrom: r.date_from,
+    dateTo: r.date_to,
+    halfDayStart: r.half_day_start === 1,
+    halfDayEnd: r.half_day_end === 1,
+  };
+  const part = countAbsenceDays(base);
+  if (r.days_manual !== 1 || r.days_counted === undefined) return part;
+  const covers = (!opts.clipFrom || opts.clipFrom <= r.date_from) && (!opts.clipTo || opts.clipTo >= r.date_to);
+  if (covers) return r.days_counted;
+  const whole = countAbsenceDays({ ...base, clipFrom: undefined, clipTo: undefined });
+  return whole > 0 ? Math.round(((r.days_counted * part) / whole) * 100) / 100 : 0;
 }
 
 /**
@@ -151,6 +235,9 @@ export interface BalanceRequestRow {
   half_day_start: number;
   half_day_end: number;
   status: string;
+  /** 1: days_counted wurde von Hand genannt (flexible Arbeitswoche). */
+  days_manual?: number;
+  days_counted?: number;
   /** Nur fuer die Aufschluesselung (ctx.breakdown) noetig. */
   id?: number;
   type_name?: string;
@@ -204,6 +291,8 @@ export interface BalanceResult {
   employee_id: number;
   year: number;
   entitlement: number;
+  /** Aufteilung des Anspruchs (gesetzlich, vertraglich, Zusatzurlaub, anteilig). */
+  entitlement_detail: EntitlementDetail;
   carryover: number;
   carryover_expired: boolean;
   taken: number;
@@ -234,8 +323,15 @@ export function computeBalance(
   ctx?: BalanceContext,
 ): BalanceResult {
   const db = getDb();
-  const annual = emp.annual_leave_days ?? 0;
   const place = ctx?.place ?? regionForEmployee(emp.id);
+  const entitlementInput = {
+    hire_date: emp.hire_date,
+    exit_date: emp.exit_date,
+    annual_leave_days: emp.annual_leave_days,
+    days_per_week: entitlementDaysPerWeek(emp),
+    disability_degree: emp.disability_degree ?? null,
+    disability_equal: emp.disability_equal === 1,
+  };
   const deadlineMmDd = ctx?.carryoverDeadline ?? getSetting('carryoverDeadline');
 
   const hireYear = emp.hire_date ? Number(emp.hire_date.slice(0, 4)) : null;
@@ -250,6 +346,7 @@ export function computeBalance(
     (db
       .prepare(
         `SELECT r.id, r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status,
+                r.days_manual, r.days_counted,
                 t.name AS type_name, t.color AS type_color
          FROM absence_requests r
          JOIN absence_types t ON t.id = r.type_id
@@ -261,31 +358,11 @@ export function computeBalance(
       .all([emp.id, spanTo, spanFrom]) as BalanceRequestRow[]);
 
   const days = (r: BalanceRequestRow, clipFrom: string, clipTo: string) =>
-    countAbsenceDays({
-      place,
-      dateFrom: r.date_from,
-      dateTo: r.date_to,
-      halfDayStart: r.half_day_start === 1,
-      halfDayEnd: r.half_day_end === 1,
-      clipFrom,
-      clipTo,
-      closures,
-    });
+    requestDaysIn(r, { place, clipFrom, clipTo, closures });
 
-  const countedMonths = (y: number): number => {
-    let months = 0;
-    for (let m = 1; m <= 12; m++) {
-      const monthStart = `${y}-${String(m).padStart(2, '0')}-01`;
-      const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-      const monthEnd = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-      const hired = !emp.hire_date || emp.hire_date <= monthStart;
-      const notExited = !emp.exit_date || emp.exit_date >= monthEnd;
-      if (hired && notExited) months++;
-    }
-    return months;
-  };
-  const entitlementFor = (y: number): number =>
-    annual <= 0 ? 0 : roundHalf((annual * countedMonths(y)) / 12);
+  // Anspruch je Jahr nach BUrlG (gesetzlich, vertraglich, Zusatzurlaub),
+  // Regeln und Rundung in shared/leaveEntitlement.ts.
+  const entitlementFor = (y: number): number => leaveEntitlementFor(entitlementInput, y).total;
 
   const approved = rows.filter((r) => r.status === 'genehmigt');
   const takenAllIn = (y: number) =>
@@ -309,7 +386,8 @@ export function computeBalance(
     }
   }
 
-  const entitlement = entitlementFor(year);
+  const entitlementDetail = leaveEntitlementFor(entitlementInput, year);
+  const entitlement = entitlementDetail.total;
   const yearStart = `${year}-01-01`;
   const yearEnd = `${year}-12-31`;
   const takenClipTo = today < yearEnd ? (today < yearStart ? null : today) : yearEnd;
@@ -359,15 +437,20 @@ export function computeBalance(
     breakdown = { taken_until: takenClipTo, segments };
   }
 
+  // Zwei Stellen statt halber Tage: Der gesetzliche Teilurlaub kann
+  // Bruchteile unter einem halben Tag tragen (§ 5 Abs. 2 BUrlG rundet nur ab
+  // einem halben Tag auf). Ganze und halbe Tage bleiben, was sie waren.
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   return {
     employee_id: emp.id,
     year,
     entitlement,
-    carryover: roundHalf(carry),
+    entitlement_detail: entitlementDetail,
+    carryover: round2(carry),
     carryover_expired: carryoverExpired,
-    taken: roundHalf(taken),
-    planned: roundHalf(planned),
-    remaining: roundHalf(entitlement + carry - taken - planned),
+    taken: round2(taken),
+    planned: round2(planned),
+    remaining: round2(entitlement + carry - taken - planned),
     ...(breakdown ? { breakdown } : {}),
   };
 }
@@ -466,6 +549,7 @@ export function recountRequestsOverlapping(from: string, to: string): number[] {
       `SELECT id, employee_id, date_from, date_to, half_day_start, half_day_end, days_counted, closure_covered
        FROM absence_requests
        WHERE (status IN ('beantragt', 'genehmigt') OR closure_covered = 1)
+         AND days_manual = 0
          AND date_from <= ? AND date_to >= ?`,
     )
     .all([to, from]) as {
@@ -591,7 +675,14 @@ export function assertSpanWithinLimit(dateFrom: string, dateTo: string): void {
 export function assertBalanceCovers(
   employeeId: number,
   type: AbsenceTypeRow,
-  span: { date_from: string; date_to: string; half_day_start?: boolean; half_day_end?: boolean },
+  span: {
+    date_from: string;
+    date_to: string;
+    half_day_start?: boolean;
+    half_day_end?: boolean;
+    /** Arbeitstage von Hand (flexible Woche); gilt für den ganzen Zeitraum. */
+    days_override?: number | null;
+  },
   excludeRequestId?: number,
   pre?: { place?: EmployeeRegion; closures?: Set<string> },
 ): void {
@@ -616,7 +707,8 @@ export function assertBalanceCovers(
   const chainTo = `${toYear}-12-31`;
   const chainClosures = closureDates(chainFrom, chainTo);
   const requestParams: unknown[] = [employeeId, chainTo, chainFrom];
-  let requestSql = `SELECT r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status
+  let requestSql = `SELECT r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status,
+              r.days_manual, r.days_counted
        FROM absence_requests r
        JOIN absence_types t ON t.id = r.type_id
        WHERE r.employee_id = ? AND t.affects_balance = 1
@@ -637,16 +729,16 @@ export function assertBalanceCovers(
   const spanClosures = pre?.closures ?? chainClosures;
 
   for (let y = fromYear; y <= toYear; y++) {
-    const requested = countAbsenceDays({
-      place,
-      dateFrom: span.date_from,
-      dateTo: span.date_to,
-      halfDayStart: span.half_day_start,
-      halfDayEnd: span.half_day_end,
-      clipFrom: `${y}-01-01`,
-      clipTo: `${y}-12-31`,
-      closures: spanClosures,
-    });
+    const requested = requestDaysIn(
+      {
+        date_from: span.date_from,
+        date_to: span.date_to,
+        half_day_start: span.half_day_start ? 1 : 0,
+        half_day_end: span.half_day_end ? 1 : 0,
+        ...(span.days_override != null ? { days_manual: 1, days_counted: span.days_override } : {}),
+      },
+      { place, clipFrom: `${y}-01-01`, clipTo: `${y}-12-31`, closures: spanClosures },
+    );
     if (requested <= 0) continue;
     const balance = computeBalance(emp, y, today, ctx);
     if (balance.remaining - requested < 0) {
@@ -674,6 +766,12 @@ export interface CreateRequestBody {
    * Übersteuerung landet im Audit-Detail.
    */
   override_balance?: boolean;
+  /**
+   * Arbeitstage von Hand bei flexibler Arbeitswoche (keine festen Tage): wie
+   * viele ihrer Arbeitstage im Zeitraum liegen. Höchstens die Werktage Mo bis Fr
+   * des Zeitraums; bei fester Woche abgewiesen, dort zählt der Kalender.
+   */
+  days_override?: number | null;
   /**
    * Erfasst und genehmigt in einem Schritt (nachträgliche Erfassung durch die
    * HR: vergessener Antrag, Person ohne Portalzugang). Nur die HR-Erfassung
@@ -785,7 +883,21 @@ export function createRequest(
       halfDayEnd: body.half_day_end,
       closures,
     };
-    const days = countAbsenceDays(countOpts);
+    let days = countAbsenceDays(countOpts);
+    const manual = body.days_override !== undefined && body.days_override !== null;
+    if (manual) {
+      if (place.schedule?.weekdays !== null) {
+        throw badRequest('Arbeitstage lassen sich nur bei einer flexiblen Arbeitswoche ohne feste Tage angeben');
+      }
+      const weekdays = countWeekdays(countOpts);
+      const value = body.days_override!;
+      if (!(value > 0) || value > weekdays || Math.round(value * 2) !== value * 2) {
+        throw badRequest(
+          `Die Arbeitstage müssen zwischen 0,5 und ${String(weekdays).replace('.', ',')} liegen (Werktage im Zeitraum), in halben Tagen`,
+        );
+      }
+      days = value;
+    }
     // Krankmeldungen sind auch ohne zu zaehlenden Arbeitstag zu erfassen (etwa
     // vollstaendig in einer Betriebsruhe oder am Wochenende): AU-Frist,
     // Bescheinigung und Kette der Entgeltfortzahlung haengen am Kalender, nicht
@@ -827,14 +939,17 @@ export function createRequest(
     }
     const autoApprove = type.requires_approval === 0 || body.approve === true;
     if (autoApprove && !body.override_balance) {
-      assertBalanceCovers(body.employee_id, type, body, undefined, { place, closures });
+      assertBalanceCovers(body.employee_id, type, { ...body, days_override: manual ? days : null }, undefined, {
+        place,
+        closures,
+      });
     }
     const result = db
       .prepare(
         `INSERT INTO absence_requests
          (employee_id, type_id, date_from, date_to, half_day_start, half_day_end, days_counted,
-          closure_covered, status, comment, decided_by_user_id, decided_at, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${autoApprove ? "datetime('now')" : 'NULL'}, ?)`,
+          days_manual, closure_covered, status, comment, decided_by_user_id, decided_at, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${autoApprove ? "datetime('now')" : 'NULL'}, ?)`,
       )
       .run(
         body.employee_id,
@@ -844,7 +959,8 @@ export function createRequest(
         body.half_day_start ? 1 : 0,
         body.half_day_end ? 1 : 0,
         days,
-        closureCoveredFlag(days, countOpts),
+        manual ? 1 : 0,
+        manual ? 0 : closureCoveredFlag(days, countOpts),
         autoApprove ? 'genehmigt' : 'beantragt',
         body.comment ?? null,
         autoApprove ? userId : null,

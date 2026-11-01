@@ -8,8 +8,13 @@ import {
   NATIONALITY_CODES,
   RESIDENCE_PERMIT_LABELS,
   RESIDENCE_PERMIT_TYPES,
+  WEEKDAY_SHORT,
+  entitlementDaysPerWeek,
+  formatWeekdays,
   nationalityLabel,
   needsResidencePermit,
+  parseWeekdays,
+  statutoryLeaveDays,
   churchTaxOptionsFor,
   employeeTypeRulesFor,
   employeeTypesFor,
@@ -69,6 +74,14 @@ export interface EmployeeFormState {
   residence_permit_until: string;
   highest_degree: string;
   degree_field: string;
+  /**
+   * Arbeitswoche (shared/workSchedule.ts): '' = nicht hinterlegt (Bestand,
+   * gezählt wie Mo bis Fr), 'fest' = feste Wochentage, 'flexibel' = nur die
+   * Zahl Tage je Woche.
+   */
+  work_mode: '' | 'fest' | 'flexibel';
+  work_weekdays: number[];
+  work_days_per_week: string;
 }
 
 export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
@@ -109,6 +122,10 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
   residence_permit_until: '',
   highest_degree: '',
   degree_field: '',
+  // Neue Personen: feste Woche Mo bis Fr als Vorgabe, ausdrücklich hinterlegt.
+  work_mode: 'fest',
+  work_weekdays: [1, 2, 3, 4, 5],
+  work_days_per_week: '',
 };
 
 export function employeeToForm(e: EmployeeRow): EmployeeFormState {
@@ -151,7 +168,19 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
     residence_permit_until: e.residence_permit_until ?? '',
     highest_degree: e.highest_degree ?? '',
     degree_field: e.degree_field ?? '',
+    ...workScheduleToForm(e),
   };
+}
+
+function workScheduleToForm(
+  e: Pick<EmployeeRow, 'work_weekdays' | 'work_days_per_week'>,
+): Pick<EmployeeFormState, 'work_mode' | 'work_weekdays' | 'work_days_per_week'> {
+  const fixed = parseWeekdays(e.work_weekdays);
+  if (fixed) return { work_mode: 'fest', work_weekdays: fixed, work_days_per_week: '' };
+  if (e.work_days_per_week !== null && e.work_days_per_week !== undefined) {
+    return { work_mode: 'flexibel', work_weekdays: [1, 2, 3, 4, 5], work_days_per_week: String(e.work_days_per_week) };
+  }
+  return { work_mode: '', work_weekdays: [1, 2, 3, 4, 5], work_days_per_week: '' };
 }
 
 const num = (s: string): number | null => (s.trim() === '' ? null : Number(s.replace(',', '.')));
@@ -214,7 +243,23 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     residence_permit_until: needsResidencePermit(f.nationality) ? str(f.residence_permit_until) : null,
     highest_degree: str(f.highest_degree),
     degree_field: str(f.degree_field),
+    work_weekdays: f.work_mode === 'fest' && f.work_weekdays.length > 0 ? formatWeekdays(f.work_weekdays) : null,
+    work_days_per_week:
+      f.work_mode === 'fest'
+        ? f.work_weekdays.length || null
+        : f.work_mode === 'flexibel'
+          ? num(f.work_days_per_week)
+          : null,
   };
+}
+
+/** Arbeitstage je Woche laut Formular (für den Hinweis zum Mindesturlaub). */
+function formDaysPerWeek(f: EmployeeFormState): number | null {
+  return entitlementDaysPerWeek({
+    employee_type: f.employee_type,
+    work_weekdays: f.work_mode === 'fest' ? formatWeekdays(f.work_weekdays) : null,
+    work_days_per_week: f.work_mode === 'flexibel' ? num(f.work_days_per_week) : null,
+  });
 }
 
 /**
@@ -483,7 +528,13 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
           onChange={(e) => set({ weekly_hours: e.target.value })}
         />
       </Field>
-      <Field label="Jahresurlaub (Tage)" required={required.has('annual_leave_days')} labelAddon={<HalfStepHint />}>
+      <WorkWeekField form={form} set={set} />
+      <Field
+        label="Jahresurlaub (Tage)"
+        required={required.has('annual_leave_days')}
+        labelAddon={<HalfStepHint />}
+        hint={leaveHint(form)}
+      >
         <input
           className="hm-input"
           type="number"
@@ -517,6 +568,94 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
         />
       </Field>
     </div>
+  );
+}
+
+/**
+ * Hinweis unter dem Jahresurlaub: gesetzlicher Mindesturlaub zur
+ * Arbeitswoche (§ 3 BUrlG) und, wenn der Eintrag darunter liegt, dass der
+ * Saldo das Minimum nimmt. Ohne bekannte Arbeitswoche ein Verweis darauf.
+ */
+function leaveHint(form: EmployeeFormState): string {
+  const days = formDaysPerWeek(form);
+  if (form.employee_type === 'freiberufler') return 'Freie Mitarbeit hat keinen Urlaubsanspruch nach BUrlG';
+  if (days === null) return 'Arbeitswoche hinterlegen, dann rechnet oHRganize den gesetzlichen Mindesturlaub';
+  const minimum = statutoryLeaveDays(days);
+  const entered = num(form.annual_leave_days);
+  const text = `Gesetzliches Minimum bei ${String(days).replace('.', ',')} Tagen je Woche: ${String(minimum).replace('.', ',')} Tage`;
+  return entered !== null && entered < minimum ? `${text}. Der Saldo rechnet mit dem Minimum.` : `${text}; der Rest ist vertraglicher Mehrurlaub.`;
+}
+
+/** Arbeitswoche: feste Wochentage zum Anklicken oder eine Zahl Tage ohne feste Tage. */
+function WorkWeekField({ form, set }: { form: EmployeeFormState; set: SetForm }) {
+  const toggleDay = (day: number) =>
+    set({
+      work_weekdays: form.work_weekdays.includes(day)
+        ? form.work_weekdays.filter((d) => d !== day)
+        : [...form.work_weekdays, day].sort((a, b) => a - b),
+    });
+  return (
+    <Field
+      label="Arbeitswoche"
+      span2
+      hint={
+        form.work_mode === 'fest'
+          ? 'Urlaub zählt nur an diesen Tagen; an den übrigen ist die Person im Kalender grau'
+          : form.work_mode === 'flexibel'
+            ? 'Ohne feste Tage: Anträge schlagen den Anteil der Werktage vor, die tatsächlichen Arbeitstage lassen sich im Antrag eintragen'
+            : 'Nicht hinterlegt: gezählt wird Mo bis Fr'
+      }
+    >
+      <div className="row row--wrap" style={{ gap: 10 }}>
+        <Select
+          className="hm-select"
+          style={{ width: 210 }}
+          value={form.work_mode}
+          onChange={(e) => set({ work_mode: e.target.value as EmployeeFormState['work_mode'] })}
+        >
+          <option value="">— nicht hinterlegt —</option>
+          <option value="fest">Feste Wochentage</option>
+          <option value="flexibel">Flexibel (Tage je Woche)</option>
+        </Select>
+        {form.work_mode === 'fest' && (
+          <div className="row" style={{ gap: 6 }} role="group" aria-label="Arbeitstage">
+            {WEEKDAY_SHORT.map((label, i) => {
+              const day = i + 1;
+              const on = form.work_weekdays.includes(day);
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  className={`hm-chip${on ? ' is-active' : ''}`}
+                  aria-pressed={on}
+                  onClick={(e) => {
+                    // Sitzt im <label> des Feldes: sonst reichte der Browser den Klick weiter.
+                    e.preventDefault();
+                    toggleDay(day);
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {form.work_mode === 'flexibel' && (
+          <input
+            className="hm-input"
+            style={{ width: 120 }}
+            type="number"
+            min={0.5}
+            max={7}
+            step={0.5}
+            value={form.work_days_per_week}
+            onChange={(e) => set({ work_days_per_week: e.target.value })}
+            aria-label="Arbeitstage je Woche"
+            placeholder="z. B. 3"
+          />
+        )}
+      </div>
+    </Field>
   );
 }
 

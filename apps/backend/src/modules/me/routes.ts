@@ -20,6 +20,7 @@ import {
   countAbsenceDays,
   createRequest,
   CREATED_BY_PROXY_SQL,
+  schedulePreview,
   seamlessPredecessorSickNoteId,
   type AbsenceTypeRow,
 } from '../absences/service.js';
@@ -40,6 +41,8 @@ const leaveRequestBodySchema = z.object({
   half_day_start: z.boolean().optional(),
   half_day_end: z.boolean().optional(),
   comment: z.string().trim().max(2000).optional(),
+  // Eigene Arbeitstage im Zeitraum bei flexibler Arbeitswoche (createRequest prueft).
+  days_override: z.number().positive().max(366).nullish(),
 });
 
 const sickNoteBodySchema = z.object({
@@ -222,16 +225,23 @@ export const meModule: FastifyPluginAsync = async (app) => {
     if (q.date_to < q.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
     assertReasonableSpan(q.date_from, q.date_to);
     const place = regionForEmployee(emp.id);
-    const days = countAbsenceDays({
+    const countOpts = {
       place,
       dateFrom: q.date_from,
       dateTo: q.date_to,
       halfDayStart: q.half_day_start === '1' || q.half_day_start === 'true',
       halfDayEnd: q.half_day_end === '1' || q.half_day_end === 'true',
-    });
+    };
+    const days = countAbsenceDays(countOpts);
     // `bundesland` bleibt im Vertrag (das Portal zeigt es im Antragsformular);
     // `region` und `country` sind die landesneutralen Namen.
-    return { days_counted: days, bundesland: place.region, region: place.region, country: place.country };
+    return {
+      days_counted: days,
+      bundesland: place.region,
+      region: place.region,
+      country: place.country,
+      ...schedulePreview(countOpts),
+    };
   });
 
   // ---------------------------------------------------------- Krankmeldungen ---

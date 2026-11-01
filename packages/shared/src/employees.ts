@@ -400,6 +400,10 @@ export interface EmployeeDto extends EmployeeLiteDto {
   highest_degree: HighestDegree | null;
   /** Fachrichtung des Abschlusses, frei. */
   degree_field: string | null;
+  /** Feste Arbeitstage "1,2,4" (Mo = 1), NULL = keine festen Tage (workSchedule.ts). */
+  work_weekdays: string | null;
+  /** Arbeitstage je Woche; bei festen Tagen deren Anzahl. Beides NULL = nicht hinterlegt. */
+  work_days_per_week: number | null;
   created_at: string;
   updated_at: string;
 }

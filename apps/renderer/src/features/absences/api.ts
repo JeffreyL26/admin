@@ -6,6 +6,7 @@ import type {
   CalendarConflict,
   CalendarEmployee,
   CompanyClosure,
+  LeavePreview,
   SickNote,
   SortState,
 } from '@ohrganize/shared';
@@ -218,7 +219,7 @@ export function useDaysPreview(
   return useQuery({
     queryKey: ['absences', 'preview', employeeId, dateFrom, dateTo, halfDayStart, halfDayEnd],
     queryFn: () =>
-      api.get<{ days_counted: number; bundesland: string }>(
+      api.get<LeavePreview>(
         `/api/absences/preview?employee_id=${employeeId}&date_from=${dateFrom}&date_to=${dateTo}` +
           `&half_day_start=${halfDayStart ? 1 : 0}&half_day_end=${halfDayEnd ? 1 : 0}`,
       ),

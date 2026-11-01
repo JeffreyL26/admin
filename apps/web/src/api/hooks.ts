@@ -8,6 +8,7 @@ import type {
   EmployeeSelfEditableField,
   MeAnnouncement,
   MeBonus,
+  LeavePreview,
   MeCalendarEmployee,
   MeDocument,
   MeFreelancer,
@@ -70,7 +71,7 @@ export function useLeavePreview(
   return useQuery({
     queryKey: ['me', 'leave-preview', dateFrom, dateTo, halfDayStart, halfDayEnd],
     queryFn: () =>
-      api.get<{ days_counted: number; bundesland: string }>(
+      api.get<LeavePreview>(
         `/api/me/leave-preview?date_from=${dateFrom}&date_to=${dateTo}` +
           `&half_day_start=${halfDayStart ? 1 : 0}&half_day_end=${halfDayEnd ? 1 : 0}`,
       ),
@@ -93,6 +94,8 @@ export interface NewLeaveRequest {
   half_day_start?: boolean;
   half_day_end?: boolean;
   comment?: string;
+  /** Eigene Arbeitstage im Zeitraum bei flexibler Arbeitswoche. */
+  days_override?: number;
 }
 
 export function useCreateRequest() {

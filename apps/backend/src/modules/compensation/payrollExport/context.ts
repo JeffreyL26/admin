@@ -13,10 +13,18 @@
  * nicht je Person: better-sqlite3 laeuft synchron, waehrenddessen wartet
  * jede andere Anfrage, auch das Portal.
  */
-import type { CountryCode, DatevFestbezuegeMode, DatevProgram } from '@ohrganize/shared';
+import {
+  DEFAULT_WORK_SCHEDULE,
+  isScheduledDay,
+  workScheduleOf,
+  type CountryCode,
+  type DatevFestbezuegeMode,
+  type DatevProgram,
+  type WorkSchedule,
+} from '@ohrganize/shared';
 import { getDb } from '../../../db/db.js';
 import { type CompanySettings, getAllSettings } from '../../../core/settings.js';
-import { addDaysIso, eachDay, isWeekend } from '../../../core/dates.js';
+import { addDaysIso, eachDay } from '../../../core/dates.js';
 import { isHoliday } from '../../../core/holidays.js';
 import {
   closureDates,
@@ -140,6 +148,9 @@ type StammFelder = Omit<
 >;
 
 interface ItemRow extends StammFelder {
+  /** Arbeitswoche aus REGION_SELECT_SQL (nur fuer die Fehltage, nicht im Export). */
+  work_days_per_week: number | null;
+  work_weekdays: string | null;
   components_json: string;
   bonuses_json: string;
   flags_json: string;
@@ -181,7 +192,7 @@ function outranks(a: DatevAbsenceDay, b: DatevAbsenceDay): boolean {
 function absenceDays(
   runId: number,
   month: string,
-  regions: Map<number, { country: CountryCode; region: string }>,
+  regions: Map<number, { country: CountryCode; region: string; schedule?: WorkSchedule }>,
 ): Map<number, DatevAbsenceDay[]> {
   const { start, end } = monthBounds(month);
   const rows = getDb()
@@ -204,7 +215,9 @@ function absenceDays(
     const to = r.date_to < end ? r.date_to : end;
     const days = byPerson.get(r.employee_id) ?? new Map<string, DatevAbsenceDay>();
     for (const d of eachDay(from, to)) {
-      if (isWeekend(d) || closures.has(d) || isHoliday(d, region.country, region.region)) continue;
+      // Tage der Arbeitswoche (feste Tage; flexibel und ohne Angabe Mo bis Fr).
+      if (!isScheduledDay(region.schedule ?? DEFAULT_WORK_SCHEDULE, d)) continue;
+      if (closures.has(d) || isHoliday(d, region.country, region.region)) continue;
       const entry: DatevAbsenceDay = {
         date: d,
         type_id: r.type_id,
@@ -284,7 +297,9 @@ export function buildDatevContext(run: { id: number; month: string; status: stri
        WHERE i.run_id = ? ORDER BY e.last_name, e.first_name`,
     )
     .all([...regionSelectParams(), start, end, end, end, end, run.id]) as ItemRow[];
-  const regions = new Map(rows.map((r) => [r.employee_id, { country: r.country, region: r.bundesland }]));
+  const regions = new Map(
+    rows.map((r) => [r.employee_id, { country: r.country, region: r.bundesland, schedule: workScheduleOf(r) }]),
+  );
   const absences = absenceDays(run.id, run.month, regions);
   const ended = endedComponents(run.id, start);
   const unmapped = new Map<number, string>();
@@ -298,6 +313,8 @@ export function buildDatevContext(run: { id: number; month: string; status: stri
       changed_in_month,
       country: _country,
       bundesland: _bundesland,
+      work_days_per_week: _workDays,
+      work_weekdays: _workWeekdays,
       ...stamm
     } = r;
     const days = absences.get(r.employee_id) ?? [];

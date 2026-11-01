@@ -1,3 +1,4 @@
+import type { EntitlementDetail } from './leaveEntitlement.js';
 // Typen des Moduls Abwesenheitsmanagement.
 
 export type AbsenceCategory = 'urlaub' | 'krankheit' | 'sonder';
@@ -129,6 +130,8 @@ export interface AbsenceBalance {
   employee_id: number;
   year: number;
   entitlement: number;
+  /** Aufteilung des Anspruchs nach BUrlG (leaveEntitlement.ts). */
+  entitlement_detail?: EntitlementDetail;
   carryover: number;
   carryover_expired: boolean;
   taken: number;
@@ -137,6 +140,22 @@ export interface AbsenceBalance {
   first_name?: string;
   last_name?: string;
   breakdown?: AbsenceBalanceBreakdown;
+}
+
+/**
+ * Antwort der Antragsvorschau (`GET /api/absences/preview`,
+ * `GET /api/me/leave-preview`). Bei flexibler Arbeitswoche ist
+ * `days_counted` ein Vorschlag; das Formular fragt nach den tatsächlichen
+ * Arbeitstagen (höchstens `weekdays`) und schickt sie als `days_override`.
+ */
+export interface LeavePreview {
+  days_counted: number;
+  bundesland: string;
+  region: string;
+  country: string;
+  flexible: boolean;
+  days_per_week: number;
+  weekdays: number | null;
 }
 
 export interface SickNote {
@@ -199,6 +218,9 @@ export interface CalendarEmployee {
   department_id: number | null;
   team_id: number | null;
   bundesland: string;
+  /** Arbeitswoche (workSchedule.ts): Tage außerhalb fester Wochentage zeigt der Kalender wie Wochenenden. */
+  work_weekdays?: string | null;
+  work_days_per_week?: number | null;
   absences: CalendarAbsenceEntry[];
 }
 

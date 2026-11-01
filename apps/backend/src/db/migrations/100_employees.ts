@@ -389,4 +389,17 @@ export const employeesMigrations: Migration[] = [
       );
     `,
   },
+  {
+    // Arbeitswoche einer Person (shared/workSchedule.ts): feste Wochentage
+    // als "1,2,4" (Mo = 1) oder nur die Zahl Tage je Woche (flexibel). Davon
+    // haengen der gesetzliche Mindesturlaub (shared/leaveEntitlement.ts) und
+    // die Zaehlung von Antraegen ab. Beides NULL heisst "nicht hinterlegt":
+    // gezaehlt wird wie bisher Mo bis Fr, und Bestandssalden aendern sich
+    // erst, wenn die HR die Woche eintraegt (Vollzeit gilt als fuenf Tage).
+    name: '113_work_schedule',
+    sql: `
+      ALTER TABLE employees ADD COLUMN work_days_per_week REAL;
+      ALTER TABLE employees ADD COLUMN work_weekdays TEXT;
+    `,
+  },
 ];

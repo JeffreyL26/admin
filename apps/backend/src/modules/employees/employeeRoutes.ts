@@ -13,6 +13,7 @@ import {
   bulkBodySchema,
   employeeBodySchema,
   employeePatchSchema,
+  settleWorkSchedule,
 } from './validation.js';
 
 /**
@@ -459,6 +460,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/employees', async (req, reply) => {
     const body = parse(employeeBodySchema, req.body);
+    settleWorkSchedule(body);
     settlePhotoThumb(body);
     assertNewPhotoFiles(body, req.user.id);
     assertTypeRules(body);
@@ -501,6 +503,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       );
     }
     const patch = parse(employeePatchSchema, req.body);
+    settleWorkSchedule(patch);
     settlePhotoThumb(patch, existing);
     assertNewPhotoFiles(patch, req.user.id, existing);
     const cols = EMPLOYEE_COLUMNS.filter((c) => patch[c] !== undefined);
