@@ -63,17 +63,17 @@ export function disabilityNotes(
  */
 export function maskDisabilityEntitlement(detail: EntitlementDetail): EntitlementDetail {
   if (detail.disability === 0 && detail.full_year.disability === 0) return detail;
-  // Die Zeitabschnitte nennen Jahresurlaub und Woche neben einem Beitrag, der
-  // den Zusatzurlaub enthält; daneben wäre er ablesbar. Ohne das Recht fallen
-  // sie deshalb weg (die Summe bleibt).
-  const { periods: _periods, ...rest } = detail;
+  // Die Zeitabschnitte (periods) bleiben: Ihre Beiträge enthalten den
+  // Zusatzurlaub ungenannt wie die Summe. Fielen sie nur hier weg, verriete
+  // gerade das Fehlen des Hinweises den Grad der Behinderung.
+  const sum = (a: number, b: number) => Math.round((a + b) * 100) / 100;
   return {
-    ...rest,
-    contractual: detail.contractual + detail.disability,
+    ...detail,
+    contractual: sum(detail.contractual, detail.disability),
     disability: 0,
     full_year: {
       ...detail.full_year,
-      contractual: detail.full_year.contractual + detail.full_year.disability,
+      contractual: sum(detail.full_year.contractual, detail.full_year.disability),
       disability: 0,
     },
   };

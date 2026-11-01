@@ -736,6 +736,36 @@ check(
         flexiblePerson.work_days_per_week === 2,
       { onlyCount: onlyCount.json(), flexibleVersion, flexiblePerson },
     );
+    // Derselbe Weg ueber die Personalakte: Sie korrigiert die geltende Version mit.
+    const personWeek = () =>
+      getDb().prepare('SELECT work_weekdays, work_days_per_week FROM employees WHERE id = ?').get(empId) as {
+        work_weekdays: string | null;
+        work_days_per_week: number | null;
+      };
+    const patchPerson = (payload: Record<string, unknown>) =>
+      app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: auth, payload });
+    const fixedAgain = await patchPerson({ work_weekdays: '1,2,3' });
+    const countOnly = await patchPerson({ work_days_per_week: 4 });
+    const afterCount = { person: personWeek(), version: weekOf(typedId) };
+    const fixedOnceMore = await patchPerson({ work_weekdays: '1,2,3' });
+    const emptyCount = await patchPerson({ work_days_per_week: null });
+    const afterEmpty = { person: personWeek(), version: weekOf(typedId) };
+    check(
+      'Arbeitswoche ueber die Akte: nur die Zahl heisst flexibel, leere Zahl heisst unbekannt, Version gleich',
+      fixedAgain.statusCode === 200 &&
+        fixedOnceMore.statusCode === 200 &&
+        countOnly.statusCode === 200 &&
+        afterCount.person.work_weekdays === null &&
+        afterCount.person.work_days_per_week === 4 &&
+        afterCount.version.work_weekdays === null &&
+        afterCount.version.work_days_per_week === 4 &&
+        emptyCount.statusCode === 200 &&
+        afterEmpty.person.work_weekdays === null &&
+        afterEmpty.person.work_days_per_week === null &&
+        afterEmpty.version.work_weekdays === null &&
+        afterEmpty.version.work_days_per_week === null,
+      { fixedAgain: fixedAgain.statusCode, countOnly: countOnly.json(), afterCount, emptyCount: emptyCount.json(), afterEmpty },
+    );
     const todayLocal = getDb().prepare("SELECT date('now', 'localtime') AS d").get() as { d: string };
     const newWeek = await app.inject({
       method: 'POST',

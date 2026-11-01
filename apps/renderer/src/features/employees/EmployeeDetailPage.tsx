@@ -41,6 +41,7 @@ import {
   EmploymentFields,
   FinanceFields,
   PersonFields,
+  contractNoteFor,
   employeeToForm,
   formToPayload,
   type EmployeeFormState,
@@ -142,7 +143,7 @@ export function EmployeeDetailPage() {
         {/* key: Ein Personenwechsel setzt das Formular immer frisch auf — auch
             mitten in einer offenen Bearbeitung. Der dirty-Schutz im Tab gilt
             nur für Refetches DERSELBEN Person. */}
-        {tab === 'stammdaten' && <MasterDataTab key={e.id} employee={e} />}
+        {tab === 'stammdaten' && <MasterDataTab key={e.id} employee={e} contracts={contracts} />}
         {tab === 'vertrag' && <ContractsTab employeeId={employeeId} employee={e} />}
         {tab === 'dokumente' && <DocumentsTab employeeId={employeeId} />}
         {tab === 'organisation' && <OrgTab employee={e} reportingLine={data.reporting_line} />}
@@ -204,13 +205,12 @@ function HeaderDeadlines({ employee, contracts }: { employee: EmployeeRow; contr
 // Stammdaten
 // ---------------------------------------------------------------------------
 
-function MasterDataTab({ employee }: { employee: EmployeeRow }) {
+/** `contracts`: Versionen aus dem Kopf der Akte (derselbe Query), für den Hinweis unter dem Jahresurlaub. */
+function MasterDataTab({ employee, contracts }: { employee: EmployeeRow; contracts: ContractDto[] | undefined }) {
   const toast = useToast();
   const { can } = useAuth();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  // Für den Hinweis zu Vertragsversionen unter dem Jahresurlaub (gleicher Key wie der Kopf der Akte).
-  const { data: contracts } = useContracts(employee.id);
   const [form, setForm] = useState<EmployeeFormState>(() => employeeToForm(employee));
   const [dirty, setDirty] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -326,7 +326,7 @@ function MasterDataTab({ employee }: { employee: EmployeeRow }) {
         <EmploymentFields
           form={form}
           set={set}
-          contractNote={contracts === undefined ? undefined : contracts.length > 0 ? 'versioned' : 'none'}
+          contractNote={contracts === undefined ? undefined : contractNoteFor(contracts, todayIsoLocal())}
         />
       </Card>
       <Card title="Finanzen, Steuer & Sozialversicherung">

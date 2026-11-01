@@ -362,7 +362,10 @@ export interface BalanceContext {
   carryoverDeadline?: string;
   closures?: Set<string>;
   requests?: BalanceRequestRow[];
-  /** Vertragsversionen der Person (contractPeriodsSql), sonst selbst geladen. */
+  /**
+   * Vertragsversionen der Person (Spalten CONTRACT_PERIOD_COLUMNS, sortiert
+   * nach valid_from, id), sonst selbst geladen.
+   */
   contracts?: ContractPeriodRow[];
   /**
    * Aufschluesselung der Kacheln mitliefern (Personalakte). Verlangt Zeilen
