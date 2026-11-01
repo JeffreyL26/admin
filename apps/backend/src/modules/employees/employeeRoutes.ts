@@ -23,7 +23,7 @@ import {
   projectDirectory,
 } from '../../core/executiveGate.js';
 import { COUNTING_EMPLOYEE_COLUMNS, recountUpcomingRequests } from '../absences/service.js';
-import { syncCurrentContract, type ContractSync } from './contractRoutes.js';
+import { mirrorDueContracts, syncCurrentContract, type ContractSync } from './contractRoutes.js';
 
 /**
  * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
@@ -483,6 +483,8 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
         ...(recounted.length ? { recounted_requests: recounted } : {}),
       });
     });
+    // Wie beim Personal-PATCH: an den Typregeln gescheiterte Versionen sofort erneut versuchen.
+    mirrorDueContracts(undefined, ids);
     // Personen mit geplanter Vertragsversion: dort nicht angepasst (syncCurrentContract).
     return {
       updated: ids.length,
@@ -638,6 +640,9 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       return [removedFile, removedThumb];
     });
     for (const file of detached) removeDetachedBlob(file);
+    // Eine an den Typregeln gescheiterte faellige Vertragsversion gilt, sobald
+    // die Stammdaten passen: gleich jetzt, nicht erst im stuendlichen Lauf.
+    mirrorDueContracts(undefined, [id]);
     return {
       employee: stripDisability(req, getEmployeeOr404(id)),
       ...(contract.notice ? { contract_notice: contract.notice } : {}),

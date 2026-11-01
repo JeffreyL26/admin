@@ -590,6 +590,44 @@ check(
   getDb().prepare('DELETE FROM contracts WHERE id = ?').run(failingId ?? -1);
   getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
 
+  // Heute faellig und an den Typregeln gescheitert: Speichert die HR passende
+  // Stammdaten, gilt die Version sofort, nicht erst im stuendlichen Lauf.
+  {
+    const todayLocal = getDb().prepare("SELECT date('now', 'localtime') AS d").get() as { d: string };
+    const due = await app.inject({
+      method: 'POST',
+      url: `/api/employees/${empId}/contracts`,
+      headers: auth,
+      payload: { contract_type: 'unbefristet', valid_from: plannedFrom, weekly_hours: 20 },
+    });
+    const dueId = due.json().contract?.id as number;
+    getDb().prepare('UPDATE contracts SET valid_from = ?, weekly_hours = 30 WHERE id = ?').run(todayLocal.d, dueId ?? -1);
+    mirrorDueContracts();
+    const stateOf = () =>
+      getDb().prepare('SELECT mirror_pending, mirror_error FROM contracts WHERE id = ?').get(dueId ?? -1) as
+        | { mirror_pending: number; mirror_error: string | null }
+        | undefined;
+    const blocked = stateOf();
+    const fixed = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${empId}`,
+      headers: auth,
+      payload: { employee_type: 'teilzeit' },
+    });
+    check(
+      'Gescheiterte Uebernahme gilt sofort nach dem Speichern passender Stammdaten',
+      due.statusCode === 201 &&
+        blocked?.mirror_pending === 1 &&
+        !!blocked.mirror_error &&
+        fixed.statusCode === 200 &&
+        fixed.json().employee.weekly_hours === 30 &&
+        stateOf()?.mirror_pending === 0,
+      { due: due.json(), blocked, fixed: fixed.json(), after: stateOf() },
+    );
+    getDb().prepare('DELETE FROM contracts WHERE id = ?').run(dueId ?? -1);
+    getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
+  }
+
   // Beginn einer geplanten Version auf heute vorziehen: sofort ganz gespiegelt;
   // wieder in die Zukunft schieben: offen, die Akte bleibt.
   const todayLocal = getDb().prepare("SELECT date('now', 'localtime') AS d").get() as { d: string };
@@ -623,11 +661,11 @@ check(
 
   // Altbestand (Migration 117): eine vor 116 angelegte, schon gespiegelte
   // geplante Version wird wieder offen, die Akte bekommt die Werte der
-  // geltenden Version zurueck. Geprueft mit dem SQL der Migration ohne ihr
-  // ALTER TABLE (die Spalte steht schon).
+  // geltenden Version zurueck, mit updated_at und Protokolleintrag. Geprueft
+  // mit dem TypeScript-Schritt der Migration (die Spalte steht schon).
   {
     const { employeesMigrations } = await import('../../db/migrations/100_employees.js');
-    const backfillSql = employeesMigrations.find((m) => m.name === '117_contract_mirror_backfill')!.sql;
+    const backfill = employeesMigrations.find((m) => m.name === '117_contract_mirror_backfill')!;
     const legacyId = Number(
       getDb()
         .prepare(
@@ -640,14 +678,21 @@ check(
       new Date(Date.parse(`${plannedFrom}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10),
       typedId,
     );
-    getDb().prepare('UPDATE employees SET weekly_hours = 39 WHERE id = ?').run(empId);
-    getDb().exec(backfillSql.replace(/ALTER TABLE contracts ADD COLUMN mirror_error TEXT;/, ''));
+    getDb().prepare("UPDATE employees SET weekly_hours = 39, updated_at = '2000-01-01 00:00:00' WHERE id = ?").run(empId);
+    backfill.run!(getDb());
     const legacy = getDb().prepare('SELECT mirror_pending FROM contracts WHERE id = ?').get(legacyId) as { mirror_pending: number };
     const current = getDb().prepare('SELECT weekly_hours FROM contracts WHERE id = ?').get(typedId) as { weekly_hours: number };
+    const stamp = getDb().prepare('SELECT updated_at FROM employees WHERE id = ?').get(empId) as { updated_at: string };
+    const backfillAudit = getDb()
+      .prepare("SELECT details FROM audit_log WHERE action = 'contract.mirror_backfill' AND entity_id = ? AND user_id IS NULL ORDER BY id DESC LIMIT 1")
+      .get(empId) as { details: string } | undefined;
     check(
-      'Altbestand geplanter Versionen: wieder offen, Akte mit den Werten der geltenden Version',
-      legacy.mirror_pending === 1 && (await hoursOf()) === current.weekly_hours,
-      { legacy, current, hours: await hoursOf() },
+      'Altbestand geplanter Versionen: wieder offen, Akte mit den Werten der geltenden Version, Zeitstempel und Protokoll',
+      legacy.mirror_pending === 1 &&
+        (await hoursOf()) === current.weekly_hours &&
+        stamp.updated_at !== '2000-01-01 00:00:00' &&
+        JSON.parse(backfillAudit?.details ?? '{}').changed?.weekly_hours?.from === 39,
+      { legacy, current, hours: await hoursOf(), stamp, backfillAudit },
     );
     getDb().prepare('DELETE FROM contracts WHERE id = ?').run(legacyId);
     getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
