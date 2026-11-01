@@ -304,7 +304,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (Migration `119_contract_gap_values`, geladen über `CONTRACT_PERIODS_SQL`;
   Versionen gehen vor; schließt ein Zeitraum an eine Zeile mit denselben
   Werten an, wächst diese). Die heute geltende Version bleibt frei, sie
-  korrigiert syncCurrentContract für ihren ganzen Zeitraum. Sonst änderte
+  korrigiert syncCurrentContract für ihren ganzen Zeitraum; gilt eine
+  abgelaufene Version wieder (der PATCH verschiebt den Beginn der
+  Folgeversion), werden ihre festgehaltenen Felder, die der heutigen Akte
+  entsprechen, wieder leer (`unfreezeReopenedContract`). Sonst änderte
   ein Wechsel in Teilzeit rückwirkend den Anspruch. Jede Schreibstelle dieser
   Spalten der Akte ruft es in ihrer Transaktion vor der Ausführung des UPDATE
   und nennt das Ergebnis im Audit (`frozen`); statisch geprüft von

@@ -1374,6 +1374,82 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
     );
   }
 
+  // Wieder geltende Vorversion: Verschiebt eine Korrektur den Beginn der
+  // Folgeversion nach hinten, gilt die festgehaltene Vorversion wieder. Was
+  // der heutigen Akte entspricht, wird wieder leer (sie folgt der Korrektur
+  // wie jede geltende Version); was abweicht, bleibt samt Vermerk.
+  {
+    const dayIn = (days: number) =>
+      (db.prepare(`SELECT date('now', 'localtime', '+${days} days') AS d`).get() as { d: string }).d;
+    const reopen = async (first: string, change: Record<string, unknown>) => {
+      const person = Number(
+        db
+          .prepare(
+            `INSERT INTO employees (first_name, last_name, status, hire_date, annual_leave_days, location_id, department_id,
+                                    employee_type, weekly_hours, iban, tax_class, social_security_number)
+             VALUES (?, 'Probe', 'aktiv', '2023-01-01', 30, 1, 1,
+                     'vollzeit', 40, 'DE02120300000000202051', 'I', '12 010190 P 123')`,
+          )
+          .run(first).lastInsertRowid,
+      );
+      const v1 = Number(
+        db
+          .prepare(
+            `INSERT INTO contracts (employee_id, contract_type, valid_from, annual_leave_days, weekly_hours)
+             VALUES (?, 'unbefristet', '2023-01-01', 30, 40)`,
+          )
+          .run(person).lastInsertRowid,
+      );
+      const v2 = await post(`/api/employees/${person}/contracts`, {
+        contract_type: 'unbefristet',
+        valid_from: dayIn(0),
+        ...change,
+      });
+      const frozenAt = db.prepare('SELECT entitlement_frozen FROM contracts WHERE id = ?').get(v1) as {
+        entitlement_frozen: string | null;
+      };
+      const moved = await app.inject({
+        method: 'PATCH',
+        url: `/api/contracts/${v2.json().contract?.id ?? -1}`,
+        headers: auth,
+        payload: { valid_from: dayIn(30) },
+      });
+      const after = db
+        .prepare('SELECT valid_to, work_weekdays, work_days_per_week, entitlement_frozen FROM contracts WHERE id = ?')
+        .get(v1) as { valid_to: string; work_weekdays: string | null; work_days_per_week: number | null; entitlement_frozen: string | null };
+      const auditRow = db
+        .prepare("SELECT details FROM audit_log WHERE action = 'update' AND entity = 'contract' AND entity_id = ? ORDER BY id DESC LIMIT 1")
+        .get(v2.json().contract?.id ?? -1) as { details: string } | undefined;
+      return { v1, v2: v2.statusCode, frozenAt, moved: moved.statusCode, after, unfrozen: JSON.parse(auditRow?.details ?? '{}').unfrozen };
+    };
+    // Gleiche Woche wie die Akte (nur der Urlaub der Folgeversion ist anders): wieder leer.
+    const same = await reopen('Jan', { weekly_hours: 40, annual_leave_days: 28 });
+    check(
+      'Wieder geltende Vorversion: festgehaltene Woche gleich der Akte wird wieder leer',
+      same.v2 === 201 &&
+        same.frozenAt.entitlement_frozen === 'work_week' &&
+        same.moved === 200 &&
+        same.after.valid_to === dayIn(29) &&
+        same.after.work_weekdays === null &&
+        same.after.work_days_per_week === null &&
+        same.after.entitlement_frozen === null &&
+        JSON.stringify(same.unfrozen) === JSON.stringify({ contract: same.v1, fields: ['work_week'] }),
+      same,
+    );
+    // Akte traegt die Woche der verschobenen Folgeversion: festgehaltene Woche bleibt.
+    const other = await reopen('Kai', { employee_type: 'teilzeit', weekly_hours: 24, work_weekdays: '1,2,3' });
+    check(
+      'Wieder geltende Vorversion: abweichende festgehaltene Woche bleibt samt Vermerk',
+      other.v2 === 201 &&
+        other.moved === 200 &&
+        other.after.valid_to === dayIn(29) &&
+        other.after.work_weekdays === '1,2,3,4,5' &&
+        other.after.entitlement_frozen === 'work_week' &&
+        other.unfrozen === undefined,
+      other,
+    );
+  }
+
   // ------------------------------------------------------- Home Office ---
   // Muster Di (2) und Do (4); 01.12.2026 ist ein Dienstag, 02.12. ein Mittwoch.
   const pattern = await patchEmp({ home_office_weekdays: '4,2' });

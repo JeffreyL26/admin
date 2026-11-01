@@ -554,7 +554,7 @@ export const employeesMigrations: Migration[] = [
   },
   {
     // Welche Felder einer abgelaufenen Version freezeEntitlementInputs aus der
-    // Akte uebernommen hat ("employee_type,annual_leave_days,work_week");
+    // Akte uebernommen hat ("annual_leave_days,work_week", nie die Art);
     // der Tab Vertrag nennt sie, sonst saehen sie wie Eingaben aus.
     name: '120_contract_entitlement_frozen',
     sql: `

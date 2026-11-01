@@ -10,6 +10,7 @@ import {
   ENTITLEMENT_EMPLOYEE_COLUMNS,
   freezeEntitlementInputs,
   recountUpcomingRequests,
+  unfreezeReopenedContract,
 } from '../absences/service.js';
 
 /** Was freezeEntitlementInputs vor einer Aenderung der Akte festgehalten hat (fuer den Audit-Eintrag). */
@@ -469,6 +470,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
 
     const db = getDb();
     let frozen: Frozen | null = null;
+    let unfrozen: { contract: number; fields: string[] } | null = null;
     inTransaction(() => {
       if (patch.valid_from !== undefined && patch.valid_from !== existing.valid_from) {
         const prev = db
@@ -487,6 +489,10 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
             addDaysIso(patch.valid_from, -1),
             prev.id,
           );
+          // Gilt die Vorversion dadurch wieder, folgt sie wie jede geltende
+          // Version der Korrektur (unfreezeReopenedContract).
+          const fields = unfreezeReopenedContract(prev.id, today);
+          if (fields.length) unfrozen = { contract: prev.id, fields };
         }
       }
       db.prepare(`UPDATE contracts SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(
@@ -518,6 +524,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
         employee_id: existing.employee_id,
         changed: Object.fromEntries(cols.map((c) => [c, patch[c]])),
         ...frozenDetails(frozen),
+        ...(unfrozen ? { unfrozen } : {}),
       });
     });
     return { contract: getContract(id) };
