@@ -5,6 +5,7 @@ import {
   AlertTriangle, ArrowLeft, Download, FileClock, FilePlus2, FileText, Network, Pencil, Plus, Trash2, Users,
 } from 'lucide-react';
 import {
+  CONTRACT_STATE_LABELS,
   CONTRACT_TYPE_LABELS,
   DOCUMENT_CATEGORY_LABELS,
   EMPLOYEE_STATUS_LABELS,
@@ -12,11 +13,14 @@ import {
   RESIDENCE_PERMIT_LABELS,
   RESIDENCE_PERMIT_WARN_DAYS,
   addDaysIso,
+  contractCorrectable,
+  contractState,
   formatDate,
   probationText,
   todayIsoLocal,
   type AdminArea,
   type ContractDto,
+  type ContractState,
   type EmployeeType,
   type ResidencePermitType,
 } from '@ohrganize/shared';
@@ -398,38 +402,12 @@ function Notice({ tone, children }: { tone: 'warning' | 'danger'; children: Reac
 // Verträge (Historie als Timeline)
 // ---------------------------------------------------------------------------
 
-/**
- * Zustand einer Vertragsversion, gleiche Regel wie in contractRoutes.ts:
- * „aktuell“ ist die jüngste Version (erste der absteigend sortierten Liste),
- * sofern sie nicht abgelaufen ist; eine Befristung allein macht sie nicht zur
- * Historie. Beginnt sie erst künftig, ist sie „geplant“, und die Version
- * davor „gilt“ bis dahin. Nur die jüngste Version lässt sich korrigieren.
- */
-function contractState(
-  c: ContractDto,
-  newest: boolean,
-  today: string,
-): 'aktuell' | 'geplant' | 'gilt' | 'abgelaufen' | 'abgeloest' {
-  const running = c.valid_to === null || c.valid_to >= today;
-  if (!running) return 'abgelaufen';
-  if (c.valid_from > today) return newest ? 'geplant' : 'abgeloest';
-  return newest ? 'aktuell' : 'gilt';
-}
-
-const CONTRACT_STATE_LABELS = {
-  aktuell: 'Aktuell',
-  geplant: 'Geplant',
-  gilt: 'Gilt noch',
-  abgelaufen: 'Abgelaufen',
-  abgeloest: 'Abgelöst',
-} as const;
-
-const CONTRACT_STATE_TONES: Record<keyof typeof CONTRACT_STATE_LABELS, BadgeTone> = {
+/** Farbe je Zustand (Regel und Texte: contractState in @ohrganize/shared, wie im Backend). */
+const CONTRACT_STATE_TONES: Record<ContractState, BadgeTone> = {
   aktuell: 'green',
   geplant: 'blue',
   gilt: 'green',
   abgelaufen: 'neutral',
-  abgeloest: 'neutral',
 };
 
 function ContractsTab({ employeeId, employeeType }: { employeeId: number; employeeType: EmployeeType }) {
@@ -507,9 +485,12 @@ function ContractsTab({ employeeId, employeeType }: { employeeId: number; employ
                   </div>
                 )}
                 {c.mirror_pending === 1 && c.mirror_error && (
-                  <div className="hm-notice" role="status" style={{ marginTop: 8 }}>
-                    Noch nicht in die Personalakte übernommen: {c.mirror_error}. Die Übernahme wird stündlich
-                    wiederholt und gelingt, sobald die Stammdaten passen.
+                  <div style={{ marginTop: 8 }}>
+                    <Notice tone="danger">
+                      Noch nicht in die Personalakte übernommen: {c.mirror_error}. Sobald die Stammdaten passen,
+                      gilt die Version (nach dem Speichern der Stammdaten sofort, sonst beim nächsten stündlichen
+                      Versuch).
+                    </Notice>
                   </div>
                 )}
               </div>
@@ -524,7 +505,7 @@ function ContractsTab({ employeeId, employeeType }: { employeeId: number; employ
                     </button>
                   </Tooltip>
                 )}
-                {(state === 'aktuell' || state === 'geplant') && (
+                {contractCorrectable(state, i === 0) && (
                   <button
                     className="hm-btn hm-btn--secondary hm-btn--sm"
                     onClick={() => {

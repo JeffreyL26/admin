@@ -2,12 +2,15 @@
  * Prueft die DOM-freien Regeln der Stammdaten aus @ohrganize/shared:
  * Monatsrechnung (addMonthsIso), Probezeit (Ende, Laenge, Text), die Saetze
  * des Dashboard-Widgets "Fristen der Personalakte" und wann ein
- * Aufenthaltstitel gebraucht wird.
+ * Aufenthaltstitel gebraucht wird; dazu der Zustand einer Vertragsversion
+ * (contractState, Server und Oberflaeche gleich).
  *
  * Aufruf: tsx src/test/masterDataTest.ts (Teil von npm test)
  */
 import {
   addMonthsIso,
+  contractCorrectable,
+  contractState,
   formatDate,
   needsResidencePermit,
   personnelDeadlineText,
@@ -72,6 +75,24 @@ check('ohne Angabe kein Titel', !needsResidencePermit(null) && !needsResidencePe
 check('EU kein Titel', !needsResidencePermit('PL') && !needsResidencePermit('DE'));
 check('EWR und Schweiz kein Titel', !needsResidencePermit('NO') && !needsResidencePermit('CH'));
 check('Drittstaat braucht Titel', needsResidencePermit('TR') && needsResidencePermit('GB'));
+
+// Vertragszustand: heute 01.11.2026, geplante Versionen ab 01.12. und 01.01.
+{
+  const today = '2026-11-01';
+  const running = { valid_from: '2026-02-01', valid_to: '2026-11-30' };
+  const december = { valid_from: '2026-12-01', valid_to: '2026-12-31' };
+  const january = { valid_from: '2027-01-01', valid_to: null };
+  check('Vertrag: geltende vor geplanter Version gilt noch', contractState(running, false, today) === 'gilt');
+  check('Vertrag: fruehere geplante Version ist geplant, nicht abgeloest', contractState(december, false, today) === 'geplant');
+  check('Vertrag: juengste geplante Version ist geplant', contractState(january, true, today) === 'geplant');
+  check('Vertrag: juengste geltende Version ist aktuell', contractState({ valid_from: '2026-02-01', valid_to: null }, true, today) === 'aktuell');
+  check('Vertrag: nach dem Ende abgelaufen', contractState({ valid_from: '2025-01-01', valid_to: '2026-10-31' }, false, today) === 'abgelaufen');
+  check('Vertrag: Befristung allein ist keine Historie', contractState({ valid_from: '2026-02-01', valid_to: '2027-06-30' }, true, today) === 'aktuell');
+  check(
+    'Vertrag: korrigierbar nur die juengste, nicht abgelaufene',
+    contractCorrectable('geplant', true) && !contractCorrectable('geplant', false) && !contractCorrectable('abgelaufen', true),
+  );
+}
 
 if (failures > 0) {
   console.log(`masterDataTest: ${failures} Fehler`);

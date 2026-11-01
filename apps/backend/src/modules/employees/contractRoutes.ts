@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { formatDate } from '@ohrganize/shared';
+import { contractCorrectable, contractState, formatDate } from '@ohrganize/shared';
 import { assertExecutiveAccess } from '../../core/executiveGate.js';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit, auditSystem } from '../../core/audit.js';
@@ -171,17 +171,21 @@ function mirrorToEmployee(
  * (`mirror_error`, die Akte zeigt ihn); sie wird bei jedem Lauf erneut
  * versucht und gilt, sobald die Stammdaten passen. Protokolliert
  * (`contract.mirror_failed`) wird nur ein neuer Grund, nicht jede Stunde.
+ * Mit `employeeIds` nur für diese Personen: nach dem Speichern ihrer
+ * Stammdaten, damit eine daran gescheiterte Version sofort gilt, sobald sie
+ * passt (nicht erst beim nächsten stündlichen Lauf).
  * Liefert die IDs der gespiegelten Versionen.
  */
-export function mirrorDueContracts(today = todayIso()): number[] {
+export function mirrorDueContracts(today = todayIso(), employeeIds?: readonly number[]): number[] {
   const db = getDb();
   return inTransaction(() => {
     const due = db
       .prepare(
         `SELECT * FROM contracts WHERE mirror_pending = 1 AND valid_from <= ?
+         ${employeeIds ? 'AND employee_id IN (SELECT value FROM json_each(?))' : ''}
          ORDER BY employee_id, valid_from DESC, id DESC`,
       )
-      .all(today) as ContractRow[];
+      .all(employeeIds ? [today, JSON.stringify(employeeIds)] : [today]) as ContractRow[];
     const setState = db.prepare('UPDATE contracts SET mirror_pending = ?, mirror_error = ? WHERE id = ?');
     const mirrored: number[] = [];
     const seen = new Set<number>();
@@ -355,12 +359,14 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
     const existing = getContract(id);
     assertExecutiveAccess(req, existing.employee_id, 'bearbeiten');
     const today = todayIso();
-    if (!isCurrent(existing, today)) {
+    // Dieselbe Regel wie die Oberfläche (contractState/contractCorrectable in shared).
+    const newest = newestContract(existing.employee_id)?.id === id;
+    if (contractState(existing, newest, today) === 'abgelaufen') {
       throw conflict(
         'Nur die aktuelle Vertragsversion kann korrigiert werden. Abgelaufene Versionen sind Historie',
       );
     }
-    if (newestContract(existing.employee_id)?.id !== id) {
+    if (!contractCorrectable(contractState(existing, newest, today), newest)) {
       throw conflict(
         'Nur die aktuelle Vertragsversion kann korrigiert werden. Diese Version wurde bereits von einer neueren abgelöst',
       );
@@ -403,7 +409,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
       // Version (Beginn kuenftig) wird nur geprueft und zum Beginn gespiegelt;
       // stand die Spiegelung noch aus und gilt die Version jetzt, geht sie ganz.
       if (isCurrent({ valid_to: merged.valid_to ?? null }, today)) {
-        const planned = merged.valid_from > today;
+        const planned = contractState(merged, true, today) === 'geplant';
         const changed = existing.mirror_pending === 1 && !planned
           ? Object.fromEntries(MIRRORED_COLUMNS.map((c) => [c, merged[c]]))
           : Object.fromEntries(

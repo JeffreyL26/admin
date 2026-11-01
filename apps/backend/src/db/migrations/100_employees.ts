@@ -1,3 +1,4 @@
+import { todayIsoLocal } from '@ohrganize/shared';
 import type { Migration } from './types.js';
 
 // Nummernkreis 1xx: Personalverwaltung & Stammdaten.
@@ -437,34 +438,55 @@ export const employeesMigrations: Migration[] = [
   },
   {
     // Grund, warum eine faellige geplante Version nicht gespiegelt werden
-    // konnte (Typregeln); sie bleibt offen und wird stuendlich erneut
-    // versucht, die Akte zeigt den Grund. Dazu der Altbestand: Geplante
-    // Versionen, die vor 116 angelegt wurden, waren schon beim Anlegen
-    // gespiegelt. Sie gelten jetzt als offen, und die Personalakte bekommt die
-    // Werte der heute geltenden Version zurueck (Datum wie todayIso: lokal).
+    // konnte (Typregeln); sie bleibt offen und wird erneut versucht, die Akte
+    // zeigt den Grund. Dazu der Altbestand (run): Geplante Versionen, die vor
+    // 116 angelegt wurden, waren schon beim Anlegen gespiegelt. Sie gelten
+    // jetzt als offen, und die Personalakte bekommt die Werte der heute
+    // geltenden Version zurueck, mit updated_at (die optimistische Sperre der
+    // Clients sieht die Aenderung) und je Person einem Protokolleintrag ohne
+    // Konto mit altem und neuem Wert. Ohne Typregelpruefung: Die Werte waren
+    // vor der geplanten Version schon in der Akte, das stellt diesen Stand
+    // wieder her. Datum lokal wie todayIso.
     name: '117_contract_mirror_backfill',
     sql: `
       ALTER TABLE contracts ADD COLUMN mirror_error TEXT;
-      UPDATE contracts SET mirror_pending = 1
-       WHERE valid_from > date('now', 'localtime')
-         AND (valid_to IS NULL OR valid_to >= date('now', 'localtime'));
-      UPDATE employees SET
-        weekly_hours = COALESCE((
-          SELECT c.weekly_hours FROM contracts c
-           WHERE c.employee_id = employees.id AND c.valid_from <= date('now', 'localtime')
-             AND (c.valid_to IS NULL OR c.valid_to >= date('now', 'localtime'))
-           ORDER BY c.valid_from DESC, c.id DESC LIMIT 1), weekly_hours),
-        annual_leave_days = COALESCE((
-          SELECT c.annual_leave_days FROM contracts c
-           WHERE c.employee_id = employees.id AND c.valid_from <= date('now', 'localtime')
-             AND (c.valid_to IS NULL OR c.valid_to >= date('now', 'localtime'))
-           ORDER BY c.valid_from DESC, c.id DESC LIMIT 1), annual_leave_days),
-        employee_type = COALESCE((
-          SELECT c.employee_type FROM contracts c
-           WHERE c.employee_id = employees.id AND c.valid_from <= date('now', 'localtime')
-             AND (c.valid_to IS NULL OR c.valid_to >= date('now', 'localtime'))
-           ORDER BY c.valid_from DESC, c.id DESC LIMIT 1), employee_type)
-       WHERE id IN (SELECT employee_id FROM contracts WHERE mirror_pending = 1);
     `,
+    run: (db) => {
+      const today = todayIsoLocal();
+      const planned = db
+        .prepare(
+          `SELECT id, employee_id FROM contracts
+           WHERE valid_from > ? AND (valid_to IS NULL OR valid_to >= ?)`,
+        )
+        .all([today, today]) as { id: number; employee_id: number }[];
+      if (planned.length === 0) return;
+      db.prepare('UPDATE contracts SET mirror_pending = 1 WHERE id IN (SELECT value FROM json_each(?))').run(
+        JSON.stringify(planned.map((p) => p.id)),
+      );
+      const inEffect = db.prepare(
+        `SELECT weekly_hours, annual_leave_days, employee_type FROM contracts
+         WHERE employee_id = ? AND valid_from <= ? AND (valid_to IS NULL OR valid_to >= ?)
+         ORDER BY valid_from DESC, id DESC LIMIT 1`,
+      );
+      const current = db.prepare('SELECT weekly_hours, annual_leave_days, employee_type FROM employees WHERE id = ?');
+      const columns = ['weekly_hours', 'annual_leave_days', 'employee_type'] as const;
+      for (const employeeId of new Set(planned.map((p) => p.employee_id))) {
+        const version = inEffect.get([employeeId, today, today]) as Record<string, unknown> | undefined;
+        const person = current.get([employeeId]) as Record<string, unknown> | undefined;
+        if (!version || !person) continue;
+        const changed = columns.filter((c) => version[c] !== null && version[c] !== person[c]);
+        if (changed.length === 0) continue;
+        db.prepare(
+          `UPDATE employees SET ${changed.map((c) => `${c} = ?`).join(', ')}, updated_at = datetime('now') WHERE id = ?`,
+        ).run([...changed.map((c) => version[c]), employeeId]);
+        db.prepare(
+          `INSERT INTO audit_log (user_id, action, entity, entity_id, details)
+           VALUES (NULL, 'contract.mirror_backfill', 'employee', ?, ?)`,
+        ).run([
+          employeeId,
+          JSON.stringify({ changed: Object.fromEntries(changed.map((c) => [c, { from: person[c], to: version[c] }])) }),
+        ]);
+      }
+    },
   },
 ];

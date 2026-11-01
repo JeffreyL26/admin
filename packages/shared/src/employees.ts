@@ -482,6 +482,37 @@ export interface ContractDto {
   created_at: string;
 }
 
+/**
+ * Zustand einer Vertragsversion, für Server (contractRoutes.ts) und
+ * Oberfläche gleich: Abgelaufen ist sie nach ihrem Ende; beginnt sie erst
+ * künftig, ist sie geplant (auch eine geplante vor einer weiteren geplanten);
+ * sonst gilt sie, als jüngste Version „aktuell“, sonst bis zur geplanten
+ * Version „gilt noch“. Eine Befristung allein macht sie nicht zur Historie.
+ */
+export type ContractState = 'aktuell' | 'geplant' | 'gilt' | 'abgelaufen';
+
+export function contractState(
+  c: Pick<ContractDto, 'valid_from' | 'valid_to'>,
+  newest: boolean,
+  today: string,
+): ContractState {
+  if (c.valid_to !== null && c.valid_to < today) return 'abgelaufen';
+  if (c.valid_from > today) return 'geplant';
+  return newest ? 'aktuell' : 'gilt';
+}
+
+/** Korrigieren lässt sich nur die jüngste Version, solange sie nicht abgelaufen ist. */
+export function contractCorrectable(state: ContractState, newest: boolean): boolean {
+  return newest && state !== 'abgelaufen';
+}
+
+export const CONTRACT_STATE_LABELS: Record<ContractState, string> = {
+  aktuell: 'Aktuell',
+  geplant: 'Geplant',
+  gilt: 'Gilt noch',
+  abgelaufen: 'Abgelaufen',
+};
+
 export interface DocumentDto {
   id: number;
   employee_id: number | null;

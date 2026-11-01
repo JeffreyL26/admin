@@ -365,10 +365,15 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Lohnlauf, FTE und Typregeln vorzeitig mit ihr. Scheitert die Übernahme an
   den Typregeln, bleibt die Version offen mit Grund (`mirror_error`,
   Migration `117_contract_mirror_backfill`), jeder Lauf versucht es erneut,
-  protokolliert (`contract.mirror_failed`) wird nur ein neuer Grund; die
-  Akte zeigt das im Kopf und im Tab Vertrag („Geplant“, „Gilt noch“).
-  Migration 117 setzt außerdem vor 116 angelegte geplante Versionen wieder
-  auf offen und gibt der Akte die Werte der geltenden Version zurück. Umgekehrt gilt eine Änderung dieser Felder im
+  auch gleich nach dem Speichern der Stammdaten (Personal-PATCH,
+  Sammeländerung); protokolliert (`contract.mirror_failed`) wird nur ein
+  neuer Grund; die Akte zeigt das im Kopf und im Tab Vertrag („Geplant“,
+  „Gilt noch“; Zustand und Korrigierbarkeit stehen EINMAL als
+  `contractState`/`contractCorrectable` in `shared/employees.ts`, Server und
+  Oberfläche nutzen sie). Migration 117 setzt außerdem vor 116 angelegte
+  geplante Versionen wieder auf offen und gibt der Akte die Werte der
+  geltenden Version zurück (Schritt `run`, mit `updated_at` und
+  Protokolleintrag `contract.mirror_backfill` ohne Konto). Umgekehrt gilt eine Änderung dieser Felder im
   Personalformular oder in der Sammeländerung als Korrektur der HEUTE
   geltenden Version (`syncCurrentContract`, eigener Audit-Eintrag `update`
   an `contract` mit altem und neuem Wert); eine geplante Version bleibt
