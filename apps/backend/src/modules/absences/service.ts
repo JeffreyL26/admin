@@ -135,24 +135,22 @@ export interface CountOptions {
   /** Optionaler Ausschnitt (z. B. Kalenderjahr) für die Zählung. */
   clipFrom?: string;
   clipTo?: string;
-  /** Vorberechnete Betriebsruhetage; sonst wird selbst geladen. */
+  /**
+   * Vorberechnete Betriebsruhetage; sonst wird selbst geladen. Sie müssen den
+   * GANZEN Zeitraum dateFrom bis dateTo abdecken, nicht nur den Ausschnitt:
+   * Bei flexibler Woche und bei gespeicherten Tagen ist ein Ausschnitt ein
+   * Anteil am ganzen Zeitraum (`closuresCovering`).
+   */
   closures?: Set<string>;
 }
 
 /**
- * Zählt Abwesenheitstage: die Tage der Arbeitswoche (feste Tage, sonst Mo bis Fr),
- * ohne Feiertage des Bundeslands, ohne Betriebsruhe. Halbe Tage gelten nur,
- * wenn der jeweilige Randtag zählt und innerhalb des Ausschnitts liegt. Bei
- * flexibler Woche (eine Zahl Tage ohne feste Tage) ist das Ergebnis der
- * anteilige Vorschlag `flexibleDays`; die tatsächliche Zahl kann der Antrag
- * von Hand tragen (days_manual).
+ * Tage der Arbeitswoche zwischen from und to (feste Tage, flexibel Mo bis
+ * Fr), ohne Feiertage und Betriebsruhe. Halbe Randtage des Zeitraums zählen
+ * halb, wenn sie in from bis to liegen.
  */
-export function countAbsenceDays(opts: CountOptions): number {
-  const from = opts.clipFrom && opts.clipFrom > opts.dateFrom ? opts.clipFrom : opts.dateFrom;
-  const to = opts.clipTo && opts.clipTo < opts.dateTo ? opts.clipTo : opts.dateTo;
+function scheduledDays(opts: CountOptions, schedule: WorkSchedule, closures: Set<string>, from: string, to: string): number {
   if (from > to) return 0;
-  const schedule = opts.place.schedule ?? DEFAULT_WORK_SCHEDULE;
-  const closures = opts.closures ?? closureDates(from, to);
   const counted = new Set<string>();
   for (const d of eachDay(from, to)) {
     if (!isScheduledDay(schedule, d)) continue;
@@ -163,7 +161,62 @@ export function countAbsenceDays(opts: CountOptions): number {
   let total = counted.size;
   if (opts.halfDayStart && counted.has(opts.dateFrom)) total -= 0.5;
   if (opts.halfDayEnd && opts.dateTo !== opts.dateFrom && counted.has(opts.dateTo)) total -= 0.5;
-  return schedule.weekdays === null ? flexibleDays(total, schedule.daysPerWeek) : total;
+  return total;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Anteil des Ausschnitts from bis to an `whole` Tagen des ganzen Zeitraums,
+ * verteilt nach den Tagen der Arbeitswoche (gibt es dort keine mehr, nach
+ * Kalendertagen). Gerechnet als Differenz des bis zum Ende aufgelaufenen
+ * Anteils: Die Ausschnitte eines Antrags (bis heute und ab morgen, je
+ * Kalenderjahr) ergeben so zusammen genau `whole`, statt dass jeder für sich
+ * rundet.
+ */
+function shareOf(
+  whole: number,
+  opts: CountOptions,
+  schedule: WorkSchedule,
+  closures: Set<string>,
+  from: string,
+  to: string,
+): number {
+  if (from > to) return 0;
+  if (from <= opts.dateFrom && to >= opts.dateTo) return whole;
+  const all = scheduledDays(opts, schedule, closures, opts.dateFrom, opts.dateTo);
+  const fraction =
+    all > 0
+      ? (end: string) => scheduledDays(opts, schedule, closures, opts.dateFrom, end) / all
+      : (end: string) => eachDay(opts.dateFrom, end).length / eachDay(opts.dateFrom, opts.dateTo).length;
+  const upTo = (end: string) =>
+    end < opts.dateFrom ? 0 : end >= opts.dateTo ? whole : round2(whole * fraction(end));
+  return round2(upTo(to) - upTo(addDaysIso(from, -1)));
+}
+
+/**
+ * Zählt Abwesenheitstage: die Tage der Arbeitswoche (feste Tage, sonst Mo bis Fr),
+ * ohne Feiertage des Bundeslands, ohne Betriebsruhe. Halbe Tage gelten nur,
+ * wenn der jeweilige Randtag zählt und innerhalb des Ausschnitts liegt. Bei
+ * flexibler Woche (eine Zahl Tage ohne feste Tage) ist das Ergebnis der
+ * anteilige Vorschlag `flexibleDays` für den ganzen Zeitraum und ein
+ * Ausschnitt sein Anteil daran (`shareOf`); die tatsächliche Zahl kann der
+ * Antrag von Hand tragen (days_manual).
+ */
+export function countAbsenceDays(opts: CountOptions): number {
+  const from = opts.clipFrom && opts.clipFrom > opts.dateFrom ? opts.clipFrom : opts.dateFrom;
+  const to = opts.clipTo && opts.clipTo < opts.dateTo ? opts.clipTo : opts.dateTo;
+  if (from > to) return 0;
+  const schedule = opts.place.schedule ?? DEFAULT_WORK_SCHEDULE;
+  if (schedule.weekdays !== null) {
+    return scheduledDays(opts, schedule, opts.closures ?? closureDates(from, to), from, to);
+  }
+  const closures = opts.closures ?? closureDates(opts.dateFrom, opts.dateTo);
+  const whole = flexibleDays(
+    scheduledDays(opts, schedule, closures, opts.dateFrom, opts.dateTo),
+    schedule.daysPerWeek,
+  );
+  return shareOf(whole, opts, schedule, closures, from, to);
 }
 
 /**
@@ -187,28 +240,51 @@ export function schedulePreview(opts: CountOptions): { flexible: boolean; days_p
 }
 
 /**
- * Tage eines gespeicherten Antrags in einem Ausschnitt. Trägt der Antrag eine
- * Zahl von Hand (`days_manual`), gilt sie für den ganzen Zeitraum und wird
- * für einen Ausschnitt (Jahreswechsel) im Verhältnis der gezählten Tage
- * aufgeteilt; sonst wird gezählt.
+ * Tage eines Antrags in einem Ausschnitt. Maßgeblich ist die gespeicherte
+ * Zahl `days_counted` (beim Anlegen gezählt oder von Hand genannt; neu
+ * gezählt bei Betriebsruhe und, für noch nicht begonnene Anträge, bei
+ * geänderter Arbeitswoche oder geändertem Ort: `recountUpcomingRequests`).
+ * Ein vergangener Antrag zählt deshalb weiter, wie er gezählt wurde, auch
+ * wenn sich die Arbeitswoche seither geändert hat. Ein Ausschnitt
+ * (Jahreswechsel, bis heute) ist ihr Anteil nach den Tagen der Arbeitswoche
+ * (`shareOf`). Ohne gespeicherte Zahl (ein neuer Antrag) wird gezählt.
  */
 export function requestDaysIn(
-  r: { date_from: string; date_to: string; half_day_start: number; half_day_end: number; days_manual?: number; days_counted?: number },
+  r: { date_from: string; date_to: string; half_day_start: number; half_day_end: number; days_manual?: number; days_counted?: number | null },
   opts: Omit<CountOptions, 'dateFrom' | 'dateTo' | 'halfDayStart' | 'halfDayEnd'>,
 ): number {
-  const base = {
+  const base: CountOptions = {
     ...opts,
     dateFrom: r.date_from,
     dateTo: r.date_to,
     halfDayStart: r.half_day_start === 1,
     halfDayEnd: r.half_day_end === 1,
   };
-  const part = countAbsenceDays(base);
-  if (r.days_manual !== 1 || r.days_counted === undefined) return part;
-  const covers = (!opts.clipFrom || opts.clipFrom <= r.date_from) && (!opts.clipTo || opts.clipTo >= r.date_to);
-  if (covers) return r.days_counted;
-  const whole = countAbsenceDays({ ...base, clipFrom: undefined, clipTo: undefined });
-  return whole > 0 ? Math.round(((r.days_counted * part) / whole) * 100) / 100 : 0;
+  if (r.days_counted === undefined || r.days_counted === null) return countAbsenceDays(base);
+  const from = opts.clipFrom && opts.clipFrom > r.date_from ? opts.clipFrom : r.date_from;
+  const to = opts.clipTo && opts.clipTo < r.date_to ? opts.clipTo : r.date_to;
+  const schedule = opts.place.schedule ?? DEFAULT_WORK_SCHEDULE;
+  const closures = opts.closures ?? closureDates(r.date_from, r.date_to);
+  return shareOf(r.days_counted, base, schedule, closures, from, to);
+}
+
+/**
+ * Betriebsruhe für from bis to und den ganzen Zeitraum jedes Antrags: Ein
+ * Ausschnitt rechnet über den ganzen Antrag (`shareOf`), auch über den Teil
+ * vor dem ersten betrachteten Jahr.
+ */
+export function closuresCovering(
+  rows: readonly { date_from: string; date_to: string }[],
+  from: string,
+  to: string,
+): Set<string> {
+  let lo = from;
+  let hi = to;
+  for (const r of rows) {
+    if (r.date_from < lo) lo = r.date_from;
+    if (r.date_to > hi) hi = r.date_to;
+  }
+  return closureDates(lo, hi);
 }
 
 /**
@@ -250,7 +326,8 @@ export interface BalanceRequestRow {
  * Prozess sonst für alle parallelen Requests blockieren. `closures` und
  * `requests` dürfen ein Superset (größerer Zeitraum bzw. eigener Antrag
  * ausgenommen) sein — Zeiträume außerhalb der Jahresfenster zählen über das
- * Clipping als 0. Einzel-Aufrufe lassen den Kontext einfach weg.
+ * Clipping als 0. `closures` deckt dabei den ganzen Zeitraum jedes Antrags
+ * ab (`closuresCovering`). Einzel-Aufrufe lassen den Kontext einfach weg.
  */
 export interface BalanceContext {
   place?: EmployeeRegion;
@@ -339,7 +416,6 @@ export function computeBalance(
 
   const spanFrom = `${startYear}-01-01`;
   const spanTo = `${year}-12-31`;
-  const closures = ctx?.closures ?? closureDates(spanFrom, spanTo);
 
   const rows =
     ctx?.requests ??
@@ -356,6 +432,7 @@ export function computeBalance(
          ORDER BY r.date_from`,
       )
       .all([emp.id, spanTo, spanFrom]) as BalanceRequestRow[]);
+  const closures = ctx?.closures ?? closuresCovering(rows, spanFrom, spanTo);
 
   const days = (r: BalanceRequestRow, clipFrom: string, clipTo: string) =>
     requestDaysIn(r, { place, clipFrom, clipTo, closures });
@@ -437,10 +514,9 @@ export function computeBalance(
     breakdown = { taken_until: takenClipTo, segments };
   }
 
-  // Zwei Stellen statt halber Tage: Der gesetzliche Teilurlaub kann
+  // Zwei Stellen statt halber Tage (round2): Der gesetzliche Teilurlaub kann
   // Bruchteile unter einem halben Tag tragen (§ 5 Abs. 2 BUrlG rundet nur ab
   // einem halben Tag auf). Ganze und halbe Tage bleiben, was sie waren.
-  const round2 = (n: number) => Math.round(n * 100) / 100;
   return {
     employee_id: emp.id,
     year,
@@ -543,26 +619,59 @@ export function assertTypeAllowed(employeeId: number, type: AbsenceTypeRow, self
  * Liefert die IDs der geaenderten Antraege (fuer Audit und Rueckmeldung).
  */
 export function recountRequestsOverlapping(from: string, to: string): number[] {
-  const db = getDb();
-  const rows = db
+  const rows = getDb()
     .prepare(
-      `SELECT id, employee_id, date_from, date_to, half_day_start, half_day_end, days_counted, closure_covered
+      `SELECT ${RECOUNT_COLUMNS}
        FROM absence_requests
        WHERE (status IN ('beantragt', 'genehmigt') OR closure_covered = 1)
          AND days_manual = 0
          AND date_from <= ? AND date_to >= ?`,
     )
-    .all([to, from]) as {
-    id: number;
-    employee_id: number;
-    date_from: string;
-    date_to: string;
-    half_day_start: number;
-    half_day_end: number;
-    days_counted: number;
-    closure_covered: number;
-  }[];
+    .all([to, from]) as RecountRow[];
+  return recountRows(rows);
+}
+
+/**
+ * Zählt die noch nicht begonnenen offenen und genehmigten Anträge dieser
+ * Personen neu (Tage von Hand bleiben stehen). Aufzurufen, wenn sich ihre
+ * Arbeitswoche oder ihr Ort (Standort, dessen Region, Firmenvorgabe) ändert:
+ * Der Saldo liest die gespeicherten Tage (`requestDaysIn`), ein Antrag für
+ * den nächsten Monat gilt so schon nach der neuen Woche. Begonnene und
+ * vergangene Anträge bleiben, wie sie gezählt wurden, sonst änderte eine
+ * neue Arbeitswoche rückwirkend genommene Tage und den Übertrag. Gehört in
+ * dieselbe Transaktion wie die Änderung; liefert die IDs der geänderten
+ * Anträge.
+ */
+export function recountUpcomingRequests(employeeIds: readonly number[], today = todayIso()): number[] {
+  if (employeeIds.length === 0) return [];
+  const rows = getDb()
+    .prepare(
+      `SELECT ${RECOUNT_COLUMNS}
+       FROM absence_requests
+       WHERE status IN ('beantragt', 'genehmigt') AND days_manual = 0 AND date_from > ?
+         AND employee_id IN (SELECT value FROM json_each(?))`,
+    )
+    .all([today, JSON.stringify(employeeIds)]) as RecountRow[];
+  return recountRows(rows);
+}
+
+const RECOUNT_COLUMNS =
+  'id, employee_id, date_from, date_to, half_day_start, half_day_end, days_counted, closure_covered';
+
+interface RecountRow {
+  id: number;
+  employee_id: number;
+  date_from: string;
+  date_to: string;
+  half_day_start: number;
+  half_day_end: number;
+  days_counted: number;
+  closure_covered: number;
+}
+
+function recountRows(rows: RecountRow[]): number[] {
   if (rows.length === 0) return [];
+  const db = getDb();
   const placeCache = new Map<number, EmployeeRegion>();
   const update = db.prepare('UPDATE absence_requests SET days_counted = ?, closure_covered = ? WHERE id = ?');
   // Liegt ein Antrag vollstaendig in der Betriebsruhe, faellt er auf 0 Tage,
@@ -705,7 +814,6 @@ export function assertBalanceCovers(
   const place = pre?.place ?? regionForEmployee(employeeId);
   const chainFrom = `${fromYear - 5}-01-01`;
   const chainTo = `${toYear}-12-31`;
-  const chainClosures = closureDates(chainFrom, chainTo);
   const requestParams: unknown[] = [employeeId, chainTo, chainFrom];
   let requestSql = `SELECT r.date_from, r.date_to, r.half_day_start, r.half_day_end, r.status,
               r.days_manual, r.days_counted
@@ -718,11 +826,13 @@ export function assertBalanceCovers(
     requestSql += ' AND r.id != ?';
     requestParams.push(excludeRequestId);
   }
+  const requests = db.prepare(requestSql).all(requestParams) as BalanceRequestRow[];
+  const chainClosures = closuresCovering([...requests, span], chainFrom, chainTo);
   const ctx: BalanceContext = {
     place,
     carryoverDeadline: getSetting('carryoverDeadline'),
     closures: chainClosures,
-    requests: db.prepare(requestSql).all(requestParams) as BalanceRequestRow[],
+    requests,
   };
   // Betriebsruhe des Antragszeitraums selbst: vom Aufrufer übernommen, sonst
   // deckt das Ketten-Superset sie mit ab (countAbsenceDays fragt nur `has`).

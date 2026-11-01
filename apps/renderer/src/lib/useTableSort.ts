@@ -43,3 +43,25 @@ export function useTableSort<T, K extends string>(
 
   return { sort, toggle, sorted };
 }
+
+/**
+ * Dasselbe für serverseitig sortierte, geblätterte Listen: nur Stand und
+ * Klickfolge, sortiert wird im Backend (`sort`/`dir`). `onToggle` läuft bei
+ * jedem Klick, etwa zurück auf Seite 1.
+ */
+export function useServerSort<K extends string>(
+  tableKey: string,
+  keys: readonly K[],
+  fallback: SortState<NoInfer<K>>,
+  onToggle?: () => void,
+) {
+  const storageKey = `ohrganize.tableSort.${tableKey}`;
+  const [sort, setSort] = useState<SortState<K>>(() => parseSortState(readJson(storageKey), keys, fallback));
+  const toggle = (key: K) => {
+    const next = nextSort(sort, key);
+    setSort(next);
+    writeJson(storageKey, next);
+    onToggle?.();
+  };
+  return { sort, toggle };
+}

@@ -772,7 +772,7 @@ function WorkWeekField({ form, set }: { form: EmployeeFormState; set: SetForm })
  */
 export function DisabilityFields({ form, set, readOnly }: { form: EmployeeFormState; set: SetForm; readOnly: boolean }) {
   const degree = num(form.disability_degree);
-  const notes = disabilityNotes(degree, form.disability_equal);
+  const notes = disabilityNotes(degree, form.disability_equal, formDaysPerWeek(form));
   return (
     <div className="hm-form-grid">
       <Field label="Grad der Behinderung">

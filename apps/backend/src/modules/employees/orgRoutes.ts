@@ -10,6 +10,7 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
 import { signOriginalPhotoUrl, signPhotoUrl } from '../../core/files.js';
+import { recountUpcomingRequests } from '../absences/service.js';
 import {
   assertLocationRegion,
   departmentBodySchema,
@@ -435,11 +436,19 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       (c) => patch[c] !== undefined,
     );
     if (cols.length === 0) throw badRequest('Keine Änderungen übergeben');
+    const regionChanged =
+      (patch.country !== undefined && patch.country !== existing.country) ||
+      (patch.bundesland !== undefined && patch.bundesland !== existing.bundesland);
     inTransaction(() => {
       getDb()
         .prepare(`UPDATE locations SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`)
         .run(...cols.map((c) => patch[c] ?? null), id);
-      audit(req, 'update', 'location', id, { changed: patch });
+      // Andere Feiertage: kommende Anträge der Leute am Standort neu zählen.
+      const recounted = regionChanged ? recountUpcomingRequests(employeesAtLocation(id)) : [];
+      audit(req, 'update', 'location', id, {
+        changed: patch,
+        ...(recounted.length ? { recounted_requests: recounted } : {}),
+      });
     });
     return { location: getDb().prepare('SELECT * FROM locations WHERE id = ?').get(id) };
   });
@@ -451,9 +460,21 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       | undefined;
     if (!existing) throw notFound('Standort nicht gefunden');
     inTransaction(() => {
+      const staff = employeesAtLocation(id);
       getDb().prepare('DELETE FROM locations WHERE id = ?').run(id);
-      audit(req, 'delete', 'location', id, { name: existing.name });
+      // Ohne Standort gilt die Firmenvorgabe, also womoeglich andere Feiertage.
+      const recounted = recountUpcomingRequests(staff);
+      audit(req, 'delete', 'location', id, {
+        name: existing.name,
+        ...(recounted.length ? { recounted_requests: recounted } : {}),
+      });
     });
     reply.status(204);
   });
+}
+
+function employeesAtLocation(locationId: number): number[] {
+  return (
+    getDb().prepare('SELECT id FROM employees WHERE location_id = ?').all(locationId) as { id: number }[]
+  ).map((r) => r.id);
 }

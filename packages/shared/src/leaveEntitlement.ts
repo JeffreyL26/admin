@@ -21,9 +21,11 @@
  * - Zusatzurlaub bei Schwerbehinderung (§ 208 SGB IX) ab einem Grad von 50:
  *   eine Arbeitswoche (5 Tage bei fünf Arbeitstagen), nicht bei
  *   Gleichstellung; unterjährig wie der Mindesturlaub (§ 208 Abs. 2, 3).
- * - Ohne bekannte Arbeitswoche gibt es keinen gesetzlichen Teil: Der ganze
- *   Wert gilt als vertraglich und wird gezwölftelt wie vor der Umstellung.
- *   Vollzeit und Ausbildung gelten ohne Angabe als fünf Tage.
+ * - Ohne bekannte Arbeitswoche gibt es keinen gesetzlichen Teil und keinen
+ *   Zusatzurlaub (er bemisst sich an der Woche): Der ganze Wert gilt als
+ *   vertraglich und wird gezwölftelt wie vor der Umstellung. Vollzeit und
+ *   Ausbildung gelten ohne Angabe als fünf Tage, freie Mitarbeit hat keinen
+ *   Anspruch (`entitlementDaysPerWeek`).
  */
 import { addDaysIso, addMonthsIso } from './common.js';
 import { parseWeekdays } from './workSchedule.js';
@@ -93,7 +95,7 @@ export function leaveEntitlementFor(input: EntitlementInput, year: number): Enti
   const known = input.days_per_week !== null && input.days_per_week > 0;
   const statutoryFull = known ? statutoryLeaveDays(input.days_per_week!) : 0;
   const disabilityFull =
-    (input.disability_degree ?? 0) >= 50 && !input.disability_equal ? round2(input.days_per_week ?? 5) : 0;
+    known && (input.disability_degree ?? 0) >= 50 && !input.disability_equal ? round2(input.days_per_week!) : 0;
   const contractualFull = Math.max(0, round2(annual - statutoryFull));
   const full: EntitlementParts = {
     statutory: statutoryFull,

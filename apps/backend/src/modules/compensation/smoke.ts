@@ -893,6 +893,22 @@ check('Rechnung mit unbekannter file_id → 400', badFile.statusCode === 400, ba
 const invoiceList = await app.inject({ method: 'GET', url: '/api/compensation/freelancer-invoices', headers: auth });
 check('Offene Posten: Summe 2.640 €', invoiceList.json().open_cents === 264000, invoiceList.json());
 
+// Leitungsebene: Honorare und Rechnungen nur mit dem Recht, auch nicht in der Summe.
+db.prepare('UPDATE employees SET executive = 1 WHERE id = ?').run(e3);
+{
+  const hiddenRates = await app.inject({ method: 'GET', url: '/api/compensation/freelancer-rates', headers: authReader });
+  const hiddenInvoices = await app.inject({ method: 'GET', url: '/api/compensation/freelancer-invoices', headers: authReader });
+  check(
+    'Leitungsebene: Honorare und Rechnungen ohne Recht ausgeblendet, Summe ohne sie',
+    hiddenRates.statusCode === 200 &&
+      !(hiddenRates.json().rates as { employee_id: number }[]).some((r) => r.employee_id === e3) &&
+      !(hiddenInvoices.json().invoices as { employee_id: number }[]).some((i) => i.employee_id === e3) &&
+      hiddenInvoices.json().open_cents === 0,
+    { rates: hiddenRates.json(), invoices: hiddenInvoices.json() },
+  );
+}
+db.prepare('UPDATE employees SET executive = 0 WHERE id = ?').run(e3);
+
 const paidTooEarly = await app.inject({
   method: 'POST',
   url: `/api/compensation/freelancer-invoices/${invoiceId}/status`,

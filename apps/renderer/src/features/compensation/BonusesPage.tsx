@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Gift, Plus, Target, Trash2, X } from 'lucide-react';
@@ -243,9 +243,12 @@ export function BonusesPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('alle');
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  // Absprung aus der Gehaltsübersicht (Spalte "Extras"): nur diese Person.
+  // Absprung aus der Gehaltsübersicht (Spalte "Extras"): nur diese Person,
+  // mit ?jahr= nur das Auszahlungsjahr, das die Spalte zählt.
   const [params, setParams] = useSearchParams();
   const personFilter = Number(params.get('person')) || null;
+  const yearParam = params.get('jahr');
+  const yearFilter = yearParam && /^\d{4}$/.test(yearParam) ? yearParam : null;
 
   const { data, isLoading } = useQuery({
     queryKey: ['compensation', 'bonuses', statusFilter],
@@ -255,7 +258,16 @@ export function BonusesPage() {
       ),
     select: (d) => d.bonuses,
   });
-  const filtered = personFilter === null ? data : data?.filter((b) => b.employee_id === personFilter);
+  // Gemerkt, sonst sortierte useTableSort bei jedem Rendern neu.
+  const filtered = useMemo(
+    () =>
+      personFilter === null
+        ? data
+        : data?.filter(
+            (b) => b.employee_id === personFilter && (yearFilter === null || b.payout_month.startsWith(yearFilter)),
+          ),
+    [data, personFilter, yearFilter],
+  );
   const filteredName = filtered?.[0] ? `${filtered[0].first_name} ${filtered[0].last_name}` : null;
   const { sort, toggle: sortBy, sorted } = useTableSort('bonuses', filtered, BONUS_SORT, BONUS_SORT_DEFAULT, bonusTieBreak);
 
@@ -288,7 +300,8 @@ export function BonusesPage() {
           <>
             {personFilter !== null && (
               <button className="hm-btn hm-btn--secondary" onClick={() => setParams({}, { replace: true })}>
-                <X size={16} /> Nur {filteredName ?? 'eine Person'}: Filter aufheben
+                <X size={16} /> Nur {filteredName ?? 'eine Person'}
+                {yearFilter !== null ? ` (${yearFilter})` : ''}: Filter aufheben
               </button>
             )}
             <button className="hm-btn hm-btn--primary" onClick={() => setCreateOpen(true)}>

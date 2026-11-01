@@ -9,6 +9,7 @@ import {
   HIGHEST_DEGREE_LABELS,
   SENIORITY_FORMAT_LABELS,
   nationalityLabel,
+  nextSort,
   formatDate,
   formatSeniority,
   type EmployeeColumnDef,
@@ -317,8 +318,10 @@ export function EmployeeListPage() {
     });
   }, [departments, teams, locations, jobTitles]);
 
-  const sortBy = (field: EmployeeSortField) =>
-    set(filters.sort === field ? { dir: filters.dir === 'asc' ? 'desc' : 'asc' } : { sort: field, dir: 'asc' });
+  const sortBy = (field: EmployeeSortField) => {
+    const next = nextSort({ key: filters.sort, dir: filters.dir }, field);
+    set({ sort: next.key, dir: next.dir });
+  };
 
   const set = (patch: Partial<EmployeeFilters>) => {
     setFilters((f) => ({ ...f, ...patch }));
@@ -363,14 +366,17 @@ export function EmployeeListPage() {
     });
   };
 
+  // Gesperrte Zeilen (Leitungsebene ohne das Recht) sind nicht auswählbar;
+  // mitgewählt lehnte die Sammeländerung den ganzen Vorgang mit 403 ab.
+  const selectable = useMemo(() => (employees ?? []).filter((e) => !e.restricted), [employees]);
   const allSelected = useMemo(
-    () => (employees?.length ?? 0) > 0 && employees!.every((e) => selected.has(e.id)),
-    [employees, selected],
+    () => selectable.length > 0 && selectable.every((e) => selected.has(e.id)),
+    [selectable, selected],
   );
 
   const toggleAll = () => {
     if (allSelected) setSelected(new Set());
-    else setSelected(new Set((employees ?? []).map((e) => e.id)));
+    else setSelected(new Set(selectable.map((e) => e.id)));
   };
 
   // Beide Callbacks gehen an jede EmployeeTableRow und müssen deshalb stabil
@@ -667,6 +673,7 @@ export function EmployeeListPage() {
                       type="checkbox"
                       checked={allSelected}
                       onChange={toggleAll}
+                      disabled={selectable.length === 0}
                       aria-label="Alle sichtbaren auswählen"
                     />
                   </th>

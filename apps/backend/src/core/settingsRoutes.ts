@@ -13,11 +13,18 @@ import {
   type CountryCode,
 } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
-import { inTransaction } from '../db/db.js';
+import { getDb, inTransaction } from '../db/db.js';
 import { badRequest, parse } from './errors.js';
 import { getAllSettings, setSetting } from './settings.js';
 import { holidaysForYear } from './holidays.js';
 import { audit } from './audit.js';
+import { recountUpcomingRequests } from '../modules/absences/service.js';
+
+function employeesWithoutLocation(): number[] {
+  return (
+    getDb().prepare('SELECT id FROM employees WHERE location_id IS NULL').all() as { id: number }[]
+  ).map((r) => r.id);
+}
 
 /**
  * Land der Installation: Es kommt aus der Variante (Build), nie aus einer
@@ -54,11 +61,19 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       req.body,
     );
     // Alle Werte samt Audit-Eintrag in EINER Transaktion.
+    const regionChanged =
+      body.defaultBundesland !== undefined && body.defaultBundesland !== getAllSettings().defaultBundesland;
     inTransaction(() => {
       for (const [key, value] of Object.entries(body)) {
         if (value !== undefined) setSetting(key, value);
       }
-      audit(req, 'update', 'settings', undefined, body);
+      // Die Firmenvorgabe gilt fuer alle ohne Standort: andere Feiertage,
+      // also deren kommende Antraege neu zaehlen (absences/service.ts).
+      const recounted = regionChanged ? recountUpcomingRequests(employeesWithoutLocation()) : [];
+      audit(req, 'update', 'settings', undefined, {
+        ...body,
+        ...(recounted.length ? { recounted_requests: recounted } : {}),
+      });
     });
     return { settings: getAllSettings() };
   });

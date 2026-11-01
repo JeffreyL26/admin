@@ -6,8 +6,6 @@ import {
   entitlementPartLabels,
   entitlementProrationNote,
   formatDate,
-  nextSort,
-  parseSortState,
   ABSENCE_STATUS_LABELS,
   type AbsenceBalance,
   type AbsenceRequest,
@@ -41,8 +39,7 @@ import { YearSelect } from './YearSelect';
 import { SortableTh } from '../../components/SortableTh';
 import { Tooltip } from '../../components/Tooltip';
 import { TableScroller } from '../../components/TableScroller';
-import { useTableSort } from '../../lib/useTableSort';
-import { readJson, writeJson } from '../../lib/localStore';
+import { useServerSort, useTableSort } from '../../lib/useTableSort';
 
 const STATUS_TONES: Record<AbsenceRequestStatus, BadgeTone> = {
   beantragt: 'yellow',
@@ -155,13 +152,6 @@ const REQUEST_SORT = {
   status: (r: AbsenceRequest) => STATUS_RANK[r.status],
 };
 const requestTieBreak = (r: AbsenceRequest) => r.date_from;
-
-/** Serverseitig sortierte Liste („Alle Anträge“): Stand je Gerät wie bei useTableSort. */
-const ALL_REQUESTS_SORT_KEY = 'ohrganize.tableSort.allRequests';
-
-function loadAllRequestsSort(): SortState<RequestSortKey> {
-  return parseSortState(readJson(ALL_REQUESTS_SORT_KEY), REQUEST_SORT_KEYS, REQUEST_SORT_DEFAULT);
-}
 
 function RequestRows({
   requests,
@@ -508,13 +498,8 @@ function AllRequestsTab({ focusId }: { focusId: number | null }) {
     setFilters((f) => ({ ...f, ...patch }));
     paging.reset();
   };
-  const [sort, setSort] = useState<SortState<RequestSortKey>>(loadAllRequestsSort);
-  const sortBy = (key: RequestSortKey) => {
-    const next = nextSort(sort, key);
-    setSort(next);
-    writeJson(ALL_REQUESTS_SORT_KEY, next);
-    paging.reset();
-  };
+  // Serverseitig sortiert („Alle Anträge“), Stand je Gerät unter ohrganize.tableSort.allRequests.
+  const { sort, toggle: sortBy } = useServerSort('allRequests', REQUEST_SORT_KEYS, REQUEST_SORT_DEFAULT, paging.reset);
   const { status, typeId, employeeId, from, to } = filters;
   const { data, isLoading, isPlaceholderData } = useAbsenceRequestPage(
     {
