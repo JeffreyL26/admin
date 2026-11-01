@@ -1469,11 +1469,12 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         same.after.valid_to === dayIn(29) &&
         same.after.annual_leave_days === null &&
         same.after.work_weekdays === null &&
-        same.after.entitlement_frozen === 'employee_type' &&
+        same.after.employee_type === 'vollzeit' &&
+        same.after.entitlement_frozen === null &&
         same.after.mirror_pending === 0 &&
         same.akte.annual_leave_days === 30 &&
         same.akte.work_weekdays === '1,2,3,4,5' &&
-        JSON.stringify(same.reopened?.unfrozen) === JSON.stringify(['annual_leave_days', 'work_week']),
+        JSON.stringify(same.reopened?.unfrozen) === JSON.stringify(['employee_type', 'annual_leave_days', 'work_week']),
       same,
     );
     // Teilzeit mit drei Tagen: Die Akte bekommt Art, Stunden und Woche der Vorversion zurueck.
@@ -1490,7 +1491,8 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         partTime.akte.weekly_hours === 40 &&
         partTime.akte.work_weekdays === '1,2,3,4,5' &&
         partTime.after.work_weekdays === null &&
-        partTime.after.entitlement_frozen === 'employee_type',
+        partTime.after.employee_type === 'vollzeit' &&
+        partTime.after.entitlement_frozen === null,
       partTime,
     );
     // Werkstudentin mit 30 Stunden (hoechstens 20): Die Spiegelung scheitert,
@@ -1533,6 +1535,23 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         takenAkte.weekly_hours === 20 &&
         takenAkte.work_weekdays === '1,2,3,4,5',
       { status: fixedHours.statusCode, body: fixedHours.json(), taken, takenAkte },
+    );
+    // Eine Korrektur in den Stammdaten setzt das Feld der geltenden Version
+    // selbst: Ihr Vermerk "aus der Personalakte uebernommen" faellt weg.
+    db.prepare("UPDATE contracts SET entitlement_frozen = 'weekly_hours,work_week' WHERE id = ?").run(student.v1);
+    const corrected = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${student.person}`,
+      headers: auth,
+      payload: { weekly_hours: 18 },
+    });
+    const correctedVersion = versionOf(student.v1);
+    check(
+      'Korrektur in den Stammdaten entfernt den Vermerk des korrigierten Feldes',
+      corrected.statusCode === 200 &&
+        correctedVersion.weekly_hours === 18 &&
+        correctedVersion.entitlement_frozen === 'work_week',
+      { status: corrected.statusCode, body: corrected.json(), correctedVersion },
     );
     // Altbestand: Die Vorversion wurde vor fillClosedVersion abgeloest und
     // nennt keine Art; verschieben hiesse, die Akte behielte die der

@@ -574,37 +574,46 @@ export function freezeEntitlementInputs(
  * Gegenstueck zu freezeEntitlementInputs fuer eine abgelaufene Version, die
  * wieder gilt (eine Korrektur verschiebt den Beginn der Folgeversion nach
  * hinten, PATCH /api/contracts/:id verlaengert die Vorversion): Festgehaltene
- * Felder, die genau dem entsprechen, was die Akte heute liefert, werden
- * wieder leer, damit die geltende Version wie jede andere der Korrektur in
- * den Stammdaten folgt (sonst bliebe etwa eine aus alter Vollzeit
- * abgeleitete Woche neben einer korrigierten Art stehen). Abweichende Felder
- * bleiben samt Vermerk, sonst aenderte sich der Anspruch ihres Zeitraums
- * (die Akte traegt dann noch die Werte der verschobenen Folgeversion).
- * Liefert die geleerten Felder fuer den Audit-Eintrag.
+ * Urlaubstage und Woche, die genau dem entsprechen, was die Akte heute
+ * liefert, werden wieder leer, damit die geltende Version wie jede andere der
+ * Korrektur in den Stammdaten folgt (sonst bliebe etwa eine aus alter
+ * Vollzeit abgeleitete Woche neben einer korrigierten Art stehen). Beim
+ * Abloesen uebernommene Art und Stunden bleiben als Werte (geleert gingen sie
+ * beim naechsten Abloesen verloren, gefuellt wird nur beim POST), verlieren
+ * aber bei Gleichheit ihren Vermerk: Die geltende Version folgt jetzt den
+ * Korrekturen. Abweichende Felder bleiben samt Vermerk, sonst aenderte sich
+ * der Anspruch ihres Zeitraums (die Akte traegt dann noch die Werte der
+ * verschobenen Folgeversion). Liefert die Felder ohne Vermerk fuer den Audit-Eintrag.
  */
 export function unfreezeReopenedContract(contractId: number, today = todayIso()): EntitlementFrozenField[] {
   const db = getDb();
   const v = db
     .prepare(
-      `SELECT employee_id, employee_type, annual_leave_days, work_weekdays, work_days_per_week, valid_to, entitlement_frozen
+      `SELECT employee_id, employee_type, weekly_hours, annual_leave_days, work_weekdays, work_days_per_week, valid_to,
+              entitlement_frozen
        FROM contracts WHERE id = ?`,
     )
     .get(contractId) as
     | (EntitlementInputs & {
         employee_id: number;
         employee_type: string | null;
+        weekly_hours: number | null;
         valid_to: string | null;
         entitlement_frozen: string | null;
       })
     | undefined;
   if (!v || v.entitlement_frozen === null || (v.valid_to !== null && v.valid_to < today)) return [];
   const emp = db
-    .prepare(`SELECT ${ENTITLEMENT_EMPLOYEE_COLUMNS.join(', ')} FROM employees WHERE id = ?`)
-    .get(v.employee_id) as (EntitlementInputs & { employee_type: string }) | undefined;
+    .prepare(`SELECT ${ENTITLEMENT_EMPLOYEE_COLUMNS.join(', ')}, weekly_hours FROM employees WHERE id = ?`)
+    .get(v.employee_id) as (EntitlementInputs & { employee_type: string; weekly_hours: number | null }) | undefined;
   if (!emp) return [];
   const held = parseEntitlementFrozen(v.entitlement_frozen);
   const cleared: EntitlementFrozenField[] = [];
   const set: Record<string, unknown> = {};
+  // Art und Stunden: Wert bleibt, nur der Vermerk faellt bei Gleichheit weg.
+  for (const c of ['employee_type', 'weekly_hours'] as const) {
+    if (held.includes(c) && v[c] === emp[c]) cleared.push(c);
+  }
   if (held.includes('annual_leave_days') && v.annual_leave_days === emp.annual_leave_days) {
     set.annual_leave_days = null;
     cleared.push('annual_leave_days');
