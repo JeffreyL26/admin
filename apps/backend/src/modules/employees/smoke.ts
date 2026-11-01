@@ -22,6 +22,19 @@ function check(label: string, ok: boolean, extra?: unknown) {
 
 const app = await buildServer();
 
+// Spalten der Vermerke (shared) gibt es in der Tabelle: Sonst entfernte eine
+// Korrektur den Vermerk nie (withoutEntitlementFrozenColumns).
+{
+  const { ENTITLEMENT_FROZEN_COLUMNS } = await import('@ohrganize/shared');
+  const tableColumns = new Set(
+    (getDb().prepare('PRAGMA table_info(contracts)').all() as { name: string }[]).map((c) => c.name),
+  );
+  const unknown = Object.values(ENTITLEMENT_FROZEN_COLUMNS)
+    .flat()
+    .filter((c) => !tableColumns.has(c));
+  check('Vermerkspalten stehen in der Tabelle contracts', unknown.length === 0, unknown);
+}
+
 /** ISO-Datum heute + n Tage (für datumsunabhängige Ablauf-Checks). */
 function isoInDays(days: number): string {
   const d = new Date();
@@ -983,8 +996,25 @@ check(
   }
   const detail = await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: hr });
   check('Leitungsebene: Akte gekuerzt statt 403', detail.statusCode === 200 && detail.json().employee.restricted === true, detail.json());
+  // Eine heute faellige Version: Ein abgewiesener Request uebernimmt sie nicht.
+  const dueForGate = Number(
+    getDb()
+      .prepare(
+        `INSERT INTO contracts (employee_id, contract_type, valid_from, weekly_hours, mirror_pending)
+         VALUES (?, 'unbefristet', date('now', 'localtime'), 21, 1)`,
+      )
+      .run(empId).lastInsertRowid,
+  );
   const patchByHr = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: hr, payload: { phone: '+49 1' } });
-  check('Leitungsebene: Aendern ohne Recht → 403', patchByHr.statusCode === 403, patchByHr.json());
+  const gatePending = (getDb().prepare('SELECT mirror_pending FROM contracts WHERE id = ?').get(dueForGate) as {
+    mirror_pending: number;
+  }).mirror_pending;
+  getDb().prepare('DELETE FROM contracts WHERE id = ?').run(dueForGate);
+  check(
+    'Leitungsebene: Aendern ohne Recht → 403, faellige Version bleibt offen',
+    patchByHr.statusCode === 403 && gatePending === 1,
+    { body: patchByHr.json(), gatePending },
+  );
   const unflagByHr = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: hr, payload: { executive: 0 } });
   check('Leitungsebene: Kennzeichen ohne Recht entfernen → 403', unflagByHr.statusCode === 403);
   const contracts = await app.inject({ method: 'GET', url: `/api/employees/${empId}/contracts`, headers: hr });

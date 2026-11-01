@@ -1695,6 +1695,8 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
       'Heute begonnene Version: zuerst uebernommen, veralteter Stand abgelehnt, danach trifft die Korrektur sie',
       dueV2.statusCode === 201 &&
         stale.statusCode === 409 &&
+        /neue Vertragsversion/.test(stale.json().error?.message ?? '') &&
+        !/jemand anderem/.test(stale.json().error?.message ?? '') &&
         afterStale.mirror_pending === 0 &&
         afterStale.annual_leave_days === 25 &&
         akteOf(duePerson).employee_type === 'teilzeit' &&
@@ -1702,6 +1704,51 @@ check('Kalender-Teamfilter', calFiltered.json().employees.length === 2);
         versionOf(dueV2Id).annual_leave_days === 28 &&
         versionOf(dueV1).annual_leave_days === 30,
       { stale: stale.json(), afterStale, fresh: fresh.statusCode, v2: versionOf(dueV2Id), v1: versionOf(dueV1) },
+    );
+    // Dasselbe Formular ohne Vertragsfeld (Telefon): Die Uebernahme ist kein
+    // fremder Stand, das Speichern geht durch. Ein Formular von vor einer
+    // schon uebernommenen Version nennt die Version statt jemand anderen;
+    // ohne Uebernahme bleibt die bisherige Meldung.
+    const phonePerson = newPerson('Vera');
+    db.prepare(
+      `INSERT INTO contracts (employee_id, contract_type, valid_from, valid_to, employee_type, annual_leave_days, weekly_hours)
+       VALUES (?, 'unbefristet', '2023-01-01', ?, 'vollzeit', 30, 40)`,
+    ).run(phonePerson, dayIn(-1));
+    db.prepare(
+      `INSERT INTO contracts (employee_id, contract_type, valid_from, employee_type, annual_leave_days, weekly_hours, mirror_pending)
+       VALUES (?, 'unbefristet', ?, 'teilzeit', 25, 20, 1)`,
+    ).run(phonePerson, dayIn(0));
+    db.prepare("UPDATE employees SET updated_at = '2000-01-01 00:00:00' WHERE id = ?").run(phonePerson);
+    const phoneOnly = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${phonePerson}`,
+      headers: auth,
+      payload: { phone: '+49 30 1', expected_updated_at: '2000-01-01 00:00:00' },
+    });
+    const laterForm = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${phonePerson}`,
+      headers: auth,
+      payload: { phone: '+49 30 2', expected_updated_at: '2000-01-01 00:00:00' },
+    });
+    const otherPerson = newPerson('Wim');
+    db.prepare("UPDATE employees SET updated_at = '2001-01-01 00:00:00' WHERE id = ?").run(otherPerson);
+    const otherStale = await app.inject({
+      method: 'PATCH',
+      url: `/api/employees/${otherPerson}`,
+      headers: auth,
+      payload: { phone: '+49 30 3', expected_updated_at: '2000-01-01 00:00:00' },
+    });
+    check(
+      'Uebernahme beim Speichern: Telefon geht durch, spaeteres Formular nennt die Version, sonst jemand anderes',
+      phoneOnly.statusCode === 200 &&
+        phoneOnly.json().employee?.phone === '+49 30 1' &&
+        akteOf(phonePerson).employee_type === 'teilzeit' &&
+        laterForm.statusCode === 409 &&
+        laterForm.json().error?.message?.startsWith(`Seit dem ${dayIn(0).split('-').reverse().join('.')} gilt eine neue Vertragsversion`) &&
+        otherStale.statusCode === 409 &&
+        /jemand anderem/.test(otherStale.json().error?.message ?? ''),
+      { phoneOnly: phoneOnly.json(), laterForm: laterForm.json(), otherStale: otherStale.json() },
     );
 
     // Offene Uebernahme einer abgeloesten Version ist mit ihrem Ende erledigt.

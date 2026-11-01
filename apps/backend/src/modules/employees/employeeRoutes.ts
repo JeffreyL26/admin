@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { EmployeeSortField } from '@ohrganize/shared';
+import { formatDate, type EmployeeSortField } from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
 import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
@@ -28,7 +28,13 @@ import {
   freezeEntitlementInputs,
   recountUpcomingRequests,
 } from '../absences/service.js';
-import { frozenDetails, mirrorDueContracts, syncCurrentContract, type ContractSync } from './contractRoutes.js';
+import {
+  MIRRORED_COLUMNS,
+  frozenDetails,
+  mirrorDueContracts,
+  syncCurrentContract,
+  type ContractSync,
+} from './contractRoutes.js';
 
 /**
  * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
@@ -95,6 +101,31 @@ const SORT_INVERTED = new Set<keyof typeof SORT_COLUMNS>(['seniority']);
 const concurrencySchema = z.object({
   expected_updated_at: z.string().nullish(),
 });
+
+/**
+ * Juengste Vertragsversion der Person, die seit `since` (updated_at-Stand des
+ * Formulars) in die Akte uebernommen wurde (Protokoll `contract.mirrored`,
+ * stuendlich oder beim Speichern). Nur fuer die Meldung: Sie sagt dann, warum
+ * sich die Akte geaendert hat, statt jemand anderen zu nennen.
+ */
+function versionMirroredSince(employeeId: number, since: string): string | null {
+  const row = getDb()
+    .prepare(
+      `SELECT c.valid_from FROM audit_log a JOIN contracts c ON c.id = a.entity_id
+       WHERE a.entity = 'contract' AND a.action = 'contract.mirrored' AND c.employee_id = ? AND a.created_at >= ?
+       ORDER BY c.valid_from DESC LIMIT 1`,
+    )
+    .get([employeeId, since]) as { valid_from: string } | undefined;
+  return row?.valid_from ?? null;
+}
+
+const RELOAD_HINT = 'Bitte laden Sie die Personalakte neu und übernehmen Sie Ihre Änderungen erneut.';
+
+function newVersionConflict(validFrom: string) {
+  return conflict(
+    `Seit dem ${formatDate(validFrom)} gilt eine neue Vertragsversion; die Personalakte zeigt jetzt deren Beschäftigungsart, Wochenstunden, Urlaubstage und Arbeitswoche. ${RELOAD_HINT}`,
+  );
+}
 
 const listQuerySchema = z.object({
   search: z.string().trim().optional(),
@@ -411,12 +442,15 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     const { ids, set } = parse(bulkBodySchema, req.body);
     const fields = Object.entries(set).filter(([, v]) => v !== undefined);
     if (fields.length === 0) throw badRequest('Keine Felder zum Setzen angegeben');
+    const db = getDb();
+    const missing = ids.find((employeeId) => !db.prepare('SELECT 1 FROM employees WHERE id = ?').get(employeeId));
+    if (missing !== undefined) throw notFound(`Mitarbeiter:in mit ID ${missing} nicht gefunden`);
     for (const employeeId of ids) assertExecutiveAccess(req, employeeId, 'bearbeiten');
     // Wie beim Personal-PATCH: heute begonnene Versionen zuerst in die Akte,
-    // damit die Korrektur die Version trifft, die die Akte zeigt.
+    // damit die Korrektur die Version trifft, die die Akte zeigt; erst nach
+    // Existenz und Recht, ein Request ohne sie loest nichts aus.
     mirrorDueContracts(undefined, ids);
 
-    const db = getDb();
     // Platzgrenze der Lizenz (core/license.ts): zählt, wie viele der gewählten
     // Profile durch dieses Set von 'ausgeschieden' auf 'aktiv' wechseln würden.
     if (set.status === 'aktiv') {
@@ -572,25 +606,39 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch('/api/employees/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
-    // Eine heute begonnene, noch nicht uebernommene Version zuerst in die Akte
-    // (sonst bis zum naechsten stuendlichen Lauf): Die Korrektur unten trifft
-    // die Version, die heute gilt, und die Akte muss sie dann schon zeigen.
-    // Aendert das die Akte, faellt ein veralteter Stand am expected_updated_at auf.
-    mirrorDueContracts(undefined, [id]);
-    const existing = getDb().prepare('SELECT * FROM employees WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined;
-    if (!existing) throw notFound('Mitarbeiter:in nicht gefunden');
+    const loadEmployee = () =>
+      getDb().prepare('SELECT * FROM employees WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    const loaded = loadEmployee();
+    if (!loaded) throw notFound('Mitarbeiter:in nicht gefunden');
+    let existing: Record<string, unknown> = loaded;
+    assertExecutiveAccess(req, id, 'bearbeiten');
     // Der Vergleich VOR dem UPDATE genügt: better-sqlite3 arbeitet synchron im
     // einzigen Prozess, zwischen Lesen und Schreiben läuft kein zweiter Request.
     const { expected_updated_at } = parse(concurrencySchema, req.body);
     if (expected_updated_at != null && expected_updated_at !== existing.updated_at) {
-      throw conflict(
-        'Der Datensatz wurde zwischenzeitlich von jemand anderem geändert. Bitte laden Sie die Personalakte neu und übernehmen Sie Ihre Änderungen erneut.',
-      );
+      const mirroredFrom = versionMirroredSince(id, expected_updated_at);
+      if (mirroredFrom) throw newVersionConflict(mirroredFrom);
+      throw conflict(`Der Datensatz wurde zwischenzeitlich von jemand anderem geändert. ${RELOAD_HINT}`);
     }
     const patch = parse(employeePatchSchema, req.body);
-    assertExecutiveAccess(req, id, 'bearbeiten');
+    // Eine heute begonnene, noch nicht uebernommene Version zuerst in die Akte
+    // (sonst bis zum naechsten stuendlichen Lauf): Die Korrektur unten trifft
+    // die Version, die heute gilt, und die Akte muss sie dann schon zeigen.
+    // Erst nach Existenz, Recht und Stand: Ein Request ohne sie loest nichts
+    // aus. Scheitert er spaeter (Typregeln), bleibt die Uebernahme; sie ist
+    // faellig, der stuendliche Lauf taete dasselbe.
+    const mirrored = mirrorDueContracts(undefined, [id]);
+    if (mirrored.length) {
+      existing = loadEmployee() as Record<string, unknown>;
+      // Das Formular zeigte noch die Werte der Vorversion; eine Korrektur
+      // dieser Felder traefe jetzt die neue. Andere Felder gehen durch.
+      if (expected_updated_at != null && MIRRORED_COLUMNS.some((c) => patch[c] !== undefined)) {
+        const version = getDb().prepare('SELECT valid_from FROM contracts WHERE id = ?').get(mirrored[0]) as {
+          valid_from: string;
+        };
+        throw newVersionConflict(version.valid_from);
+      }
+    }
     // Selbstschutz: Wer das Kennzeichen entfernen dürfte, gäbe sich ohne das
     // Recht selbst den Zugriff; setzen und entfernen deshalb nur mit ihm.
     if (patch.executive !== undefined && patch.executive !== existing.executive && !mayAccessExecutive(req, 'bearbeiten')) {
