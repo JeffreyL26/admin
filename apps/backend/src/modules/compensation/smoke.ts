@@ -812,6 +812,30 @@ db.prepare(
 ).run(bcrypt.hashSync('geheim123', 10), readerRole);
 const readerLogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: 'lohnlesen@test.de', password: 'geheim123' } });
 const authReader = { authorization: `Bearer ${readerLogin.json().token as string}` };
+// Leitungsebene im Lauf: Pruefbericht, Export und CSV nur mit dem Recht,
+// die Positionen im Lauf sind fuer Konten ohne es maskiert.
+{
+  const someone = (db.prepare('SELECT employee_id FROM payroll_items WHERE run_id = ? LIMIT 1').get(statusRun) as { employee_id: number }).employee_id;
+  db.prepare('UPDATE employees SET executive = 1 WHERE id = ?').run(someone);
+  const blockedCheck = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${statusRun}/datev-check`, headers: authReader });
+  const blockedCsv = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${statusRun}/export.csv`, headers: authReader });
+  const runView = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${statusRun}`, headers: authReader });
+  const masked = (runView.json().items as { employee_id: number; gross_cents: number | null; restricted?: boolean }[]).find(
+    (i) => i.employee_id === someone,
+  );
+  check(
+    'Leitungsebene im Lauf: Pruefbericht und CSV ohne Recht → 403, Position maskiert',
+    blockedCheck.statusCode === 403 &&
+      /Leitungsebene/.test(blockedCheck.json().error.message) &&
+      blockedCsv.statusCode === 403 &&
+      masked?.restricted === true &&
+      masked.gross_cents === null,
+    { check: blockedCheck.json(), csv: blockedCsv.statusCode, masked },
+  );
+  const fullCheck = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${statusRun}/datev-check`, headers: auth });
+  check('Leitungsebene im Lauf: mit Vollzugriff weiter 200', fullCheck.statusCode === 200, fullCheck.statusCode);
+  db.prepare('UPDATE employees SET executive = 0 WHERE id = ?').run(someone);
+}
 const readerExport = await app.inject({ method: 'GET', url: `/api/compensation/payroll-runs/${statusRun}/export.datev`, headers: authReader });
 check(
   'Lese-Rolle bekommt die Datei, stellt den Lauf aber nicht um',

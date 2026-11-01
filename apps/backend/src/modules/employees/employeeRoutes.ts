@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { EmployeeSortField } from '@ohrganize/shared';
 import { getDb, inTransaction } from '../../db/db.js';
 import { audit } from '../../core/audit.js';
-import { badRequest, conflict, notFound, parse } from '../../core/errors.js';
+import { badRequest, conflict, forbidden, notFound, parse } from '../../core/errors.js';
 import { assertUsableAsPhoto, detachUnreferencedFile, removeDetachedBlob } from '../../core/files.js';
 import { assertSeatsAvailable } from '../../core/license.js';
 import {
@@ -16,6 +16,7 @@ import {
   settleWorkSchedule,
 } from './validation.js';
 import { assertDisabilityWrite, stripDisability } from './disability.js';
+import { assertExecutiveAccess, mayAccessExecutive, projectDirectory } from '../../core/executiveGate.js';
 
 /**
  * Mehrfachauswahl in den Filtern: „Vollzeit ODER Werkstudent“. Der Client
@@ -115,7 +116,17 @@ const SEARCH_FIELDS = [
   'e.health_insurance', 'd.name', 't.name', 'l.name', 'l.city',
 ];
 
-function queryEmployees(query: ListQuery): Record<string, unknown>[] {
+/**
+ * Suchfelder, die bei Personen der Leitungsebene auch ohne das Recht
+ * "Leitungsebene" durchsucht werden: nur Verzeichnisdaten. Sonst verriete ein
+ * Treffer auf eine IBAN oder Steuer-ID, wem sie gehört.
+ */
+const DIRECTORY_SEARCH_FIELDS = [
+  "e.first_name", "e.last_name", "e.first_name || ' ' || e.last_name",
+  'e.email', 'e.phone', 'e.job_title', 'd.name', 't.name', 'l.name', 'l.city',
+];
+
+function queryEmployees(query: ListQuery, mayExecutive = true): Record<string, unknown>[] {
   const where: string[] = [];
   const params: unknown[] = [];
 
@@ -135,8 +146,14 @@ function queryEmployees(query: ListQuery): Record<string, unknown>[] {
 
   if (query.search) {
     const like = `%${query.search.toLowerCase()}%`;
-    where.push(`(${SEARCH_FIELDS.map((f) => `lower(coalesce(${f}, '')) LIKE ?`).join(' OR ')})`);
-    for (let i = 0; i < SEARCH_FIELDS.length; i++) params.push(like);
+    const matches = (fields: string[]) => `(${fields.map((f) => `lower(coalesce(${f}, '')) LIKE ?`).join(' OR ')})`;
+    if (mayExecutive) {
+      where.push(matches(SEARCH_FIELDS));
+      for (let i = 0; i < SEARCH_FIELDS.length; i++) params.push(like);
+    } else {
+      where.push(`((e.executive = 0 AND ${matches(SEARCH_FIELDS)}) OR (e.executive = 1 AND ${matches(DIRECTORY_SEARCH_FIELDS)}))`);
+      for (let i = 0; i < SEARCH_FIELDS.length + DIRECTORY_SEARCH_FIELDS.length; i++) params.push(like);
+    }
   }
 
   // Sortierung aus der Whitelist; der Name als zweites Kriterium hält die
@@ -346,15 +363,16 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
   // Liste inkl. Suche/Filter/Sortierung; fields=lite ist Kontrakt für andere Module.
   app.get('/api/employees', async (req) => {
     const query = parse(listQuerySchema, req.query ?? {});
-    const rows = queryEmployees(query);
+    const rows = queryEmployees(query, mayAccessExecutive(req, 'lesen'));
     if (query.fields === 'lite') return { employees: rows.map(toLite) };
-    return { employees: rows.map((r) => stripDisability(req, r)) };
+    return { employees: rows.map((r) => stripDisability(req, projectDirectory(req, r))) };
   });
 
   // CSV-Export (BOM + Semikolon für deutsches Excel), gleiche Filter wie die Liste.
   app.get('/api/employees/export.csv', async (req, reply) => {
     const query = parse(listQuerySchema, req.query ?? {});
-    const rows = queryEmployees(query);
+    // Leitungsebene ohne das Recht: die Zeile bleibt, nur mit Verzeichnisdaten.
+    const rows = queryEmployees(query, mayAccessExecutive(req, 'lesen')).map((r) => projectDirectory(req, r));
     const lines = [
       CSV_COLUMNS.join(';'),
       ...rows.map((r) => CSV_COLUMNS.map((c) => csvCell(r[c])).join(';')),
@@ -370,6 +388,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     const { ids, set } = parse(bulkBodySchema, req.body);
     const fields = Object.entries(set).filter(([, v]) => v !== undefined);
     if (fields.length === 0) throw badRequest('Keine Felder zum Setzen angegeben');
+    for (const employeeId of ids) assertExecutiveAccess(req, employeeId, 'bearbeiten');
 
     const db = getDb();
     // Platzgrenze der Lizenz (core/license.ts): zählt, wie viele der gewählten
@@ -433,7 +452,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/employees/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
-    const employee = stripDisability(req, getEmployeeOr404(id));
+    const employee = stripDisability(req, projectDirectory(req, getEmployeeOr404(id)));
     return { employee, reporting_line: reportingLine(id) };
   });
 
@@ -462,6 +481,9 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/employees', async (req, reply) => {
     const body = parse(employeeBodySchema, req.body);
     assertDisabilityWrite(req, body);
+    if (body.executive === 1 && !mayAccessExecutive(req, 'bearbeiten')) {
+      throw forbidden('Die Leitungsebene kennzeichnet nur, wer das Recht „Leitungsebene: Bearbeiten“ hat.');
+    }
     settleWorkSchedule(body);
     settlePhotoThumb(body);
     assertNewPhotoFiles(body, req.user.id);
@@ -505,6 +527,12 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       );
     }
     const patch = parse(employeePatchSchema, req.body);
+    assertExecutiveAccess(req, id, 'bearbeiten');
+    // Selbstschutz: Wer das Kennzeichen entfernen dürfte, gäbe sich ohne das
+    // Recht selbst den Zugriff; setzen und entfernen deshalb nur mit ihm.
+    if (patch.executive !== undefined && patch.executive !== existing.executive && !mayAccessExecutive(req, 'bearbeiten')) {
+      throw forbidden('Die Leitungsebene kennzeichnet nur, wer das Recht „Leitungsebene: Bearbeiten“ hat.');
+    }
     assertDisabilityWrite(req, patch, existing);
     settleWorkSchedule(patch);
     settlePhotoThumb(patch, existing);
@@ -560,6 +588,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/api/employees/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
+    assertExecutiveAccess(req, id, 'bearbeiten');
     const existing = getDb()
       .prepare('SELECT first_name, last_name FROM employees WHERE id = ?')
       .get(id) as { first_name: string; last_name: string } | undefined;

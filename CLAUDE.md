@@ -94,6 +94,28 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   deren Konten schlagartig Vollzugriff). Rang und Aussteller der Zugangsdaten
   (wer mehr Rechte bekommt, braucht ein Passwort von jemandem, der sie hatte):
   `core/accountRights.ts`, Einzelheiten unter „Rang eines Kontos“ bei Führung.
+- **Rechtebereich `leitung` ist ein Recht je Person (Chief-HR)** (Migrationen
+  `011_admin_roles_leitung`, `115_employee_executive`): Personen mit
+  `employees.executive = 1` (Leitungsebene, C-Level) sehen Konten ohne
+  `leitung: lesen` nur mit Verzeichnisdaten; Lesen ihrer Stammdaten,
+  Verträge, Dokumente und Vergütung verlangt zusätzlich zum Fachbereich
+  `leitung: lesen`, Schreiben `leitung: bearbeiten`. Kein Eintrag in
+  `ROUTE_AREAS`: Das Gate `core/executiveGate.ts` ruft jede Route mit
+  Personenbezug in Personal und Vergütung selbst (`assertExecutiveAccess`
+  am Datensatz, `executiveFilterSql` in Listen, `projectDirectory` für die
+  Personalakte, die ohne das Recht gekürzt mit `restricted: true` kommt
+  statt mit 403). Die Suche durchsucht Leitungspersonen ohne das Recht nur
+  in Verzeichnisfeldern, sonst verriete ein IBAN-Treffer die Person.
+  Dateien an Leitungspersonen (Vertrag, Dokument, Bescheinigung, Rechnung)
+  signiert `assertMayReadFile` nur mit dem Recht; ein Lohnlauf mit
+  Leitungsperson gibt Prüfbericht, DATEV- und CSV-Export nur mit dem Recht
+  heraus (403 statt stillem Auslassen), seine Positionen sind ohne es
+  maskiert. Das Kennzeichen setzt und entfernt nur `leitung: bearbeiten`
+  (Selbstschutz). Verzeichnis, Organigramm, `fields=lite`,
+  `/api/lookup/employees` und Abwesenheiten bleiben für alle; bewusst offen
+  sind auch Leistung, Krankmeldungen und "Mein Team" (Kunde nannte nur
+  Stammdaten, Verträge, Dokumente, Vergütung). Eine neue Route mit
+  Personenbezug in diesen Modulen ruft das Gate.
 - **Rechtebereich `schwerbehinderung` ist ein Feldrecht** (Migrationen
   `010_admin_roles_schwerbehinderung`, `114_employee_disability`): Grad,
   Gleichstellung, Ausweis und Notiz in der Personalakte sind Gesundheitsdaten

@@ -145,6 +145,7 @@ export interface OnboardingTaskTemplate {
 export const ADMIN_AREAS = [
   'personal',
   'schwerbehinderung',
+  'leitung',
   'abwesenheit',
   'leistung',
   'verguetung',
@@ -161,6 +162,7 @@ export type AdminArea = (typeof ADMIN_AREAS)[number];
 export const ADMIN_AREA_LABELS: Record<AdminArea, string> = {
   personal: 'Personal',
   schwerbehinderung: 'Schwerbehinderung',
+  leitung: 'Leitungsebene',
   abwesenheit: 'Abwesenheit',
   leistung: 'Leistung',
   verguetung: 'Vergütung',
@@ -176,6 +178,7 @@ export const ADMIN_AREA_LABELS: Record<AdminArea, string> = {
 export const ADMIN_AREA_HINTS: Record<AdminArea, string> = {
   personal: 'Mitarbeitende, Organisation, Verträge und Dokumente',
   schwerbehinderung: 'Grad der Behinderung, Gleichstellung und Ausweis in der Personalakte (Gesundheitsdaten nach Art. 9 DSGVO)',
+  leitung: 'Personalakte, Verträge, Dokumente und Vergütung der als Leitungsebene (C-Level) gekennzeichneten Personen',
   abwesenheit: 'Kalender, Anträge, Krankmeldungen und Abwesenheitsarten',
   leistung: 'Ziele, Beurteilungen, Skills, Trainings und Feedback',
   verguetung: 'Gehälter, Abrechnung, Boni, Honorare und Bescheinigungen',

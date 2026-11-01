@@ -407,6 +407,16 @@ export interface EmployeeDto extends EmployeeLiteDto {
   /** Home-Office-Tage als Muster "1,3,5" (homeOffice.ts); NULL = keine. */
   home_office_weekdays: string | null;
   /**
+   * Leitungsebene (C-Level): Stammdaten, Verträge, Dokumente und Vergütung nur
+   * mit dem Recht "Leitungsebene" (core/executiveGate.ts). 0/1.
+   */
+  executive: number;
+  /**
+   * true: Die Antwort ist auf Verzeichnisdaten gekürzt (Leitungsebene ohne
+   * das Recht); übrige Felder sind null.
+   */
+  restricted?: true;
+  /**
    * Schwerbehinderung (disability.ts). Fehlen ohne das Recht
    * "Schwerbehinderung: lesen" ganz in der Antwort, daher optional.
    */

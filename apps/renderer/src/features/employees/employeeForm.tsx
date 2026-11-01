@@ -35,6 +35,7 @@ import { useDepartments, useLocations, usePhotoUrl, useTeams, type EmployeeRow }
 import { avatarFileId } from './avatarPhoto';
 import { Select } from '../../components/Select';
 import { HalfStepHint } from '../../components/HalfStepHint';
+import { useAuth } from '../../auth/AuthContext';
 
 /** Formularzustand: Zahlen als String (Eingabe), Konvertierung erst beim Submit. */
 export interface EmployeeFormState {
@@ -90,6 +91,8 @@ export interface EmployeeFormState {
   disability_equal: boolean;
   disability_valid_until: string;
   disability_note: string;
+  /** Leitungsebene (C-Level), core/executiveGate.ts. */
+  executive: boolean;
 }
 
 export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
@@ -139,6 +142,7 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
   disability_equal: false,
   disability_valid_until: '',
   disability_note: '',
+  executive: false,
 };
 
 export function employeeToForm(e: EmployeeRow): EmployeeFormState {
@@ -187,6 +191,7 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
     disability_equal: e.disability_equal === 1,
     disability_valid_until: e.disability_valid_until ?? '',
     disability_note: e.disability_note ?? '',
+    executive: e.executive === 1,
   };
 }
 
@@ -266,6 +271,7 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     disability_equal: f.disability_equal ? 1 : 0,
     disability_valid_until: str(f.disability_valid_until),
     disability_note: str(f.disability_note),
+    executive: f.executive ? 1 : 0,
     work_weekdays: f.work_mode === 'fest' && f.work_weekdays.length > 0 ? formatWeekdays(f.work_weekdays) : null,
     work_days_per_week:
       f.work_mode === 'fest'
@@ -427,6 +433,8 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
 }
 
 export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: SetForm }) {
+  const { can } = useAuth();
+  const mayExecutive = can('leitung', 'bearbeiten');
   const { data: departments } = useDepartments();
   const { data: teams } = useTeams();
   const { data: locations } = useLocations();
@@ -465,6 +473,25 @@ export function EmploymentFields({ form, set }: { form: EmployeeFormState; set: 
       </Field>
       <Field label="Jobtitel" span2>
         <input className="hm-input" value={form.job_title} onChange={(e) => set({ job_title: e.target.value })} />
+      </Field>
+      <Field
+        label="Leitungsebene"
+        span2
+        hint={
+          mayExecutive
+            ? 'Stammdaten, Verträge, Dokumente und Vergütung sehen dann nur Konten mit dem Recht „Leitungsebene“. Verzeichnis, Organigramm und Abwesenheiten bleiben für alle sichtbar.'
+            : 'Setzen oder entfernen nur mit dem Recht „Leitungsebene: Bearbeiten“.'
+        }
+      >
+        <label className="row" style={{ gap: 8 }}>
+          <input
+            type="checkbox"
+            checked={form.executive}
+            disabled={!mayExecutive}
+            onChange={(e) => set({ executive: e.target.checked })}
+          />
+          Gehört zur Leitungsebene (C-Level)
+        </label>
       </Field>
       <Field
         label="Personalnummer"

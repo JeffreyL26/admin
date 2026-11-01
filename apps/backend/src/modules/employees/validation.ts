@@ -130,6 +130,9 @@ export const employeeBodySchema = z.object({
   disability_equal: z.union([z.literal(0), z.literal(1)]).optional(),
   disability_valid_until: isoDate.nullish(),
   disability_note: nullableString,
+  // Leitungsebene (C-Level): setzen und entfernen nur mit "Leitungsebene:
+  // Bearbeiten" (employeeRoutes.ts, core/executiveGate.ts).
+  executive: z.union([z.literal(0), z.literal(1)]).optional(),
 });
 
 /**

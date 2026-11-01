@@ -517,6 +517,82 @@ check(
   await setDegree(authEdit, { disability_degree: null, disability_valid_until: null });
 }
 
+// ---------- Leitungsebene (Chief-HR) ----------
+{
+  const bcryptMod = (await import('bcryptjs')).default;
+  const role = (name: string, leitung: 'kein' | 'lesen' | 'bearbeiten') => {
+    const roleId = Number(getDb().prepare('INSERT INTO admin_roles (name) VALUES (?)').run(name).lastInsertRowid);
+    getDb()
+      .prepare(
+        `INSERT INTO admin_role_permissions (role_id, area, level)
+         VALUES (?, 'personal', 'bearbeiten'), (?, 'leitung', ?), (?, 'verguetung', 'bearbeiten')`,
+      )
+      .run(roleId, roleId, leitung, roleId);
+    return roleId;
+  };
+  const login = async (email: string, roleId: number) => {
+    getDb()
+      .prepare("INSERT INTO users (email, name, password_hash, role, admin_role_id) VALUES (?, ?, ?, 'admin', ?)")
+      .run(email, email, bcryptMod.hashSync('geheim123', 10), roleId);
+    const res = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'geheim123' } });
+    return { authorization: `Bearer ${res.json().token as string}` };
+  };
+  const hr = await login('hr-ohne-leitung@test.de', role('HR ohne Leitung', 'kein'));
+  const chiefRead = await login('chief-lesen@test.de', role('Chief lesen', 'lesen'));
+  const chief = await login('chief@test.de', role('Chief bearbeiten', 'bearbeiten'));
+
+  const flagByHr = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: hr, payload: { executive: 1 } });
+  check('Leitungsebene: Kennzeichen ohne Recht setzen → 403', flagByHr.statusCode === 403, flagByHr.json());
+  const flag = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: chief, payload: { executive: 1 } });
+  check('Leitungsebene: Kennzeichen mit Recht → 200', flag.statusCode === 200 && flag.json().employee.executive === 1, flag.json());
+
+  const list = await app.inject({ method: 'GET', url: '/api/employees', headers: hr });
+  const row = (list.json().employees as Record<string, unknown>[]).find((e) => e.id === empId);
+  check(
+    'Leitungsebene: Liste zeigt die Person gekuerzt',
+    !!row && row.restricted === true && row.iban === null && row.last_name !== null && row.executive === 1,
+    row,
+  );
+  const lite = await app.inject({ method: 'GET', url: '/api/employees?fields=lite', headers: hr });
+  check('Leitungsebene: fields=lite unveraendert', (lite.json().employees as { id: number }[]).some((e) => e.id === empId));
+  const iban = (getDb().prepare('SELECT iban FROM employees WHERE id = ?').get(empId) as { iban: string | null }).iban;
+  if (iban) {
+    const bySecret = await app.inject({ method: 'GET', url: `/api/employees?search=${encodeURIComponent(iban)}`, headers: hr });
+    check(
+      'Leitungsebene: Suche nach IBAN trifft ohne Recht nicht',
+      !(bySecret.json().employees as { id: number }[]).some((e) => e.id === empId),
+    );
+  }
+  const detail = await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: hr });
+  check('Leitungsebene: Akte gekuerzt statt 403', detail.statusCode === 200 && detail.json().employee.restricted === true, detail.json());
+  const patchByHr = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: hr, payload: { phone: '+49 1' } });
+  check('Leitungsebene: Aendern ohne Recht → 403', patchByHr.statusCode === 403, patchByHr.json());
+  const unflagByHr = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: hr, payload: { executive: 0 } });
+  check('Leitungsebene: Kennzeichen ohne Recht entfernen → 403', unflagByHr.statusCode === 403);
+  const contracts = await app.inject({ method: 'GET', url: `/api/employees/${empId}/contracts`, headers: hr });
+  check('Leitungsebene: Vertraege ohne Recht → 403', contracts.statusCode === 403);
+  const docs = await app.inject({ method: 'GET', url: `/api/documents?employee_id=${empId}`, headers: hr });
+  check('Leitungsebene: Dokumente ohne Recht ausgeblendet', (docs.json().documents as unknown[]).length === 0, docs.json());
+  const salary = await app.inject({ method: 'GET', url: `/api/compensation/employees/${empId}/salary`, headers: hr });
+  check('Leitungsebene: Verguetung ohne Recht → 403', salary.statusCode === 403);
+  const salaries = await app.inject({ method: 'GET', url: '/api/compensation/salaries', headers: hr });
+  check(
+    'Leitungsebene: Gehaltsuebersicht ohne die Person',
+    !(salaries.json().salaries as { employee_id: number }[]).some((s) => s.employee_id === empId),
+  );
+  const bulk = await app.inject({ method: 'POST', url: '/api/employees/bulk', headers: hr, payload: { ids: [empId], set: { weekly_hours: 30 } } });
+  check('Leitungsebene: Massenbearbeitung ohne Recht → 403', bulk.statusCode === 403, bulk.json());
+
+  const readDetail = await app.inject({ method: 'GET', url: `/api/employees/${empId}`, headers: chiefRead });
+  check('Leitungsebene: mit Lesen voll lesbar', readDetail.json().employee.restricted === undefined, readDetail.json());
+  const readPatch = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: chiefRead, payload: { phone: '+49 2' } });
+  check('Leitungsebene: mit Lesen nicht aenderbar → 403', readPatch.statusCode === 403);
+  const editPatch = await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: chief, payload: { phone: '+49 3' } });
+  check('Leitungsebene: mit Bearbeiten aenderbar → 200', editPatch.statusCode === 200, editPatch.json());
+
+  await app.inject({ method: 'PATCH', url: `/api/employees/${empId}`, headers: chief, payload: { executive: 0 } });
+}
+
 // ---------- Org-Baum ----------
 const tree = await app.inject({ method: 'GET', url: '/api/org/tree', headers: auth });
 const roots = tree.json().tree as {

@@ -41,6 +41,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     // Das Dashboard aggregiert ausschließlich — 'lesen' genügt, sonst wäre eine
     // Nur-Lese-Rolle auf ihrer eigenen Startseite blind.
     const may = (area: AdminArea) => permits(permissions[area], 'lesen');
+    // Geburtsdatum, Probezeit und Aufenthaltstitel sind keine
+    // Verzeichnisdaten: Leitungsebene nur mit dem Recht (core/executiveGate.ts).
+    const executiveOk = may('leitung') ? 1 : 0;
 
     const mayPersonal = may('personal');
     const mayAbwesenheit = may('abwesenheit');
@@ -71,16 +74,17 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
           `SELECT e.id, e.first_name, e.last_name, 'probezeit' AS kind, c.probation_end AS date
            FROM contracts c
            JOIN employees e ON e.id = c.employee_id
-           WHERE e.status = 'aktiv' AND c.probation_end IS NOT NULL
+           WHERE e.status = 'aktiv' AND c.probation_end IS NOT NULL AND (e.executive = 0 OR ? = 1)
              AND c.probation_end >= ? AND c.probation_end <= ?
              AND c.valid_from <= ? AND (c.valid_to IS NULL OR c.valid_to >= ?)
            UNION ALL
            SELECT id, first_name, last_name, 'aufenthaltstitel' AS kind, residence_permit_until AS date
            FROM employees
            WHERE status = 'aktiv' AND residence_permit_until IS NOT NULL AND residence_permit_until <= ?
+             AND (executive = 0 OR ? = 1)
            ORDER BY date, last_name, first_name`,
         )
-        .all([today, probationUntil, today, today, permitUntil]);
+        .all([executiveOk, today, probationUntil, today, today, permitUntil, executiveOk]);
 
       byDepartment = db
         .prepare(
@@ -101,10 +105,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
                        ELSE (CAST(substr(?, 1, 4) AS INTEGER) + 1) || '-' || substr(birth_date, 6)
                   END AS next_birthday
            FROM employees
-           WHERE status = 'aktiv' AND birth_date IS NOT NULL
+           WHERE status = 'aktiv' AND birth_date IS NOT NULL AND (executive = 0 OR ? = 1)
            ORDER BY next_birthday LIMIT 5`,
         )
-        .all([today, today, today]);
+        .all([today, today, today, executiveOk]);
 
       // Alle, die heute Geburtstag haben (Kopf des Dashboards), ohne die
       // Grenze der Vorschau; die Regel (29. Februar) steht in shared/dashboard.ts.
@@ -112,11 +116,11 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       birthdays_today = db
         .prepare(
           `SELECT id, first_name, last_name FROM employees
-           WHERE status = 'aktiv' AND birth_date IS NOT NULL
+           WHERE status = 'aktiv' AND birth_date IS NOT NULL AND (executive = 0 OR ? = 1)
              AND substr(birth_date, 6, 5) IN (${monthDays.map(() => '?').join(',')})
            ORDER BY last_name, first_name`,
         )
-        .all(monthDays);
+        .all([executiveOk, ...monthDays]);
     }
 
     // --- Abwesenheit: Tage je Monat ------------------------------------------

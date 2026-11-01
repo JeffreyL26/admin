@@ -663,6 +663,24 @@ function plausibleMimeType(mime: string): string {
  * Lesevorgang (POST nur, damit der Link nicht im Query-String steht). Mit
  * 'bearbeiten' könnte eine Nur-Lese-Rolle gar nichts mehr herunterladen.
  */
+/**
+ * Dateien, die an einer Person der Leitungsebene hängen (Vertrag, Dokument,
+ * Bescheinigung, Rechnung). Fotos bewusst nicht: Sie sind Verzeichnisdaten.
+ * Eine neue Verweisspalte mit Personenbezug gehört hierher und in
+ * FILE_REFERENCES.
+ */
+const EXECUTIVE_FILE_SQL = [
+  ['contracts', 'document_file_id'],
+  ['documents', 'file_id'],
+  ['certificates', 'file_id'],
+  ['freelancer_invoices', 'file_id'],
+]
+  .map(
+    ([table, column]) =>
+      `SELECT 1 AS hit FROM ${table} x JOIN employees e ON e.id = x.employee_id WHERE x.${column} = @file_id AND e.executive = 1`,
+  )
+  .join('\n UNION ');
+
 export function assertMayReadFile(req: FastifyRequest, fileId: number): void {
   // Nur für die HR-Administration. Portal-Konten (role 'mitarbeiter') haben
   // keine admin_role_id — `permissionsFor(undefined)` würde ihnen VOLLZUGRIFF
@@ -679,8 +697,14 @@ export function assertMayReadFile(req: FastifyRequest, fileId: number): void {
     // Mehrfachverwendung (z. B. ein Blob an Dokument UND Vertrag): Ein
     // ausreichendes Recht genügt — die Datei ist über den erlaubten Bereich
     // ohnehin sichtbar.
-    if (areas.some((r) => permits(permissions[r.area], 'lesen'))) return;
-    throw forbidden('Für diese Datei haben Sie keine Berechtigung.');
+    if (!areas.some((r) => permits(permissions[r.area], 'lesen'))) {
+      throw forbidden('Für diese Datei haben Sie keine Berechtigung.');
+    }
+    // Zweites Gate je Person (core/executiveGate.ts): Dateien der Leitungsebene nur mit dem Recht.
+    if (!permits(permissions.leitung, 'lesen') && getDb().prepare(`${EXECUTIVE_FILE_SQL} LIMIT 1`).get({ file_id: fileId })) {
+      throw forbidden('Diese Datei gehört zu einer Person der Leitungsebene; dafür fehlt Ihrer Rolle das Recht „Leitungsebene“.');
+    }
+    return;
   }
   // Noch mit keiner Fachtabelle verknüpft: der Upload-Flow. Zwischen
   // POST /api/files und dem Anlegen der Metadaten muss der Client die eigene

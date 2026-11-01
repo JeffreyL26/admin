@@ -165,9 +165,14 @@ export function listForEmployee(employeeId: number): EmployeeChangeRequest[] {
 }
 
 /** Anträge für die Personalabteilung — mit Namen und ungekürzten Werten. */
-export function listForHr(filter: { status?: string; employee_id?: number }): EmployeeChangeRequestForHr[] {
+export function listForHr(
+  filter: { status?: string; employee_id?: number },
+  includeExecutives = true,
+): EmployeeChangeRequestForHr[] {
   const bedingungen: string[] = [];
   const params: unknown[] = [];
+  // Leitungsebene ohne das Recht: deren Anträge erscheinen nicht (core/executiveGate.ts).
+  if (!includeExecutives) bedingungen.push('e.executive = 0');
   if (filter.status) {
     bedingungen.push('r.status = ?');
     params.push(filter.status);
@@ -351,9 +356,12 @@ export function decideRequest(
 }
 
 /** Offene Anträge — für Dashboard-Kachel und Zähler in der Navigation. */
-export function openRequestCount(): number {
+export function openRequestCount(includeExecutives = true): number {
   const row = getDb()
-    .prepare("SELECT COUNT(*) AS n FROM employee_change_requests WHERE status = 'beantragt'")
+    .prepare(
+      `SELECT COUNT(*) AS n FROM employee_change_requests r JOIN employees e ON e.id = r.employee_id
+       WHERE r.status = 'beantragt' ${includeExecutives ? '' : 'AND e.executive = 0'}`,
+    )
     .get() as { n: number };
   return row.n;
 }

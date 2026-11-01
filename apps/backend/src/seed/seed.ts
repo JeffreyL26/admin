@@ -295,6 +295,10 @@ inTransaction(() => {
   setHomeOffice.run(['1,5', DEV1]);
   setHomeOffice.run(['3', TLF]);
 
+  // Leitungsebene (C-Level): Geschaeftsfuehrung und CTO. Rollen ohne das Recht
+  // "Leitungsebene" sehen von ihnen nur Verzeichnisdaten.
+  db.prepare('UPDATE employees SET executive = 1 WHERE id IN (?, ?)').run([GF, CTO]);
+
   // Schwerbehinderung (Beispiel): GdB 50 mit befristetem Ausweis. Sichtbar nur
   // mit dem Recht "Schwerbehinderung"; der Saldo rechnet fuenf Tage Zusatzurlaub.
   db.prepare('UPDATE employees SET disability_degree = 50, disability_valid_until = ? WHERE id = ?').run([

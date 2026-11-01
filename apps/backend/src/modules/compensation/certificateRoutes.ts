@@ -1,3 +1,4 @@
+import { assertExecutiveAccess, executiveFilterSql } from '../../core/executiveGate.js';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getDb, inTransaction } from '../../db/db.js';
@@ -34,6 +35,9 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
       conditions.push('c.kind = ?');
       params.push(kind);
     }
+    const executive = executiveFilterSql(req);
+    conditions.push(executive.sql);
+    params.push(...executive.params);
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const certificates = getDb()
       .prepare(
@@ -50,6 +54,7 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/compensation/certificates', async (req, reply) => {
     const body = parse(certificateSchema, req.body);
     const employee = getEmployee(body.employee_id);
+    assertExecutiveAccess(req, body.employee_id, 'bearbeiten');
     const html = template.render(body.kind, body.period, employee, getAllSettings());
     const fileName = `${body.kind}_${employee.last_name.toLowerCase()}_${body.period.replace(/[^\w-]/g, '_')}.html`;
     // Die Datei liegt vor dem Datensatz auf der Platte (wie bei jedem Upload);
@@ -90,6 +95,7 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
       | { file_id: number | null; employee_id: number; kind: string }
       | undefined;
     if (!certificate) throw notFound('Bescheinigung nicht gefunden');
+    assertExecutiveAccess(req, certificate.employee_id, 'lesen');
     if (!certificate.file_id) throw conflict('Für diese Bescheinigung liegt keine Datei vor');
     // Zweite Stufe, unabhängig vom Routenpräfix: Die signierte URL ist bis zum
     // Ablauf ein anmeldefreier Vollzugriff auf die Datei. Wer sie ausstellt,
@@ -118,6 +124,7 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
       | { id: number; employee_id: number; kind: string; period: string; file_id: number | null; status: string }
       | undefined;
     if (!certificate) throw notFound('Bescheinigung nicht gefunden');
+    assertExecutiveAccess(req, certificate.employee_id, 'bearbeiten');
     if (certificate.status !== 'erstellt') {
       throw conflict(`Statuswechsel von „${certificate.status}" nach „${body.status}" ist nicht möglich`);
     }
@@ -155,9 +162,10 @@ export async function certificateRoutes(app: FastifyInstance): Promise<void> {
   app.delete('/api/compensation/certificates/:id', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
     const certificate = getDb().prepare('SELECT * FROM certificates WHERE id = ?').get(id) as
-      | { status: string; file_id: number | null }
+      | { status: string; file_id: number | null; employee_id: number }
       | undefined;
     if (!certificate) throw notFound('Bescheinigung nicht gefunden');
+    assertExecutiveAccess(req, certificate.employee_id, 'bearbeiten');
     if (certificate.status === 'ausgehaendigt') {
       throw conflict('Ausgehändigte Bescheinigungen können nicht gelöscht werden');
     }

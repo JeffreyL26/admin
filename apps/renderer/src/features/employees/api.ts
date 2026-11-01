@@ -167,9 +167,11 @@ export function useEmployee(id: number) {
   });
 }
 
-export function useContracts(employeeId: number) {
+export function useContracts(employeeId: number, enabled = true) {
   return useQuery({
     queryKey: ['contracts', employeeId],
+    // Leitungsebene ohne das Recht: keine Anfrage, die nur 403 brächte.
+    enabled,
     queryFn: () => api.get<{ contracts: ContractDto[] }>(`/api/employees/${employeeId}/contracts`),
     select: (d) => d.contracts,
   });

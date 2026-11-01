@@ -6,6 +6,7 @@ import { audit, auditTrail } from '../../core/audit.js';
 import { todayIso, isValidIsoDate } from '../../core/dates.js';
 import { BASE_PAY_KINDS, SALARY_COMPONENT_KINDS, contractMonthHours, isOwnRequestDecision } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
+import { assertExecutiveAccess, executiveFilterSql } from '../../core/executiveGate.js';
 import {
   assertNoComponentOverlap,
   componentsAt,
@@ -57,14 +58,16 @@ function currentAmountCents(employeeId: number, kind: string, date: string): num
 export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Gesamtübersicht: aktuelles Monatsbrutto aller Mitarbeitenden (ohne
   // Freiberufler:innen — deren Vergütung läuft getrennt über Honorare).
-  app.get('/api/compensation/salaries', async () => {
+  app.get('/api/compensation/salaries', async (req) => {
     const today = todayIso();
+    // Leitungsebene ohne das Recht: nicht in der Übersicht (core/executiveGate.ts).
+    const executive = executiveFilterSql(req, 'employees');
     const employees = getDb()
       .prepare(
-        `SELECT * FROM employees WHERE employee_type != 'freiberufler'
+        `SELECT * FROM employees WHERE employee_type != 'freiberufler' AND ${executive.sql}
          ORDER BY last_name, first_name`,
       )
-      .all() as EmployeeRow[];
+      .all(executive.params) as EmployeeRow[];
     const lastChanges = getDb()
       .prepare(
         `SELECT employee_id, MAX(valid_from) AS last_change FROM salary_components GROUP BY employee_id`,
@@ -142,6 +145,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Aktuelle Vergütung einer Mitarbeiter:in: Komponenten + Monatsbrutto.
   app.get('/api/compensation/employees/:id/salary', async (req) => {
     const id = Number((req.params as { id: string }).id);
+    assertExecutiveAccess(req, id, 'lesen');
     const employee = getEmployee(id);
     const today = todayIso();
     const components = componentsAt(id, today).map((c) => ({
@@ -164,6 +168,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Historie (Timeline) aller Komponenten einer Mitarbeiter:in.
   app.get('/api/compensation/employees/:id/salary/history', async (req) => {
     const id = Number((req.params as { id: string }).id);
+    assertExecutiveAccess(req, id, 'lesen');
     getEmployee(id);
     const components = getDb()
       .prepare(
@@ -178,6 +183,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Vorgängerzeile gleicher Art transaktional (lückenlose Historie).
   app.post('/api/compensation/employees/:id/components', async (req, reply) => {
     const id = Number((req.params as { id: string }).id);
+    assertExecutiveAccess(req, id, 'bearbeiten');
     const employee = getEmployee(id);
     if (employee.employee_type === 'freiberufler') {
       throw badRequest('Freiberufler:innen werden über Honorarsätze vergütet, nicht über Gehaltskomponenten');
@@ -209,6 +215,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   // Audit-Historie der Vergütung je Mitarbeiter:in („wer/wann/was/warum").
   app.get('/api/compensation/employees/:id/audit', async (req) => {
     const id = Number((req.params as { id: string }).id);
+    assertExecutiveAccess(req, id, 'lesen');
     getEmployee(id);
     const entries = (auditTrail('compensation_employee', id) as { details: string | null }[]).map(
       (e) => ({ ...e, details: e.details ? JSON.parse(e.details) : null }),
@@ -230,6 +237,9 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
       conditions.push('r.employee_id = ?');
       params.push(Number(employee_id));
     }
+    const executive = executiveFilterSql(req);
+    conditions.push(executive.sql);
+    params.push(...executive.params);
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const requests = getDb()
       .prepare(
@@ -249,6 +259,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/compensation/change-requests', async (req, reply) => {
     const body = parse(changeRequestSchema, req.body);
     const employee = getEmployee(body.employee_id);
+    assertExecutiveAccess(req, body.employee_id, 'bearbeiten');
     if (employee.employee_type === 'freiberufler') {
       throw badRequest('Für Freiberufler:innen sind keine Gehaltsänderungen möglich');
     }
@@ -308,6 +319,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
         }
       | undefined;
     if (!request) throw notFound('Änderungsantrag nicht gefunden');
+    assertExecutiveAccess(req, request.employee_id, 'bearbeiten');
     if (request.status !== 'beantragt') {
       throw conflict('Der Antrag wurde bereits entschieden');
     }

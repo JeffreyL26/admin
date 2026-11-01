@@ -62,19 +62,24 @@ export function EmployeeDetailPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useEmployee(employeeId);
   const { can } = useAuth();
-  const detailTabs = ALL_DETAIL_TABS.filter((d) => !d.area || can(d.area));
+  // Leitungsebene ohne das Recht: nur die Verzeichnisdaten (Organisation).
+  const restricted = data?.employee.restricted === true;
+  const detailTabs = ALL_DETAIL_TABS.filter(
+    (d) => (!d.area || can(d.area)) && (!restricted || d.key === 'organisation'),
+  );
   // Der Tab steht in der URL (?tab=…), damit ein Rücksprung von einer anderen
   // Seite wieder im selben Tab landet, nicht auf den Stammdaten.
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const requested = params.get('tab');
-  const tab = requested && detailTabs.some((d) => d.key === requested) ? requested : 'stammdaten';
+  const tab =
+    requested && detailTabs.some((d) => d.key === requested) ? requested : restricted ? 'organisation' : 'stammdaten';
   const setTab = (next: string) =>
     setParams(next === 'stammdaten' ? {} : { tab: next }, { replace: true, state: location.state });
   const backTo = useBackTo();
   // Aktuelle Vertragsversion für den Probezeit-Hinweis im Kopf; derselbe
   // Query-Key wie der Vertrag-Tab, also keine zweite Anfrage.
-  const { data: contracts } = useContracts(employeeId);
+  const { data: contracts } = useContracts(employeeId, !restricted && !!data);
   // Kopf 56 px: Das Vorschaubild reicht bei jedem Zoom (Rechnung an PHOTO_THUMB_EDGE).
   const photo = usePhotoUrl(avatarFileId(data?.employee));
 
@@ -103,6 +108,7 @@ export function EmployeeDetailPage() {
         <Avatar name={`${e.first_name} ${e.last_name}`} size={56} src={photo.data} />
         <Badge tone={TYPE_TONES[e.employee_type]}>{EMPLOYEE_TYPE_LABELS[e.employee_type]}</Badge>
         <Badge tone={e.status === 'aktiv' ? 'green' : 'neutral'}>{EMPLOYEE_STATUS_LABELS[e.status]}</Badge>
+        {e.executive === 1 && <Badge tone="navy">Leitungsebene</Badge>}
         {e.hire_date && (
           <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
             Eintritt {formatDate(e.hire_date)}
@@ -111,6 +117,12 @@ export function EmployeeDetailPage() {
         <HeaderDeadlines employee={e} contracts={contracts} />
       </div>
 
+      {restricted && (
+        <div className="hm-notice" role="status" style={{ marginBottom: 16 }}>
+          Diese Person gehört zur Leitungsebene. Stammdaten, Verträge, Dokumente und Vergütung sind nur mit dem
+          Recht „Leitungsebene“ einsehbar; Verzeichnis, Organigramm und Abwesenheiten bleiben sichtbar.
+        </div>
+      )}
       <Tabs
         tabs={detailTabs.map(({ key, label }) => ({ key, label }))}
         active={tab}

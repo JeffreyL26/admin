@@ -12,6 +12,21 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Rueckmeldungen aus dem ersten Kundentest, Leitungsebene (01.11.2026)
+- **Neu:** Kennzeichen "Leitungsebene (C-Level)" in der Personalakte und
+  Rechtebereich "Leitungsebene" (Kein Zugriff, Nur lesen, Bearbeiten) fuer
+  eine Chief-HR: Ohne ihn sehen HR-Konten von diesen Personen nur Name,
+  Position, Zuordnung, dienstliche Kontaktdaten und Foto. Stammdaten,
+  Vertraege, Dokumente und Verguetung (auch Boni, Bescheinigungen,
+  Aenderungsantraege und Dateien) bleiben verborgen; Verzeichnis,
+  Organigramm, Auswahlfelder und Abwesenheiten zeigen die Personen weiter.
+- **Neu:** Ein Lohnlauf mit Personen der Leitungsebene gibt Pruefbericht,
+  DATEV- und CSV-Export nur mit dem Recht heraus; ohne es sind deren
+  Positionen im Lauf ohne Betraege.
+- **Neu:** Das Kennzeichen setzt und entfernt nur, wer "Leitungsebene:
+  Bearbeiten" hat. Die ausgelieferten Rollen Geschaeftsfuehrung und Head of
+  HR bekommen das Recht, HR-Sachbearbeitung und eigene Rollen nicht.
+
 ### Rueckmeldungen aus dem ersten Kundentest, Home Office und Gehaltstabelle (01.11.2026)
 - **Neu:** Home-Office-Tage je Person in der Personalakte (z. B. Mo und Mi,
   oder alle Arbeitstage). Der Abwesenheitskalender zeigt sie schraffiert;

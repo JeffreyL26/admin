@@ -1,3 +1,4 @@
+import { assertExecutiveAccess, mayAccessExecutive } from '../../core/executiveGate.js';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { isOwnPersonDecision } from '@ohrganize/shared';
@@ -33,13 +34,15 @@ const listQuerySchema = z.object({
 export async function employeeChangeRequestRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/employees/change-requests', async (req) => {
     const q = parse(listQuerySchema, req.query);
-    return { requests: listForHr(q), open_count: openRequestCount() };
+    const executives = mayAccessExecutive(req, 'lesen');
+    return { requests: listForHr(q, executives), open_count: openRequestCount(executives) };
   });
 
   app.post('/api/employees/change-requests/:id/decide', async (req) => {
     const id = idParam(req);
     const body = parse(changeRequestDecisionSchema, req.body);
     const row = getRequestRow(id);
+    assertExecutiveAccess(req, row.employee_id, 'bearbeiten');
     // Zweiter Arm des Vier-Augen-Prinzips: Ein Konto der Personalabteilung MIT
     // verknüpftem Personalprofil darf den Antrag zum EIGENEN Profil nicht
     // genehmigen — auch dann nicht, wenn ihn jemand anderes gestellt hat.
