@@ -435,4 +435,36 @@ export const employeesMigrations: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_contracts_mirror_pending ON contracts(valid_from) WHERE mirror_pending = 1;
     `,
   },
+  {
+    // Grund, warum eine faellige geplante Version nicht gespiegelt werden
+    // konnte (Typregeln); sie bleibt offen und wird stuendlich erneut
+    // versucht, die Akte zeigt den Grund. Dazu der Altbestand: Geplante
+    // Versionen, die vor 116 angelegt wurden, waren schon beim Anlegen
+    // gespiegelt. Sie gelten jetzt als offen, und die Personalakte bekommt die
+    // Werte der heute geltenden Version zurueck (Datum wie todayIso: lokal).
+    name: '117_contract_mirror_backfill',
+    sql: `
+      ALTER TABLE contracts ADD COLUMN mirror_error TEXT;
+      UPDATE contracts SET mirror_pending = 1
+       WHERE valid_from > date('now', 'localtime')
+         AND (valid_to IS NULL OR valid_to >= date('now', 'localtime'));
+      UPDATE employees SET
+        weekly_hours = COALESCE((
+          SELECT c.weekly_hours FROM contracts c
+           WHERE c.employee_id = employees.id AND c.valid_from <= date('now', 'localtime')
+             AND (c.valid_to IS NULL OR c.valid_to >= date('now', 'localtime'))
+           ORDER BY c.valid_from DESC, c.id DESC LIMIT 1), weekly_hours),
+        annual_leave_days = COALESCE((
+          SELECT c.annual_leave_days FROM contracts c
+           WHERE c.employee_id = employees.id AND c.valid_from <= date('now', 'localtime')
+             AND (c.valid_to IS NULL OR c.valid_to >= date('now', 'localtime'))
+           ORDER BY c.valid_from DESC, c.id DESC LIMIT 1), annual_leave_days),
+        employee_type = COALESCE((
+          SELECT c.employee_type FROM contracts c
+           WHERE c.employee_id = employees.id AND c.valid_from <= date('now', 'localtime')
+             AND (c.valid_to IS NULL OR c.valid_to >= date('now', 'localtime'))
+           ORDER BY c.valid_from DESC, c.id DESC LIMIT 1), employee_type)
+       WHERE id IN (SELECT employee_id FROM contracts WHERE mirror_pending = 1);
+    `,
+  },
 ];

@@ -472,6 +472,13 @@ export interface ContractDto {
   fixed_term_reason: string | null;
   document_file_id: number | null;
   note: string | null;
+  /**
+   * 1: geplante Version, Stunden, Urlaub und Art gehen erst zum Beginn in die
+   * Personalakte (contractRoutes.ts#mirrorDueContracts).
+   */
+  mirror_pending: number;
+  /** Warum die fällige Übernahme scheiterte (Typregeln); wird stündlich erneut versucht. */
+  mirror_error: string | null;
   created_at: string;
 }
 

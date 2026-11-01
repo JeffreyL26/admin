@@ -538,6 +538,120 @@ check(
   );
   getDb().prepare('DELETE FROM contracts WHERE id = ?').run(plannedId);
   getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
+
+  // Passt eine faellige geplante Version nicht mehr zu den Typregeln, bleibt sie
+  // offen, traegt den Grund und wird erneut versucht; protokolliert wird nur
+  // ein neuer Grund.
+  await app.inject({
+    method: 'PATCH',
+    url: `/api/employees/${empId}`,
+    headers: auth,
+    payload: { employee_type: 'werkstudent', weekly_hours: 20 },
+  });
+  const failing = await app.inject({
+    method: 'POST',
+    url: `/api/employees/${empId}/contracts`,
+    headers: auth,
+    payload: { contract_type: 'unbefristet', valid_from: plannedFrom, weekly_hours: 20 },
+  });
+  const failingId = failing.json().contract?.id as number;
+  getDb().prepare('UPDATE contracts SET weekly_hours = 30 WHERE id = ?').run(failingId ?? -1);
+  const failedRuns = [mirrorDueContracts(plannedFrom), mirrorDueContracts(plannedFrom)];
+  const failedRow = getDb().prepare('SELECT mirror_pending, mirror_error FROM contracts WHERE id = ?').get(failingId ?? -1) as
+    | { mirror_pending: number; mirror_error: string | null }
+    | undefined;
+  const failedAudits = getDb()
+    .prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'contract.mirror_failed' AND entity_id = ?")
+    .get(failingId ?? -1) as { n: number };
+  const listed = (await app.inject({ method: 'GET', url: `/api/employees/${empId}/contracts`, headers: auth }))
+    .json()
+    .contracts.find((c: { id: number }) => c.id === failingId) as { mirror_error: string | null } | undefined;
+  check(
+    'Gescheiterte Uebernahme: Version bleibt offen mit Grund, ein Protokolleintrag, Akte unveraendert',
+    failing.statusCode === 201 &&
+      failedRuns.every((r) => r.length === 0) &&
+      failedRow?.mirror_pending === 1 &&
+      !!failedRow.mirror_error &&
+      failedAudits.n === 1 &&
+      !!listed?.mirror_error &&
+      (await hoursOf()) === 20,
+    { failing: failing.json(), failedRuns, failedRow, failedAudits, listed },
+  );
+  getDb().prepare('UPDATE contracts SET weekly_hours = 18 WHERE id = ?').run(failingId ?? -1);
+  const retried = mirrorDueContracts(plannedFrom);
+  const retriedRow = getDb().prepare('SELECT mirror_pending, mirror_error FROM contracts WHERE id = ?').get(failingId ?? -1) as
+    | { mirror_pending: number; mirror_error: string | null }
+    | undefined;
+  check(
+    'Gescheiterte Uebernahme gelingt beim naechsten Lauf, sobald die Werte passen',
+    retried.includes(failingId) && retriedRow?.mirror_pending === 0 && retriedRow.mirror_error === null && (await hoursOf()) === 18,
+    { retried, retriedRow, hours: await hoursOf() },
+  );
+  getDb().prepare('DELETE FROM contracts WHERE id = ?').run(failingId ?? -1);
+  getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
+
+  // Beginn einer geplanten Version auf heute vorziehen: sofort ganz gespiegelt;
+  // wieder in die Zukunft schieben: offen, die Akte bleibt.
+  const todayLocal = getDb().prepare("SELECT date('now', 'localtime') AS d").get() as { d: string };
+  const moving = await app.inject({
+    method: 'POST',
+    url: `/api/employees/${empId}/contracts`,
+    headers: auth,
+    payload: { contract_type: 'unbefristet', valid_from: plannedFrom, weekly_hours: 16 },
+  });
+  const movingId = moving.json().contract?.id as number;
+  const pulled = await app.inject({ method: 'PATCH', url: `/api/contracts/${movingId}`, headers: auth, payload: { valid_from: todayLocal.d } });
+  const pendingOf = () =>
+    (getDb().prepare('SELECT mirror_pending FROM contracts WHERE id = ?').get(movingId ?? -1) as { mirror_pending: number } | undefined)
+      ?.mirror_pending;
+  const pulledHours = await hoursOf();
+  const pulledPending = pendingOf();
+  const pushed = await app.inject({ method: 'PATCH', url: `/api/contracts/${movingId}`, headers: auth, payload: { valid_from: plannedFrom } });
+  check(
+    'Geplante Version vorgezogen: sofort gespiegelt; wieder verschoben: offen, Akte bleibt',
+    moving.statusCode === 201 &&
+      pulled.statusCode === 200 &&
+      pulledHours === 16 &&
+      pulledPending === 0 &&
+      pushed.statusCode === 200 &&
+      pendingOf() === 1 &&
+      (await hoursOf()) === 16,
+    { moving: moving.json(), pulled: pulled.json(), pulledHours, pulledPending, pushed: pushed.json(), pending: pendingOf() },
+  );
+  getDb().prepare('DELETE FROM contracts WHERE id = ?').run(movingId ?? -1);
+  getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
+
+  // Altbestand (Migration 117): eine vor 116 angelegte, schon gespiegelte
+  // geplante Version wird wieder offen, die Akte bekommt die Werte der
+  // geltenden Version zurueck. Geprueft mit dem SQL der Migration ohne ihr
+  // ALTER TABLE (die Spalte steht schon).
+  {
+    const { employeesMigrations } = await import('../../db/migrations/100_employees.js');
+    const backfillSql = employeesMigrations.find((m) => m.name === '117_contract_mirror_backfill')!.sql;
+    const legacyId = Number(
+      getDb()
+        .prepare(
+          `INSERT INTO contracts (employee_id, contract_type, valid_from, weekly_hours, mirror_pending)
+           VALUES (?, 'unbefristet', ?, 39, 0)`,
+        )
+        .run(empId, plannedFrom).lastInsertRowid,
+    );
+    getDb().prepare('UPDATE contracts SET valid_to = ? WHERE id = ?').run(
+      new Date(Date.parse(`${plannedFrom}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10),
+      typedId,
+    );
+    getDb().prepare('UPDATE employees SET weekly_hours = 39 WHERE id = ?').run(empId);
+    getDb().exec(backfillSql.replace(/ALTER TABLE contracts ADD COLUMN mirror_error TEXT;/, ''));
+    const legacy = getDb().prepare('SELECT mirror_pending FROM contracts WHERE id = ?').get(legacyId) as { mirror_pending: number };
+    const current = getDb().prepare('SELECT weekly_hours FROM contracts WHERE id = ?').get(typedId) as { weekly_hours: number };
+    check(
+      'Altbestand geplanter Versionen: wieder offen, Akte mit den Werten der geltenden Version',
+      legacy.mirror_pending === 1 && (await hoursOf()) === current.weekly_hours,
+      { legacy, current, hours: await hoursOf() },
+    );
+    getDb().prepare('DELETE FROM contracts WHERE id = ?').run(legacyId);
+    getDb().prepare('UPDATE contracts SET valid_to = NULL WHERE id = ?').run(typedId);
+  }
   await app.inject({
     method: 'PATCH',
     url: `/api/employees/${empId}`,

@@ -24,6 +24,8 @@ interface ContractRow {
   note: string | null;
   /** 1: geplante Version, Spiegelung auf employees steht zum Beginn noch aus. */
   mirror_pending: number;
+  /** Grund, warum die faellige Spiegelung scheiterte (Migration 117); sonst null. */
+  mirror_error: string | null;
   created_at: string;
 }
 
@@ -162,11 +164,13 @@ function mirrorToEmployee(
 
 /**
  * Geplante Versionen, deren Beginn erreicht ist, auf employees spiegeln
- * (`mirror_pending`, Migration 116). Je Person die zuletzt begonnene; alle
- * faelligen gelten danach als erledigt. Laeuft beim Start des Moduls und
- * stuendlich. Passen die Werte inzwischen nicht mehr zu den Typregeln der
- * Person, bleibt die Personalakte stehen und ein Protokolleintrag ohne Konto
- * (`contract.mirror_failed`) nennt den Grund; sonst `contract.mirrored`.
+ * (`mirror_pending`, Migration 116). Je Person die zuletzt begonnene; aeltere
+ * faellige sind damit erledigt. Laeuft beim Start des Moduls und stuendlich,
+ * Protokoll ohne Konto `contract.mirrored`. Passen die Werte nicht mehr zu
+ * den Typregeln der Person, bleibt die Version offen und traegt den Grund
+ * (`mirror_error`, die Akte zeigt ihn); sie wird bei jedem Lauf erneut
+ * versucht und gilt, sobald die Stammdaten passen. Protokolliert
+ * (`contract.mirror_failed`) wird nur ein neuer Grund, nicht jede Stunde.
  * Liefert die IDs der gespiegelten Versionen.
  */
 export function mirrorDueContracts(today = todayIso()): number[] {
@@ -178,18 +182,24 @@ export function mirrorDueContracts(today = todayIso()): number[] {
          ORDER BY employee_id, valid_from DESC, id DESC`,
       )
       .all(today) as ContractRow[];
+    const setState = db.prepare('UPDATE contracts SET mirror_pending = ?, mirror_error = ? WHERE id = ?');
     const mirrored: number[] = [];
     const seen = new Set<number>();
     for (const c of due) {
-      db.prepare('UPDATE contracts SET mirror_pending = 0 WHERE id = ?').run(c.id);
-      if (seen.has(c.employee_id) || !isCurrent(c, today)) continue;
+      if (seen.has(c.employee_id) || !isCurrent(c, today)) {
+        setState.run(0, null, c.id);
+        continue;
+      }
       seen.add(c.employee_id);
       try {
         mirrorToEmployee(c.employee_id, c);
+        setState.run(0, null, c.id);
         mirrored.push(c.id);
         auditSystem('contract.mirrored', 'contract', { employee_id: c.employee_id, valid_from: c.valid_from }, c.id);
       } catch (e) {
         if (!(e instanceof AppError)) throw e;
+        if (c.mirror_error === e.message) continue;
+        setState.run(1, e.message, c.id);
         auditSystem('contract.mirror_failed', 'contract', { employee_id: c.employee_id, reason: e.message }, c.id);
       }
     }
@@ -401,7 +411,7 @@ export async function contractRoutes(app: FastifyInstance): Promise<void> {
             );
         mirrorToEmployee(existing.employee_id, changed, !planned);
         if ((existing.mirror_pending === 1) !== planned) {
-          db.prepare('UPDATE contracts SET mirror_pending = ? WHERE id = ?').run(planned ? 1 : 0, id);
+          db.prepare('UPDATE contracts SET mirror_pending = ?, mirror_error = NULL WHERE id = ?').run(planned ? 1 : 0, id);
         }
       }
       audit(req, 'update', 'contract', id, {

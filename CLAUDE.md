@@ -258,9 +258,14 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Eine GEPLANTE Version (Beginn künftig) wird beim Anlegen nur geprüft und
   erst zum Beginn gespiegelt (`contracts.mirror_pending`, Migration
   `116_contract_mirror_pending`, `mirrorDueContracts` beim Start des Moduls
-  und stündlich, Protokoll ohne Konto `contract.mirrored` bzw.
-  `contract.mirror_failed`); sonst rechneten Lohnlauf, FTE und Typregeln
-  vorzeitig mit ihr. Umgekehrt gilt eine Änderung dieser Felder im
+  und stündlich, Protokoll ohne Konto `contract.mirrored`); sonst rechneten
+  Lohnlauf, FTE und Typregeln vorzeitig mit ihr. Scheitert die Übernahme an
+  den Typregeln, bleibt die Version offen mit Grund (`mirror_error`,
+  Migration `117_contract_mirror_backfill`), jeder Lauf versucht es erneut,
+  protokolliert (`contract.mirror_failed`) wird nur ein neuer Grund; die
+  Akte zeigt das im Kopf und im Tab Vertrag („Geplant“, „Gilt noch“).
+  Migration 117 setzt außerdem vor 116 angelegte geplante Versionen wieder
+  auf offen und gibt der Akte die Werte der geltenden Version zurück. Umgekehrt gilt eine Änderung dieser Felder im
   Personalformular oder in der Sammeländerung als Korrektur der HEUTE
   geltenden Version (`syncCurrentContract`, eigener Audit-Eintrag `update`
   an `contract` mit altem und neuem Wert); eine geplante Version bleibt
