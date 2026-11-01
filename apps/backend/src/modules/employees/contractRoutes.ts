@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  changedMirroredFields,
   contractCorrectable,
   contractState,
   formatDate,
@@ -318,6 +319,7 @@ export function mirrorDueContracts(today = todayIso(), employeeIds?: readonly nu
       )
       .all(employeeIds ? [today, JSON.stringify(employeeIds)] : [today]) as ContractRow[];
     const setState = db.prepare('UPDATE contracts SET mirror_pending = ?, mirror_error = ? WHERE id = ?');
+    const akteRow = db.prepare(`SELECT ${MIRRORED_COLUMNS.join(', ')} FROM employees WHERE id = ?`);
     const mirrored: number[] = [];
     const seen = new Set<number>();
     for (const c of due) {
@@ -327,13 +329,22 @@ export function mirrorDueContracts(today = todayIso(), employeeIds?: readonly nu
       }
       seen.add(c.employee_id);
       try {
+        const before = akteRow.get(c.employee_id) as Record<string, unknown> | undefined;
         const frozen = mirrorToEmployee(c.employee_id, c, true, today);
+        const after = akteRow.get(c.employee_id) as Record<string, unknown> | undefined;
         setState.run(0, null, c.id);
         mirrored.push(c.id);
+        // Was sich in der Akte geaendert hat, nennt die 409-Meldung eines
+        // Formulars von davor (versionMirroredSince in employeeRoutes.ts).
         auditSystem(
           'contract.mirrored',
           'contract',
-          { employee_id: c.employee_id, valid_from: c.valid_from, ...frozenDetails(frozen) },
+          {
+            employee_id: c.employee_id,
+            valid_from: c.valid_from,
+            changed_fields: before && after ? changedMirroredFields(before, after) : [],
+            ...frozenDetails(frozen),
+          },
           c.id,
         );
       } catch (e) {

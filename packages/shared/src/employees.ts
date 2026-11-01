@@ -626,19 +626,35 @@ export function entitlementFieldsLabel(fields: readonly EntitlementFrozenField[]
 }
 
 /**
- * Felder, die eine Version beim Uebernehmen in die Akte schreibt
- * (mirrorToEmployee im Backend): was sie nennt, die Woche als Paar. Was sie
- * offen laesst, bleibt in der Akte stehen.
+ * Felder der Akte, die eine Version setzen kann (mirrorToEmployee im
+ * Backend), je mit ihren Spalten in ENTITLEMENT_FROZEN_COLUMNS; die Woche als
+ * Paar. Die EINE Liste fuer Uebernahme, Protokoll und 409 beim Speichern.
+ */
+export const CONTRACT_MIRRORED_FIELDS = [
+  'employee_type',
+  'weekly_hours',
+  'annual_leave_days',
+  'work_week',
+] as const satisfies readonly EntitlementFrozenField[];
+
+/**
+ * Felder, die eine Version beim Uebernehmen in die Akte schreibt: was sie
+ * nennt. Was sie offen laesst, bleibt in der Akte stehen.
  */
 export function contractMirroredFields(
   c: Pick<ContractDto, 'employee_type' | 'weekly_hours' | 'annual_leave_days' | 'work_weekdays' | 'work_days_per_week'>,
 ): EntitlementFrozenField[] {
-  const fields: EntitlementFrozenField[] = [];
-  if (c.employee_type !== null) fields.push('employee_type');
-  if (c.weekly_hours !== null) fields.push('weekly_hours');
-  if (c.annual_leave_days !== null) fields.push('annual_leave_days');
-  if (c.work_weekdays !== null || c.work_days_per_week !== null) fields.push('work_week');
-  return fields;
+  return CONTRACT_MIRRORED_FIELDS.filter((f) => ENTITLEMENT_FROZEN_COLUMNS[f].some((col) => c[col as keyof typeof c] !== null));
+}
+
+/** Felder, in denen sich zwei Staende der Akte unterscheiden (vor und nach einer Uebernahme). */
+export function changedMirroredFields(
+  before: Readonly<Record<string, unknown>>,
+  after: Readonly<Record<string, unknown>>,
+): EntitlementFrozenField[] {
+  return CONTRACT_MIRRORED_FIELDS.filter((f) =>
+    ENTITLEMENT_FROZEN_COLUMNS[f].some((col) => (before[col] ?? null) !== (after[col] ?? null)),
+  );
 }
 
 /** Gilt die Version heute (begonnen und nicht abgelaufen)? Wie contractInEffect im Backend. */

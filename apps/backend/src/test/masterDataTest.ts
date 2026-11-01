@@ -10,7 +10,10 @@
  */
 import {
   addMonthsIso,
+  changedMirroredFields,
   contractCorrectable,
+  contractMirroredFields,
+  entitlementFieldsLabel,
   contractNoteFor,
   contractState,
   entitlementFrozenNote,
@@ -143,6 +146,20 @@ check(
     withoutEntitlementFrozenColumns('weekly_hours,annual_leave_days', ['note', 'valid_from']) === 'weekly_hours,annual_leave_days',
 );
 check('Vermerk: abgeleitete Woche heisst im Hinweis Arbeitswoche', entitlementFrozenNote('work_week_default')?.startsWith('Arbeitswoche aus') === true);
+const versionFields = { employee_type: null, weekly_hours: 20, annual_leave_days: null, work_weekdays: null, work_days_per_week: 3 };
+check(
+  'Uebernahme: Felder, die eine Version nennt, und die, die sich aendern',
+  JSON.stringify(contractMirroredFields(versionFields)) === JSON.stringify(['weekly_hours', 'work_week']) &&
+    JSON.stringify(
+      changedMirroredFields(
+        { employee_type: 'vollzeit', weekly_hours: 40, annual_leave_days: 30, work_weekdays: '1,2,3,4,5', work_days_per_week: 5 },
+        { employee_type: 'vollzeit', weekly_hours: 40, annual_leave_days: 30, work_weekdays: null, work_days_per_week: 5 },
+      ),
+    ) === JSON.stringify(['work_week']) &&
+    changedMirroredFields({ weekly_hours: 40, annual_leave_days: null }, { weekly_hours: 40 }).length === 0 &&
+    entitlementFieldsLabel(['employee_type', 'weekly_hours', 'work_week']) === 'Beschäftigungsart, Wochenstunden und Arbeitswoche',
+  { versionFields: contractMirroredFields(versionFields) },
+);
 
 if (failures > 0) {
   console.log(`masterDataTest: ${failures} Fehler`);
