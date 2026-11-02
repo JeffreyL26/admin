@@ -41,7 +41,7 @@ export const THEMES: ThemeMeta[] = [
     // Kundenbranch dronivo: Farben der Website dronivo.de (tokens.css).
     name: 'dronivo',
     label: 'DRONIVO',
-    description: 'Schiefer und Nebelblau wie im Dronivo-Logo',
+    description: '',
     swatch: ['#f2f4f6', '#323f48', '#9baebc'],
   },
 ];
