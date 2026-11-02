@@ -6,6 +6,27 @@ Das Format folgt "Keep a Changelog"; die Versionsnummer folgt Semver
 Version, die mit `scripts/release.mjs` gebaut wird, braucht hier einen
 eigenen Abschnitt.
 
+## 1.1.0-dronivo (2026-11-02)
+
+Zweite Kundenausgabe fuer Dronivo (Anzeige im Info-Dialog "Version
+de-1.1.0-dronivo", Installer `oHRganize-Setup-de-1.1.0-dronivo.exe`,
+Server-Archiv `ohrganize-server-de-1.1.0-dronivo.zip`). Grundlage ist main
+mit Commit d95d017. Neu gegenueber 1.0.0-dronivo sind diese Abschnitte unter
+"Unveroeffentlicht":
+
+- Rueckmeldungen aus dem ersten Kundentest (01.11.2026): Bedienung,
+  Stammdaten, Arbeitswoche und Urlaub, Schwerbehinderung, Home Office und
+  Gehaltstabelle, Leitungsebene; dazu der Urlaubsanspruch je
+  Vertragsversion und geplante Vertragsversionen, die erst zum Beginn
+  gelten.
+- Einrichtungs-Assistent: Karte nur fuer das Konto, das einrichtet
+  (23.10.2026).
+
+Die Portalsperre der Abwesenheitserfassung gilt unveraendert: Wo die
+Abschnitte das Portal Arbeitstage eintragen lassen, betrifft das bei Dronivo
+nur die HR-Erfassung. Die Mindestversionen fuer App und Server bleiben
+1.0.0-dronivo.
+
 ## 1.0.0-dronivo (2026-10-21)
 
 Kundenausgabe fuer Dronivo vom Branch `dronivo`, Ausgabe `de-dronivo`
