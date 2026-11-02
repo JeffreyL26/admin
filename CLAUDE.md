@@ -10,7 +10,7 @@ Auf ausdruecklichen Wunsch des Anbieters (21.10.2026) entsteht die Ausgabe
 fuer den Kunden Dronivo als eigener Branch `dronivo`, abweichend von der
 Regel "Kundenfunktionen als Feature, nie als Branch" weiter unten. Er bleibt
 dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
-`1.1.0-dronivo` (angezeigt als "Version de-1.1.0-dronivo"), Ausgabe
+`1.1.1-dronivo` (angezeigt als "Version de-1.1.1-dronivo"), Ausgabe
 (Variante) `de-dronivo`. Was den Branch von main unterscheidet:
 
 - **Ein Schalter, kein entfernter Code:** `PORTAL_ABSENCE_CAPTURE = false` in
@@ -29,9 +29,9 @@ dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
   und Router (`portalPathOpen`), die Uebersicht zeigt die Kachel "Stammdaten
   aendern" statt des Urlaubskontos und keine Karte "Offene Antraege"; das
   Desktop-Dashboard schreibt an keinen Antrag "Aus dem Portal beantragt.".
-  Release-Dateien tragen das Kennzeichen `de-1.1.0-dronivo` (`releaseLabel`
-  in scripts/dronivo-guard.mjs): `oHRganize-Setup-de-1.1.0-dronivo.exe`,
-  `ohrganize-server-de-1.1.0-dronivo.zip`. Jede abweichende
+  Release-Dateien tragen das Kennzeichen `de-1.1.1-dronivo` (`releaseLabel`
+  in scripts/dronivo-guard.mjs): `oHRganize-Setup-de-1.1.1-dronivo.exe`,
+  `ohrganize-server-de-1.1.1-dronivo.zip`. Jede abweichende
   Stelle nennt den Schalter; `git grep PORTAL_ABSENCE_CAPTURE` findet alle.
 - **Eigene Ausgabe `de-dronivo` als Trennung von main:** Das Register auf
   diesem Branch kennt NUR `de-dronivo` (Edition `dronivo`, Label
@@ -52,6 +52,12 @@ dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
   VARIANTE.txt, traegt die Zeile nach, gleicht `OHRGANIZE_VARIANT` in der
   Dienstumgebung (NSSM) bei jedem Update ab und nimmt beides bei einem
   Fehlstart zurueck; beide vertragen Archive auf UNC-Pfaden.
+- **Fuenftes Theme `dronivo` (Anzeige "DRONIVO"):** Farben der Website
+  dronivo.de (Schiefer `#323f48`, Stahlblau `#435a6b`, Nebelblau `#9baebc`),
+  Block `:root[data-theme='dronivo']` am Ende BEIDER tokens.css und Eintrag in
+  `THEMES` beider theme.ts. Kein Schalter: Auf main gibt es das Theme nicht,
+  ein Merge bringt es nicht dorthin. Aendert main die Token-Liste (neue
+  Variable in den Themes), bekommt der Block sie mit.
 - **Version:** Jede Version ist genau `<x.y.z>-dronivo` (`CUSTOMER_TAG`); einen
   Testkanal gibt es auf dem Branch nicht (`1.1.0-dronivo.beta.1` waere nach
   Semver neuer als das fertige Release und gaelte als stable).

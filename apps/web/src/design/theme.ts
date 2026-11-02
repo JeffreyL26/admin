@@ -2,7 +2,7 @@
  * Theme-Verwaltung: setzt data-theme auf <html> und persistiert die Wahl.
  * Die Farbwerte selbst leben ausschließlich in tokens.css.
  */
-export type ThemeName = 'light' | 'dark' | 'rose' | 'silver';
+export type ThemeName = 'light' | 'dark' | 'rose' | 'silver' | 'dronivo';
 
 export interface ThemeMeta {
   name: ThemeName;
@@ -36,6 +36,13 @@ export const THEMES: ThemeMeta[] = [
     label: 'Silber',
     description: 'Edles Graphit und Silber',
     swatch: ['#f3f4f6', '#2c3342', '#64708a'],
+  },
+  {
+    // Kundenbranch dronivo: Farben der Website dronivo.de (tokens.css).
+    name: 'dronivo',
+    label: 'DRONIVO',
+    description: 'Schiefer und Nebelblau wie im Dronivo-Logo',
+    swatch: ['#f2f4f6', '#323f48', '#9baebc'],
   },
 ];
 

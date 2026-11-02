@@ -6,6 +6,14 @@ Das Format folgt "Keep a Changelog"; die Versionsnummer folgt Semver
 Version, die mit `scripts/release.mjs` gebaut wird, braucht hier einen
 eigenen Abschnitt.
 
+## 1.1.1-dronivo (2026-11-02)
+
+- **Neu:** Farbschema "DRONIVO" in Desktop-App (Einstellungen > Konto >
+  Darstellung) und Portal (Profil > Darstellung), aus den Farben der
+  Website dronivo.de: Seitenleiste und Knoepfe in Schiefer `#323f48`, aktive
+  Eintraege in Stahlblau `#435a6b`, Akzente in Nebelblau `#9baebc`, kuehles
+  Grau als Grund. Die Vorgabe bleibt "Hell"; die Wahl gilt je Geraet.
+
 ## 1.1.0-dronivo (2026-11-02)
 
 Zweite Kundenausgabe fuer Dronivo (Anzeige im Info-Dialog "Version
