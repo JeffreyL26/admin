@@ -494,6 +494,62 @@ const sickOverlap = await post('/api/absences/sick-notes', {
 });
 check('Überlappende Krankmeldung → 409', sickOverlap.statusCode === 409);
 
+// Ende nachträglich ändern (changeSickNoteEnd): länger, kürzer, nicht vor den
+// Beginn, nicht in eine andere Krankmeldung, nicht mit Folgebescheinigung.
+{
+  const patch = (id: number, payload: Record<string, unknown>) =>
+    app.inject({ method: 'PATCH', url: `/api/absences/sick-notes/${id}`, headers: auth, payload });
+  const oneDay = await post('/api/absences/sick-notes', { employee_id: 1, date_from: '2026-10-05', date_to: '2026-10-05' });
+  const oneId = oneDay.json().sick_note.id as number;
+  check('Krankmeldung über einen Tag → 1 Tag', oneDay.statusCode === 201 && oneDay.json().sick_note.days_counted === 1, oneDay.json());
+  const longer = await patch(oneId, { date_to: '2026-10-09' });
+  check(
+    'Ende verlängert (Mo bis Fr) → 5 Tage',
+    longer.statusCode === 200 && longer.json().sick_note.date_to === '2026-10-09' && longer.json().sick_note.days_counted === 5,
+    longer.json(),
+  );
+  const endAudit = JSON.parse(
+    (
+      db
+        .prepare("SELECT details FROM audit_log WHERE entity = 'sick_note' AND entity_id = ? ORDER BY id DESC LIMIT 1")
+        .get(oneId) as { details: string }
+    ).details,
+  );
+  check(
+    'Protokoll nennt altes und neues Ende samt Tagen',
+    endAudit.end_changed?.date_to?.from === '2026-10-05' && endAudit.end_changed?.date_to?.to === '2026-10-09' &&
+      endAudit.end_changed?.days_counted?.to === 5,
+    endAudit,
+  );
+  const shorter = await patch(oneId, { date_to: '2026-10-06' });
+  check('Ende verkürzt → 2 Tage', shorter.statusCode === 200 && shorter.json().sick_note.days_counted === 2, shorter.json());
+  const beforeStart = await patch(oneId, { date_to: '2026-10-04' });
+  check('Ende vor dem Beginn → 400', beforeStart.statusCode === 400, beforeStart.json());
+  const next = await post('/api/absences/sick-notes', {
+    employee_id: 1,
+    date_from: '2026-10-12',
+    date_to: '2026-10-13',
+    follow_up_of_id: null,
+  });
+  const intoNext = await patch(oneId, { date_to: '2026-10-12' });
+  check('Ende in eine andere Krankmeldung → 409', next.statusCode === 201 && intoNext.statusCode === 409, intoNext.json());
+  const withFollowUp = await patch(s1.id, { date_to: '2026-06-02' });
+  check(
+    'Ende einer Krankmeldung mit Folgebescheinigung → 409',
+    withFollowUp.statusCode === 409 && /Folgebescheinigung/.test(withFollowUp.json().error?.message ?? ''),
+    withFollowUp.json(),
+  );
+  const unchanged = await patch(oneId, { date_to: '2026-10-06' });
+  check('Gleiches Ende ändert nichts', unchanged.statusCode === 200 && unchanged.json().sick_note.days_counted === 2);
+  // Aufräumen: Die folgenden Prüfungen zählen Krankmeldungen je Person.
+  db.prepare(
+    `DELETE FROM sick_notes WHERE id IN (?, ?)`,
+  ).run(oneId, next.json().sick_note.id);
+  db.prepare(
+    `DELETE FROM absence_requests WHERE employee_id = 1 AND date_from IN ('2026-10-05', '2026-10-12')`,
+  ).run();
+}
+
 // Dashboard: nur, wer an einem Tag krank ist, und heute Abwesende mit Rückkehrtag.
 const activeOn = (await get('/api/absences/sick-notes?active_on=2026-06-02')).json().sick_notes as { id: number }[];
 check(
