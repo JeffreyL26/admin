@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Download, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
+import { AlertTriangle, CalendarClock, Download, FilePlus2, FileWarning, Stethoscope, Upload } from 'lucide-react';
 import { addDaysIso, formatDate, todayIsoLocal, SICK_PAY_LIMIT_DAYS, type SickNote } from '@ohrganize/shared';
 import { api, downloadFile, uploadFile } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner } from '../../components/ui';
@@ -122,6 +122,10 @@ export function SickNotesPage() {
   // oeffnete Zurueck nach dem Speichern den Dialog erneut.
   const setCreateOpen = (open: boolean) => setParams(open ? { neu: '1' } : {}, { replace: true });
   const [uploadFor, setUploadFor] = useState<SickNote | null>(null);
+  const [endFor, setEndFor] = useState<SickNote | null>(null);
+  // Mit Folgebescheinigung bleibt das Ende fest (changeSickNoteEnd im Backend);
+  // liegt sie in einem anderen Jahr, antwortet der Server mit dem Hinweis.
+  const continued = new Set((notes ?? []).map((n) => n.follow_up_of_id).filter((id): id is number => id !== null));
 
   return (
     <>
@@ -284,6 +288,11 @@ export function SickNotesPage() {
                       <td>
                         <div className="row" style={{ justifyContent: 'flex-end', gap: 4 }}>
                           <CertificateDownloadButton note={n} />
+                          {!continued.has(n.id) && (
+                            <button className="hm-btn hm-btn--sm hm-btn--ghost" onClick={() => setEndFor(n)}>
+                              <CalendarClock size={14} /> Ende ändern
+                            </button>
+                          )}
                           {!n.certificate_file_id && (
                             <button className="hm-btn hm-btn--sm hm-btn--ghost" onClick={() => setUploadFor(n)}>
                               <Upload size={14} /> AU nachtragen
@@ -302,6 +311,7 @@ export function SickNotesPage() {
 
       <CreateSickNoteDialog open={createOpen} onClose={() => setCreateOpen(false)} />
       <UploadCertificateDialog note={uploadFor} onClose={() => setUploadFor(null)} />
+      <ChangeEndDialog note={endFor} onClose={() => setEndFor(null)} />
     </>
   );
 }
@@ -312,6 +322,9 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [employeeId, setEmployeeId] = useState<number | null>(null);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // „Krank bis“ folgt „Krank von“, bis die HR es selbst setzt: Ein Tag ist der
+  // Normalfall, ein laengeres Ende laesst sich spaeter unter „Ende ändern“ setzen.
+  const [dateToTouched, setDateToTouched] = useState(false);
   const [childSick, setChildSick] = useState(false);
   const [followUpOf, setFollowUpOf] = useState<number | null>(null);
   // Hat die HR die Folgebescheinigung selbst gewaehlt (auch "keine"), gilt ihre Wahl.
@@ -340,6 +353,7 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
     setEmployeeId(null);
     setDateFrom('');
     setDateTo('');
+    setDateToTouched(false);
     setChildSick(false);
     setFollowUpOf(null);
     setFollowUpTouched(false);
@@ -402,10 +416,32 @@ function CreateSickNoteDialog({ open, onClose }: { open: boolean; onClose: () =>
           />
         </Field>
         <Field label="Krank von" required>
-          <input className="hm-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+          <input
+            className="hm-input"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => {
+              const value = e.target.value;
+              setDateFrom(value);
+              if (!dateToTouched || (value && dateTo < value)) setDateTo(value);
+            }}
+          />
         </Field>
-        <Field label="Krank bis" required error={dateFrom && dateTo && dateTo < dateFrom ? 'Enddatum liegt vor dem Startdatum' : undefined}>
-          <input className="hm-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+        <Field
+          label="Krank bis"
+          required
+          hint="Steht das Ende noch nicht fest, den ersten Tag lassen und später „Ende ändern“."
+          error={dateFrom && dateTo && dateTo < dateFrom ? 'Enddatum liegt vor dem Startdatum' : undefined}
+        >
+          <input
+            className="hm-input"
+            type="date"
+            value={dateTo}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setDateToTouched(true);
+            }}
+          />
         </Field>
         <label className="hm-checkbox span-2">
           <input type="checkbox" checked={childSick} onChange={(e) => setChildSick(e.target.checked)} />
@@ -502,6 +538,72 @@ function UploadCertificateDialog({ note, onClose }: { note: SickNote | null; onC
           </Field>
           <Field label="Eingangsdatum" required>
             <input className="hm-input" type="date" value={receivedDate} onChange={(e) => setReceivedDate(e.target.value)} />
+          </Field>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Ende einer Krankmeldung verschieben, wenn die Person länger oder kürzer
+ * krank ist als bei der Erfassung angenommen. Prüfung und Neuzählung im
+ * Backend (changeSickNoteEnd).
+ */
+function ChangeEndDialog({ note, onClose }: { note: SickNote | null; onClose: () => void }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const [dateTo, setDateTo] = useState('');
+  useEffect(() => {
+    if (note) setDateTo(note.date_to ?? '');
+  }, [note]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!note) return;
+      return api.patch(`/api/absences/sick-notes/${note.id}`, { date_to: dateTo });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['absences'] });
+      toast.success('Ende der Krankmeldung geändert');
+      onClose();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const tooEarly = !!note?.date_from && !!dateTo && dateTo < note.date_from;
+  const valid = !!note && !!dateTo && !tooEarly && dateTo !== note.date_to;
+
+  return (
+    <Modal
+      title="Ende der Krankmeldung ändern"
+      open={note !== null}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="hm-btn hm-btn--secondary" onClick={onClose}>
+            Abbrechen
+          </button>
+          <button className="hm-btn hm-btn--primary" disabled={!valid || save.isPending} onClick={() => save.mutate()}>
+            Speichern
+          </button>
+        </>
+      }
+    >
+      {note && (
+        <div className="stack" style={{ gap: 12 }}>
+          <p style={{ color: 'var(--text-secondary)' }}>
+            {note.first_name} {note.last_name}, krank seit {formatDate(note.date_from)}, bisher bis{' '}
+            {formatDate(note.date_to)}. Die Tage werden neu gezählt.
+          </p>
+          <Field label="Krank bis" required error={tooEarly ? 'Enddatum liegt vor dem Startdatum' : undefined}>
+            <input
+              className="hm-input"
+              type="date"
+              min={note.date_from}
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
           </Field>
         </div>
       )}

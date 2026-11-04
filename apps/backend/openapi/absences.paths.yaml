@@ -215,11 +215,22 @@ paths:
         "200": { description: Überfällige Krankmeldungen }
   /api/absences/sick-notes/{id}:
     patch:
-      summary: AU-Bescheinigung nachtragen (Datei, Eingangsdatum)
+      summary: "AU-Bescheinigung nachtragen (Datei, Eingangsdatum) oder Ende verschieben (date_to, Tage neu gezaehlt)"
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                certificate_file_id: { type: integer, nullable: true }
+                received_date: { type: string, format: date, nullable: true }
+                date_to: { type: string, format: date }
       responses:
         "200": { description: Aktualisierte Krankmeldung }
+        "400": { description: Ende vor dem Beginn oder Spanne zu lang }
+        "409": { description: "Ueberschneidung mit einer anderen Krankmeldung, Folgebescheinigung vorhanden oder storniert" }
         "403": { description: "Datei, die das Konto nicht lesen darf (assertMayLinkFiles; unbekannte Datei-ID 404)" }
   /api/absences/home-office:
     post:

@@ -1540,3 +1540,116 @@ export function seamlessPredecessorSickNoteId(employeeId: number, childSick: boo
     .get([employeeId, childSick ? 1 : 0, addDaysIso(dateFrom, -1)]) as { id: number } | undefined;
   return previous?.id ?? null;
 }
+
+/** Was `changeSickNoteEnd` geändert hat, für den Audit-Eintrag der Route. */
+export interface SickNoteEndChange {
+  absence_request_id: number;
+  date_to: { from: string; to: string };
+  days_counted: { from: number; to: number };
+  overlapped_requests?: { id: number; type: string; date_from: string; date_to: string }[];
+}
+
+/**
+ * Verschiebt das Ende einer Krankmeldung (länger oder kürzer krank als
+ * zunächst angenommen). Bei der Erfassung ist das Ende oft nur geschätzt;
+ * ohne diesen Weg blieb nur eine Folgebescheinigung oder Stornieren und neu
+ * erfassen. Es gelten die Regeln der Neuanlage (`createRequest`): höchstens
+ * die erlaubte Spanne, keine Überschneidung mit einer anderen Krankmeldung,
+ * Urlaub darf überlappt werden (§ 9 BUrlG, im Ergebnis genannt). Die Tage
+ * werden neu gezählt. Hat die Krankmeldung eine Folgebescheinigung, bleibt
+ * ihr Ende fest: Kürzer risse eine Lücke in die AU-Kette, länger
+ * überschnitte die Folgebescheinigung. Gehört in die Transaktion der Route,
+ * die auch den Audit-Eintrag schreibt; liefert null, wenn sich nichts ändert.
+ */
+export function changeSickNoteEnd(sickNoteId: number, dateTo: string): SickNoteEndChange | null {
+  const db = getDb();
+  const note = db
+    .prepare(
+      `SELECT r.id AS request_id, r.employee_id, r.date_from, r.date_to, r.status,
+              r.half_day_start, r.half_day_end, r.days_counted
+       FROM sick_notes s JOIN absence_requests r ON r.id = s.absence_request_id
+       WHERE s.id = ?`,
+    )
+    .get(sickNoteId) as
+    | {
+        request_id: number;
+        employee_id: number;
+        date_from: string;
+        date_to: string;
+        status: string;
+        half_day_start: number;
+        half_day_end: number;
+        days_counted: number;
+      }
+    | undefined;
+  if (!note) throw new AppError(404, 'NOT_FOUND', 'Krankmeldung nicht gefunden');
+  if (dateTo === note.date_to) return null;
+  if (note.status === 'storniert') throw conflict('Eine stornierte Krankmeldung lässt sich nicht mehr ändern');
+  if (dateTo < note.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
+  assertSpanWithinLimit(note.date_from, dateTo);
+  const followUp = db
+    .prepare(
+      `SELECT r.date_from FROM sick_notes s JOIN absence_requests r ON r.id = s.absence_request_id
+       WHERE s.follow_up_of_id = ? AND r.status != 'storniert' LIMIT 1`,
+    )
+    .get(sickNoteId) as { date_from: string } | undefined;
+  if (followUp) {
+    throw conflict(
+      `Diese Krankmeldung hat eine Folgebescheinigung ab ${followUp.date_from}. Ändern Sie das Ende der Folgebescheinigung.`,
+    );
+  }
+
+  const overlapping = db
+    .prepare(
+      `SELECT r.id, r.date_from, r.date_to, t.name AS type_name, t.category AS type_category
+       FROM absence_requests r
+       JOIN absence_types t ON t.id = r.type_id
+       WHERE r.employee_id = ? AND r.id != ? AND r.status IN ('beantragt', 'genehmigt')
+         AND r.date_from <= ? AND r.date_to >= ?`,
+    )
+    .all([note.employee_id, note.request_id, dateTo, note.date_from]) as {
+    id: number;
+    date_from: string;
+    date_to: string;
+    type_name: string;
+    type_category: string;
+  }[];
+  const blocking = overlapping.find((o) => o.type_category === 'krankheit');
+  if (blocking) {
+    throw conflict(
+      `Überschneidung mit bestehender Abwesenheit (${blocking.type_name}, ${blocking.date_from} bis ${blocking.date_to})`,
+    );
+  }
+
+  const opts: CountOptions = {
+    place: regionForEmployee(note.employee_id),
+    dateFrom: note.date_from,
+    dateTo,
+    halfDayStart: note.half_day_start === 1,
+    halfDayEnd: note.half_day_end === 1 && dateTo !== note.date_from,
+    closures: closureDates(note.date_from, dateTo),
+  };
+  const days = countAbsenceDays(opts);
+  db.prepare(
+    `UPDATE absence_requests
+     SET date_to = ?, half_day_end = ?, days_counted = ?, days_manual = 0, closure_covered = ?
+     WHERE id = ?`,
+  ).run(dateTo, opts.halfDayEnd ? 1 : 0, days, closureCoveredFlag(days, opts), note.request_id);
+  // Nur die Überlappungen, die das neue Ende hinzubringt, sind neu für die HR.
+  const added = overlapping.filter((o) => o.date_to > note.date_to && dateTo > note.date_to);
+  return {
+    absence_request_id: note.request_id,
+    date_to: { from: note.date_to, to: dateTo },
+    days_counted: { from: note.days_counted, to: days },
+    ...(added.length > 0
+      ? {
+          overlapped_requests: added.map((o) => ({
+            id: o.id,
+            type: o.type_name,
+            date_from: o.date_from,
+            date_to: o.date_to,
+          })),
+        }
+      : {}),
+  };
+}

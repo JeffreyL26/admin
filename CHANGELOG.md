@@ -12,6 +12,20 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Krankmeldung: Ende vorbelegt und nachtraeglich aenderbar (04.11.2026)
+- **Geaendert:** Beim Erfassen einer Krankmeldung uebernimmt "Krank bis" das
+  Datum von "Krank von", bis die HR es selbst setzt. Ein Tag ist damit der
+  Normalfall; bisher war das Feld leer und Pflicht, und die HR musste das Ende
+  schaetzen.
+- **Neu:** "Ende aendern" an jeder Krankmeldung: laenger oder kuerzer krank als
+  angenommen, ohne Folgebescheinigung oder Stornieren und Neuerfassen. Es
+  gelten die Regeln der Neuanlage (keine Ueberschneidung mit einer anderen
+  Krankmeldung, Urlaub darf ueberlappt werden), die Tage werden neu gezaehlt,
+  das Protokoll nennt altes und neues Ende. Hat die Krankmeldung eine
+  Folgebescheinigung, bleibt ihr Ende fest (409); geaendert wird dann die
+  Folgebescheinigung. `PATCH /api/absences/sick-notes/:id` mit `date_to`,
+  `changeSickNoteEnd` in `absences/service.ts`.
+
 ### Rueckmeldungen aus dem ersten Kundentest, Leitungsebene (01.11.2026)
 - **Neu:** Kennzeichen "Leitungsebene (C-Level)" in der Personalakte und
   Rechtebereich "Leitungsebene" (Kein Zugriff, Nur lesen, Bearbeiten) fuer

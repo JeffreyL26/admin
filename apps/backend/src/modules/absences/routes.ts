@@ -33,6 +33,7 @@ import {
   CREATED_BY_PROXY_SQL,
   companyRegionDefaults,
   seamlessPredecessorSickNoteId,
+  changeSickNoteEnd,
   recountAfterHolidayRuleChange,
   recountRequestsOverlapping,
   placeFromRow,
@@ -1088,7 +1089,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     return { sick_note: db().prepare(`${SICK_SELECT} WHERE s.id = ?`).get(sickNoteId) };
   });
 
-  /** Nachtrag der AU-Bescheinigung (Upload + Eingangsdatum). */
+  /** Nachtrag der AU-Bescheinigung (Upload + Eingangsdatum) und neues Ende (changeSickNoteEnd). */
   app.patch('/api/absences/sick-notes/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
     const existing = db().prepare('SELECT * FROM sick_notes WHERE id = ?').get(id);
@@ -1097,6 +1098,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       z.object({
         certificate_file_id: z.number().int().positive().nullable().optional(),
         received_date: isoDate.nullable().optional(),
+        date_to: isoDate.optional(),
       }),
       req.body,
     );
@@ -1110,6 +1112,8 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     // den Blob auf der Platte erst nach dem Commit, ihn nimmt kein Rollback
     // zurück (detachUnreferencedFile/removeDetachedBlob in core/files.ts).
     const detached = inTransaction(() => {
+      const { date_to: dateTo, ...certificate } = body;
+      const endChange = dateTo !== undefined ? changeSickNoteEnd(id, dateTo) : null;
       if (body.certificate_file_id !== undefined) {
         db()
           .prepare('UPDATE sick_notes SET certificate_file_id = ? WHERE id = ?')
@@ -1119,13 +1123,11 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         db().prepare('UPDATE sick_notes SET received_date = ? WHERE id = ?').run(body.received_date, id);
       }
       const removed = replacedFile ? detachUnreferencedFile(replacedFile) : null;
-      audit(
-        req,
-        'update',
-        'sick_note',
-        id,
-        removed ? { ...body, removed_file: { id: removed.id, sha256: removed.sha256 } } : body,
-      );
+      audit(req, 'update', 'sick_note', id, {
+        ...certificate,
+        ...(endChange ? { end_changed: endChange } : {}),
+        ...(removed ? { removed_file: { id: removed.id, sha256: removed.sha256 } } : {}),
+      });
       return removed;
     });
     removeDetachedBlob(detached);
