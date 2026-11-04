@@ -533,20 +533,86 @@ check('Überlappende Krankmeldung → 409', sickOverlap.statusCode === 409);
   });
   const intoNext = await patch(oneId, { date_to: '2026-10-12' });
   check('Ende in eine andere Krankmeldung → 409', next.statusCode === 201 && intoNext.statusCode === 409, intoNext.json());
+  check(
+    'Meldung nennt das Datum als TT.MM.JJJJ',
+    /13\.10\.2026/.test(intoNext.json().error?.message ?? ''),
+    intoNext.json(),
+  );
   const withFollowUp = await patch(s1.id, { date_to: '2026-06-02' });
   check(
     'Ende einer Krankmeldung mit Folgebescheinigung → 409',
-    withFollowUp.statusCode === 409 && /Folgebescheinigung/.test(withFollowUp.json().error?.message ?? ''),
+    withFollowUp.statusCode === 409 && /Folgebescheinigung ab 04\.06\.2026/.test(withFollowUp.json().error?.message ?? ''),
     withFollowUp.json(),
   );
+  const auditRows = () =>
+    (db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'sick_note' AND entity_id = ?").get(oneId) as { n: number }).n;
+  const rowsBefore = auditRows();
   const unchanged = await patch(oneId, { date_to: '2026-10-06' });
-  check('Gleiches Ende ändert nichts', unchanged.statusCode === 200 && unchanged.json().sick_note.days_counted === 2);
-  // Aufräumen: Die folgenden Prüfungen zählen Krankmeldungen je Person.
+  check(
+    'Gleiches Ende ändert nichts und schreibt kein Protokoll',
+    unchanged.statusCode === 200 && unchanged.json().sick_note.days_counted === 2 && auditRows() === rowsBefore,
+  );
+
+  // Überlappter Urlaub: nur, was erst das neue Ende schneidet, steht im Protokoll.
+  const vacation = await post('/api/absences/requests', {
+    employee_id: 1,
+    type_id: urlaubType.id,
+    date_from: '2026-10-07',
+    date_to: '2026-10-07',
+  });
+  const lastEndChange = () =>
+    JSON.parse(
+      (
+        db
+          .prepare("SELECT details FROM audit_log WHERE entity = 'sick_note' AND entity_id = ? ORDER BY id DESC LIMIT 1")
+          .get(oneId) as { details: string }
+      ).details,
+    ).end_changed;
+  await patch(oneId, { date_to: '2026-10-07' });
+  const newlyOverlapped = lastEndChange();
+  await patch(oneId, { date_to: '2026-10-08' });
+  const alreadyOverlapped = lastEndChange();
+  check(
+    'Neu überlappter Urlaub im Protokoll, schon überlappter nicht',
+    vacation.statusCode === 201 &&
+      newlyOverlapped?.overlapped_requests?.[0]?.id === vacation.json().request.id &&
+      alreadyOverlapped?.overlapped_requests === undefined,
+    { newlyOverlapped, alreadyOverlapped },
+  );
+
+  // Verlängert bis an eine spätere Krankmeldung: sie wird Folgebescheinigung.
+  const seamless = await patch(oneId, { date_to: '2026-10-11' });
+  const nextNote = db.prepare('SELECT follow_up_of_id FROM sick_notes WHERE id = ?').get(next.json().sick_note.id) as {
+    follow_up_of_id: number | null;
+  };
+  check(
+    'Nahtlos verlängert: spätere Krankmeldung wird Folgebescheinigung',
+    seamless.statusCode === 200 &&
+      nextNote.follow_up_of_id === oneId &&
+      lastEndChange()?.linked_follow_up_id === next.json().sick_note.id,
+    { nextNote, end: lastEndChange() },
+  );
+
+  // Jahresobergrenze der Art gilt auch beim Verlängern.
+  db.prepare("UPDATE absence_types SET max_days_per_year = 3 WHERE name = 'Kind krank'").run();
+  const childOne = await post('/api/absences/sick-notes', {
+    employee_id: 1,
+    date_from: '2026-10-19',
+    date_to: '2026-10-19',
+    child_sick: true,
+  });
+  const childOver = await patch(childOne.json().sick_note.id, { date_to: '2026-10-20' });
+  check(
+    'Verlängern über die Jahresobergrenze → 409',
+    childOne.statusCode === 201 && childOver.statusCode === 409 && /Jahresobergrenze/.test(childOver.json().error?.message ?? ''),
+    childOver.json(),
+  );
+  db.prepare("UPDATE absence_types SET max_days_per_year = NULL WHERE name = 'Kind krank'").run();
+
+  // Aufräumen: Die folgenden Prüfungen zählen Krankmeldungen und Anträge je Person.
+  db.prepare(`DELETE FROM sick_notes WHERE id IN (?, ?, ?)`).run(oneId, next.json().sick_note.id, childOne.json().sick_note.id);
   db.prepare(
-    `DELETE FROM sick_notes WHERE id IN (?, ?)`,
-  ).run(oneId, next.json().sick_note.id);
-  db.prepare(
-    `DELETE FROM absence_requests WHERE employee_id = 1 AND date_from IN ('2026-10-05', '2026-10-12')`,
+    `DELETE FROM absence_requests WHERE employee_id = 1 AND date_from IN ('2026-10-05', '2026-10-07', '2026-10-12', '2026-10-19')`,
   ).run();
 }
 

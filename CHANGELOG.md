@@ -20,8 +20,12 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 - **Neu:** "Ende aendern" an jeder Krankmeldung: laenger oder kuerzer krank als
   angenommen, ohne Folgebescheinigung oder Stornieren und Neuerfassen. Es
   gelten die Regeln der Neuanlage (keine Ueberschneidung mit einer anderen
-  Krankmeldung, Urlaub darf ueberlappt werden), die Tage werden neu gezaehlt,
-  das Protokoll nennt altes und neues Ende. Hat die Krankmeldung eine
+  Krankmeldung, Urlaub darf ueberlappt werden, Jahresobergrenze der Art), die
+  Tage werden neu gezaehlt, das Protokoll nennt altes und neues Ende und nur
+  den Urlaub, den erst das neue Ende ueberlappt. Schliesst eine spaetere
+  Krankmeldung derselben Art danach nahtlos an, wird sie Folgebescheinigung
+  wie bei der Neuanlage (sonst begaenne die Entgeltfortzahlung dort neu). Hat
+  die Krankmeldung eine
   Folgebescheinigung, bleibt ihr Ende fest (409); geaendert wird dann die
   Folgebescheinigung. `PATCH /api/absences/sick-notes/:id` mit `date_to`,
   `changeSickNoteEnd` in `absences/service.ts`.

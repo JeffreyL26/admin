@@ -1123,11 +1123,15 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         db().prepare('UPDATE sick_notes SET received_date = ? WHERE id = ?').run(body.received_date, id);
       }
       const removed = replacedFile ? detachUnreferencedFile(replacedFile) : null;
-      audit(req, 'update', 'sick_note', id, {
-        ...certificate,
-        ...(endChange ? { end_changed: endChange } : {}),
-        ...(removed ? { removed_file: { id: removed.id, sha256: removed.sha256 } } : {}),
-      });
+      // Ohne Bescheinigungsfeld und ohne neues Ende hat sich nichts geändert,
+      // dann auch kein Protokolleintrag (etwa ein zweiter Klick auf Speichern).
+      if (Object.keys(certificate).length > 0 || endChange) {
+        audit(req, 'update', 'sick_note', id, {
+          ...certificate,
+          ...(endChange ? { end_changed: endChange } : {}),
+          ...(removed ? { removed_file: { id: removed.id, sha256: removed.sha256 } } : {}),
+        });
+      }
       return removed;
     });
     removeDetachedBlob(detached);
