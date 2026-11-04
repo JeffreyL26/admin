@@ -6,6 +6,19 @@ Das Format folgt "Keep a Changelog"; die Versionsnummer folgt Semver
 Version, die mit `scripts/release.mjs` gebaut wird, braucht hier einen
 eigenen Abschnitt.
 
+## 1.1.2-dronivo (2026-11-04)
+
+Rueckmeldung Dronivo zur Krankmeldung; Grundlage ist main mit Commit
+bf2169a, Abschnitt "Krankmeldung: Ende vorbelegt und nachtraeglich
+aenderbar" unter "Unveroeffentlicht":
+
+- **Geaendert:** "Krank bis" uebernimmt beim Erfassen das Datum von "Krank
+  von". Eine Krankmeldung ueber einen Tag braucht damit keine Eingabe mehr.
+- **Neu:** "Ende aendern" an jeder Krankmeldung in der Desktop-App
+  (Abwesenheit > Krankmeldungen), wenn jemand laenger oder kuerzer krank ist
+  als angenommen. Tage werden neu gezaehlt, das Protokoll nennt altes und
+  neues Ende.
+
 ## 1.1.1-dronivo (2026-11-02)
 
 - **Neu:** Farbschema "DRONIVO" in Desktop-App (Einstellungen > Konto >

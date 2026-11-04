@@ -10,7 +10,7 @@ Auf ausdruecklichen Wunsch des Anbieters (21.10.2026) entsteht die Ausgabe
 fuer den Kunden Dronivo als eigener Branch `dronivo`, abweichend von der
 Regel "Kundenfunktionen als Feature, nie als Branch" weiter unten. Er bleibt
 dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
-`1.1.1-dronivo` (angezeigt als "Version de-1.1.1-dronivo"), Ausgabe
+`1.1.2-dronivo` (angezeigt als "Version de-1.1.2-dronivo"), Ausgabe
 (Variante) `de-dronivo`. Was den Branch von main unterscheidet:
 
 - **Ein Schalter, kein entfernter Code:** `PORTAL_ABSENCE_CAPTURE = false` in
@@ -29,9 +29,9 @@ dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
   und Router (`portalPathOpen`), die Uebersicht zeigt die Kachel "Stammdaten
   aendern" statt des Urlaubskontos und keine Karte "Offene Antraege"; das
   Desktop-Dashboard schreibt an keinen Antrag "Aus dem Portal beantragt.".
-  Release-Dateien tragen das Kennzeichen `de-1.1.1-dronivo` (`releaseLabel`
-  in scripts/dronivo-guard.mjs): `oHRganize-Setup-de-1.1.1-dronivo.exe`,
-  `ohrganize-server-de-1.1.1-dronivo.zip`. Jede abweichende
+  Release-Dateien tragen das Kennzeichen `de-1.1.2-dronivo` (`releaseLabel`
+  in scripts/dronivo-guard.mjs): `oHRganize-Setup-de-1.1.2-dronivo.exe`,
+  `ohrganize-server-de-1.1.2-dronivo.zip`. Jede abweichende
   Stelle nennt den Schalter; `git grep PORTAL_ABSENCE_CAPTURE` findet alle.
 - **Eigene Ausgabe `de-dronivo` als Trennung von main:** Das Register auf
   diesem Branch kennt NUR `de-dronivo` (Edition `dronivo`, Label

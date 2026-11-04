@@ -1,6 +1,6 @@
 {
   "name": "@ohrganize/conspectus",
-  "version": "1.1.1-dronivo",
+  "version": "1.1.2-dronivo",
   "private": true,
   "type": "module",
   "description": "Register und Werkzeug des Anbieters: Kunden, Instanzen, Hosts, Lizenzen, Releases, Rollouts",
