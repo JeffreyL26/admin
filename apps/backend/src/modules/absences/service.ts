@@ -15,6 +15,7 @@ import {
   PORTAL_ABSENCE_CAPTURE,
   entitlementDaysPerWeek,
   flexibleDays,
+  formatDate,
   parseEntitlementFrozen,
   withEntitlementFrozen,
   withoutEntitlementFrozen,
@@ -31,7 +32,7 @@ import {
   type WorkSchedule,
 } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
-import { AppError, badRequest, conflict, forbidden } from '../../core/errors.js';
+import { AppError, badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
 import { audit, auditSystem } from '../../core/audit.js';
 
 export interface EmployeeRow {
@@ -1354,6 +1355,78 @@ export const CREATED_BY_PROXY_SQL = `
   CASE WHEN c.id IS NOT NULL AND (c.employee_id IS NULL OR c.employee_id != r.employee_id) THEN 1 ELSE 0 END
     AS created_by_proxy`;
 
+interface OverlappingRequest {
+  id: number;
+  date_from: string;
+  date_to: string;
+  type_name: string;
+  type_category: string;
+}
+
+/**
+ * Offene und genehmigte Anträge der Person, die den Zeitraum schneiden;
+ * `excludeRequestId` lässt den Antrag aus, der gerade geändert wird.
+ * Neuanlage (createRequest) und neues Ende einer Krankmeldung
+ * (changeSickNoteEnd) prüfen über dieselbe Abfrage.
+ */
+function overlappingRequests(
+  employeeId: number,
+  dateFrom: string,
+  dateTo: string,
+  excludeRequestId: number | null = null,
+): OverlappingRequest[] {
+  return getDb()
+    .prepare(
+      `SELECT r.id, r.date_from, r.date_to, t.name AS type_name, t.category AS type_category
+       FROM absence_requests r
+       JOIN absence_types t ON t.id = r.type_id
+       WHERE r.employee_id = ? AND r.status IN ('beantragt', 'genehmigt')
+         AND r.date_from <= ? AND r.date_to >= ? AND r.id != ?`,
+    )
+    .all([employeeId, dateTo, dateFrom, excludeRequestId ?? 0]) as OverlappingRequest[];
+}
+
+/**
+ * Eine Krankmeldung darf Urlaub und Sonderabwesenheit überlappen (§ 9 BUrlG,
+ * Begründung in createRequest), aber keine andere Krankmeldung; jede andere
+ * Art blockiert jede Überschneidung.
+ */
+function assertNoBlockingOverlap(overlapping: OverlappingRequest[], sick: boolean): void {
+  const o = sick ? overlapping.find((x) => x.type_category === 'krankheit') : overlapping[0];
+  if (o) {
+    throw conflict(
+      `Überschneidung mit bestehender Abwesenheit (${o.type_name}, ${formatDate(o.date_from)} bis ${formatDate(o.date_to)})`,
+    );
+  }
+}
+
+/**
+ * Jahresobergrenze einer Art (`max_days_per_year`), das Jahr über das
+ * Startdatum (bewusste Vereinfachung). `excludeRequestId` zählt den Antrag
+ * nicht mit, dessen Tage gerade neu gesetzt werden.
+ */
+function assertYearlyCap(
+  employeeId: number,
+  type: Pick<AbsenceTypeRow, 'id' | 'name' | 'max_days_per_year'>,
+  dateFrom: string,
+  days: number,
+  excludeRequestId: number | null,
+): void {
+  if (type.max_days_per_year === null) return;
+  const usedRow = getDb()
+    .prepare(
+      `SELECT COALESCE(SUM(days_counted), 0) AS used FROM absence_requests
+       WHERE employee_id = ? AND type_id = ? AND status IN ('beantragt', 'genehmigt')
+         AND substr(date_from, 1, 4) = ? AND id != ?`,
+    )
+    .get([employeeId, type.id, dateFrom.slice(0, 4), excludeRequestId ?? 0]) as { used: number };
+  if (usedRow.used + days > type.max_days_per_year) {
+    throw conflict(
+      `Jahresobergrenze für "${type.name}" überschritten (maximal ${type.max_days_per_year} Tage, bereits ${usedRow.used} erfasst)`,
+    );
+  }
+}
+
 export function createRequest(
   req: Parameters<typeof audit>[0],
   body: CreateRequestBody,
@@ -1387,21 +1460,7 @@ export function createRequest(
   // derselben DB keine stillen Doppelbuchungen ermöglicht. Die
   // Krankmeldungs-Routen verschachteln das (better-sqlite3 nutzt Savepoints).
   return inTransaction(() => {
-    const overlapping = db
-      .prepare(
-        `SELECT r.id, r.date_from, r.date_to, t.name AS type_name, t.category AS type_category
-         FROM absence_requests r
-         JOIN absence_types t ON t.id = r.type_id
-         WHERE r.employee_id = ? AND r.status IN ('beantragt', 'genehmigt')
-           AND r.date_from <= ? AND r.date_to >= ?`,
-      )
-      .all([body.employee_id, body.date_to, body.date_from]) as {
-      id: number;
-      date_from: string;
-      date_to: string;
-      type_name: string;
-      type_category: string;
-    }[];
+    const overlapping = overlappingRequests(body.employee_id, body.date_from, body.date_to);
     // „Krank im Urlaub" (§ 9 BUrlG): Eine Krankmeldung muss sich mit Urlaub
     // oder Sonderabwesenheit überschneiden dürfen, sonst wäre der Fall gar
     // nicht erfassbar. Der überlappte Urlaub wird bewusst NICHT automatisch
@@ -1411,15 +1470,7 @@ export function createRequest(
     // Zeiträume schließen sich weiterhin aus (Folgebescheinigungen laufen
     // über follow_up_of_id).
     const sick = type.category === 'krankheit';
-    const blocking = sick
-      ? overlapping.filter((o) => o.type_category === 'krankheit')
-      : overlapping;
-    if (blocking.length > 0) {
-      const o = blocking[0];
-      throw conflict(
-        `Überschneidung mit bestehender Abwesenheit (${o.type_name}, ${o.date_from} bis ${o.date_to})`,
-      );
-    }
+    assertNoBlockingOverlap(overlapping, sick);
     const overlapped = sick ? overlapping : [];
 
     const place = regionForEmployee(body.employee_id);
@@ -1455,22 +1506,7 @@ export function createRequest(
       throw badRequest('Der Zeitraum enthält keine zu zählenden Arbeitstage (Wochenende, Feiertage oder Betriebsruhe)');
     }
 
-    if (type.max_days_per_year !== null) {
-      // Jahreszuordnung über das Startdatum des Antrags (bewusste Vereinfachung).
-      const year = body.date_from.slice(0, 4);
-      const usedRow = db
-        .prepare(
-          `SELECT COALESCE(SUM(days_counted), 0) AS used FROM absence_requests
-           WHERE employee_id = ? AND type_id = ? AND status IN ('beantragt', 'genehmigt')
-             AND substr(date_from, 1, 4) = ?`,
-        )
-        .get([body.employee_id, body.type_id, year]) as { used: number };
-      if (usedRow.used + days > type.max_days_per_year) {
-        throw conflict(
-          `Jahresobergrenze für "${type.name}" überschritten (maximal ${type.max_days_per_year} Tage, bereits ${usedRow.used} erfasst)`,
-        );
-      }
-    }
+    assertYearlyCap(body.employee_id, type, body.date_from, days, null);
 
     // Saldoprüfung nur bei Auto-Genehmigung: Ein genehmigungspflichtiger
     // Antrag ist zunächst nur ein Wunsch — dort passiert die Saldo-Kontrolle
@@ -1566,7 +1602,10 @@ export interface SickNoteEndChange {
   absence_request_id: number;
   date_to: { from: string; to: string };
   days_counted: { from: number; to: number };
+  /** Überlappungen, die erst das neue Ende bringt (§ 9 BUrlG, Prüfung der HR). */
   overlapped_requests?: { id: number; type: string; date_from: string; date_to: string }[];
+  /** Spätere Krankmeldung, die jetzt nahtlos anschließt und Folgebescheinigung wurde. */
+  linked_follow_up_id?: number;
 }
 
 /**
@@ -1575,19 +1614,26 @@ export interface SickNoteEndChange {
  * ohne diesen Weg blieb nur eine Folgebescheinigung oder Stornieren und neu
  * erfassen. Es gelten die Regeln der Neuanlage (`createRequest`): höchstens
  * die erlaubte Spanne, keine Überschneidung mit einer anderen Krankmeldung,
- * Urlaub darf überlappt werden (§ 9 BUrlG, im Ergebnis genannt). Die Tage
- * werden neu gezählt. Hat die Krankmeldung eine Folgebescheinigung, bleibt
- * ihr Ende fest: Kürzer risse eine Lücke in die AU-Kette, länger
- * überschnitte die Folgebescheinigung. Gehört in die Transaktion der Route,
- * die auch den Audit-Eintrag schreibt; liefert null, wenn sich nichts ändert.
+ * Urlaub darf überlappt werden (§ 9 BUrlG, im Ergebnis genannt), die
+ * Jahresobergrenze der Art. Die Tage werden neu gezählt. Schließt eine
+ * spätere Krankmeldung derselben Art danach nahtlos an und ist sie noch
+ * Erstbescheinigung, wird sie Folgebescheinigung wie bei der Neuanlage
+ * (`seamlessPredecessorSickNoteId`), sonst begänne die Entgeltfortzahlung
+ * dort neu. Hat die Krankmeldung schon eine Folgebescheinigung, bleibt ihr
+ * Ende fest: Kürzer risse eine Lücke in die AU-Kette, länger überschnitte die
+ * Folgebescheinigung. Gehört in die Transaktion der Route, die auch den
+ * Audit-Eintrag schreibt; liefert null, wenn sich nichts ändert.
  */
 export function changeSickNoteEnd(sickNoteId: number, dateTo: string): SickNoteEndChange | null {
   const db = getDb();
   const note = db
     .prepare(
       `SELECT r.id AS request_id, r.employee_id, r.date_from, r.date_to, r.status,
-              r.half_day_start, r.half_day_end, r.days_counted
-       FROM sick_notes s JOIN absence_requests r ON r.id = s.absence_request_id
+              r.half_day_start, r.half_day_end, r.days_counted, s.child_sick,
+              t.id AS type_id, t.name AS type_name, t.max_days_per_year
+       FROM sick_notes s
+       JOIN absence_requests r ON r.id = s.absence_request_id
+       JOIN absence_types t ON t.id = r.type_id
        WHERE s.id = ?`,
     )
     .get(sickNoteId) as
@@ -1600,9 +1646,13 @@ export function changeSickNoteEnd(sickNoteId: number, dateTo: string): SickNoteE
         half_day_start: number;
         half_day_end: number;
         days_counted: number;
+        child_sick: number;
+        type_id: number;
+        type_name: string;
+        max_days_per_year: number | null;
       }
     | undefined;
-  if (!note) throw new AppError(404, 'NOT_FOUND', 'Krankmeldung nicht gefunden');
+  if (!note) throw notFound('Krankmeldung nicht gefunden');
   if (dateTo === note.date_to) return null;
   if (note.status === 'storniert') throw conflict('Eine stornierte Krankmeldung lässt sich nicht mehr ändern');
   if (dateTo < note.date_from) throw badRequest('Das Enddatum liegt vor dem Startdatum');
@@ -1615,31 +1665,12 @@ export function changeSickNoteEnd(sickNoteId: number, dateTo: string): SickNoteE
     .get(sickNoteId) as { date_from: string } | undefined;
   if (followUp) {
     throw conflict(
-      `Diese Krankmeldung hat eine Folgebescheinigung ab ${followUp.date_from}. Ändern Sie das Ende der Folgebescheinigung.`,
+      `Diese Krankmeldung hat eine Folgebescheinigung ab ${formatDate(followUp.date_from)}. Ändern Sie das Ende der Folgebescheinigung.`,
     );
   }
 
-  const overlapping = db
-    .prepare(
-      `SELECT r.id, r.date_from, r.date_to, t.name AS type_name, t.category AS type_category
-       FROM absence_requests r
-       JOIN absence_types t ON t.id = r.type_id
-       WHERE r.employee_id = ? AND r.id != ? AND r.status IN ('beantragt', 'genehmigt')
-         AND r.date_from <= ? AND r.date_to >= ?`,
-    )
-    .all([note.employee_id, note.request_id, dateTo, note.date_from]) as {
-    id: number;
-    date_from: string;
-    date_to: string;
-    type_name: string;
-    type_category: string;
-  }[];
-  const blocking = overlapping.find((o) => o.type_category === 'krankheit');
-  if (blocking) {
-    throw conflict(
-      `Überschneidung mit bestehender Abwesenheit (${blocking.type_name}, ${blocking.date_from} bis ${blocking.date_to})`,
-    );
-  }
+  const overlapping = overlappingRequests(note.employee_id, note.date_from, dateTo, note.request_id);
+  assertNoBlockingOverlap(overlapping, true);
 
   const opts: CountOptions = {
     place: regionForEmployee(note.employee_id),
@@ -1650,13 +1681,34 @@ export function changeSickNoteEnd(sickNoteId: number, dateTo: string): SickNoteE
     closures: closureDates(note.date_from, dateTo),
   };
   const days = countAbsenceDays(opts);
+  if (days > note.days_counted) {
+    assertYearlyCap(
+      note.employee_id,
+      { id: note.type_id, name: note.type_name, max_days_per_year: note.max_days_per_year },
+      note.date_from,
+      days,
+      note.request_id,
+    );
+  }
   db.prepare(
     `UPDATE absence_requests
      SET date_to = ?, half_day_end = ?, days_counted = ?, days_manual = 0, closure_covered = ?
      WHERE id = ?`,
   ).run(dateTo, opts.halfDayEnd ? 1 : 0, days, closureCoveredFlag(days, opts), note.request_id);
-  // Nur die Überlappungen, die das neue Ende hinzubringt, sind neu für die HR.
-  const added = overlapping.filter((o) => o.date_to > note.date_to && dateTo > note.date_to);
+
+  const next = db
+    .prepare(
+      `SELECT s.id FROM sick_notes s JOIN absence_requests r ON r.id = s.absence_request_id
+       WHERE r.employee_id = ? AND r.status != 'storniert' AND s.child_sick = ?
+         AND s.follow_up_of_id IS NULL AND s.id != ? AND r.date_from = ?
+       ORDER BY s.id LIMIT 1`,
+    )
+    .get([note.employee_id, note.child_sick, sickNoteId, addDaysIso(dateTo, 1)]) as { id: number } | undefined;
+  if (next) db.prepare('UPDATE sick_notes SET follow_up_of_id = ? WHERE id = ?').run(sickNoteId, next.id);
+
+  // Neu für die HR sind nur Überlappungen, die erst nach dem bisherigen Ende
+  // beginnen; was schon vorher überlappte, stand im Protokoll der Erfassung.
+  const added = overlapping.filter((o) => o.date_from > note.date_to);
   return {
     absence_request_id: note.request_id,
     date_to: { from: note.date_to, to: dateTo },
@@ -1671,5 +1723,6 @@ export function changeSickNoteEnd(sickNoteId: number, dateTo: string): SickNoteE
           })),
         }
       : {}),
+    ...(next ? { linked_follow_up_id: next.id } : {}),
   };
 }
