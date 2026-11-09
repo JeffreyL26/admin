@@ -368,7 +368,8 @@ try {
 // --- Kurz gesperrte Datei (asynchron) --------------------------------------------
 // Ueber loadDesktopConfig, den Aufruf aus main.ts: so prueft der Test auch,
 // dass der Start wirklich wartet. Gesperrt wird mit einer eingesetzten
-// Probe, gewartet mit einer eingesetzten Pause (protokolliert statt echt).
+// Probe, gewartet meist mit einer eingesetzten Pause (protokolliert statt
+// echt); der letzte Fall nimmt die echte Pause (rund 250 ms).
 async function lockChecks(): Promise<void> {
   const lockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-desktop-lock-'));
   const lockCfg = path.join(lockDir, 'config.json');
@@ -400,21 +401,44 @@ async function lockChecks(): Promise<void> {
     await loadDesktopConfig(lockCfg, BUILT, {
       probe: () => {
         calls += 1;
-        throw lockError('EPERM');
+        throw lockError('EBUSY');
       },
       sleep: async () => undefined,
     });
     check('dauerhaft gesperrt: vier Versuche, dann meldet readDesktopConfig', calls === 4, { calls });
 
+    // Zugriff verweigert ist keine Sperre: unter Windows EPERM, sonst EACCES.
+    for (const code of ['EPERM', 'EACCES']) {
+      calls = 0;
+      await loadDesktopConfig(lockCfg, BUILT, {
+        probe: () => {
+          calls += 1;
+          throw lockError(code);
+        },
+        sleep: async () => undefined,
+      });
+      check(`Zugriff verweigert (${code}): keine Wiederholung`, calls === 1, { code, calls });
+    }
+
+    // Geben beide Variablen alles vor, wird die Datei nicht gelesen und auf
+    // sie auch nicht gewartet.
+    process.env.OHRGANIZE_API_BASE = 'https://variable.ohrganize.com';
+    process.env.OHRGANIZE_SERVER_KEY_PINS = PIN_C;
     calls = 0;
-    await loadDesktopConfig(lockCfg, BUILT, {
+    const envOnly = await loadDesktopConfig(lockCfg, BUILT, {
       probe: () => {
         calls += 1;
-        throw lockError('EACCES');
+        throw lockError('EBUSY');
       },
       sleep: async () => undefined,
     });
-    check('fehlende Rechte (EACCES): keine Wiederholung', calls === 1, { calls });
+    check(
+      'beide Variablen gesetzt: kein Warten auf config.json',
+      calls === 0 && envOnly.apiBaseSource === 'env' && envOnly.serverKeyPins?.from === 'env',
+      { calls, envOnly },
+    );
+    delete process.env.OHRGANIZE_API_BASE;
+    delete process.env.OHRGANIZE_SERVER_KEY_PINS;
 
     fs.rmSync(lockCfg);
     calls = 0;
@@ -426,7 +450,7 @@ async function lockChecks(): Promise<void> {
     check('ohne config.json: keine Probe', calls === 0, { calls });
 
     // Die Vorgabe-Pause (setTimeout) laeuft wirklich: einmal gesperrt, dann die
-    // echte Datei ueber die Vorgabe-Probe.
+    // echte Datei wie mit der Vorgabe-Probe (oeffnen und schliessen).
     fs.writeFileSync(lockCfg, '{}');
     calls = 0;
     const started = Date.now();
@@ -434,7 +458,7 @@ async function lockChecks(): Promise<void> {
       probe: (p) => {
         calls += 1;
         if (calls === 1) throw lockError('EBUSY');
-        return fs.readFileSync(p);
+        fs.closeSync(fs.openSync(p, 'r'));
       },
     });
     check(
