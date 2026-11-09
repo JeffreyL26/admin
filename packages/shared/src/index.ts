@@ -30,3 +30,4 @@ export * from './tours.js';
 export * from './dashboard.js';
 export * from './fourEyes.js';
 export * from './variants/index.js';
+export * from './builtInServer.js';

@@ -4,13 +4,15 @@
  * Manifest je Variante.
  *
  *   node scripts/release.mjs --version 1.1.0-beta.1 \
+ *     --issues "#1 #2" \
  *     [--variants de-vollversion,at-vollversion] [--no-desktop] \
  *     [--sign-key <pfad>] [--no-commit] [--no-tag]
  *
  * Reihenfolge (jeder Schritt bricht bei Fehler ab):
- *   1. Arbeitsbaum sauber, Version gueltig, CHANGELOG hat einen Abschnitt.
+ *   1. Arbeitsbaum sauber, Version gueltig, CHANGELOG hat einen Abschnitt,
+ *      Kategorie-Issues fuer den Commit angegeben (--issues).
  *   2. npm version <v> ueber alle Workspaces (kein Tag, kein Commit).
- *   3. Commit "release: Version <v>" und Tag "v<v>".
+ *   3. Commit "release: Version <v> <issues>" und Tag "v<v>".
  *   4. Je Variante: Build (Renderer, Backend, Desktop), Bundle-Pruefung
  *      (check-variant), Server-Archiv, optional Installer.
  *   5. Je Variante ein release.json mit Pruefsummen aller Artefakte,
@@ -95,6 +97,11 @@ const withDesktop = !argv.includes('--no-desktop');
 const doCommit = !argv.includes('--no-commit');
 const doTag = !argv.includes('--no-tag');
 const signKey = argValue('--sign-key') ?? process.env.OHRGANIZE_RELEASE_KEY ?? null;
+// Kategorie-Issues des Release-Commits (CLAUDE.md, Konventionen: jeder
+// Commit nennt sie am Ende der Betreffzeile), z. B. --issues "#9" oder
+// --issues "#1 #2". Pflicht, sobald das Skript einen Commit schreibt.
+const issues = (argValue('--issues') ?? '').trim().replace(/\s+/g, ' ');
+const ISSUES_PATTERN = /^#\d+( #\d+)*$/;
 
 // ---------------------------------------------------------------------------
 // Prozesse
@@ -178,6 +185,14 @@ if (git(['status', '--porcelain'])) {
   fail('Der Arbeitsbaum ist nicht sauber. Bitte alles committen oder wegraeumen.');
 }
 
+if (bumpVersion && doCommit && !ISSUES_PATTERN.test(issues)) {
+  fail(
+    `Der Release-Commit braucht seine Kategorie-Issues (--issues, z. B. --issues "#9"; ${issues ? `"${issues}" passt nicht` : 'fehlt'}). ` +
+      'Kategorien: #1 Neue Features, #2 Bugfixes, #3 Performance-Fixes, #4 Design-Aenderungen, #5 Feature-Upgrades, ' +
+      '#6 Feature-Downgrades, #7 Architektur, #8 Lizenzen, #9 Kundenverwaltung, #10 Test, #11 Textaenderungen.',
+  );
+}
+
 const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');
 if (!new RegExp(`^## ${version.replace(/[.+*?^$()[\]{}|\\]/g, '\\$&')}\\b`, 'm').test(changelog)) {
   fail(
@@ -198,7 +213,7 @@ if (bumpVersion) {
   npm(['version', version, '--workspaces', '--include-workspace-root', '--no-git-tag-version']);
   if (doCommit) {
     git(['add', '-A'], { capture: false });
-    git(['commit', '-m', `release: Version ${version}`], { capture: false });
+    git(['commit', '-m', `release: Version ${version} ${issues}`], { capture: false });
   }
 } else {
   console.log(`Version steht bereits auf ${version}; kein npm version noetig.`);

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../auth/AuthContext';
 import { Field } from '../../components/ui';
-import { ApiRequestError } from '../../api/client';
+import { backendLabel } from '@ohrganize/shared';
+import { API_BASE, ApiRequestError } from '../../api/client';
 import logo from '../../assets/logo-full.png';
 import { readJson, writeJson } from '../../lib/localStore';
 
@@ -81,6 +82,10 @@ export function LoginPage() {
         <button className="hm-btn hm-btn--primary" disabled={busy} style={{ height: 44 }}>
           {busy ? 'Anmelden …' : 'Anmelden'}
         </button>
+        {/* Mit welchem Backend die App spricht: Arbeitet sie mit Daten auf
+            diesem Rechner, gelten die Konten des Servers hier nicht, und eine
+            Anmeldung scheitert mit "E-Mail oder Passwort ist falsch". */}
+        <p className="login__server">{backendLabel(API_BASE)}</p>
       </form>
     </div>
   );

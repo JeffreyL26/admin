@@ -12,6 +12,26 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Desktop-App: Serverwahl geprueft, Anmeldeseite nennt das Backend (09.11.2026)
+- **Neu:** Unter dem Knopf "Anmelden" steht, womit die Desktop-App spricht:
+  "Verbunden mit musterfirma.ohrganize.com" oder "Daten auf diesem Rechner
+  (Einzelplatz)". Ein Arbeitsplatz, dem die Serveradresse fehlt, faellt so
+  vor der Anmeldung auf, statt mit richtigen Zugangsdaten "E-Mail oder
+  Passwort ist falsch" zu melden (die Konten des Servers gibt es in der
+  Datenbank auf dem Rechner nicht).
+- **Geaendert:** Die Regeln, woher die App ihren Server nimmt
+  (Umgebungsvariable, config.json, sonst eingebettetes Backend), stehen in
+  `apps/desktop/src/desktopConfig.ts` und sind getestet
+  (`npm test -w apps/desktop`, Teil von `npm test`). Neu ist ein
+  eingebauter Server als dritte Quelle (`BUILT_IN_SERVER` in
+  `packages/shared/src/builtInServer.ts`); im Hauptprodukt ist er leer, der
+  Test stellt das sicher. Eine Kundenausgabe, die nur mit ihrem Server
+  arbeitet, setzt ihn; dann startet das eingebettete Backend dort nie, und
+  eine defekte config.json fuehrt zum eingebauten Server statt zum Abbruch.
+- **Geaendert:** `npm run release` verlangt `--issues` mit den
+  Kategorie-Issues des Release-Commits (`--issues "#1"`), wie jeder andere
+  Commit sie nennt.
+
 ### Krankmeldung: Ende vorbelegt und nachtraeglich aenderbar (04.11.2026)
 - **Geaendert:** Beim Erfassen einer Krankmeldung uebernimmt "Krank bis" das
   Datum von "Krank von", bis die HR es selbst setzt. Ein Tag ist damit der
