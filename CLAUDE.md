@@ -744,12 +744,17 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (`packages/shared/src/builtInServer.ts`), sonst das eingebettete Backend;
   Pins in derselben Reihenfolge, die eingebauten nur für dessen Herkunft.
   Auf main ist `BUILT_IN_SERVER` `null`; Test und Desktop-Build
-  (`desktop/scripts/builtInServerGuard.mjs`, Test daneben) brechen sonst ab,
-  für die Vollversion, auf dem Branch main und für jeden Commit aus der
-  Geschichte von main (Build von einem Tag). Nur eine Kundenausgabe setzt
-  ihn; eine nicht verwendbare config.json führt dann zu ihm, mit sichtbarem
-  Hinweis beim Start und in der Fehlermeldung, falls der Start scheitert
-  (`skippedConfigNotice`). Die Anmeldeseite nennt das Backend
+  (`desktop/scripts/builtInServerGuard.mjs`, Test daneben) brechen sonst ab:
+  ohne Kundenkennung in der Version (eine Kundenausgabe heißt
+  `<x.y.z>-<edition>`, die Edition jeder Variante ihres Registers), auf dem
+  Branch main, für jeden Commit aus der Geschichte von main (Build von einem
+  Tag, neuer Kundenbranch ohne eigenen Commit) und, wenn sich die Herkunft
+  nicht prüfen lässt (kein main, flacher Klon, kein git), auch dann. Nur
+  eine Kundenausgabe setzt ihn; eine nicht verwendbare config.json
+  (unlesbar, kein JSON, falsch befüllt) führt dann zu ihm, mit sichtbarem
+  Hinweis beim Start und in der Fehlermeldung, falls danach die Verbindung
+  scheitert (`skippedConfigNotice`). Die Umgebungsvariablen werden vor der
+  Datei gelesen und brechen bei Fehlern immer ab. Die Anmeldeseite nennt das Backend
   (`backendLabel`; ob eingebettet, meldet der Main-Prozess über den Preload
   `embeddedBackend`), weil eine App ohne Serveradresse still mit leerer
   Datenbank lief und die HR-Konten dort „E-Mail oder Passwort ist falsch“

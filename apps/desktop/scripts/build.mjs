@@ -4,7 +4,7 @@ import { build } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { resolveVariantId } from '../../../scripts/variant-alias.mjs';
+import { resolveVariantId, variantById } from '../../../scripts/variant-alias.mjs';
 import { checkBuiltInServer } from './builtInServerGuard.mjs';
 
 const root = path.join(import.meta.dirname, '..');
@@ -78,7 +78,8 @@ function assertElectronVersionsMatch() {
 // Eingebauter Server nur in einer Kundenausgabe auf ihrem Branch
 // (builtInServerGuard.mjs, Test builtInServerGuardTest.mjs).
 {
-  const problem = checkBuiltInServer(path.join(root, '../..'), variantId);
+  const { version } = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const problem = checkBuiltInServer(path.join(root, '../..'), variantById(variantId), version);
   if (problem) {
     console.error(problem);
     process.exit(1);

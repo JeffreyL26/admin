@@ -86,8 +86,9 @@ const bumpVersion = version !== rootPkg.version;
 // Commit nennt sie am Ende der Betreffzeile), z. B. --issues "#9" oder
 // --issues "#1 #2". Pflicht, sobald das Skript einen Commit schreibt; geprueft
 // gleich hier, vor allen Pruefungen, die Zeit kosten.
+const doCommit = !argv.includes('--no-commit');
 const issues = (argValue('--issues') ?? '').trim().replace(/\s+/g, ' ');
-if (bumpVersion && !argv.includes('--no-commit') && !/^#\d+( #\d+)*$/.test(issues)) {
+if (bumpVersion && doCommit && !/^#\d+( #\d+)*$/.test(issues)) {
   fail(
     `Der Release-Commit braucht seine Kategorie-Issues (--issues, z. B. --issues "#9"; ${issues ? `"${issues}" passt nicht` : 'fehlt'}). ` +
       'Kategorien: #1 Neue Features, #2 Bugfixes, #3 Performance-Fixes, #4 Design-Aenderungen, #5 Feature-Upgrades, ' +
@@ -107,7 +108,6 @@ for (const id of variantIds) {
   }
 }
 const withDesktop = !argv.includes('--no-desktop');
-const doCommit = !argv.includes('--no-commit');
 const doTag = !argv.includes('--no-tag');
 const signKey = argValue('--sign-key') ?? process.env.OHRGANIZE_RELEASE_KEY ?? null;
 
