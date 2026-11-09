@@ -49,9 +49,12 @@ let pinPersistError: string | null = null;
 // diesem Rechner (eingebettetes Backend), sonst ein Server; der Renderer
 // bekommt das ausdrücklich, statt es aus der Adresse zu raten (ein Testserver
 // auf 127.0.0.1 ist kein Einzelplatz). `configSkippedNotice` trägt den Hinweis
-// auf eine übersprungene config.json (desktopConfig.ts).
+// auf eine übersprungene config.json (desktopConfig.ts), `connectionFailed`,
+// ob die Verbindungsprüfung gescheitert ist (nur dann gehört der Hinweis in
+// die Fehlermeldung).
 let embeddedBackend = false;
 let configSkippedNotice: string | null = null;
+let connectionFailed = false;
 
 // ---------------------------------------------------------------------------
 // Eigenes App-Schema statt file://
@@ -207,55 +210,6 @@ function configFilePath(): string {
 
 function pinStorePath(): string {
   return path.join(app.getPath('userData'), PIN_STORE_FILE);
-}
-
-/**
- * Adressen, die den eigenen Rechner meinen. Nur für sie bleibt Klartext-HTTP
- * erlaubt: Dort verlässt der Verkehr die Maschine nicht, und genau so ist der
- * lokale Testbetrieb dokumentiert (docs/web-portal.md). `new URL()` liefert
- * IPv6-Hostnamen in eckigen Klammern zurück, deshalb stehen beide Schreibweisen
- * in der Liste.
- */
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
-
-function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  if (LOOPBACK_HOSTS.has(host)) return true;
-  // Nicht nur 127.0.0.1: Das gesamte Netz 127.0.0.0/8 zeigt auf den eigenen
-  // Rechner, und manche Testaufbauten nutzen z. B. 127.0.0.2.
-  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
-}
-
-// Trailing Slash entfernen: der Renderer hängt Pfade wie "/api/…" direkt an.
-function normalizeApiBase(raw: string): string {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new StartupError(`"${raw}" ist keine gültige Backend-Adresse (erwartet z. B. https://musterfirma.ohrganize.com).`);
-  }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new StartupError(`"${raw}" muss mit http:// oder https:// beginnen.`);
-  }
-  // Klartext gegen einen fremden Host wird abgelehnt, nicht nur bemängelt:
-  // Über diese Verbindung laufen Anmeldedaten, das Sitzungstoken und sämtliche
-  // Personaldaten. Ein einmal falsch ausgerollter http://-Eintrag würde das
-  // dauerhaft und unbemerkt offen durch das Firmennetz schicken — mitlesbar für
-  // jeden im selben Netzsegment. StartupError statt Error (wie bei den beiden
-  // Prüfungen davor): Eine falsch eingetragene Adresse ist ein
-  // Konfigurationszustand, den der Satz erklären muss, kein Absturz — ein
-  // Stacktrace davor würde die Meldung nur verdecken.
-  if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
-    throw new StartupError(
-      `Die Backend-Adresse "${raw}" verwendet unverschlüsseltes http://.\n\n` +
-        `Über diese Verbindung laufen Anmeldedaten, Zugangstoken und Personaldaten. ` +
-        `Im Netzbetrieb ist deshalb https:// vorgeschrieben; http:// bleibt allein ` +
-        `lokalen Testadressen (localhost, 127.0.0.1, ::1) vorbehalten.\n\n` +
-        `Bitte tragen Sie die Adresse mit https:// ein (z. B. https://musterfirma.ohrganize.com), in\n` +
-        `${configFilePath()}\nbzw. in der Umgebungsvariable OHRGANIZE_API_BASE.`,
-    );
-  }
-  return raw.replace(/\/+$/, '');
 }
 
 /**
@@ -446,7 +400,8 @@ async function startBackend(): Promise<string> {
   const config = readDesktopConfig(configFilePath(), BUILT_IN_SERVER);
   configSkippedNotice = config.skippedConfigNotice;
   if (config.apiBaseUrl) {
-    const base = normalizeApiBase(config.apiBaseUrl);
+    // Bereits geprueft und ohne Schraegstrich am Ende (desktopConfig.ts).
+    const base = config.apiBaseUrl;
     // Pinning nur über https: Lokale http-Testadressen tragen kein TLS.
     if (new URL(base).protocol === 'https:') {
       pinPolicy = resolvePinPolicy(base, config.serverKeyPins, pinStorePath(), configFilePath());
@@ -463,7 +418,14 @@ async function startBackend(): Promise<string> {
       console.warn(`[oHRganize] serverKeyPins werden für ${base} ignoriert — Schlüssel-Pinning gilt nur für https://.`);
     }
 
-    await assertReachable(base, pinPolicy, config.apiBaseSource);
+    try {
+      await assertReachable(base, pinPolicy, config.apiBaseSource);
+    } catch (err) {
+      // Nur dieser Fehler kann an einer übersprungenen config.json liegen
+      // (Zusatz "Außerdem" im catch beim Start).
+      connectionFailed = true;
+      throw err;
+    }
 
     // Trust on first use: erster Kontakt ohne Konfiguration — Schlüssel merken.
     if (pinPolicy && pinPolicy.source === null) {
@@ -716,7 +678,8 @@ async function showPinLearnedNotice(): Promise<void> {
 
 /**
  * Hinweis, wenn eine nicht verwendbare config.json zugunsten des eingebauten
- * Servers übersprungen wurde (desktopConfig.ts). Nicht blockierend wie der
+ * Servers oder der Umgebungsvariable übersprungen wurde (desktopConfig.ts).
+ * Nicht blockierend wie der
  * Hinweis zum Serverschlüssel: Die App arbeitet weiter, aber nicht unbemerkt.
  * Scheitert der Start, steht derselbe Text in der Fehlermeldung.
  */
@@ -758,9 +721,6 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
-    // Ob die Verbindung zum Server steht; danach gehört ein Startfehler nicht
-    // mehr zu einer übersprungenen config.json (Zusatz im catch).
-    let serverReady = false;
     try {
       registerIpc();
       // Im Dev-Betrieb liefert der Vite-Server den Renderer aus; das
@@ -774,7 +734,6 @@ if (!gotLock) {
       // Chromiums Standardprüfung unverändert.
       session.defaultSession.setCertificateVerifyProc(createCertificateVerifyProc(() => pinPolicy));
       const apiBaseUrl = await startBackend();
-      serverReady = true;
       ipcMain.handle('ohrganize:apiBaseUrl', () => apiBaseUrl);
       await createWindow(apiBaseUrl);
       void showStartNotices().catch((err) => console.warn('[oHRganize] Hinweis nicht angezeigt:', err));
@@ -785,13 +744,14 @@ if (!gotLock) {
     } catch (err) {
       const reason =
         err instanceof StartupError ? err.message : err instanceof Error ? (err.stack ?? err.message) : String(err);
-      // Wurde config.json zugunsten des eingebauten Servers übersprungen und
-      // scheitert dann die Verbindung (Server nicht erreichbar, anderer
-      // Schlüssel), ist die Datei oft die eigentliche Ursache: Sie sollte auf
-      // einen anderen Server zeigen. Ohne diesen Zusatz stünde nur der
-      // Folgefehler da. Nur solange der Server nicht steht (serverReady): Ein
-      // späterer Fehler (Fenster, Renderer) hat mit der Datei nichts zu tun.
-      const skipped = configSkippedNotice && !serverReady ? `\n\nAußerdem: ${configSkippedNotice}` : '';
+      // Wurde config.json übersprungen und scheitert dann die Verbindung
+      // (Server nicht erreichbar, anderer Schlüssel), ist die Datei oft die
+      // eigentliche Ursache: Sie sollte auf einen anderen Server zeigen oder
+      // trug den neuen Schlüssel. Ohne diesen Zusatz stünde nur der Folgefehler
+      // da. Nur bei einem Fehler der Verbindungsprüfung (connectionFailed):
+      // Andere Fehler (Schlüsseldatei, Fenster, Renderer) haben mit der Datei
+      // nichts zu tun.
+      const skipped = configSkippedNotice && connectionFailed ? `\n\nAußerdem: ${configSkippedNotice}` : '';
       dialog.showErrorBox('oHRganize konnte nicht gestartet werden', reason + skipped);
       app.quit();
     }

@@ -23,8 +23,18 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Kennung einer Kundenausgabe in der Version: 1.1.3-dronivo ergibt dronivo, 1.1.0 und 1.1.0-beta.1 nichts. */
-const CUSTOMER_VERSION = /^\d+\.\d+\.\d+-([a-z][a-z0-9]*)$/;
+/**
+ * Kennung einer Kundenausgabe in der Version: 1.1.3-dronivo ergibt dronivo,
+ * 1.1.0-kunde-nord ergibt kunde-nord, 1.1.0 und 1.1.0-beta.1 nichts (die
+ * Kennung muss gleich der Edition sein, und eine Edition folgt
+ * EDITION_PATTERN in packages/shared/src/country.ts, Bindestriche
+ * eingeschlossen). Die einzige Fassung dieser Regel auf main; Test und
+ * Release-Skript rufen sie hierueber. Ein Kundenbranch kennt zusaetzlich
+ * customerTagOf (Release-Linie in conspectus, scripts/dronivo-guard.mjs), das
+ * auch 1.1.3-dronivo.1 auf dronivo abbildet; dort erzwingt check-dronivo
+ * ohnehin genau die Form <x.y.z>-<kennung>, beide Regeln sagen also dasselbe.
+ */
+const CUSTOMER_VERSION = /^\d+\.\d+\.\d+-([a-z][a-z0-9-]{0,31})$/;
 
 /**
  * Steht in builtInServer.ts `export const BUILT_IN_SERVER ... = null;` als
@@ -47,7 +57,7 @@ export function builtInServerProblem({ source, variantId, edition, version, bran
   if (builtInServerIsNull(source)) return null;
   const tag = CUSTOMER_VERSION.exec(version ?? '')?.[1] ?? null;
   const where =
-    tag === null || tag !== edition
+    tag !== edition
       ? `die Ausgabe ${variantId} in Version ${version}; eine Kundenausgabe traegt ihre Edition als Kennung ` +
         `(<x.y.z>-${edition})`
       : branchName === 'main'

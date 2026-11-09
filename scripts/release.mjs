@@ -47,6 +47,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkBuiltInServer } from '../apps/desktop/scripts/builtInServerGuard.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -203,6 +204,17 @@ if (!new RegExp(`^## ${version.replace(/[.+*?^$()[\]{}|\\]/g, '\\$&')}\\b`, 'm')
 
 if (doTag && git(['tag', '--list', `v${version}`])) {
   fail(`Tag v${version} existiert bereits.`);
+}
+
+// Sperre gegen einen eingebauten Server (apps/desktop/scripts/builtInServerGuard.mjs)
+// schon hier, mit der Zielversion: Der Desktop-Build prueft sie erst nach
+// Commit und Tag, ein Abbruch dort hinterliesse einen Tag ohne Installer.
+if (withDesktop) {
+  for (const variantId of variantIds) {
+    const variant = registry.variants.find((v) => v.id === variantId);
+    const problem = checkBuiltInServer(root, variant, version);
+    if (problem) fail(problem);
+  }
 }
 
 // ---------------------------------------------------------------------------

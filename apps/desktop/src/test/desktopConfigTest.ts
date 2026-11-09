@@ -4,17 +4,16 @@
  * eingebettete Backend; dieselbe Reihenfolge fuer die Pins, die eingebauten
  * nur fuer die Herkunft des eingebauten Servers; eine defekte config.json
  * bricht nur ab, wenn sie die einzige Quelle der Adresse waere. Dazu die
- * Zeile der Anmeldeseite (backendLabel) und dass das Hauptprodukt keinen
- * eingebauten Server traegt.
+ * Zeile der Anmeldeseite (backendLabel) und dass ein eingebauter Server
+ * brauchbar ist (ob er stehen darf: scripts/builtInServerGuardTest.mjs).
  *
  * Laeuft ohne Electron unter tsx. Aufruf: npm test -w apps/desktop (Teil von
  * npm test).
  */
-import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { BUILT_IN_SERVER, VARIANTS, backendLabel, type BuiltInServer } from '@ohrganize/shared';
+import { BUILT_IN_SERVER, backendLabel, type BuiltInServer } from '@ohrganize/shared';
 import { readDesktopConfig, type DesktopConfig } from '../desktopConfig';
 import { PIN_PATTERN } from '../serverPinning';
 import { StartupError } from '../startupError';
@@ -35,8 +34,20 @@ const BUILT: BuiltInServer = { url: 'https://musterfirma.ohrganize.com', pins: [
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-desktop-config-'));
 const cfg = path.join(dir, 'config.json');
 
-/** Ein Fall: Umgebung und Datei setzen, lesen, alles wieder aufraeumen. */
-function run(opts: { env?: string; envPins?: string; file?: string | object; builtIn: BuiltInServer | null }): {
+/** Steht fuer "config.json ist nicht lesbar" (ein Verzeichnis an ihrer Stelle, EISDIR). */
+const UNREADABLE = Symbol('unlesbar');
+
+/**
+ * Ein Fall: Umgebung und Datei setzen, lesen, alles wieder aufraeumen. Jeder
+ * Fall laeuft hierueber, damit Variablen aus der Shell des Entwicklers
+ * (OHRGANIZE_API_BASE beim Testen gegen einen Server) kein Ergebnis aendern.
+ */
+function run(opts: {
+  env?: string;
+  envPins?: string;
+  file?: string | object | typeof UNREADABLE;
+  builtIn: BuiltInServer | null;
+}): {
   config?: DesktopConfig;
   error?: unknown;
   warned: string[];
@@ -49,14 +60,18 @@ function run(opts: { env?: string; envPins?: string; file?: string | object; bui
   else process.env.OHRGANIZE_API_BASE = opts.env;
   if (opts.envPins === undefined) delete process.env.OHRGANIZE_SERVER_KEY_PINS;
   else process.env.OHRGANIZE_SERVER_KEY_PINS = opts.envPins;
-  if (opts.file === undefined) fs.rmSync(cfg, { force: true });
-  else fs.writeFileSync(cfg, typeof opts.file === 'string' ? opts.file : JSON.stringify(opts.file));
+  fs.rmSync(cfg, { recursive: true, force: true });
+  if (opts.file === UNREADABLE) fs.mkdirSync(cfg);
+  else if (opts.file !== undefined) {
+    fs.writeFileSync(cfg, typeof opts.file === 'string' ? opts.file : JSON.stringify(opts.file));
+  }
   try {
     return { config: readDesktopConfig(cfg, opts.builtIn), warned };
   } catch (error) {
     return { error, warned };
   } finally {
     console.warn = warn;
+    fs.rmSync(cfg, { recursive: true, force: true });
     if (saved.base === undefined) delete process.env.OHRGANIZE_API_BASE;
     else process.env.OHRGANIZE_API_BASE = saved.base;
     if (saved.pins === undefined) delete process.env.OHRGANIZE_SERVER_KEY_PINS;
@@ -92,8 +107,10 @@ try {
 
   r = run({ env: 'https://musterfirma.ohrganize.com/', builtIn: BUILT });
   check(
-    'Variable mit derselben Herkunft: eingebaute Pins gelten',
-    r.config?.apiBaseSource === 'env' && r.config.serverKeyPins?.from === 'build',
+    'Variable mit derselben Herkunft: eingebaute Pins gelten, Schraegstrich am Ende entfernt',
+    r.config?.apiBaseSource === 'env' &&
+      r.config.apiBaseUrl === 'https://musterfirma.ohrganize.com' &&
+      r.config.serverKeyPins?.from === 'build',
     r.config,
   );
 
@@ -134,10 +151,39 @@ try {
 
   r = run({ env: 'https://variable.ohrganize.com', file: { apiBaseUrl: 42 }, builtIn: null });
   check(
-    'Adresse keine Zeichenkette mit Variable: Variable, Warnung, kein Hinweis',
-    r.config?.apiBaseSource === 'env' && r.config.skippedConfigNotice === null && r.warned.length > 0,
+    'Adresse keine Zeichenkette mit Variable: Variable, sichtbarer Hinweis',
+    r.config?.apiBaseSource === 'env' && (r.config.skippedConfigNotice ?? '').includes('OHRGANIZE_API_BASE'),
     r.error ? String(r.error) : r.config,
   );
+
+  // Eine Zeichenkette, die keine gueltige Adresse ist, ist ebenso falsch
+  // befuellt (haeufigster Tippfehler: ohne https://).
+  r = run({ file: { apiBaseUrl: 'dronivo.ohrganize.com' }, builtIn: BUILT });
+  check(
+    'Adresse ohne https:// mit eingebautem Server: Datei uebersprungen, Hinweis',
+    r.config?.apiBaseSource === 'build' && (r.config.skippedConfigNotice ?? '').includes('dronivo.ohrganize.com'),
+    r.error ? String(r.error) : r.config,
+  );
+
+  r = run({ file: { apiBaseUrl: 'dronivo.ohrganize.com' }, builtIn: null });
+  check('Adresse ohne https:// als einzige Quelle: Abbruch', r.error instanceof StartupError, String(r.error));
+
+  r = run({ file: { apiBaseUrl: 'http://datei.ohrganize.com' }, builtIn: BUILT });
+  check(
+    'Klartext zu fremdem Host in der Datei mit eingebautem Server: Datei uebersprungen',
+    r.config?.apiBaseSource === 'build' && (r.config.skippedConfigNotice ?? '').includes('http://'),
+    r.error ? String(r.error) : r.config,
+  );
+
+  r = run({ file: { apiBaseUrl: 'http://127.0.0.1:3001/' }, builtIn: BUILT });
+  check(
+    'lokale Testadresse ueber http bleibt erlaubt',
+    r.config?.apiBaseSource === 'file' && r.config.apiBaseUrl === 'http://127.0.0.1:3001',
+    r.error ? String(r.error) : r.config,
+  );
+
+  r = run({ env: 'dronivo.ohrganize.com', builtIn: BUILT });
+  check('ungueltige Adresse in der Variable: Abbruch', r.error instanceof StartupError, String(r.error));
 
   // --- Pins ------------------------------------------------------------------
   r = run({ file: { serverKeyPins: [PIN_B] }, builtIn: BUILT });
@@ -200,9 +246,23 @@ try {
 
   r = run({ env: 'https://variable.ohrganize.com', file: '[1, 2]', builtIn: BUILT });
   check(
-    'defekte Datei mit Variable: Warnung, Variable, kein Hinweis (Adresse ausdruecklich gesetzt)',
-    r.config?.apiBaseSource === 'env' && r.warned.some((w) => w.includes('OHRGANIZE_API_BASE')) && r.config.skippedConfigNotice === null,
+    'defekte Datei mit Variable: Variable, Warnung und sichtbarer Hinweis',
+    r.config?.apiBaseSource === 'env' &&
+      r.warned.some((w) => w.includes('OHRGANIZE_API_BASE')) &&
+      (r.config.skippedConfigNotice ?? '').includes('OHRGANIZE_API_BASE'),
     { config: r.config, warned: r.warned },
+  );
+
+  // Vorher brach ein Tippfehler in den Pins hier ab; jetzt laeuft die App mit
+  // der Variable weiter, aber nicht still: Der Hinweis sagt, dass die
+  // Schluessel aus der Datei nicht gelten.
+  r = run({ env: 'https://variable.ohrganize.com', file: { serverKeyPins: ['kaputt'] }, builtIn: null });
+  check(
+    'ungueltige Pins der Datei mit Variable: sichtbarer Hinweis, keine Pins',
+    r.config?.apiBaseSource === 'env' &&
+      r.config.serverKeyPins === null &&
+      (r.config.skippedConfigNotice ?? '').includes('Serverschlüssel aus der Datei gelten deshalb nicht'),
+    r.error ? String(r.error) : r.config,
   );
 
   r = run({ file: { apiBaseUrl: 'https://datei.ohrganize.com' }, builtIn: BUILT });
@@ -210,30 +270,15 @@ try {
 
   // Nicht lesbar (hier: ein Verzeichnis an der Stelle der Datei, EISDIR);
   // gesperrte Dateien unter Windows enden im selben Zweig.
-  fs.rmSync(cfg, { force: true });
-  fs.mkdirSync(cfg);
-  try {
-    let unreadable: DesktopConfig | undefined;
-    try {
-      unreadable = readDesktopConfig(cfg, BUILT);
-    } catch (error) {
-      check('unlesbare Datei mit eingebautem Server: kein Abbruch', false, String(error));
-    }
-    check(
-      'unlesbare Datei mit eingebautem Server: Hinweis mit Grund',
-      unreadable?.apiBaseSource === 'build' && (unreadable.skippedConfigNotice ?? '').includes('nicht gelesen'),
-      unreadable,
-    );
-    let error: unknown;
-    try {
-      readDesktopConfig(cfg, null);
-    } catch (err) {
-      error = err;
-    }
-    check('unlesbare Datei als einzige Quelle: Abbruch', error instanceof StartupError, String(error));
-  } finally {
-    fs.rmSync(cfg, { recursive: true, force: true });
-  }
+  r = run({ file: UNREADABLE, builtIn: BUILT });
+  check(
+    'unlesbare Datei mit eingebautem Server: Hinweis mit Grund',
+    r.config?.apiBaseSource === 'build' && (r.config.skippedConfigNotice ?? '').includes('nicht gelesen'),
+    r.error ? String(r.error) : r.config,
+  );
+
+  r = run({ file: UNREADABLE, builtIn: null });
+  check('unlesbare Datei als einzige Quelle: Abbruch', r.error instanceof StartupError, String(r.error));
 
   // --- Zeile der Anmeldeseite --------------------------------------------------
   check('Anmeldeseite: eingebettetes Backend', backendLabel('http://127.0.0.1:51234', true) === 'Daten auf diesem Rechner (Einzelplatz)');
@@ -253,21 +298,9 @@ try {
   );
 
   // --- Eingebauter Server dieses Builds ----------------------------------------
-  // Das Hauptprodukt verbindet sich nie von selbst mit einem Kundenserver; das
-  // setzt nur eine Kundenausgabe auf ihrem Branch. Kundenausgabe heisst: Die
-  // Version traegt die Edition jeder Variante im Register als Kennung
-  // (<x.y.z>-<edition>). Dazu getrennt der Branch: Ein versehentlicher Merge
-  // eines Kundenbranches nach main braechte Register und Version mit.
-  // Dieselbe Regel, dazu Builds aus der Geschichte von main, steht im
-  // Desktop-Build (scripts/builtInServerGuard.mjs).
-  const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' });
-  const onMain = branch.status === 0 && branch.stdout.trim() === 'main';
-  const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')) as { version: string };
-  const tag = /^\d+\.\d+\.\d+-([a-z][a-z0-9]*)$/.exec(version)?.[1] ?? null;
-  const customerBuild = tag !== null && VARIANTS.every((v) => v.edition === tag);
-  if (!customerBuild || onMain) {
-    check('Hauptprodukt ohne eingebauten Server', BUILT_IN_SERVER === null, BUILT_IN_SERVER);
-  }
+  // Ob er hier ueberhaupt stehen darf (nur Kundenausgabe auf ihrem Branch),
+  // prueft scripts/builtInServerGuardTest.mjs mit derselben Regel wie der
+  // Desktop-Build; hier nur, dass ein gesetzter Server brauchbar ist.
   if (BUILT_IN_SERVER) {
     check('eingebauter Server ueber https', BUILT_IN_SERVER.url.startsWith('https://'), BUILT_IN_SERVER.url);
     check(
