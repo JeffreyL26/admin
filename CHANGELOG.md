@@ -156,8 +156,10 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   Adresse ohne https://) fuehrt zum eingebauten Server statt zum Abbruch, mit
   einem sichtbaren Hinweis beim Start; scheitert danach die Verbindung zum
   Server, nennt die Fehlermeldung die Datei mit. Gibt OHRGANIZE_API_BASE die
-  Adresse vor, sagt derselbe Hinweis, dass Serverschluessel aus der
-  uebersprungenen Datei nicht gelten. `npm run release` prueft die Sperre
+  Adresse vor, wird nichts uebersprungen: Eine unbrauchbare Datei bricht den
+  Start ab (sonst verbaende sich die App ohne die Serverschluessel der
+  Datei), eine dort unbenutzte Adresse wird nicht geprueft, und mit beiden
+  Variablen wird die Datei gar nicht gelesen. `npm run release` prueft die Sperre
   schon vor Commit und Tag. Ob die App mit Daten auf dem Rechner
   arbeitet, meldet der Main-Prozess der Anmeldeseite ausdruecklich; ein
   Testserver auf 127.0.0.1 heisst dort "Verbunden mit 127.0.0.1:3001".

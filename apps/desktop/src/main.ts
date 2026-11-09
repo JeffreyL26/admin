@@ -678,10 +678,10 @@ async function showPinLearnedNotice(): Promise<void> {
 
 /**
  * Hinweis, wenn eine nicht verwendbare config.json zugunsten des eingebauten
- * Servers oder der Umgebungsvariable übersprungen wurde (desktopConfig.ts).
- * Nicht blockierend wie der
+ * Servers übersprungen wurde (desktopConfig.ts). Nicht blockierend wie der
  * Hinweis zum Serverschlüssel: Die App arbeitet weiter, aber nicht unbemerkt.
- * Scheitert der Start, steht derselbe Text in der Fehlermeldung.
+ * Scheitert danach die Verbindungsprüfung, steht derselbe Text stattdessen
+ * in der Fehlermeldung (connectionFailed).
  */
 async function showConfigSkippedNotice(): Promise<void> {
   if (!configSkippedNotice) return;

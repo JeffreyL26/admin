@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveVariantId, variantById } from '../../../scripts/variant-alias.mjs';
-import { builtInServerIsNull, builtInServerProblem, checkBuiltInServer } from './builtInServerGuard.mjs';
+import { builtInServerIsNull, builtInServerProblem, checkBuiltInServer, headOnMainHistory } from './builtInServerGuard.mjs';
 
 let failures = 0;
 function check(label, ok, extra) {
@@ -73,12 +73,20 @@ check(
 // Dieselbe Pruefung wie der Desktop-Build, fuer den Stand, der gerade getestet
 // wird: Auf main und fuer das Hauptprodukt muss BUILT_IN_SERVER null sein,
 // auf einem Kundenbranch passt er zu Version und Edition. Ersetzt eine
-// eigene Fassung der Regel im Test der Serverwahl.
+// eigene Fassung der Regel im Test der Serverwahl. Ohne pruefbare Herkunft
+// (Klon nur des Kundenbranches, flacher Klon) prueft der Test Version und
+// Branch und sagt das; der Desktop-Build bricht dort weiterhin ab.
 {
   const root = path.join(import.meta.dirname, '../../..');
   const { version } = JSON.parse(fs.readFileSync(path.join(root, 'apps/desktop/package.json'), 'utf8'));
-  const problem = checkBuiltInServer(root, variantById(resolveVariantId({})), version);
+  const problem = checkBuiltInServer(root, variantById(resolveVariantId({})), version, { requireHistory: false });
   check('dieser Stand: eingebauter Server zulaessig', problem === null, problem ?? undefined);
+  if (headOnMainHistory(root) === null) {
+    console.log(
+      'builtInServerGuardTest: Herkunft dieses Stands nicht pruefbar (kein main, flacher Klon); ' +
+        'geprueft nur Version und Branch. Der Desktop-Build verlangt sie.',
+    );
+  }
 }
 
 // --- git-Teil im Wegwerf-Repository -----------------------------------------------
@@ -99,22 +107,28 @@ for (const name of [
 ]) {
   delete process.env[name];
 }
+// Das Verzeichnis ohne Repository liegt absichtlich IN einem Repository auf
+// main (`outer`): Wirkt die Obergrenze nicht, saehe die Sperre dessen Branch
+// main, und der Fall unten schluege fehl. So ist die Abschottung selbst
+// geprueft, auch das Format der Pfadliste unter Windows.
 const base = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), 'ohrganize-guard-'));
-process.env.GIT_CEILING_DIRECTORIES = base;
 const repo = path.join(base, 'repo');
-const plain = path.join(base, 'ohne-git');
+const outer = path.join(base, 'outer');
+const plain = path.join(outer, 'ohne-git');
 fs.mkdirSync(repo);
-fs.mkdirSync(plain);
-function git(...args) {
-  // Eigene Identitaet, keine Signatur: nur dieses Wegwerf-Repository.
+fs.mkdirSync(plain, { recursive: true });
+process.env.GIT_CEILING_DIRECTORIES = [base, outer].join(path.delimiter);
+function gitIn(cwd, ...args) {
+  // Eigene Identitaet, keine Signatur: nur diese Wegwerf-Repositories.
   const res = spawnSync(
     'git',
     ['-c', 'user.name=Test', '-c', 'user.email=test@musterfirma.ohrganize.com', '-c', 'commit.gpgsign=false', ...args],
-    { cwd: repo, encoding: 'utf8' },
+    { cwd, encoding: 'utf8' },
   );
   if (res.status !== 0) throw new Error(`git ${args.join(' ')}: ${res.stderr}`);
   return res.stdout.trim();
 }
+const git = (...args) => gitIn(repo, ...args);
 function writeSource(text) {
   const file = path.join(repo, 'packages/shared/src/builtInServer.ts');
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -167,10 +181,14 @@ try {
     (checkBuiltInServer(repo, variant, '1.1.0-kunde') ?? '').includes('git fetch origin main'),
   );
 
+  fs.writeFileSync(path.join(outer, 'README'), 'umgebendes Repository\n');
+  gitIn(outer, 'init', '-q', '-b', 'main');
+  gitIn(outer, 'add', 'README');
+  gitIn(outer, 'commit', '-q', '-m', 'outer');
   fs.mkdirSync(path.join(plain, 'packages/shared/src'), { recursive: true });
   fs.writeFileSync(path.join(plain, 'packages/shared/src/builtInServer.ts'), `${SET_LINE}\n`);
   check(
-    'ohne git-Repository: Abbruch statt still offen',
+    'ohne git-Repository (in einem umgebenden auf main): Abbruch statt still offen',
     (checkBuiltInServer(plain, variant, '1.1.0-kunde') ?? '').includes('git fetch origin main'),
   );
 } catch (err) {

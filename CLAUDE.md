@@ -881,10 +881,13 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (unlesbar, kein JSON, falsch befüllt, auch eine ungültige Adresse:
   `normalizeApiBase` steht deshalb in desktopConfig.ts) führt dann zu ihm,
   mit sichtbarem Hinweis beim Start und in der Fehlermeldung, falls danach
-  die Verbindungsprüfung scheitert (`skippedConfigNotice`); mit
-  `OHRGANIZE_API_BASE` sagt derselbe Hinweis, dass Pins der Datei nicht
-  gelten. Die Umgebungsvariablen werden vor der Datei gelesen und brechen
-  bei Fehlern immer ab. `release.mjs` prüft die Sperre vor Commit und Tag.
+  die Verbindungsprüfung scheitert (`skippedConfigNotice`). Mit
+  `OHRGANIZE_API_BASE` wird nie übersprungen (die App verbände sich sonst
+  ohne die Pins der Datei): Eine unbrauchbare Datei bricht ab, ihre dann
+  unbenutzte Adresse bleibt ungeprüft. Die Umgebungsvariablen werden vor der
+  Datei gelesen und brechen bei Fehlern immer ab. `release.mjs` prüft die
+  Sperre vor Commit und Tag; der Test der Sperre lässt eine nicht prüfbare
+  Herkunft (Klon ohne main) mit Hinweis durch, Build und Release nicht.
   Die Anmeldeseite nennt das Backend
   (`backendLabel`; ob eingebettet, meldet der Main-Prozess über den Preload
   `embeddedBackend`), weil eine App ohne Serveradresse still mit leerer
