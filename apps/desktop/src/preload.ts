@@ -15,10 +15,15 @@ const apiBaseUrl = apiArg?.split('=')[1] ?? 'http://127.0.0.1:3001';
 const VERSION_ARG = '--ohrganize-app-version=';
 const appVersion = process.argv.find((a) => a.startsWith(VERSION_ARG))?.slice(VERSION_ARG.length) ?? '0.0.0';
 
+// Ob die App mit dem eingebetteten Backend (Daten auf diesem Rechner) läuft;
+// der Main-Prozess weiß es, die Adresse allein verrät es nicht (Anmeldeseite).
+const embeddedBackend = process.argv.includes('--ohrganize-embedded-backend=1');
+
 contextBridge.exposeInMainWorld('ohrganize', {
   apiBaseUrl,
   platform: process.platform,
   appVersion,
+  embeddedBackend,
 
   // Fenster-Controls der eigenen Titelleiste.
   window: {

@@ -85,7 +85,7 @@ export function LoginPage() {
         {/* Mit welchem Backend die App spricht: Arbeitet sie mit Daten auf
             diesem Rechner, gelten die Konten des Servers hier nicht, und eine
             Anmeldung scheitert mit "E-Mail oder Passwort ist falsch". */}
-        <p className="login__server">{backendLabel(API_BASE)}</p>
+        <p className="login__server">{backendLabel(API_BASE, window.ohrganize?.embeddedBackend === true)}</p>
       </form>
     </div>
   );
