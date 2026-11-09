@@ -11,7 +11,7 @@
  * Laeuft ohne Electron unter tsx. Aufruf: npm test -w apps/desktop (Teil von
  * npm test).
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -466,6 +466,53 @@ async function lockChecks(): Promise<void> {
       real.apiBaseSource === 'build' && real.skippedConfigNotice === null && calls === 2 && Date.now() - started >= 200,
       { real, calls, ms: Date.now() - started },
     );
+
+    // Echte Sperre (nur Windows), mit Vorgabe-Probe und Vorgabe-Pause:
+    // PowerShell oeffnet die Datei exklusiv (FileShare.None) wie ein
+    // Virenscanner und haelt sie eine halbe Sekunde. Ohne eingebauten Server,
+    // damit ein ausbleibendes Warten als Abbruch auffiele statt als Rueckfall.
+    if (process.platform === 'win32') {
+      fs.writeFileSync(lockCfg, JSON.stringify({ apiBaseUrl: 'https://gesperrt.ohrganize.com' }));
+      const quoted = `'${lockCfg.replace(/'/g, "''")}'`;
+      const holder = spawn(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `$f = [System.IO.File]::Open(${quoted}, 'Open', 'Read', 'None'); ` +
+            `[Console]::Out.WriteLine('gesperrt'); [Console]::Out.Flush(); Start-Sleep -Milliseconds 500; $f.Close()`,
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      const exited = new Promise<void>((resolve) => holder.once('exit', () => resolve()));
+      await new Promise<void>((resolve, reject) => {
+        holder.stdout.on('data', (chunk) => {
+          if (String(chunk).includes('gesperrt')) resolve();
+        });
+        holder.once('error', reject);
+        holder.once('exit', (code) => reject(new Error(`PowerShell endete (${code}) ohne Sperre`)));
+      });
+      let lockedCode: string | undefined;
+      try {
+        fs.closeSync(fs.openSync(lockCfg, 'r'));
+      } catch (err) {
+        lockedCode = (err as NodeJS.ErrnoException).code;
+      }
+      let lockedResult: unknown;
+      try {
+        lockedResult = (await loadDesktopConfig(lockCfg, null)).apiBaseUrl;
+      } catch (err) {
+        lockedResult = err;
+      }
+      await exited;
+      check('echte Sperre: Oeffnen meldet EBUSY', lockedCode === 'EBUSY', { lockedCode });
+      check(
+        'echte Sperre: Start wartet und liest die Datei danach',
+        lockedResult === 'https://gesperrt.ohrganize.com',
+        String(lockedResult),
+      );
+    }
   } finally {
     if (saved.base === undefined) delete process.env.OHRGANIZE_API_BASE;
     else process.env.OHRGANIZE_API_BASE = saved.base;
