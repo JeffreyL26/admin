@@ -17,7 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BUILT_IN_SERVER, backendLabel, type BuiltInServer } from '@ohrganize/shared';
-import { readDesktopConfig, readWithRetry, type DesktopConfig } from '../desktopConfig';
+import { loadDesktopConfig, readDesktopConfig, type DesktopConfig } from '../desktopConfig';
 import { PIN_PATTERN } from '../serverPinning';
 import { StartupError } from '../startupError';
 
@@ -215,53 +215,6 @@ try {
     String(r.error),
   );
 
-  // --- Kurz gesperrte Datei ------------------------------------------------------
-  const lockError = (code: string) => Object.assign(new Error(code), { code });
-  {
-    let calls = 0;
-    const waits: number[] = [];
-    const text = readWithRetry(
-      () => {
-        calls += 1;
-        if (calls < 3) throw lockError('EBUSY');
-        return '{}';
-      },
-      (ms) => waits.push(ms),
-    );
-    check('gesperrte Datei: nach Wiederholung gelesen', text === '{}' && calls === 3 && waits.join() === '250,250', { calls, waits });
-  }
-  {
-    let calls = 0;
-    let error: unknown;
-    try {
-      readWithRetry(
-        () => {
-          calls += 1;
-          throw lockError('EPERM');
-        },
-        () => undefined,
-      );
-    } catch (err) {
-      error = err;
-    }
-    check('dauerhaft gesperrt: nach fuenf Versuchen Fehler', calls === 5 && (error as { code?: string })?.code === 'EPERM', { calls });
-  }
-  {
-    let calls = 0;
-    try {
-      readWithRetry(
-        () => {
-          calls += 1;
-          throw lockError('EISDIR');
-        },
-        () => undefined,
-      );
-    } catch {
-      /* erwartet */
-    }
-    check('anderer Fehler: keine Wiederholung', calls === 1, { calls });
-  }
-
   // --- Pins ------------------------------------------------------------------
   r = run({ file: { serverKeyPins: [PIN_B] }, builtIn: BUILT });
   check(
@@ -412,8 +365,102 @@ try {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
-if (failures > 0) {
-  console.log(`desktopConfigTest: ${failures} Fehler`);
-  process.exit(1);
+// --- Kurz gesperrte Datei (asynchron) --------------------------------------------
+// Ueber loadDesktopConfig, den Aufruf aus main.ts: so prueft der Test auch,
+// dass der Start wirklich wartet. Gesperrt wird mit einer eingesetzten
+// Probe, gewartet mit einer eingesetzten Pause (protokolliert statt echt).
+async function lockChecks(): Promise<void> {
+  const lockDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-desktop-lock-'));
+  const lockCfg = path.join(lockDir, 'config.json');
+  const lockError = (code: string) => Object.assign(new Error(code), { code });
+  const saved = { base: process.env.OHRGANIZE_API_BASE, pins: process.env.OHRGANIZE_SERVER_KEY_PINS };
+  delete process.env.OHRGANIZE_API_BASE;
+  delete process.env.OHRGANIZE_SERVER_KEY_PINS;
+  try {
+    fs.writeFileSync(lockCfg, JSON.stringify({ apiBaseUrl: 'https://datei.ohrganize.com' }));
+
+    let calls = 0;
+    const waits: number[] = [];
+    const config = await loadDesktopConfig(lockCfg, BUILT, {
+      probe: () => {
+        calls += 1;
+        if (calls < 3) throw lockError('EBUSY');
+      },
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    check(
+      'kurz gesperrte Datei: Start wartet und liest sie dann',
+      config.apiBaseSource === 'file' && calls === 3 && waits.join() === '250,250',
+      { config, calls, waits },
+    );
+
+    calls = 0;
+    await loadDesktopConfig(lockCfg, BUILT, {
+      probe: () => {
+        calls += 1;
+        throw lockError('EPERM');
+      },
+      sleep: async () => undefined,
+    });
+    check('dauerhaft gesperrt: vier Versuche, dann meldet readDesktopConfig', calls === 4, { calls });
+
+    calls = 0;
+    await loadDesktopConfig(lockCfg, BUILT, {
+      probe: () => {
+        calls += 1;
+        throw lockError('EACCES');
+      },
+      sleep: async () => undefined,
+    });
+    check('fehlende Rechte (EACCES): keine Wiederholung', calls === 1, { calls });
+
+    fs.rmSync(lockCfg);
+    calls = 0;
+    await loadDesktopConfig(lockCfg, BUILT, {
+      probe: () => {
+        calls += 1;
+      },
+    });
+    check('ohne config.json: keine Probe', calls === 0, { calls });
+
+    // Die Vorgabe-Pause (setTimeout) laeuft wirklich: einmal gesperrt, dann die
+    // echte Datei ueber die Vorgabe-Probe.
+    fs.writeFileSync(lockCfg, '{}');
+    calls = 0;
+    const started = Date.now();
+    const real = await loadDesktopConfig(lockCfg, BUILT, {
+      probe: (p) => {
+        calls += 1;
+        if (calls === 1) throw lockError('EBUSY');
+        return fs.readFileSync(p);
+      },
+    });
+    check(
+      'Vorgabe-Pause: wartet wirklich, dann gelesen',
+      real.apiBaseSource === 'build' && real.skippedConfigNotice === null && calls === 2 && Date.now() - started >= 200,
+      { real, calls, ms: Date.now() - started },
+    );
+  } finally {
+    if (saved.base === undefined) delete process.env.OHRGANIZE_API_BASE;
+    else process.env.OHRGANIZE_API_BASE = saved.base;
+    if (saved.pins === undefined) delete process.env.OHRGANIZE_SERVER_KEY_PINS;
+    else process.env.OHRGANIZE_SERVER_KEY_PINS = saved.pins;
+    fs.rmSync(lockDir, { recursive: true, force: true });
+  }
 }
-console.log('desktopConfigTest: ok');
+
+void lockChecks().then(
+  () => {
+    if (failures > 0) {
+      console.log(`desktopConfigTest: ${failures} Fehler`);
+      process.exit(1);
+    }
+    console.log('desktopConfigTest: ok');
+  },
+  (err) => {
+    console.log('desktopConfigTest: Abbruch', err);
+    process.exit(1);
+  },
+);

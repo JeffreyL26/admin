@@ -6,7 +6,7 @@ import https from 'node:https';
 import { pathToFileURL } from 'node:url';
 import { BUILT_IN_SERVER, DEFAULT_VARIANT_ID, MIN_SERVER_VERSION, isAtLeast, variantById } from '@ohrganize/shared';
 import { StartupError } from './startupError';
-import { readDesktopConfig, type ApiBaseSource } from './desktopConfig';
+import { loadDesktopConfig, type ApiBaseSource } from './desktopConfig';
 import {
   PIN_STORE_FILE,
   createCertificateVerifyProc,
@@ -397,7 +397,7 @@ async function assertReachable(base: string, policy: PinPolicy | null, source: A
 async function startBackend(): Promise<string> {
   if (isDev) return 'http://127.0.0.1:3001';
 
-  const config = readDesktopConfig(configFilePath(), BUILT_IN_SERVER);
+  const config = await loadDesktopConfig(configFilePath(), BUILT_IN_SERVER);
   configSkippedNotice = config.skippedConfigNotice;
   if (config.apiBaseUrl) {
     // Bereits geprueft und ohne Schraegstrich am Ende (desktopConfig.ts).

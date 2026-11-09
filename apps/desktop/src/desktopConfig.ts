@@ -37,29 +37,57 @@ export interface DesktopConfig {
   skippedConfigNotice: string | null;
 }
 
-/** Fehlercodes einer vermutlich nur kurz gesperrten Datei (OneDrive, Virenscanner, Editor beim Speichern). */
-const TRANSIENT_READ_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
+/**
+ * Fehlercodes einer vermutlich nur kurz gesperrten Datei (Virenscanner, ein
+ * Editor oder ein Rollout-Skript beim Schreiben). Nicht EACCES: fehlende
+ * Rechte vergehen nicht durch Warten.
+ */
+const TRANSIENT_READ_CODES = new Set(['EBUSY', 'EPERM']);
+
+export interface WaitOptions {
+  /** Liest die Datei probeweise; Vorgabe fs.readFileSync. */
+  probe?: (cfgPath: string) => unknown;
+  /** Pause zwischen den Versuchen; Vorgabe setTimeout (der Start ist asynchron). */
+  sleep?: (ms: number) => Promise<void>;
+}
 
 /**
- * Liest mit bis zu vier Wiederholungen im Abstand von 250 ms, solange der
- * Fehler nach einer Sperre aussieht (TRANSIENT_READ_CODES); hoechstens rund
- * eine Sekunde, nur beim Start. Eine kurz gesperrte config.json soll weder den
- * Start abbrechen (mit OHRGANIZE_API_BASE oder als einzige Quelle) noch zum
- * eingebauten Server fuehren. Lesen und Warten sind fuer den Test einsetzbar.
+ * Wartet, bis config.json lesbar ist: bis zu vier Wiederholungen im Abstand
+ * von 250 ms, solange der Fehler nach einer Sperre aussieht
+ * (TRANSIENT_READ_CODES); hoechstens rund eine Sekunde, nur beim Start. Wirft
+ * nie: Bleibt die Datei gesperrt, fehlt oder scheitert sie anders, meldet das
+ * readDesktopConfig wie bisher. Eine kurz gesperrte Datei soll weder den Start
+ * abbrechen (mit OHRGANIZE_API_BASE oder als einzige Quelle) noch zum
+ * eingebauten Server fuehren. Asynchron, weil ein synchrones Warten im
+ * Hauptprozess (Atomics.wait) in Electron nicht sicher erlaubt ist.
  */
-export function readWithRetry(
-  read: () => string,
-  wait: (ms: number) => void = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
-): string {
-  for (let attempt = 0; ; attempt += 1) {
+export async function waitUntilReadable(cfgPath: string, options: WaitOptions = {}): Promise<void> {
+  const probe = options.probe ?? ((p: string) => fs.readFileSync(p));
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
-      return read();
+      probe(cfgPath);
+      return;
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
-      if (attempt >= 4 || !code || !TRANSIENT_READ_CODES.has(code)) throw err;
-      wait(250);
+      if (!code || !TRANSIENT_READ_CODES.has(code)) return;
+      await sleep(250);
     }
   }
+}
+
+/**
+ * Was main.ts beim Start aufruft: erst warten, bis eine kurz gesperrte
+ * config.json lesbar ist, dann lesen. Ein Ort, damit der Wiederholversuch
+ * nicht verloren geht (desktopConfigTest prueft ihn hierueber).
+ */
+export async function loadDesktopConfig(
+  cfgPath: string,
+  builtIn: BuiltInServer | null,
+  options: WaitOptions = {},
+): Promise<DesktopConfig> {
+  if (fs.existsSync(cfgPath)) await waitUntilReadable(cfgPath, options);
+  return readDesktopConfig(cfgPath, builtIn);
 }
 
 /** Was eine verwendbare config.json beitraegt; beides null, wenn dort nichts steht. */
@@ -85,7 +113,7 @@ interface FileConfig {
 function readConfigFile(cfgPath: string, use: { address: boolean; pins: boolean }): FileConfig {
   let text: string;
   try {
-    text = readWithRetry(() => fs.readFileSync(cfgPath, 'utf8'));
+    text = fs.readFileSync(cfgPath, 'utf8');
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code ?? (err instanceof Error ? err.message : String(err));
     throw new StartupError(`Die Konfigurationsdatei ${cfgPath} konnte nicht gelesen werden (${code}).`);
@@ -174,9 +202,8 @@ export function normalizeApiBase(raw: string, where: string): string {
     throw new StartupError(
       `Die Backend-Adresse "${raw}" (${where}) verwendet unverschlüsseltes http://.\n\n` +
         `Über diese Verbindung laufen Anmeldedaten, Zugangstoken und Personaldaten. ` +
-        `Im Netzbetrieb ist deshalb https:// vorgeschrieben; http:// bleibt allein ` +
-        `lokalen Testadressen (localhost, 127.0.0.1, ::1) vorbehalten.\n\n` +
-        `Bitte die Adresse dort mit https:// eintragen (z. B. https://musterfirma.ohrganize.com).`,
+        `Im Netzbetrieb ist deshalb https:// vorgeschrieben (z. B. https://musterfirma.ohrganize.com); ` +
+        `http:// bleibt allein lokalen Testadressen (localhost, 127.0.0.1, ::1) vorbehalten.`,
     );
   }
   return raw.replace(/\/+$/, '');
