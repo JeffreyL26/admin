@@ -757,8 +757,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   die Verbindungsprüfung scheitert (`skippedConfigNotice`). Mit
   `OHRGANIZE_API_BASE` wird nie übersprungen (die App verbände sich sonst
   ohne die Pins der Datei): Eine unbrauchbare Datei bricht ab, ihre dann
-  unbenutzte Adresse bleibt ungeprüft. Die Umgebungsvariablen werden vor der
-  Datei gelesen und brechen bei Fehlern immer ab. `release.mjs` prüft die
+  unbenutzte Adresse bleibt ungeprüft. Eine kurz gesperrte Datei liest
+  `readWithRetry` bis zu fünfmal. Jede Adresse, auch die eingebaute, geht
+  durch `normalizeApiBase` (Herkunft in der Meldung). Die Umgebungsvariablen
+  werden vor der Datei gelesen und brechen bei Fehlern immer ab. `release.mjs` prüft die
   Sperre vor Commit und Tag; der Test der Sperre lässt eine nicht prüfbare
   Herkunft (Klon ohne main) mit Hinweis durch, Build und Release nicht.
   Die Anmeldeseite nennt das Backend

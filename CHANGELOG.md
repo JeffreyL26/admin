@@ -39,7 +39,11 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   Adresse vor, wird nichts uebersprungen: Eine unbrauchbare Datei bricht den
   Start ab (sonst verbaende sich die App ohne die Serverschluessel der
   Datei), eine dort unbenutzte Adresse wird nicht geprueft, und mit beiden
-  Variablen wird die Datei gar nicht gelesen. `npm run release` prueft die Sperre
+  Variablen wird die Datei gar nicht gelesen. Eine kurz gesperrte Datei
+  (OneDrive, Virenscanner) wird bis zu fuenfmal im Abstand von 250 ms
+  gelesen, bevor sie als unlesbar gilt. Auch die eingebaute Adresse wird beim
+  Start geprueft (nur https://); jede Adressmeldung nennt ihre Herkunft
+  (Datei, Umgebungsvariable oder eingebaut). `npm run release` prueft die Sperre
   schon vor Commit und Tag. Ob die App mit Daten auf dem Rechner
   arbeitet, meldet der Main-Prozess der Anmeldeseite ausdruecklich; ein
   Testserver auf 127.0.0.1 heisst dort "Verbunden mit 127.0.0.1:3001".
