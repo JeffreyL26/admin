@@ -38,14 +38,31 @@ export interface DesktopConfig {
 }
 
 /**
- * Fehlercodes einer vermutlich nur kurz gesperrten Datei (Virenscanner, ein
- * Editor oder ein Rollout-Skript beim Schreiben). Nicht EACCES: fehlende
- * Rechte vergehen nicht durch Warten.
+ * Fehlercode einer vermutlich nur kurz gesperrten Datei (Virenscanner, ein
+ * Editor oder ein Rollout-Skript beim Schreiben): unter Windows meldet libuv
+ * eine Freigabeverletzung als EBUSY. Nicht EPERM und EACCES: Unter Windows ist
+ * EPERM die Zugriffsverweigerung (ERROR_ACCESS_DENIED), und fehlende Rechte
+ * vergehen nicht durch Warten.
  */
-const TRANSIENT_READ_CODES = new Set(['EBUSY', 'EPERM']);
+const TRANSIENT_READ_CODES = new Set(['EBUSY']);
+
+/**
+ * Ob readDesktopConfig config.json liest: nicht, wenn OHRGANIZE_API_BASE und
+ * OHRGANIZE_SERVER_KEY_PINS beide gesetzt sind (die Datei truege nichts bei).
+ * Die eine Regel fuer Lesen und Warten. Eine ungueltige Pin-Variable zaehlt
+ * als nicht gesetzt; readDesktopConfig bricht an ihr ohnehin ab.
+ */
+function configFileUsed(): boolean {
+  if (!process.env.OHRGANIZE_API_BASE?.trim()) return true;
+  try {
+    return readEnvPins() === null;
+  } catch {
+    return true;
+  }
+}
 
 export interface WaitOptions {
-  /** Liest die Datei probeweise; Vorgabe fs.readFileSync. */
+  /** Prueft, ob sich die Datei oeffnen laesst; Vorgabe oeffnen und schliessen (eine Sperre zeigt sich beim Oeffnen). */
   probe?: (cfgPath: string) => unknown;
   /** Pause zwischen den Versuchen; Vorgabe setTimeout (der Start ist asynchron). */
   sleep?: (ms: number) => Promise<void>;
@@ -62,7 +79,7 @@ export interface WaitOptions {
  * Hauptprozess (Atomics.wait) in Electron nicht sicher erlaubt ist.
  */
 export async function waitUntilReadable(cfgPath: string, options: WaitOptions = {}): Promise<void> {
-  const probe = options.probe ?? ((p: string) => fs.readFileSync(p));
+  const probe = options.probe ?? ((p: string) => fs.closeSync(fs.openSync(p, 'r')));
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
@@ -79,14 +96,15 @@ export async function waitUntilReadable(cfgPath: string, options: WaitOptions = 
 /**
  * Was main.ts beim Start aufruft: erst warten, bis eine kurz gesperrte
  * config.json lesbar ist, dann lesen. Ein Ort, damit der Wiederholversuch
- * nicht verloren geht (desktopConfigTest prueft ihn hierueber).
+ * nicht verloren geht (desktopConfigTest prueft ihn hierueber). Gewartet wird
+ * nur auf eine Datei, die danach auch gelesen wird (configFileUsed).
  */
 export async function loadDesktopConfig(
   cfgPath: string,
   builtIn: BuiltInServer | null,
   options: WaitOptions = {},
 ): Promise<DesktopConfig> {
-  if (fs.existsSync(cfgPath)) await waitUntilReadable(cfgPath, options);
+  if (configFileUsed() && fs.existsSync(cfgPath)) await waitUntilReadable(cfgPath, options);
   return readDesktopConfig(cfgPath, builtIn);
 }
 
@@ -239,7 +257,7 @@ export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null
   const envPins = readEnvPins();
   let file: FileConfig = { apiBaseUrl: null, serverKeyPins: null };
   let skippedConfigNotice: string | null = null;
-  if (!(fromEnv && envPins) && fs.existsSync(cfgPath)) {
+  if (configFileUsed() && fs.existsSync(cfgPath)) {
     try {
       file = readConfigFile(cfgPath, { address: !fromEnv, pins: !envPins });
     } catch (err) {
