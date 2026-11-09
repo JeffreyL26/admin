@@ -6,7 +6,38 @@ Das Format folgt "Keep a Changelog"; die Versionsnummer folgt Semver
 Version, die mit `scripts/release.mjs` gebaut wird, braucht hier einen
 eigenen Abschnitt.
 
+## 1.1.4-dronivo (2026-11-09)
+
+Ersetzt 1.1.3-dronivo, das gebaut, aber nie bei Dronivo eingespielt wurde;
+es enthaelt dessen Korrektur (eingebauter Server) und die Pruefungen danach.
+Server und Portal sind inhaltlich unveraendert gegenueber 1.1.2-dronivo (die
+Server-Fassung zieht nur die Versionsnummer mit). Mindestversionen fuer App
+und Server bleiben 1.0.0-dronivo, aeltere Apps laufen bis zum Update weiter.
+
+- **Neu:** Unter dem Knopf "Anmelden" steht, womit die App spricht:
+  "Verbunden mit dronivo.ohrganize.com". Stuende dort "Daten auf diesem
+  Rechner (Einzelplatz)", liefe eine alte Fassung; so faellt ein falsch
+  eingerichteter Arbeitsplatz vor der Anmeldung auf.
+- **Geaendert:** Die Regeln fuer den eingebauten Server stehen jetzt in einer
+  eigenen, getesteten Datei (`apps/desktop/src/desktopConfig.ts`). Eine nicht
+  verwendbare `%APPDATA%\oHRganize\config.json` (unlesbar, kein JSON, falsche
+  Adresse etwa ohne https://, ungueltiger Schluessel) fuehrt zum eingebauten
+  Server, mit einem Hinweis beim Start; scheitert danach die Verbindung,
+  nennt die Fehlermeldung die Datei mit. Ist die Datei beim Start kurz
+  gesperrt (Virenscanner), wartet die App bis zu rund einer Sekunde.
+  Umgebungsvariablen (`OHRGANIZE_API_BASE`, `OHRGANIZE_SERVER_KEY_PINS`, die
+  Arbeitsplatz-einrichten.cmd setzt) gehen weiterhin vor.
+- **Geaendert:** Auch die eingebaute Adresse wird beim Start geprueft (nur
+  https://); jede Meldung zu einer falschen Adresse nennt, woher sie stammt.
+  Weicht der Schluessel des Servers vom eingebauten ab, heisst es "in die App
+  eingebaut" statt "in der Konfiguration hinterlegt".
+- **Intern:** Der Build sperrt einen eingebauten Server ausserhalb einer
+  Kundenausgabe (Version ohne Kennung, Branch main, Geschichte von main);
+  `npm run release` prueft das vor Commit und Tag.
+
 ## 1.1.3-dronivo (2026-11-09)
+
+Gebaut, aber nie eingespielt; ersetzt durch 1.1.4-dronivo.
 
 Korrektur der Desktop-App; Server und Portal sind inhaltlich unveraendert
 gegenueber 1.1.2-dronivo (die Server-Fassung zieht nur die Versionsnummer
