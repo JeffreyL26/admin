@@ -46,19 +46,32 @@ export interface DesktopConfig {
  */
 const TRANSIENT_READ_CODES = new Set(['EBUSY']);
 
+/** Was die Umgebungsvariablen vorgeben, einmal ausgewertet und geprueft. */
+interface Environment {
+  /** OHRGANIZE_API_BASE, geprueft (normalizeApiBase); null, wenn nicht gesetzt. */
+  fromEnv: string | null;
+  /** OHRGANIZE_SERVER_KEY_PINS, geprueft; null, wenn nicht gesetzt. */
+  envPins: ConfiguredPins | null;
+}
+
 /**
- * Ob readDesktopConfig config.json liest: nicht, wenn OHRGANIZE_API_BASE und
- * OHRGANIZE_SERVER_KEY_PINS beide gesetzt sind (die Datei truege nichts bei).
- * Die eine Regel fuer Lesen und Warten. Eine ungueltige Pin-Variable zaehlt
- * als nicht gesetzt; readDesktopConfig bricht an ihr ohnehin ab.
+ * Liest beide Umgebungsvariablen. Wirft StartupError bei einem ungueltigen
+ * Wert: Die Variablen werden VOR der Datei gelesen und brechen immer ab.
  */
-function configFileUsed(): boolean {
-  if (!process.env.OHRGANIZE_API_BASE?.trim()) return true;
-  try {
-    return readEnvPins() === null;
-  } catch {
-    return true;
-  }
+function readEnvironment(): Environment {
+  const envBase = process.env.OHRGANIZE_API_BASE?.trim();
+  return {
+    fromEnv: envBase ? normalizeApiBase(envBase, 'Umgebungsvariable OHRGANIZE_API_BASE') : null,
+    envPins: readEnvPins(),
+  };
+}
+
+/**
+ * Ob config.json gelesen wird: nicht, wenn beide Umgebungsvariablen alles
+ * vorgeben (die Datei truege nichts bei). Die eine Regel fuer Lesen und Warten.
+ */
+function configFileUsed(env: Environment): boolean {
+  return !(env.fromEnv && env.envPins);
 }
 
 export interface WaitOptions {
@@ -104,8 +117,9 @@ export async function loadDesktopConfig(
   builtIn: BuiltInServer | null,
   options: WaitOptions = {},
 ): Promise<DesktopConfig> {
-  if (configFileUsed() && fs.existsSync(cfgPath)) await waitUntilReadable(cfgPath, options);
-  return readDesktopConfig(cfgPath, builtIn);
+  const env = readEnvironment();
+  if (configFileUsed(env) && fs.existsSync(cfgPath)) await waitUntilReadable(cfgPath, options);
+  return readDesktopConfigWith(cfgPath, builtIn, env);
 }
 
 /** Was eine verwendbare config.json beitraegt; beides null, wenn dort nichts steht. */
@@ -252,12 +266,15 @@ function sameOrigin(a: string, b: string): boolean {
  * VOR der Datei gelesen und brechen bei Fehlern immer ab.
  */
 export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null): DesktopConfig {
-  const envBase = process.env.OHRGANIZE_API_BASE?.trim();
-  const fromEnv = envBase ? normalizeApiBase(envBase, 'Umgebungsvariable OHRGANIZE_API_BASE') : null;
-  const envPins = readEnvPins();
+  return readDesktopConfigWith(cfgPath, builtIn, readEnvironment());
+}
+
+/** readDesktopConfig mit bereits ausgewerteter Umgebung (loadDesktopConfig wertet sie nur einmal aus). */
+function readDesktopConfigWith(cfgPath: string, builtIn: BuiltInServer | null, env: Environment): DesktopConfig {
+  const { fromEnv, envPins } = env;
   let file: FileConfig = { apiBaseUrl: null, serverKeyPins: null };
   let skippedConfigNotice: string | null = null;
-  if (configFileUsed() && fs.existsSync(cfgPath)) {
+  if (configFileUsed(env) && fs.existsSync(cfgPath)) {
     try {
       file = readConfigFile(cfgPath, { address: !fromEnv, pins: !envPins });
     } catch (err) {
