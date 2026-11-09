@@ -267,7 +267,7 @@ const SITES = [
   ['packages/shared/src/dronivo.ts', /export const CUSTOMER_SERVER: string = 'https:\/\/dronivo\.ohrganize\.com';/],
   ['packages/shared/src/dronivo.ts', /export const CUSTOMER_SERVER_KEY_PINS: readonly string\[\] = \['sha256\/[A-Za-z0-9+/=]{44}'(?:, 'sha256\/[A-Za-z0-9+/=]{44}')*\];/],
   ['packages/shared/src/builtInServer.ts', /export const BUILT_IN_SERVER: BuiltInServer \| null = \{ url: CUSTOMER_SERVER, pins: CUSTOMER_SERVER_KEY_PINS \};/],
-  ['apps/desktop/src/main.ts', /readDesktopConfig\(configFilePath\(\), BUILT_IN_SERVER\)/],
+  ['apps/desktop/src/main.ts', /loadDesktopConfig\(configFilePath\(\), BUILT_IN_SERVER\)/],
   // Dateinamen der Release-Dateien (releaseLabel: de-1.0.0-dronivo statt Variante plus Version).
   ['apps/desktop/scripts/dist.mjs', /-c\.artifactName=oHRganize-Setup-\$\{label\}\./],
   ['scripts/release.mjs', /ohrganize-server-\$\{releaseLabel\(root, version\)\}\.zip/],

@@ -334,12 +334,15 @@ Kundeninstanz stehen in `../deploy/README.md`, Abschnitt 9.
 4. Die Desktop-App der HR-Administration arbeitet auf demselben Backend,
    sobald eine Basis-URL konfiguriert ist — dann startet sie **kein** eigenes
    Backend mehr und HR-Administration und Portal teilen sich eine Datenbank.
-   Zwei Quellen, Umgebungsvariable schlägt Datei
-   (`readDesktopConfig` in `apps/desktop/src/main.ts`). Die `config.json`
-   wird dabei **immer** gelesen, auch wenn `OHRGANIZE_API_BASE` die Adresse
-   vorgibt — sie kann die `serverKeyPins` enthalten. Eine defekte Datei bricht
-   den Start ab, wenn sie die einzige Adressquelle ist; gibt die Variable die
-   Adresse vor, wird sie mit Warnung übersprungen:
+   Zwei Quellen, Umgebungsvariable schlägt Datei (Regeln in
+   `apps/desktop/src/desktopConfig.ts`, Test `desktopConfigTest.ts`; eine
+   Kundenausgabe hat zusätzlich einen eingebauten Server). Die `config.json`
+   wird auch gelesen, wenn `OHRGANIZE_API_BASE` die Adresse vorgibt, denn sie
+   kann die `serverKeyPins` enthalten; nur wenn auch
+   `OHRGANIZE_SERVER_KEY_PINS` gesetzt ist, bleibt sie ungelesen. Eine
+   unlesbare, defekte oder falsch befüllte Datei bricht den Start ab (eine
+   kurze Sperre wartet die App bis zu rund einer Sekunde ab); übersprungen
+   wird sie nur zugunsten eines eingebauten Servers, mit Hinweis:
 
    | Quelle | Wofür |
    |---|---|
