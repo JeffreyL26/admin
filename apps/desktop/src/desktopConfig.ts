@@ -37,6 +37,31 @@ export interface DesktopConfig {
   skippedConfigNotice: string | null;
 }
 
+/** Fehlercodes einer vermutlich nur kurz gesperrten Datei (OneDrive, Virenscanner, Editor beim Speichern). */
+const TRANSIENT_READ_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
+
+/**
+ * Liest mit bis zu vier Wiederholungen im Abstand von 250 ms, solange der
+ * Fehler nach einer Sperre aussieht (TRANSIENT_READ_CODES); hoechstens rund
+ * eine Sekunde, nur beim Start. Eine kurz gesperrte config.json soll weder den
+ * Start abbrechen (mit OHRGANIZE_API_BASE oder als einzige Quelle) noch zum
+ * eingebauten Server fuehren. Lesen und Warten sind fuer den Test einsetzbar.
+ */
+export function readWithRetry(
+  read: () => string,
+  wait: (ms: number) => void = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
+): string {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return read();
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= 4 || !code || !TRANSIENT_READ_CODES.has(code)) throw err;
+      wait(250);
+    }
+  }
+}
+
 /** Was eine verwendbare config.json beitraegt; beides null, wenn dort nichts steht. */
 interface FileConfig {
   apiBaseUrl: string | null;
@@ -60,7 +85,7 @@ interface FileConfig {
 function readConfigFile(cfgPath: string, use: { address: boolean; pins: boolean }): FileConfig {
   let text: string;
   try {
-    text = fs.readFileSync(cfgPath, 'utf8');
+    text = readWithRetry(() => fs.readFileSync(cfgPath, 'utf8'));
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code ?? (err instanceof Error ? err.message : String(err));
     throw new StartupError(`Die Konfigurationsdatei ${cfgPath} konnte nicht gelesen werden (${code}).`);
@@ -95,13 +120,7 @@ function readFileAddress(value: unknown, cfgPath: string): string | null {
     throw new StartupError(`"apiBaseUrl" in ${cfgPath} muss eine Zeichenkette sein.`);
   }
   const address = value?.trim();
-  if (!address) return null;
-  try {
-    return normalizeApiBase(address, cfgPath);
-  } catch (err) {
-    if (err instanceof StartupError) throw new StartupError(`"apiBaseUrl" in ${cfgPath}: ${err.message}`);
-    throw err;
-  }
+  return address ? normalizeApiBase(address, `"apiBaseUrl" in ${cfgPath}`) : null;
 }
 
 /**
@@ -126,16 +145,22 @@ function isLoopbackHost(hostname: string): boolean {
  * Renderer haengt Pfade wie "/api/..." direkt an). Hier statt in main.ts, damit
  * readDesktopConfig eine falsche Adresse in config.json wie jeden anderen
  * Fehler der Datei behandeln kann (Rueckfall auf den eingebauten Server).
+ * `where` nennt die Herkunft der Adresse (Datei, Umgebungsvariable oder
+ * eingebaut), damit jede Meldung sagt, wo sie zu korrigieren ist. Fuer alle
+ * drei Quellen, auch den eingebauten Server: Klartext ins Netz waere dort
+ * genauso falsch, und `npm test` ist fuer ein Release keine Pflicht.
  */
-export function normalizeApiBase(raw: string, cfgPath: string): string {
+export function normalizeApiBase(raw: string, where: string): string {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    throw new StartupError(`"${raw}" ist keine gültige Backend-Adresse (erwartet z. B. https://musterfirma.ohrganize.com).`);
+    throw new StartupError(
+      `"${raw}" (${where}) ist keine gültige Backend-Adresse (erwartet z. B. https://musterfirma.ohrganize.com).`,
+    );
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new StartupError(`"${raw}" muss mit http:// oder https:// beginnen.`);
+    throw new StartupError(`"${raw}" (${where}) muss mit http:// oder https:// beginnen.`);
   }
   // Klartext gegen einen fremden Host wird abgelehnt, nicht nur bemängelt:
   // Über diese Verbindung laufen Anmeldedaten, das Sitzungstoken und sämtliche
@@ -147,12 +172,11 @@ export function normalizeApiBase(raw: string, cfgPath: string): string {
   // Stacktrace davor würde die Meldung nur verdecken.
   if (url.protocol === 'http:' && !isLoopbackHost(url.hostname)) {
     throw new StartupError(
-      `Die Backend-Adresse "${raw}" verwendet unverschlüsseltes http://.\n\n` +
+      `Die Backend-Adresse "${raw}" (${where}) verwendet unverschlüsseltes http://.\n\n` +
         `Über diese Verbindung laufen Anmeldedaten, Zugangstoken und Personaldaten. ` +
         `Im Netzbetrieb ist deshalb https:// vorgeschrieben; http:// bleibt allein ` +
         `lokalen Testadressen (localhost, 127.0.0.1, ::1) vorbehalten.\n\n` +
-        `Bitte tragen Sie die Adresse mit https:// ein (z. B. https://musterfirma.ohrganize.com), in\n` +
-        `${cfgPath}\nbzw. in der Umgebungsvariable OHRGANIZE_API_BASE.`,
+        `Bitte die Adresse dort mit https:// eintragen (z. B. https://musterfirma.ohrganize.com).`,
     );
   }
   return raw.replace(/\/+$/, '');
@@ -184,7 +208,7 @@ function sameOrigin(a: string, b: string): boolean {
  */
 export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null): DesktopConfig {
   const envBase = process.env.OHRGANIZE_API_BASE?.trim();
-  const fromEnv = envBase ? normalizeApiBase(envBase, cfgPath) : null;
+  const fromEnv = envBase ? normalizeApiBase(envBase, 'Umgebungsvariable OHRGANIZE_API_BASE') : null;
   const envPins = readEnvPins();
   let file: FileConfig = { apiBaseUrl: null, serverKeyPins: null };
   let skippedConfigNotice: string | null = null;
@@ -206,9 +230,9 @@ export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null
   let apiBaseUrl: string | null = fromEnv ?? file.apiBaseUrl;
   let apiBaseSource: ApiBaseSource | null = fromEnv ? 'env' : file.apiBaseUrl ? 'file' : null;
   if (!apiBaseUrl && builtIn) {
-    // Eingebaut, nicht konfiguriert: gueltig (https) prueft desktopConfigTest;
-    // nur der Schraegstrich am Ende faellt weg wie bei den anderen Quellen.
-    apiBaseUrl = builtIn.url.replace(/\/+$/, '');
+    // Geprueft wie jede andere Adresse; ein Fehler hier ist einer der Ausgabe
+    // selbst, die Meldung sagt das statt auf config.json zu verweisen.
+    apiBaseUrl = normalizeApiBase(builtIn.url, 'in diese Ausgabe eingebaut, BUILT_IN_SERVER; nur ein neuer Build behebt das');
     apiBaseSource = 'build';
   }
 

@@ -81,7 +81,10 @@ check(
   const { version } = JSON.parse(fs.readFileSync(path.join(root, 'apps/desktop/package.json'), 'utf8'));
   const problem = checkBuiltInServer(root, variantById(resolveVariantId({})), version, { requireHistory: false });
   check('dieser Stand: eingebauter Server zulaessig', problem === null, problem ?? undefined);
-  if (headOnMainHistory(root) === null) {
+  // Nur wenn die Herkunft ueberhaupt zaehlt (Server gesetzt): Bei null prueft
+  // die Sperre keine Geschichte, der Hinweis waere dann falsch.
+  const source = fs.readFileSync(path.join(root, 'packages/shared/src/builtInServer.ts'), 'utf8');
+  if (!builtInServerIsNull(source) && headOnMainHistory(root) === null) {
     console.log(
       'builtInServerGuardTest: Herkunft dieses Stands nicht pruefbar (kein main, flacher Klon); ' +
         'geprueft nur Version und Branch. Der Desktop-Build verlangt sie.',

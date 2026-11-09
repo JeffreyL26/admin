@@ -11,11 +11,13 @@
  * Laeuft ohne Electron unter tsx. Aufruf: npm test -w apps/desktop (Teil von
  * npm test).
  */
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { BUILT_IN_SERVER, backendLabel, type BuiltInServer } from '@ohrganize/shared';
-import { readDesktopConfig, type DesktopConfig } from '../desktopConfig';
+import { readDesktopConfig, readWithRetry, type DesktopConfig } from '../desktopConfig';
 import { PIN_PATTERN } from '../serverPinning';
 import { StartupError } from '../startupError';
 
@@ -191,7 +193,74 @@ try {
   );
 
   r = run({ env: 'dronivo.ohrganize.com', builtIn: BUILT });
-  check('ungueltige Adresse in der Variable: Abbruch', r.error instanceof StartupError, String(r.error));
+  check(
+    'ungueltige Adresse in der Variable: Abbruch, Meldung nennt die Variable',
+    r.error instanceof StartupError && r.error.message.includes('OHRGANIZE_API_BASE'),
+    String(r.error),
+  );
+
+  // Auch die eingebaute Adresse wird zur Laufzeit geprueft (npm test ist fuer
+  // ein Release keine Pflicht); die Meldung verweist auf den Build.
+  r = run({ builtIn: { url: 'http://kunde.ohrganize.com', pins: [] } });
+  check(
+    'eingebaute Adresse mit http:// zu fremdem Host: Abbruch mit Verweis auf den Build',
+    r.error instanceof StartupError && r.error.message.includes('BUILT_IN_SERVER'),
+    String(r.error),
+  );
+
+  r = run({ builtIn: { url: 'https//kunde.ohrganize.com', pins: [] } });
+  check(
+    'verschriebene eingebaute Adresse: StartupError statt TypeError',
+    r.error instanceof StartupError && r.error.message.includes('BUILT_IN_SERVER'),
+    String(r.error),
+  );
+
+  // --- Kurz gesperrte Datei ------------------------------------------------------
+  const lockError = (code: string) => Object.assign(new Error(code), { code });
+  {
+    let calls = 0;
+    const waits: number[] = [];
+    const text = readWithRetry(
+      () => {
+        calls += 1;
+        if (calls < 3) throw lockError('EBUSY');
+        return '{}';
+      },
+      (ms) => waits.push(ms),
+    );
+    check('gesperrte Datei: nach Wiederholung gelesen', text === '{}' && calls === 3 && waits.join() === '250,250', { calls, waits });
+  }
+  {
+    let calls = 0;
+    let error: unknown;
+    try {
+      readWithRetry(
+        () => {
+          calls += 1;
+          throw lockError('EPERM');
+        },
+        () => undefined,
+      );
+    } catch (err) {
+      error = err;
+    }
+    check('dauerhaft gesperrt: nach fuenf Versuchen Fehler', calls === 5 && (error as { code?: string })?.code === 'EPERM', { calls });
+  }
+  {
+    let calls = 0;
+    try {
+      readWithRetry(
+        () => {
+          calls += 1;
+          throw lockError('EISDIR');
+        },
+        () => undefined,
+      );
+    } catch {
+      /* erwartet */
+    }
+    check('anderer Fehler: keine Wiederholung', calls === 1, { calls });
+  }
 
   // --- Pins ------------------------------------------------------------------
   r = run({ file: { serverKeyPins: [PIN_B] }, builtIn: BUILT });
@@ -310,13 +379,25 @@ try {
   // builtInServer.ts; hier, dass er zum Wert passt, den die App tatsaechlich
   // bekommt (sonst kaeme ein anderswo gesetzter Server an ihr vorbei).
   {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const guard = require('../../scripts/builtInServerGuard.mjs') as { builtInServerIsNull: (source: string) => boolean };
-    const source = fs.readFileSync(path.join(__dirname, '../../../../packages/shared/src/builtInServer.ts'), 'utf8');
+    // Die Sperre ist ein ES-Modul (.mjs); ein eigener Node-Prozess statt
+    // require(), das ES-Module erst ab Node 20.19 bzw. 22.12 laedt (engines: >=20).
+    const guardUrl = pathToFileURL(path.join(__dirname, '../../scripts/builtInServerGuard.mjs')).href;
+    const sourcePath = path.join(__dirname, '../../../../packages/shared/src/builtInServer.ts');
+    const probe = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `import fs from 'node:fs'; import { builtInServerIsNull } from ${JSON.stringify(guardUrl)}; ` +
+          `process.stdout.write(String(builtInServerIsNull(fs.readFileSync(${JSON.stringify(sourcePath)}, 'utf8'))));`,
+      ],
+      { encoding: 'utf8' },
+    );
+    const textNull = probe.stdout.trim();
     check(
       'Bausperre liest denselben Wert wie die App',
-      guard.builtInServerIsNull(source) === (BUILT_IN_SERVER === null),
-      { quelltextNull: guard.builtInServerIsNull(source), laufzeit: BUILT_IN_SERVER },
+      probe.status === 0 && textNull === String(BUILT_IN_SERVER === null),
+      { quelltextNull: textNull, laufzeit: BUILT_IN_SERVER, stderr: probe.stderr },
     );
   }
   if (BUILT_IN_SERVER) {
