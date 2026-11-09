@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { BUILT_IN_SERVER, VARIANT_IDS, backendLabel, type BuiltInServer } from '@ohrganize/shared';
+import { BUILT_IN_SERVER, VARIANTS, backendLabel, type BuiltInServer } from '@ohrganize/shared';
 import { readDesktopConfig, type DesktopConfig } from '../desktopConfig';
 import { PIN_PATTERN } from '../serverPinning';
 import { StartupError } from '../startupError';
@@ -113,8 +113,31 @@ try {
   r = run({ file: { apiBaseUrl: '   ' }, builtIn: null });
   check('leere Adresse ohne eingebauten Server: eingebettetes Backend', r.config?.apiBaseUrl === null, r.config);
 
+  // UTF-8-BOM (Windows PowerShell 5.1, Editor). Das Zeichen per Code, nicht
+  // im Quelltext: unsichtbar ginge es beim Bearbeiten unbemerkt verloren.
+  r = run({ file: `${String.fromCharCode(0xfeff)}${JSON.stringify({ apiBaseUrl: 'https://bom.ohrganize.com' })}`, builtIn: BUILT });
+  check(
+    'config.json mit BOM wird gelesen',
+    r.config?.apiBaseUrl === 'https://bom.ohrganize.com' && r.config.apiBaseSource === 'file' && r.config.skippedConfigNotice === null,
+    r.error ? String(r.error) : r.config,
+  );
+
+  r = run({ file: { apiBaseUrl: 42 }, builtIn: null });
+  check('Adresse keine Zeichenkette als einzige Quelle: Abbruch', r.error instanceof StartupError, String(r.error));
+
   r = run({ file: { apiBaseUrl: 42 }, builtIn: BUILT });
-  check('Adresse keine Zeichenkette: Abbruch', r.error instanceof StartupError, String(r.error));
+  check(
+    'Adresse keine Zeichenkette mit eingebautem Server: Datei uebersprungen, Hinweis',
+    r.config?.apiBaseSource === 'build' && (r.config.skippedConfigNotice ?? '').includes('Zeichenkette'),
+    r.error ? String(r.error) : r.config,
+  );
+
+  r = run({ env: 'https://variable.ohrganize.com', file: { apiBaseUrl: 42 }, builtIn: null });
+  check(
+    'Adresse keine Zeichenkette mit Variable: Variable, Warnung, kein Hinweis',
+    r.config?.apiBaseSource === 'env' && r.config.skippedConfigNotice === null && r.warned.length > 0,
+    r.error ? String(r.error) : r.config,
+  );
 
   // --- Pins ------------------------------------------------------------------
   r = run({ file: { serverKeyPins: [PIN_B] }, builtIn: BUILT });
@@ -133,6 +156,32 @@ try {
 
   r = run({ builtIn: { url: BUILT.url, pins: [] } });
   check('eingebauter Server ohne Pins: Trust on first use', r.config?.apiBaseSource === 'build' && r.config.serverKeyPins === null, r.config);
+
+  r = run({ file: { apiBaseUrl: 'https://datei.ohrganize.com', serverKeyPins: ['kaputt'] }, builtIn: null });
+  check('ungueltige Pins in der Datei als einzige Quelle: Abbruch', r.error instanceof StartupError, String(r.error));
+
+  r = run({ file: { apiBaseUrl: 'https://datei.ohrganize.com', serverKeyPins: ['kaputt'] }, builtIn: BUILT });
+  check(
+    'ungueltige Pins in der Datei mit eingebautem Server: ganze Datei uebersprungen, eingebaute Pins',
+    r.config?.apiBaseSource === 'build' &&
+      r.config.serverKeyPins?.from === 'build' &&
+      (r.config.skippedConfigNotice ?? '').includes('serverKeyPins'),
+    r.error ? String(r.error) : r.config,
+  );
+
+  r = run({ envPins: PIN_C, file: { serverKeyPins: ['kaputt'] }, builtIn: null });
+  check(
+    'Variable gibt die Pins vor: serverKeyPins der Datei ungeprueft',
+    r.config?.serverKeyPins?.from === 'env' && r.config.serverKeyPins.pins.join() === PIN_C,
+    r.error ? String(r.error) : r.config,
+  );
+
+  r = run({ envPins: 'kaputt', file: '{ kaputt', builtIn: BUILT });
+  check(
+    'ungueltige Variable bricht ab, auch neben einer uebersprungenen Datei',
+    r.error instanceof StartupError && r.error.message.includes('OHRGANIZE_SERVER_KEY_PINS'),
+    String(r.error),
+  );
 
   // --- Defekte config.json -----------------------------------------------------
   r = run({ file: '{ kaputt', builtIn: null });
@@ -159,6 +208,33 @@ try {
   r = run({ file: { apiBaseUrl: 'https://datei.ohrganize.com' }, builtIn: BUILT });
   check('intakte Datei: kein Hinweis', r.config?.skippedConfigNotice === null, r.config);
 
+  // Nicht lesbar (hier: ein Verzeichnis an der Stelle der Datei, EISDIR);
+  // gesperrte Dateien unter Windows enden im selben Zweig.
+  fs.rmSync(cfg, { force: true });
+  fs.mkdirSync(cfg);
+  try {
+    let unreadable: DesktopConfig | undefined;
+    try {
+      unreadable = readDesktopConfig(cfg, BUILT);
+    } catch (error) {
+      check('unlesbare Datei mit eingebautem Server: kein Abbruch', false, String(error));
+    }
+    check(
+      'unlesbare Datei mit eingebautem Server: Hinweis mit Grund',
+      unreadable?.apiBaseSource === 'build' && (unreadable.skippedConfigNotice ?? '').includes('nicht gelesen'),
+      unreadable,
+    );
+    let error: unknown;
+    try {
+      readDesktopConfig(cfg, null);
+    } catch (err) {
+      error = err;
+    }
+    check('unlesbare Datei als einzige Quelle: Abbruch', error instanceof StartupError, String(error));
+  } finally {
+    fs.rmSync(cfg, { recursive: true, force: true });
+  }
+
   // --- Zeile der Anmeldeseite --------------------------------------------------
   check('Anmeldeseite: eingebettetes Backend', backendLabel('http://127.0.0.1:51234', true) === 'Daten auf diesem Rechner (Einzelplatz)');
   check(
@@ -177,15 +253,19 @@ try {
   );
 
   // --- Eingebauter Server dieses Builds ----------------------------------------
-  // Das Hauptprodukt (Register mit der Vollversion, Branch main) verbindet
-  // sich nie von selbst mit einem Kundenserver; das setzt nur eine
-  // Kundenausgabe auf ihrem Branch. Beides getrennt geprueft: Ein
-  // versehentlicher Merge eines Kundenbranches nach main braechte dessen
-  // Register mit. Dieselbe Sperre, dazu Builds von einem Tag aus der
-  // Geschichte von main, steht im Desktop-Build (scripts/builtInServerGuard.mjs).
+  // Das Hauptprodukt verbindet sich nie von selbst mit einem Kundenserver; das
+  // setzt nur eine Kundenausgabe auf ihrem Branch. Kundenausgabe heisst: Die
+  // Version traegt die Edition jeder Variante im Register als Kennung
+  // (<x.y.z>-<edition>). Dazu getrennt der Branch: Ein versehentlicher Merge
+  // eines Kundenbranches nach main braechte Register und Version mit.
+  // Dieselbe Regel, dazu Builds aus der Geschichte von main, steht im
+  // Desktop-Build (scripts/builtInServerGuard.mjs).
   const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' });
   const onMain = branch.status === 0 && branch.stdout.trim() === 'main';
-  if (VARIANT_IDS.includes('de-vollversion') || onMain) {
+  const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8')) as { version: string };
+  const tag = /^\d+\.\d+\.\d+-([a-z][a-z0-9]*)$/.exec(version)?.[1] ?? null;
+  const customerBuild = tag !== null && VARIANTS.every((v) => v.edition === tag);
+  if (!customerBuild || onMain) {
     check('Hauptprodukt ohne eingebauten Server', BUILT_IN_SERVER === null, BUILT_IN_SERVER);
   }
   if (BUILT_IN_SERVER) {

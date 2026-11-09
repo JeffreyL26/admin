@@ -126,22 +126,25 @@ function validatePins(entries: unknown[], where: string): string[] {
 }
 
 /**
- * Konfigurierte Pins: Umgebungsvariable schlägt config.json. null heißt
- * „nichts konfiguriert“ — dann greift Trust on first use. `from` hält fest,
- * welche Quelle gewonnen hat (siehe ConfiguredPinSource).
+ * Pins aus der Umgebungsvariable OHRGANIZE_SERVER_KEY_PINS; null, wenn sie
+ * fehlt oder leer ist. Getrennt von readFilePins, damit desktopConfig.ts einen
+ * Fehler der Variable nie als Fehler der config.json behandelt (die darf
+ * übersprungen werden, die Variable nicht). Reihenfolge der Quellen:
+ * desktopConfig.ts.
  */
-export function readConfiguredPins(configValue: unknown, configPath: string): ConfiguredPins | null {
+export function readEnvPins(): ConfiguredPins | null {
   const fromEnv = process.env.OHRGANIZE_SERVER_KEY_PINS?.trim();
-  if (fromEnv) {
-    const entries = fromEnv
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-    if (entries.length > 0) {
-      return { pins: validatePins(entries, 'Umgebungsvariable OHRGANIZE_SERVER_KEY_PINS'), from: 'env' };
-    }
-  }
+  if (!fromEnv) return null;
+  const entries = fromEnv
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (entries.length === 0) return null;
+  return { pins: validatePins(entries, 'Umgebungsvariable OHRGANIZE_SERVER_KEY_PINS'), from: 'env' };
+}
 
+/** Pins aus "serverKeyPins" in config.json; null, wenn nichts eingetragen ist. */
+export function readFilePins(configValue: unknown, configPath: string): ConfiguredPins | null {
   if (configValue == null) return null;
   if (!Array.isArray(configValue)) {
     throw new StartupError(
@@ -274,8 +277,9 @@ export function pinMismatchMessage(policy: PinPolicy, observed: string): string 
         ? `in der Umgebungsvariable OHRGANIZE_SERVER_KEY_PINS oder unter "serverKeyPins" in\n` +
           `${policy.configPath}\neingetragen werden. Beide gehen dem in die App eingebauten Schlüssel vor.`
         : `unter "serverKeyPins" in\n${policy.configPath}\neingetragen werden.`;
+  const expectedFrom = policy.configSource === 'build' ? 'in die App eingebaut' : 'in der Konfiguration hinterlegt';
   return (
-    `Der Server ${policy.origin} weist sich mit einem anderen Schlüssel aus als in der Konfiguration hinterlegt ` +
+    `Der Server ${policy.origin} weist sich mit einem anderen Schlüssel aus als ${expectedFrom} ` +
     `(erwartet: ${policy.pins.join(', ')}, jetzt: ${observed}).\n\n` +
     `${assessment}\n\n` +
     `Wenn der Wechsel beabsichtigt war, muss der neue Schlüssel ${where}`

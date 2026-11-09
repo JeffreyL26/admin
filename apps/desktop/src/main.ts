@@ -679,10 +679,10 @@ function registerIpc(): void {
  * Einmaliger, nicht blockierender Hinweis nach dem ersten Kontakt: Die App
  * hat sich den Serverschlüssel gemerkt — oder konnte ihn nicht ablegen, dann
  * wird daraus eine Warnung. Am Fenster verankert, damit er nicht hinter dem
- * Hauptfenster verschwindet; nicht awaited, damit der Start nicht am Klick
- * hängt.
+ * Hauptfenster verschwindet; der Start wartet nicht auf den Klick
+ * (showStartNotices).
  */
-function showPinLearnedNotice(): void {
+async function showPinLearnedNotice(): Promise<void> {
   if (!pinPolicy || !observedServerPin) return;
   let options: Electron.MessageBoxOptions;
   if (pinPersistError) {
@@ -711,7 +711,7 @@ function showPinLearnedNotice(): void {
   } else {
     return;
   }
-  void (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options));
+  await (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options));
 }
 
 /**
@@ -720,7 +720,7 @@ function showPinLearnedNotice(): void {
  * Hinweis zum Serverschlüssel: Die App arbeitet weiter, aber nicht unbemerkt.
  * Scheitert der Start, steht derselbe Text in der Fehlermeldung.
  */
-function showConfigSkippedNotice(): void {
+async function showConfigSkippedNotice(): Promise<void> {
   if (!configSkippedNotice) return;
   const options: Electron.MessageBoxOptions = {
     type: 'warning',
@@ -732,7 +732,17 @@ function showConfigSkippedNotice(): void {
     buttons: ['OK'],
   };
   configSkippedNotice = null;
-  void (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options));
+  await (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options));
+}
+
+/**
+ * Hinweise nach dem Start nacheinander: Zwei Meldungsfenster zugleich am
+ * selben Fenster verdeckten sich gegenseitig. Der Aufrufer wartet nicht
+ * darauf, damit der Start nicht am Klick hängt.
+ */
+async function showStartNotices(): Promise<void> {
+  await showPinLearnedNotice();
+  await showConfigSkippedNotice();
 }
 
 // Nur eine Instanz der App zulassen (zweiter Start fokussiert das Fenster).
@@ -748,6 +758,9 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    // Ob die Verbindung zum Server steht; danach gehört ein Startfehler nicht
+    // mehr zu einer übersprungenen config.json (Zusatz im catch).
+    let serverReady = false;
     try {
       registerIpc();
       // Im Dev-Betrieb liefert der Vite-Server den Renderer aus; das
@@ -761,10 +774,10 @@ if (!gotLock) {
       // Chromiums Standardprüfung unverändert.
       session.defaultSession.setCertificateVerifyProc(createCertificateVerifyProc(() => pinPolicy));
       const apiBaseUrl = await startBackend();
+      serverReady = true;
       ipcMain.handle('ohrganize:apiBaseUrl', () => apiBaseUrl);
       await createWindow(apiBaseUrl);
-      showPinLearnedNotice();
-      showConfigSkippedNotice();
+      void showStartNotices().catch((err) => console.warn('[oHRganize] Hinweis nicht angezeigt:', err));
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) void createWindow(apiBaseUrl);
@@ -773,10 +786,12 @@ if (!gotLock) {
       const reason =
         err instanceof StartupError ? err.message : err instanceof Error ? (err.stack ?? err.message) : String(err);
       // Wurde config.json zugunsten des eingebauten Servers übersprungen und
-      // scheitert dann der Start (Server nicht erreichbar, anderer Schlüssel),
-      // ist die Datei oft die eigentliche Ursache: Sie sollte auf einen
-      // anderen Server zeigen. Ohne diesen Zusatz stünde nur der Folgefehler da.
-      const skipped = configSkippedNotice ? `\n\nAußerdem: ${configSkippedNotice}` : '';
+      // scheitert dann die Verbindung (Server nicht erreichbar, anderer
+      // Schlüssel), ist die Datei oft die eigentliche Ursache: Sie sollte auf
+      // einen anderen Server zeigen. Ohne diesen Zusatz stünde nur der
+      // Folgefehler da. Nur solange der Server nicht steht (serverReady): Ein
+      // späterer Fehler (Fenster, Renderer) hat mit der Datei nichts zu tun.
+      const skipped = configSkippedNotice && !serverReady ? `\n\nAußerdem: ${configSkippedNotice}` : '';
       dialog.showErrorBox('oHRganize konnte nicht gestartet werden', reason + skipped);
       app.quit();
     }
