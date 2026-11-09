@@ -2,8 +2,9 @@
  * Prueft, woher die Desktop-App ihren Server nimmt (desktopConfig.ts):
  * Reihenfolge Umgebungsvariable, config.json, eingebauter Server, sonst das
  * eingebettete Backend; dieselbe Reihenfolge fuer die Pins, die eingebauten
- * nur fuer die Herkunft des eingebauten Servers; eine defekte config.json
- * bricht nur ab, wenn sie die einzige Quelle der Adresse waere. Dazu die
+ * nur fuer die Herkunft des eingebauten Servers; eine nicht verwendbare
+ * config.json wird nur zugunsten des eingebauten Servers uebersprungen und
+ * bricht sonst ab. Dazu die
  * Zeile der Anmeldeseite (backendLabel) und dass ein eingebauter Server
  * brauchbar ist (ob er stehen darf: scripts/builtInServerGuardTest.mjs).
  *
@@ -149,10 +150,15 @@ try {
     r.error ? String(r.error) : r.config,
   );
 
-  r = run({ env: 'https://variable.ohrganize.com', file: { apiBaseUrl: 42 }, builtIn: null });
+  // Gibt die Variable die Adresse vor, ist die der Datei unbenutzt und wird
+  // nicht geprueft: Eine alte Adresse darf die Pins der Datei nicht kosten.
+  r = run({ env: 'https://variable.ohrganize.com', file: { apiBaseUrl: 'http://alt.firma.local', serverKeyPins: [PIN_B] }, builtIn: null });
   check(
-    'Adresse keine Zeichenkette mit Variable: Variable, sichtbarer Hinweis',
-    r.config?.apiBaseSource === 'env' && (r.config.skippedConfigNotice ?? '').includes('OHRGANIZE_API_BASE'),
+    'unbenutzte Adresse der Datei mit Variable: ungeprueft, Pins der Datei gelten',
+    r.config?.apiBaseSource === 'env' &&
+      r.config.serverKeyPins?.from === 'file' &&
+      r.config.serverKeyPins.pins.join() === PIN_B &&
+      r.config.skippedConfigNotice === null,
     r.error ? String(r.error) : r.config,
   );
 
@@ -160,8 +166,10 @@ try {
   // befuellt (haeufigster Tippfehler: ohne https://).
   r = run({ file: { apiBaseUrl: 'dronivo.ohrganize.com' }, builtIn: BUILT });
   check(
-    'Adresse ohne https:// mit eingebautem Server: Datei uebersprungen, Hinweis',
-    r.config?.apiBaseSource === 'build' && (r.config.skippedConfigNotice ?? '').includes('dronivo.ohrganize.com'),
+    'Adresse ohne https:// mit eingebautem Server: Datei uebersprungen, Hinweis nennt Adresse und Datei',
+    r.config?.apiBaseSource === 'build' &&
+      (r.config.skippedConfigNotice ?? '').includes('dronivo.ohrganize.com') &&
+      (r.config.skippedConfigNotice ?? '').includes(cfg),
     r.error ? String(r.error) : r.config,
   );
 
@@ -244,24 +252,22 @@ try {
     { config: r.config, warned: r.warned },
   );
 
+  // Mit Variable wird nie uebersprungen, auch nicht mit eingebautem Server:
+  // Die App verbaende sich sonst ohne die Pins der Datei.
   r = run({ env: 'https://variable.ohrganize.com', file: '[1, 2]', builtIn: BUILT });
+  check('defekte Datei mit Variable: Abbruch', r.error instanceof StartupError, String(r.error));
+
+  r = run({ env: 'https://variable.ohrganize.com', file: { serverKeyPins: ['kaputt'] }, builtIn: BUILT });
   check(
-    'defekte Datei mit Variable: Variable, Warnung und sichtbarer Hinweis',
-    r.config?.apiBaseSource === 'env' &&
-      r.warned.some((w) => w.includes('OHRGANIZE_API_BASE')) &&
-      (r.config.skippedConfigNotice ?? '').includes('OHRGANIZE_API_BASE'),
-    { config: r.config, warned: r.warned },
+    'ungueltige Pins der Datei mit Variable: Abbruch statt Verbindung ohne Pins',
+    r.error instanceof StartupError && r.error.message.includes('serverKeyPins'),
+    String(r.error),
   );
 
-  // Vorher brach ein Tippfehler in den Pins hier ab; jetzt laeuft die App mit
-  // der Variable weiter, aber nicht still: Der Hinweis sagt, dass die
-  // Schluessel aus der Datei nicht gelten.
-  r = run({ env: 'https://variable.ohrganize.com', file: { serverKeyPins: ['kaputt'] }, builtIn: null });
+  r = run({ env: 'https://variable.ohrganize.com', envPins: PIN_C, file: '{ kaputt', builtIn: null });
   check(
-    'ungueltige Pins der Datei mit Variable: sichtbarer Hinweis, keine Pins',
-    r.config?.apiBaseSource === 'env' &&
-      r.config.serverKeyPins === null &&
-      (r.config.skippedConfigNotice ?? '').includes('Serverschlüssel aus der Datei gelten deshalb nicht'),
+    'beide Variablen gesetzt: config.json wird nicht gelesen',
+    r.config?.apiBaseSource === 'env' && r.config.serverKeyPins?.from === 'env' && r.config.skippedConfigNotice === null,
     r.error ? String(r.error) : r.config,
   );
 
@@ -300,7 +306,19 @@ try {
   // --- Eingebauter Server dieses Builds ----------------------------------------
   // Ob er hier ueberhaupt stehen darf (nur Kundenausgabe auf ihrem Branch),
   // prueft scripts/builtInServerGuardTest.mjs mit derselben Regel wie der
-  // Desktop-Build; hier nur, dass ein gesetzter Server brauchbar ist.
+  // Desktop-Build. Die Sperre liest dafuer den Quelltext von
+  // builtInServer.ts; hier, dass er zum Wert passt, den die App tatsaechlich
+  // bekommt (sonst kaeme ein anderswo gesetzter Server an ihr vorbei).
+  {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const guard = require('../../scripts/builtInServerGuard.mjs') as { builtInServerIsNull: (source: string) => boolean };
+    const source = fs.readFileSync(path.join(__dirname, '../../../../packages/shared/src/builtInServer.ts'), 'utf8');
+    check(
+      'Bausperre liest denselben Wert wie die App',
+      guard.builtInServerIsNull(source) === (BUILT_IN_SERVER === null),
+      { quelltextNull: guard.builtInServerIsNull(source), laufzeit: BUILT_IN_SERVER },
+    );
+  }
   if (BUILT_IN_SERVER) {
     check('eingebauter Server ueber https', BUILT_IN_SERVER.url.startsWith('https://'), BUILT_IN_SERVER.url);
     check(

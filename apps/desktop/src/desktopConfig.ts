@@ -28,10 +28,9 @@ export interface DesktopConfig {
   serverKeyPins: ConfiguredPins | null;
   /**
    * Gesetzt, wenn eine nicht verwendbare config.json (unlesbar, defekt oder falsch befuellt)
-   * zugunsten des eingebauten Servers oder der Umgebungsvariable
-   * OHRGANIZE_API_BASE übersprungen wurde: Text für einen
-   * sichtbaren Hinweis und für die Fehlermeldung eines gescheiterten Starts
-   * (main.ts). Sonst
+   * zugunsten des eingebauten Servers übersprungen wurde: Text für einen
+   * sichtbaren Hinweis und für die Fehlermeldung, falls danach die
+   * Verbindungsprüfung scheitert (main.ts). Sonst
    * verbände sich die App unbemerkt mit dem eingebauten Server, auch wenn die
    * Datei auf einen neuen Server zeigen sollte.
    */
@@ -52,10 +51,13 @@ interface FileConfig {
  * (Adresse keine Zeichenkette, ungueltige Pins) ist ebenso unbrauchbar wie
  * kaputt; readDesktopConfig behandelt beides gleich.
  *
- * `withPins` false: Die Umgebungsvariable gibt die Pins vor, "serverKeyPins"
- * der Datei bleibt ungeprueft wie unberuecksichtigt.
+ * Geprueft wird nur, was die Datei beitraegt: `use.address` false heisst,
+ * OHRGANIZE_API_BASE gibt die Adresse vor, `use.pins` false, die
+ * Umgebungsvariable gibt die Pins vor; der jeweilige Eintrag der Datei bleibt
+ * dann ungeprueft wie unberuecksichtigt (eine alte, unbenutzte Adresse macht
+ * die Datei nicht unbrauchbar).
  */
-function readConfigFile(cfgPath: string, withPins: boolean): FileConfig {
+function readConfigFile(cfgPath: string, use: { address: boolean; pins: boolean }): FileConfig {
   let text: string;
   try {
     text = fs.readFileSync(cfgPath, 'utf8');
@@ -77,16 +79,29 @@ function readConfigFile(cfgPath: string, withPins: boolean): FileConfig {
     throw new StartupError(`Die Konfigurationsdatei ${cfgPath} muss ein JSON-Objekt enthalten.`);
   }
   const { apiBaseUrl, serverKeyPins } = raw as { apiBaseUrl?: unknown; serverKeyPins?: unknown };
-  if (apiBaseUrl != null && typeof apiBaseUrl !== 'string') {
+  return {
+    apiBaseUrl: use.address ? readFileAddress(apiBaseUrl, cfgPath) : null,
+    serverKeyPins: use.pins ? readFilePins(serverKeyPins, cfgPath) : null,
+  };
+}
+
+/**
+ * "apiBaseUrl" der Datei. Eine Adresse, die keine ist (etwa ohne https://),
+ * ist falsch befuellt wie eine Zahl an dieser Stelle; die Meldung nennt die
+ * Datei, damit die IT weiss, wo die Adresse steht.
+ */
+function readFileAddress(value: unknown, cfgPath: string): string | null {
+  if (value != null && typeof value !== 'string') {
     throw new StartupError(`"apiBaseUrl" in ${cfgPath} muss eine Zeichenkette sein.`);
   }
-  const address = apiBaseUrl?.trim();
-  return {
-    // Eine Adresse, die keine ist (etwa ohne https://), ist falsch befuellt wie
-    // eine Zahl an dieser Stelle; normalizeApiBase wirft dafuer StartupError.
-    apiBaseUrl: address ? normalizeApiBase(address, cfgPath) : null,
-    serverKeyPins: withPins ? readFilePins(serverKeyPins, cfgPath) : null,
-  };
+  const address = value?.trim();
+  if (!address) return null;
+  try {
+    return normalizeApiBase(address, cfgPath);
+  } catch (err) {
+    if (err instanceof StartupError) throw new StartupError(`"apiBaseUrl" in ${cfgPath}: ${err.message}`);
+    throw err;
+  }
 }
 
 /**
@@ -112,7 +127,6 @@ function isLoopbackHost(hostname: string): boolean {
  * readDesktopConfig eine falsche Adresse in config.json wie jeden anderen
  * Fehler der Datei behandeln kann (Rueckfall auf den eingebauten Server).
  */
-// Trailing Slash entfernen: der Renderer hängt Pfade wie "/api/…" direkt an.
 export function normalizeApiBase(raw: string, cfgPath: string): string {
   let url: URL;
   try {
@@ -153,21 +167,20 @@ function sameOrigin(a: string, b: string): boolean {
 }
 
 /**
- * config.json wird genau EINMAL gelesen: Auch wenn OHRGANIZE_API_BASE die
- * Adresse vorgibt, koennen die Pins in der Datei stehen.
+ * config.json wird hoechstens EINMAL gelesen: Auch wenn OHRGANIZE_API_BASE die
+ * Adresse vorgibt, koennen die Pins in der Datei stehen. Geben beide
+ * Umgebungsvariablen alles vor, traegt die Datei nichts bei und wird nicht
+ * gelesen.
  *
- * Eine nicht verwendbare Datei (unlesbar, kein JSON, falsch befuellt) ist nur
- * dann toedlich, wenn sie die einzige Quelle der Adresse waere: Sie still zu
- * uebergehen hiesse, den Arbeitsplatz unbemerkt mit eingebettetem Backend und
- * leerer Datenbank zu starten. Gibt OHRGANIZE_API_BASE die Adresse vor oder
- * gibt es einen eingebauten Server, droht das nicht; dann Warnung statt
- * Abbruch, und Pins kommen aus der Variable, vom eingebauten Server oder per
- * Trust on first use. Das Ueberspringen ist immer sichtbar (skippedConfigNotice):
- * Mit eingebautem Server koennte die Datei auf einen anderen Server zeigen,
- * mit Variable gelten Schluessel aus der Datei nicht, und die App lernt den
- * Schluessel neu. Die Umgebungsvariablen werden VOR der Datei gelesen und
- * brechen immer ab: Nach dem Ueberspringen der Datei wirft nichts mehr, ein
- * Hinweis darauf ginge sonst mit dem Fehler verloren.
+ * Eine nicht verwendbare Datei (unlesbar, kein JSON, falsch befuellt) wird nur
+ * zugunsten des eingebauten Servers uebersprungen, und das sichtbar
+ * (skippedConfigNotice): Die Datei koennte auf einen anderen Server zeigen.
+ * Sonst bricht sie den Start ab. Ohne eingebauten Server hiesse Ueberspringen,
+ * den Arbeitsplatz unbemerkt mit eingebettetem Backend und leerer Datenbank zu
+ * starten; gibt OHRGANIZE_API_BASE die Adresse vor, braechte es eine
+ * Verbindung ohne die in der Datei hinterlegten Serverschluessel (die App
+ * lernte den Schluessel des Servers dann neu). Die Umgebungsvariablen werden
+ * VOR der Datei gelesen und brechen bei Fehlern immer ab.
  */
 export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null): DesktopConfig {
   const envBase = process.env.OHRGANIZE_API_BASE?.trim();
@@ -175,33 +188,27 @@ export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null
   const envPins = readEnvPins();
   let file: FileConfig = { apiBaseUrl: null, serverKeyPins: null };
   let skippedConfigNotice: string | null = null;
-  if (fs.existsSync(cfgPath)) {
+  if (!(fromEnv && envPins) && fs.existsSync(cfgPath)) {
     try {
-      file = readConfigFile(cfgPath, !envPins);
+      file = readConfigFile(cfgPath, { address: !fromEnv, pins: !envPins });
     } catch (err) {
-      if (!(err instanceof StartupError) || (!fromEnv && !builtIn)) throw err;
-      const instead = fromEnv
-        ? 'weil OHRGANIZE_API_BASE die Adresse vorgibt'
-        : `zugunsten des eingebauten Servers ${builtIn?.url}`;
+      if (!(err instanceof StartupError) || fromEnv || !builtIn) throw err;
       console.warn(
-        `[oHRganize] ${err.message} Die Datei wird übersprungen, ${instead}; ` +
+        `[oHRganize] ${err.message} Die Datei wird übersprungen zugunsten des eingebauten Servers ${builtIn.url}; ` +
           `dort hinterlegte serverKeyPins bleiben unberücksichtigt.`,
       );
-      // Sichtbar in beiden Faellen: Mit Variable bleiben in der Datei
-      // hinterlegte Serverschluessel unwirksam (vorher brach ein Tippfehler
-      // dort den Start ab), das soll niemand nur im Konsolenlog erfahren.
-      skippedConfigNotice = fromEnv
-        ? `${err.message}\n\nDie App nimmt die Adresse aus der Umgebungsvariable OHRGANIZE_API_BASE (${fromEnv}); ` +
-          `Serverschlüssel aus der Datei gelten deshalb nicht. Bitte die IT verständigen.`
-        : `${err.message}\n\nDie App hat deshalb den eingebauten Server ${builtIn?.url} genommen. ` +
-          `Sollte die Datei auf einen anderen Server zeigen, bitte die IT verständigen.`;
+      skippedConfigNotice =
+        `${err.message}\n\nDie App hat deshalb den eingebauten Server ${builtIn.url} genommen. ` +
+        `Sollte die Datei auf einen anderen Server zeigen, bitte die IT verständigen.`;
     }
   }
 
   let apiBaseUrl: string | null = fromEnv ?? file.apiBaseUrl;
   let apiBaseSource: ApiBaseSource | null = fromEnv ? 'env' : file.apiBaseUrl ? 'file' : null;
   if (!apiBaseUrl && builtIn) {
-    apiBaseUrl = normalizeApiBase(builtIn.url, cfgPath);
+    // Eingebaut, nicht konfiguriert: gueltig (https) prueft desktopConfigTest;
+    // nur der Schraegstrich am Ende faellt weg wie bei den anderen Quellen.
+    apiBaseUrl = builtIn.url.replace(/\/+$/, '');
     apiBaseSource = 'build';
   }
 

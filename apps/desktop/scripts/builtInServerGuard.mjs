@@ -105,18 +105,21 @@ export function headOnMainHistory(repo) {
 /**
  * Sammelt die Merkmale im Repository `repo` und liefert builtInServerProblem.
  * `variant` ist der Registereintrag (variantById), `version` die Version der
- * Desktop-App.
+ * Desktop-App. `requireHistory` false laesst eine nicht pruefbare Herkunft
+ * durchgehen (nur fuer npm test in einem Klon ohne main; Build und Release
+ * lassen die Vorgabe true).
  */
-export function checkBuiltInServer(repo, variant, version) {
+export function checkBuiltInServer(repo, variant, version, { requireHistory = true } = {}) {
   const source = fs.readFileSync(path.join(repo, 'packages/shared/src/builtInServer.ts'), 'utf8');
   if (builtInServerIsNull(source)) return null;
   const branch = git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const history = headOnMainHistory(repo);
   return builtInServerProblem({
     source,
     variantId: variant.id,
     edition: variant.edition,
     version,
     branchName: branch.status === 0 ? branch.out : null,
-    onMainHistory: headOnMainHistory(repo),
+    onMainHistory: history === null && !requireHistory ? false : history,
   });
 }
