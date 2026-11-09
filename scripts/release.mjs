@@ -82,6 +82,19 @@ const version = (argValue('--version') ?? rootPkg.version).trim();
 const channel = channelOf(version);
 const bumpVersion = version !== rootPkg.version;
 
+// Kategorie-Issues des Release-Commits (CLAUDE.md, Konventionen: jeder
+// Commit nennt sie am Ende der Betreffzeile), z. B. --issues "#9" oder
+// --issues "#1 #2". Pflicht, sobald das Skript einen Commit schreibt; geprueft
+// gleich hier, vor allen Pruefungen, die Zeit kosten.
+const issues = (argValue('--issues') ?? '').trim().replace(/\s+/g, ' ');
+if (bumpVersion && !argv.includes('--no-commit') && !/^#\d+( #\d+)*$/.test(issues)) {
+  fail(
+    `Der Release-Commit braucht seine Kategorie-Issues (--issues, z. B. --issues "#9"; ${issues ? `"${issues}" passt nicht` : 'fehlt'}). ` +
+      'Kategorien: #1 Neue Features, #2 Bugfixes, #3 Performance-Fixes, #4 Design-Aenderungen, #5 Feature-Upgrades, ' +
+      '#6 Feature-Downgrades, #7 Architektur, #8 Lizenzen, #9 Kundenverwaltung, #10 Test, #11 Textaenderungen.',
+  );
+}
+
 const registry = readJson(path.join(root, 'packages/shared/src/variants/registry.json'));
 const requested = (argValue('--variants') ?? '')
   .split(',')
@@ -97,11 +110,6 @@ const withDesktop = !argv.includes('--no-desktop');
 const doCommit = !argv.includes('--no-commit');
 const doTag = !argv.includes('--no-tag');
 const signKey = argValue('--sign-key') ?? process.env.OHRGANIZE_RELEASE_KEY ?? null;
-// Kategorie-Issues des Release-Commits (CLAUDE.md, Konventionen: jeder
-// Commit nennt sie am Ende der Betreffzeile), z. B. --issues "#9" oder
-// --issues "#1 #2". Pflicht, sobald das Skript einen Commit schreibt.
-const issues = (argValue('--issues') ?? '').trim().replace(/\s+/g, ' ');
-const ISSUES_PATTERN = /^#\d+( #\d+)*$/;
 
 // ---------------------------------------------------------------------------
 // Prozesse
@@ -183,14 +191,6 @@ step(`Release ${version} (Kanal ${channel}), Varianten: ${variantIds.join(', ')}
 
 if (git(['status', '--porcelain'])) {
   fail('Der Arbeitsbaum ist nicht sauber. Bitte alles committen oder wegraeumen.');
-}
-
-if (bumpVersion && doCommit && !ISSUES_PATTERN.test(issues)) {
-  fail(
-    `Der Release-Commit braucht seine Kategorie-Issues (--issues, z. B. --issues "#9"; ${issues ? `"${issues}" passt nicht` : 'fehlt'}). ` +
-      'Kategorien: #1 Neue Features, #2 Bugfixes, #3 Performance-Fixes, #4 Design-Aenderungen, #5 Feature-Upgrades, ' +
-      '#6 Feature-Downgrades, #7 Architektur, #8 Lizenzen, #9 Kundenverwaltung, #10 Test, #11 Textaenderungen.',
-  );
 }
 
 const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');

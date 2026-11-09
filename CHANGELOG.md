@@ -25,9 +25,13 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   (`npm test -w apps/desktop`, Teil von `npm test`). Neu ist ein
   eingebauter Server als dritte Quelle (`BUILT_IN_SERVER` in
   `packages/shared/src/builtInServer.ts`); im Hauptprodukt ist er leer, der
-  Test stellt das sicher. Eine Kundenausgabe, die nur mit ihrem Server
-  arbeitet, setzt ihn; dann startet das eingebettete Backend dort nie, und
-  eine defekte config.json fuehrt zum eingebauten Server statt zum Abbruch.
+  Test und der Desktop-Build (Vollversion oder Branch main: Abbruch) stellen
+  das sicher. Eine Kundenausgabe, die nur mit ihrem Server arbeitet, setzt
+  ihn; dann startet das eingebettete Backend dort nie, und eine defekte
+  config.json fuehrt zum eingebauten Server statt zum Abbruch, mit einem
+  sichtbaren Hinweis beim Start. Ob die App mit Daten auf dem Rechner
+  arbeitet, meldet der Main-Prozess der Anmeldeseite ausdruecklich; ein
+  Testserver auf 127.0.0.1 heisst dort "Verbunden mit 127.0.0.1:3001".
 - **Geaendert:** `npm run release` verlangt `--issues` mit den
   Kategorie-Issues des Release-Commits (`--issues "#1"`), wie jeder andere
   Commit sie nennt.

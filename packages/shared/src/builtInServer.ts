@@ -22,25 +22,19 @@ export interface BuiltInServer {
 
 export const BUILT_IN_SERVER: BuiltInServer | null = null;
 
-/** Hosts, die den eigenen Rechner meinen (eingebettetes Backend, lokale Tests). */
-function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  return host === 'localhost' || host === '::1' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
-}
-
 /**
  * Zeile fuer die Anmeldeseite der Desktop-App: mit welchem Backend die App
  * spricht. So sieht man vor der Anmeldung, ob sie am Server haengt oder mit
  * einer Datenbank auf diesem Rechner arbeitet (dort gelten die Konten des
- * Servers nicht).
+ * Servers nicht). `embedded` meldet der Main-Prozess (Preload
+ * `embeddedBackend`): Die Adresse allein verriete es nicht, ein Testserver
+ * auf 127.0.0.1 ist kein Einzelplatz.
  */
-export function backendLabel(apiBase: string): string {
-  let url: URL;
+export function backendLabel(apiBase: string, embedded: boolean): string {
+  if (embedded) return 'Daten auf diesem Rechner (Einzelplatz)';
   try {
-    url = new URL(apiBase);
+    return `Verbunden mit ${new URL(apiBase).host}`;
   } catch {
     return `Verbunden mit ${apiBase}`;
   }
-  if (isLoopbackHost(url.hostname)) return 'Daten auf diesem Rechner (Einzelplatz)';
-  return `Verbunden mit ${url.host}`;
 }

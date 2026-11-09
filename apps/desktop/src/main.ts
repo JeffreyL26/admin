@@ -45,6 +45,14 @@ let observedServerPin: string | null = null;
 let pinLearnedNow = false;
 let pinPersistError: string | null = null;
 
+// Betriebsart für Anmeldeseite und Hinweise: `embeddedBackend` heißt Daten auf
+// diesem Rechner (eingebettetes Backend), sonst ein Server; der Renderer
+// bekommt das ausdrücklich, statt es aus der Adresse zu raten (ein Testserver
+// auf 127.0.0.1 ist kein Einzelplatz). `configSkippedNotice` trägt den Hinweis
+// auf eine übersprungene config.json (desktopConfig.ts).
+let embeddedBackend = false;
+let configSkippedNotice: string | null = null;
+
 // ---------------------------------------------------------------------------
 // Eigenes App-Schema statt file://
 // ---------------------------------------------------------------------------
@@ -200,7 +208,6 @@ function configFilePath(): string {
 function pinStorePath(): string {
   return path.join(app.getPath('userData'), PIN_STORE_FILE);
 }
-
 
 /**
  * Adressen, die den eigenen Rechner meinen. Nur für sie bleibt Klartext-HTTP
@@ -437,6 +444,7 @@ async function startBackend(): Promise<string> {
   if (isDev) return 'http://127.0.0.1:3001';
 
   const config = readDesktopConfig(configFilePath(), BUILT_IN_SERVER);
+  configSkippedNotice = config.skippedConfigNotice;
   if (config.apiBaseUrl) {
     const base = normalizeApiBase(config.apiBaseUrl);
     // Pinning nur über https: Lokale http-Testadressen tragen kein TLS.
@@ -526,6 +534,7 @@ async function startBackend(): Promise<string> {
   };
   try {
     const { port } = await startServer(0);
+    embeddedBackend = true;
     return `http://127.0.0.1:${port}`;
   } catch (err) {
     // Mit der Verschlüsselung im Ruhezustand sind Startabbrüche Zustände, die ein
@@ -568,6 +577,7 @@ async function createWindow(apiBaseUrl: string): Promise<void> {
         // Das Preload kann das nicht selbst: Dort ist npm_package_version nur
         // im Dev-Betrieb gesetzt und in der installierten App leer.
         `--ohrganize-app-version=${app.getVersion()}`,
+        `--ohrganize-embedded-backend=${embeddedBackend ? '1' : '0'}`,
       ],
     },
   });
@@ -704,6 +714,24 @@ function showPinLearnedNotice(): void {
   void (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options));
 }
 
+/**
+ * Hinweis, wenn eine defekte config.json zugunsten des eingebauten Servers
+ * übersprungen wurde (desktopConfig.ts). Nicht blockierend wie der Hinweis
+ * zum Serverschlüssel: Die App arbeitet weiter, aber nicht unbemerkt.
+ */
+function showConfigSkippedNotice(): void {
+  if (!configSkippedNotice) return;
+  const options: Electron.MessageBoxOptions = {
+    type: 'warning',
+    title: 'Konfigurationsdatei übersprungen',
+    message: 'Die Konfigurationsdatei dieses Arbeitsplatzes ist beschädigt und wurde übersprungen.',
+    detail: configSkippedNotice,
+    buttons: ['OK'],
+  };
+  configSkippedNotice = null;
+  void (mainWindow ? dialog.showMessageBox(mainWindow, options) : dialog.showMessageBox(options));
+}
+
 // Nur eine Instanz der App zulassen (zweiter Start fokussiert das Fenster).
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -733,6 +761,7 @@ if (!gotLock) {
       ipcMain.handle('ohrganize:apiBaseUrl', () => apiBaseUrl);
       await createWindow(apiBaseUrl);
       showPinLearnedNotice();
+      showConfigSkippedNotice();
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) void createWindow(apiBaseUrl);

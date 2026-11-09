@@ -20,6 +20,8 @@ declare global {
       apiBaseUrl: string;
       platform: string;
       appVersion: string;
+      /** true: eingebettetes Backend, Daten auf diesem Rechner (Einzelplatz). Ältere Preloads: fehlt. */
+      embeddedBackend?: boolean;
       /** Fenster-Controls der eigenen Titelleiste (nur Electron). */
       window?: {
         minimize: () => void;

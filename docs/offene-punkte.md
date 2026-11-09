@@ -208,7 +208,7 @@ testbar. Aufwand: vier Sitzungen plus ein Testtag.
   `updates.ohrganize.com`, KV-Namespace, API-Token (nur dieser Bucket) auf
   dem Release-Rechner; 2FA für das Konto einschalten.
 - Testlauf auf einem eigenen Rechner mit Adminrechten (Sitzung 4).
-- Release `npm run release -- --version 2.0.0-dronivo --publish` auf dem
+- Release `npm run release -- --version 2.0.0-dronivo --issues "#1 #9" --publish` auf dem
   Release-Rechner, Stick befüllen.
 - Nach der Runde bei Dronivo: Eintrag im Abrufprotokoll prüfen.
 

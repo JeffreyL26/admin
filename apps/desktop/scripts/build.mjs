@@ -1,6 +1,7 @@
 // Baut den Desktop-Hauptprozess (esbuild) und sammelt im Prod-Build die
 // Artefakte der anderen Workspaces ein (Renderer-Build, Backend-Bundle).
 import { build } from 'esbuild';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -73,6 +74,36 @@ function assertElectronVersionsMatch() {
   }
   console.log(`Electron ${installiert} — package.json und electron-builder.yml stimmen überein.`);
 }
+
+/**
+ * Eingebauter Server (BUILT_IN_SERVER, packages/shared/src/builtInServer.ts):
+ * Die App verbindet sich ohne Konfiguration von selbst mit ihm. Das darf nur
+ * eine Kundenausgabe. Die Vollversion und alles, was auf main gebaut wird,
+ * verbindet sich nie von selbst mit einem Kundenserver; sonst Abbruch. Geprueft
+ * am Quelltext (eine Zeile) und an Variante und Branch, die beide getrennt
+ * ausfallen koennen: ein versehentlicher Merge eines Kundenbranches nach main
+ * braechte dessen Register mit, die Variante allein fiele dann nicht auf.
+ */
+function assertNoBuiltInServerOutsideCustomer() {
+  const source = fs.readFileSync(path.join(root, '../../packages/shared/src/builtInServer.ts'), 'utf8');
+  if (/export const BUILT_IN_SERVER: BuiltInServer \| null = null;/.test(source)) return;
+  const registry = JSON.parse(
+    fs.readFileSync(path.join(root, '../../packages/shared/src/variants/registry.json'), 'utf8'),
+  );
+  const edition = registry.variants.find((v) => v.id === variantId)?.edition ?? null;
+  const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  const branchName = branch.status === 0 ? branch.stdout.trim() : null;
+  if (edition === 'vollversion' || branchName === 'main') {
+    console.error(
+      `Die Desktop-App traegt einen eingebauten Server (BUILT_IN_SERVER in packages/shared/src/builtInServer.ts), ` +
+        `gebaut wird aber ${edition === 'vollversion' ? `die Vollversion (${variantId})` : 'auf dem Branch main'}.\n` +
+        `Nur eine Kundenausgabe auf ihrem Branch darf sich von selbst mit einem Server verbinden; ` +
+        `auf main steht dort null.`,
+    );
+    process.exit(1);
+  }
+}
+assertNoBuiltInServerOutsideCustomer();
 
 await build({
   entryPoints: [path.join(root, 'src/main.ts'), path.join(root, 'src/preload.ts')],

@@ -26,6 +26,13 @@ export interface DesktopConfig {
   apiBaseSource: ApiBaseSource | null;
   /** null = nichts konfiguriert (Trust on first use); sonst Pins samt wirksamer Quelle. */
   serverKeyPins: ConfiguredPins | null;
+  /**
+   * Gesetzt, wenn eine defekte config.json zugunsten des eingebauten Servers
+   * übersprungen wurde: Text für einen sichtbaren Hinweis (main.ts). Sonst
+   * verbände sich die App unbemerkt mit dem eingebauten Server, auch wenn die
+   * Datei auf einen neuen Server zeigen sollte.
+   */
+  skippedConfigNotice: string | null;
 }
 
 type RawDesktopConfig = { apiBaseUrl?: unknown; serverKeyPins?: unknown };
@@ -80,6 +87,7 @@ function sameOrigin(a: string, b: string): boolean {
 export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null): DesktopConfig {
   const fromEnv = process.env.OHRGANIZE_API_BASE?.trim() || null;
   let parsed: RawDesktopConfig = {};
+  let skippedConfigNotice: string | null = null;
   if (fs.existsSync(cfgPath)) {
     try {
       parsed = parseConfigFile(cfgPath);
@@ -92,6 +100,13 @@ export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null
         `[oHRganize] ${err.message} Die Datei wird übersprungen, ${instead}; ` +
           `dort hinterlegte serverKeyPins bleiben unberücksichtigt.`,
       );
+      // Mit Variable ist die Adresse ausdrücklich gesetzt; nur der Rückfall auf
+      // den eingebauten Server braucht einen Hinweis, den man auch sieht.
+      if (!fromEnv && builtIn) {
+        skippedConfigNotice =
+          `${err.message}\n\nDie App arbeitet deshalb mit dem eingebauten Server ${builtIn.url}. ` +
+          `Sollte die Datei auf einen anderen Server zeigen, bitte die IT verständigen.`;
+      }
     }
   }
 
@@ -119,5 +134,5 @@ export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null
     serverKeyPins = { pins: [...builtIn.pins], from: 'build' };
   }
 
-  return { apiBaseUrl, apiBaseSource, serverKeyPins };
+  return { apiBaseUrl, apiBaseSource, serverKeyPins, skippedConfigNotice };
 }

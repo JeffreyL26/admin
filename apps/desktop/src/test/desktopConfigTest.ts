@@ -10,6 +10,7 @@
  * Laeuft ohne Electron unter tsx. Aufruf: npm test -w apps/desktop (Teil von
  * npm test).
  */
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -139,33 +140,51 @@ try {
 
   r = run({ file: '{ kaputt', builtIn: BUILT });
   check(
-    'defekte Datei mit eingebautem Server: Warnung, eingebauter Server',
-    r.config?.apiBaseSource === 'build' && r.config.serverKeyPins?.from === 'build' && r.warned.some((w) => w.includes(BUILT.url)),
+    'defekte Datei mit eingebautem Server: Warnung, eingebauter Server, sichtbarer Hinweis',
+    r.config?.apiBaseSource === 'build' &&
+      r.config.serverKeyPins?.from === 'build' &&
+      r.warned.some((w) => w.includes(BUILT.url)) &&
+      (r.config.skippedConfigNotice ?? '').includes(BUILT.url) &&
+      (r.config.skippedConfigNotice ?? '').includes(cfg),
     { config: r.config, warned: r.warned },
   );
 
-  r = run({ env: 'https://variable.ohrganize.com', file: '[1, 2]', builtIn: null });
+  r = run({ env: 'https://variable.ohrganize.com', file: '[1, 2]', builtIn: BUILT });
   check(
-    'defekte Datei mit Variable: Warnung, Variable',
-    r.config?.apiBaseSource === 'env' && r.warned.some((w) => w.includes('OHRGANIZE_API_BASE')),
+    'defekte Datei mit Variable: Warnung, Variable, kein Hinweis (Adresse ausdruecklich gesetzt)',
+    r.config?.apiBaseSource === 'env' && r.warned.some((w) => w.includes('OHRGANIZE_API_BASE')) && r.config.skippedConfigNotice === null,
     { config: r.config, warned: r.warned },
   );
+
+  r = run({ file: { apiBaseUrl: 'https://datei.ohrganize.com' }, builtIn: BUILT });
+  check('intakte Datei: kein Hinweis', r.config?.skippedConfigNotice === null, r.config);
 
   // --- Zeile der Anmeldeseite --------------------------------------------------
-  check('Anmeldeseite: eingebettetes Backend', backendLabel('http://127.0.0.1:51234') === 'Daten auf diesem Rechner (Einzelplatz)');
-  check('Anmeldeseite: IPv6-Loopback', backendLabel('http://[::1]:3001') === 'Daten auf diesem Rechner (Einzelplatz)');
-  check('Anmeldeseite: localhost', backendLabel('http://localhost:3001') === 'Daten auf diesem Rechner (Einzelplatz)');
+  check('Anmeldeseite: eingebettetes Backend', backendLabel('http://127.0.0.1:51234', true) === 'Daten auf diesem Rechner (Einzelplatz)');
+  check(
+    'Anmeldeseite: Testserver auf 127.0.0.1 ist kein Einzelplatz',
+    backendLabel('http://127.0.0.1:3001', false) === 'Verbunden mit 127.0.0.1:3001',
+    backendLabel('http://127.0.0.1:3001', false),
+  );
   check(
     'Anmeldeseite: Server',
-    backendLabel('https://musterfirma.ohrganize.com') === 'Verbunden mit musterfirma.ohrganize.com',
-    backendLabel('https://musterfirma.ohrganize.com'),
+    backendLabel('https://musterfirma.ohrganize.com', false) === 'Verbunden mit musterfirma.ohrganize.com',
+    backendLabel('https://musterfirma.ohrganize.com', false),
   );
-  check('Anmeldeseite: Port bleibt sichtbar', backendLabel('https://musterfirma.ohrganize.com:8443') === 'Verbunden mit musterfirma.ohrganize.com:8443');
+  check(
+    'Anmeldeseite: Port bleibt sichtbar',
+    backendLabel('https://musterfirma.ohrganize.com:8443', false) === 'Verbunden mit musterfirma.ohrganize.com:8443',
+  );
 
   // --- Eingebauter Server dieses Builds ----------------------------------------
-  // Das Hauptprodukt (Register mit de-vollversion) verbindet sich nie von
-  // selbst mit einem Kundenserver; das setzt nur eine Kundenausgabe.
-  if (VARIANT_IDS.includes('de-vollversion')) {
+  // Das Hauptprodukt (Register mit der Vollversion, Branch main) verbindet
+  // sich nie von selbst mit einem Kundenserver; das setzt nur eine
+  // Kundenausgabe auf ihrem Branch. Beides getrennt geprueft: Ein
+  // versehentlicher Merge eines Kundenbranches nach main braechte dessen
+  // Register mit. Dieselbe Sperre steht im Desktop-Build (scripts/build.mjs).
+  const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' });
+  const onMain = branch.status === 0 && branch.stdout.trim() === 'main';
+  if (VARIANT_IDS.includes('de-vollversion') || onMain) {
     check('Hauptprodukt ohne eingebauten Server', BUILT_IN_SERVER === null, BUILT_IN_SERVER);
   }
   if (BUILT_IN_SERVER) {

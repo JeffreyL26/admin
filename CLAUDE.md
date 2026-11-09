@@ -743,11 +743,15 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `OHRGANIZE_API_BASE`, dann config.json, dann `BUILT_IN_SERVER`
   (`packages/shared/src/builtInServer.ts`), sonst das eingebettete Backend;
   Pins in derselben Reihenfolge, die eingebauten nur für dessen Herkunft.
-  Auf main ist `BUILT_IN_SERVER` `null` (der Test bricht sonst ab, solange
-  das Register `de-vollversion` kennt); nur eine Kundenausgabe setzt ihn.
-  Die Anmeldeseite nennt das Backend (`backendLabel`), weil eine App ohne
-  Serveradresse still mit leerer Datenbank lief und die HR-Konten dort
-  „E-Mail oder Passwort ist falsch“ hießen.
+  Auf main ist `BUILT_IN_SERVER` `null`; Test und Desktop-Build
+  (`desktop/scripts/build.mjs`) brechen sonst ab, für die Vollversion und
+  auf dem Branch main. Nur eine Kundenausgabe setzt ihn; eine defekte
+  config.json führt dann zu ihm, mit sichtbarem Hinweis beim Start
+  (`skippedConfigNotice`). Die Anmeldeseite nennt das Backend
+  (`backendLabel`; ob eingebettet, meldet der Main-Prozess über den Preload
+  `embeddedBackend`), weil eine App ohne Serveradresse still mit leerer
+  Datenbank lief und die HR-Konten dort „E-Mail oder Passwort ist falsch“
+  hießen.
 - **Sitzungen: Desktop bis zum Schließen, Portal bis 60 Minuten Leerlauf,
   beide höchstens bis zur Höchstdauer.**
   Der Login nimmt `client: 'desktop' | 'portal'`; `desktop` gilt nur für
