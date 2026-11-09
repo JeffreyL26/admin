@@ -159,9 +159,10 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   Adresse vor, wird nichts uebersprungen: Eine unbrauchbare Datei bricht den
   Start ab (sonst verbaende sich die App ohne die Serverschluessel der
   Datei), eine dort unbenutzte Adresse wird nicht geprueft, und mit beiden
-  Variablen wird die Datei gar nicht gelesen. Eine kurz gesperrte Datei
-  (OneDrive, Virenscanner) wird bis zu fuenfmal im Abstand von 250 ms
-  gelesen, bevor sie als unlesbar gilt. Auch die eingebaute Adresse wird beim
+  Variablen wird die Datei gar nicht gelesen. Ist die Datei beim Start kurz
+  gesperrt (Virenscanner, Editor oder Skript beim Schreiben), wartet die App
+  bis zu rund einer Sekunde, bevor sie als unlesbar gilt; fehlende Rechte
+  meldet sie sofort. Auch die eingebaute Adresse wird beim
   Start geprueft (nur https://); jede Adressmeldung nennt ihre Herkunft
   (Datei, Umgebungsvariable oder eingebaut). `npm run release` prueft die Sperre
   schon vor Commit und Tag. Ob die App mit Daten auf dem Rechner
