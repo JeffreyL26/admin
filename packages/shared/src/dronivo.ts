@@ -33,14 +33,15 @@ export const CUSTOMER_TAG = 'dronivo';
  * steht; die HR-Konten hiessen dort "E-Mail oder Passwort ist falsch",
  * obwohl dieselben Zugangsdaten im Portal galten (zwei Arbeitsplaetze im
  * Oktober und November 2026). Dronivo arbeitet nie mit einer Datenbank auf
- * dem Arbeitsplatz. Deshalb gilt in apps/desktop/src/main.ts: Fehlen
- * Umgebungsvariable OHRGANIZE_API_BASE und config.json, verbindet sich die
- * App mit diesem Server und meldet klar, wenn er nicht erreichbar ist; das
- * eingebettete Backend startet nie. Variable und config.json gehen weiterhin
- * vor, damit ein Umzug des Servers kein neues Release braucht.
- * `null` hiesse: kein eingebauter Server (Verhalten von main).
+ * dem Arbeitsplatz. Deshalb ist er der eingebaute Server der App
+ * (BUILT_IN_SERVER in builtInServer.ts, Regeln in
+ * apps/desktop/src/desktopConfig.ts): Fehlen Umgebungsvariable
+ * OHRGANIZE_API_BASE und config.json, verbindet sich die App mit ihm und
+ * meldet klar, wenn er nicht erreichbar ist; das eingebettete Backend startet
+ * nie. Variable und config.json gehen weiterhin vor, damit ein Umzug des
+ * Servers kein neues Release braucht.
  */
-export const CUSTOMER_SERVER: string | null = 'https://dronivo.ohrganize.com';
+export const CUSTOMER_SERVER: string = 'https://dronivo.ohrganize.com';
 
 /**
  * Schluessel des Servers (SPKI-Pin wie in apps/desktop/src/serverPinning.ts),

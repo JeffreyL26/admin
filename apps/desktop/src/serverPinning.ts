@@ -27,7 +27,9 @@ import { StartupError } from './startupError';
 //   1. Konfigurierte Pins — config.json `serverKeyPins` bzw. die
 //      Umgebungsvariable OHRGANIZE_SERVER_KEY_PINS (kommagetrennt). Eine
 //      Liste, damit vor einem geplanten Schlüsselwechsel der neue Pin schon
-//      neben dem alten stehen kann.
+//      neben dem alten stehen kann. Fehlen beide, gelten die Pins des
+//      eingebauten Servers (BUILT_IN_SERVER, nur für dessen Herkunft;
+//      Quelle 'build', siehe desktopConfig.ts).
 //   2. Trust on first use — ohne Konfiguration merkt sich die App beim ersten
 //      erfolgreichen Kontakt den Schlüssel in <userData>/server-pins.json
 //      und warnt bei jedem späteren Wechsel.
@@ -56,7 +58,9 @@ export type PinSource = 'configured' | 'learned';
  * Welche der beiden Konfigurationsquellen wirksam ist. Die Umgebungsvariable
  * schlägt die Datei — wer nach einem Schlüsselwechsel den neuen Pin in
  * config.json einträgt, während die Variable gesetzt ist, ändert nichts; die
- * Meldung zur Abweichung muss deshalb die wirksame Quelle nennen.
+ * Meldung zur Abweichung muss deshalb die wirksame Quelle nennen. 'build'
+ * sind die Pins des eingebauten Servers (BUILT_IN_SERVER); Variable und Datei
+ * gehen ihnen vor.
  */
 export type ConfiguredPinSource = 'env' | 'file' | 'build';
 
@@ -74,7 +78,7 @@ export interface PinPolicy {
   pins: string[];
   /** Woher die Pins stammen; null = erster Kontakt, noch nichts bekannt. */
   source: PinSource | null;
-  /** Bei source 'configured': ob die Umgebungsvariable oder config.json wirksam ist; sonst null. */
+  /** Bei source 'configured': ob Umgebungsvariable, config.json oder der eingebaute Server wirksam ist; sonst null. */
   configSource: ConfiguredPinSource | null;
   storePath: string;
   configPath: string;
@@ -87,7 +91,7 @@ export interface ServerPinInfo {
   /** Beim Start beobachteter Serverschlüssel (sha256/…). */
   pin: string | null;
   source: PinSource | null;
-  /** Aus config.json bzw. Umgebung; leer bei Trust on first use. */
+  /** Aus Umgebung, config.json oder dem eingebauten Server; leer bei Trust on first use. */
   configuredPins: string[];
   /** Datei der gemerkten Schlüssel — der Ort, den die IT bei einem geplanten Wechsel leert. */
   storePath: string | null;
@@ -261,8 +265,6 @@ export function pinMismatchMessage(policy: PinPolicy, observed: string): string 
   // Nur die WIRKSAME Quelle nennen: Wer den neuen Pin in die Datei schreibt,
   // während die Variable gesetzt ist, bekäme sonst dieselbe Meldung erneut,
   // ohne zu erfahren, warum.
-  // Kundenausgabe mit eingebautem Schlüssel (CUSTOMER_SERVER_KEY_PINS in
-  // packages/shared/src/dronivo.ts): Variable und Datei gehen ihm vor.
   const where =
     policy.configSource === 'env'
       ? `in der Umgebungsvariable OHRGANIZE_SERVER_KEY_PINS eingetragen werden. ` +

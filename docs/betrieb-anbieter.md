@@ -204,7 +204,7 @@ Instanzen noch Rollouts. Fuer alles Wiederkehrende ist conspectus der Weg.
 ```bash
 # 1. CHANGELOG: Abschnitt "Unveroeffentlicht" in "## 1.1.0" umbenennen
 # 2. Alles committen (das Skript verlangt einen sauberen Arbeitsbaum)
-npm run release -- --version 1.1.0 --variants de-vollversion \
+npm run release -- --version 1.1.0 --variants de-vollversion --issues "#1" \
   --sign-key ~/.ssh/ohrganize-release
 ```
 

@@ -421,3 +421,11 @@
   font-size: var(--text-base);
   margin-top: -14px;
 }
+/* Backend der App (Server oder Daten auf diesem Rechner), leise unter dem Knopf. */
+.login__server {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  margin-top: -8px;
+  overflow-wrap: anywhere;
+}

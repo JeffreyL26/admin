@@ -54,14 +54,20 @@ dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
   Fehlstart zurueck; beide vertragen Archive auf UNC-Pfaden.
 - **Eingebauter Server der Desktop-App (seit 1.1.3-dronivo):**
   `CUSTOMER_SERVER` und `CUSTOMER_SERVER_KEY_PINS` in
-  `packages/shared/src/dronivo.ts`. Ohne `OHRGANIZE_API_BASE` und
-  config.json verbindet sich die App mit diesem Server (Pins nur fuer seine
-  Herkunft, Quelle `build` in serverPinning.ts) und startet nie das
-  eingebettete Backend; vorher lief sie ohne Konfiguration still mit
-  leerer Datenbank auf dem Rechner und meldete "E-Mail oder Passwort ist
-  falsch". Variable und Datei gehen weiterhin vor. Auf main gibt es beide
-  Konstanten nicht; bei einem Merge von main bleibt die Abfrage in
-  `readDesktopConfig` (main.ts) stehen, check-dronivo prueft sie.
+  `packages/shared/src/dronivo.ts`, eingehaengt als `BUILT_IN_SERVER`
+  (`packages/shared/src/builtInServer.ts`, auf main `null`). Die Regeln
+  stehen auf main in `apps/desktop/src/desktopConfig.ts` (Test
+  `desktopConfigTest.ts`): Ohne `OHRGANIZE_API_BASE` und config.json
+  verbindet sich die App mit diesem Server (Pins nur fuer seine Herkunft,
+  Quelle `build`) und startet nie das eingebettete Backend; vorher lief sie
+  ohne Konfiguration still mit leerer Datenbank auf dem Rechner und meldete
+  "E-Mail oder Passwort ist falsch". Variable und Datei gehen weiterhin
+  vor, eine defekte config.json fuehrt zum eingebauten Server. Bei einem
+  Merge von main bleibt die Zeile `BUILT_IN_SERVER` in builtInServer.ts
+  (Konflikt: die des Branches behalten); check-dronivo prueft sie.
+  Offen: nur ein Pin, kein Ersatzschluessel; verliert die VM den
+  Caddy-Schluessel, braucht jeder Arbeitsplatz `OHRGANIZE_SERVER_KEY_PINS`
+  oder ein neues Release.
 - **Fuenftes Theme `dronivo` (Anzeige "DRONIVO"):** Farben der Website
   dronivo.de (Schiefer `#323f48`, Stahlblau `#435a6b`, Nebelblau `#9baebc`),
   Block `:root[data-theme='dronivo']` am Ende BEIDER tokens.css und Eintrag in
@@ -856,6 +862,17 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Offener Punkt **PERF-1** (docs/offene-punkte.md): Das Backend läuft im
   Electron-Hauptprozess, jede synchrone Arbeit hält auch das Fenster an;
   Vorschlag `utilityProcess` plus Ladefenster, bewusst zurückgestellt.
+  **Woher die App ihren Server nimmt**, entscheidet allein
+  `desktop/src/desktopConfig.ts` (ohne Electron, Test
+  `desktop/src/test/desktopConfigTest.ts`, `npm test -w apps/desktop`):
+  `OHRGANIZE_API_BASE`, dann config.json, dann `BUILT_IN_SERVER`
+  (`packages/shared/src/builtInServer.ts`), sonst das eingebettete Backend;
+  Pins in derselben Reihenfolge, die eingebauten nur für dessen Herkunft.
+  Auf main ist `BUILT_IN_SERVER` `null` (der Test bricht sonst ab, solange
+  das Register `de-vollversion` kennt); nur eine Kundenausgabe setzt ihn.
+  Die Anmeldeseite nennt das Backend (`backendLabel`), weil eine App ohne
+  Serveradresse still mit leerer Datenbank lief und die HR-Konten dort
+  „E-Mail oder Passwort ist falsch“ hießen.
 - **Sitzungen: Desktop bis zum Schließen, Portal bis 60 Minuten Leerlauf,
   beide höchstens bis zur Höchstdauer.**
   Der Login nimmt `client: 'desktop' | 'portal'`; `desktop` gilt nur für
@@ -1840,7 +1857,7 @@ npm run typecheck      # alle Workspaces
 npm run seed           # Demo-Daten
 npm run build:web      # statisches Portal-Build → apps/web/dist
 npm run dist:win       # kompletter Windows-Installer (NSIS) → apps/desktop/release
-npm run release -- --version 1.1.0 --variants de-vollversion   # vollstaendiges Release je Variante, signiertes Manifest
+npm run release -- --version 1.1.0 --variants de-vollversion --issues "#1"   # vollstaendiges Release je Variante, signiertes Manifest; --issues: Kategorie-Issues des Release-Commits
 npm run release:server # Server-Release-Archiv einer Variante (--variant, --out) → release/
 npm run lizenz -- …    # Lizenzwerkzeug des Anbieters: keygen | keys | sign | inspect (docs/lizenzierung.md)
 npm run conspectus -- …  # Register des Anbieters: kunde | host | instanz | lizenz | release | rollout | check (docs/betrieb-anbieter.md)

@@ -4,25 +4,17 @@ import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { pathToFileURL } from 'node:url';
-import {
-  CUSTOMER_SERVER,
-  CUSTOMER_SERVER_KEY_PINS,
-  DEFAULT_VARIANT_ID,
-  MIN_SERVER_VERSION,
-  isAtLeast,
-  variantById,
-} from '@ohrganize/shared';
+import { BUILT_IN_SERVER, DEFAULT_VARIANT_ID, MIN_SERVER_VERSION, isAtLeast, variantById } from '@ohrganize/shared';
 import { StartupError } from './startupError';
+import { readDesktopConfig, type ApiBaseSource } from './desktopConfig';
 import {
   PIN_STORE_FILE,
   createCertificateVerifyProc,
   createPinningAgent,
   findPinMismatch,
   pinMismatchMessage,
-  readConfiguredPins,
   rememberPin,
   resolvePinPolicy,
-  type ConfiguredPins,
   type PinPolicy,
   type ServerPinInfo,
 } from './serverPinning';
@@ -194,8 +186,8 @@ function registerAppProtocol(): void {
 //   %APPDATA%\oHRganize\config.json → { "apiBaseUrl": "…" }  (IT-Konfiguration)
 // Ohne Konfiguration bleibt es beim eingebetteten Backend mit lokaler
 // Datenbank — der Einzelplatz-Betrieb ändert sich dadurch nicht.
-// Ausnahme Kundenausgabe (Branch dronivo): Ohne beide Quellen gilt der
-// eingebaute Server CUSTOMER_SERVER samt Schlüssel, siehe readDesktopConfig.
+// Ausnahme: Eine Ausgabe mit eingebautem Server (BUILT_IN_SERVER) nimmt dann diesen.
+// Die Regeln stehen in desktopConfig.ts (getestet ohne Electron).
 //
 // Optional dazu der öffentliche Schlüssel des Servers (serverPinning.ts):
 //   OHRGANIZE_SERVER_KEY_PINS=sha256/…,sha256/…       (kommagetrennt)
@@ -209,117 +201,6 @@ function pinStorePath(): string {
   return path.join(app.getPath('userData'), PIN_STORE_FILE);
 }
 
-/** Woher die Serveradresse stammt; 'build' heisst eingebaut (CUSTOMER_SERVER, Kundenausgabe). */
-type ApiBaseSource = 'env' | 'file' | 'build';
-
-interface DesktopConfig {
-  apiBaseUrl: string | null;
-  apiBaseSource: ApiBaseSource | null;
-  /** null = nichts konfiguriert (Trust on first use); sonst Pins samt wirksamer Quelle. */
-  serverKeyPins: ConfiguredPins | null;
-}
-
-type RawDesktopConfig = { apiBaseUrl?: unknown; serverKeyPins?: unknown };
-
-/**
- * config.json einlesen. Alle Fehler sind StartupError: Eine unlesbare oder
- * fehlerhafte Datei ist ein Konfigurationszustand, den der Satz mit Dateipfad
- * erklären muss — kein Absturz, vor dem ein Stacktrace stünde.
- */
-function parseConfigFile(cfgPath: string): RawDesktopConfig {
-  let text: string;
-  try {
-    text = fs.readFileSync(cfgPath, 'utf8');
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code ?? (err instanceof Error ? err.message : String(err));
-    throw new StartupError(`Die Konfigurationsdatei ${cfgPath} konnte nicht gelesen werden (${code}).`);
-  }
-  let raw: unknown;
-  try {
-    // Windows-Editoren und Windows PowerShell 5.1 (`Set-Content -Encoding utf8`)
-    // stellen eine UTF-8-BOM voran; JSON.parse lehnt sie als ungültiges
-    // Zeichen ab. Sie ist kein Inhalt, also weg damit.
-    raw = JSON.parse(text.replace(/^\uFEFF/, ''));
-  } catch {
-    throw new StartupError(`Die Konfigurationsdatei ${cfgPath} enthält kein gültiges JSON.`);
-  }
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new StartupError(`Die Konfigurationsdatei ${cfgPath} muss ein JSON-Objekt enthalten.`);
-  }
-  return raw as RawDesktopConfig;
-}
-
-/**
- * config.json wird genau EINMAL gelesen — auch wenn OHRGANIZE_API_BASE die
- * Adresse vorgibt, können die Pins in der Datei stehen.
- *
- * Eine defekte Datei ist nur dann tödlich, wenn sie gebraucht wird: Ohne
- * Umgebungsvariable ist sie die einzige Quelle der Adresse, und sie still zu
- * übergehen hieße, den Arbeitsplatz unbemerkt mit eingebettetem Backend und
- * leerer lokaler Datenbank zu starten. Gibt OHRGANIZE_API_BASE die Adresse
- * vor, wäre die Datei nur noch für Pins zuständig — dann Warnung statt
- * Abbruch (so lief die Konstellation auch vor dieser Fassung: die Datei wurde
- * gar nicht gelesen); Pins aus OHRGANIZE_SERVER_KEY_PINS gelten weiterhin,
- * sonst greift Trust on first use.
- */
-function readDesktopConfig(): DesktopConfig {
-  const cfgPath = configFilePath();
-  const fromEnv = process.env.OHRGANIZE_API_BASE?.trim() || null;
-  let parsed: RawDesktopConfig = {};
-  if (fs.existsSync(cfgPath)) {
-    try {
-      parsed = parseConfigFile(cfgPath);
-    } catch (err) {
-      if (!fromEnv || !(err instanceof StartupError)) throw err;
-      console.warn(
-        `[oHRganize] ${err.message} Die Datei wird übersprungen, weil OHRGANIZE_API_BASE die Adresse vorgibt — ` +
-          `dort hinterlegte serverKeyPins bleiben unberücksichtigt.`,
-      );
-    }
-  }
-
-  let apiBaseUrl: string | null;
-  if (fromEnv) {
-    apiBaseUrl = fromEnv;
-  } else {
-    const value = parsed.apiBaseUrl;
-    if (value == null || value === '') {
-      apiBaseUrl = null;
-    } else if (typeof value !== 'string') {
-      throw new StartupError(`"apiBaseUrl" in ${cfgPath} muss eine Zeichenkette sein.`);
-    } else {
-      apiBaseUrl = value.trim();
-    }
-  }
-  let apiBaseSource: ApiBaseSource | null = apiBaseUrl ? (fromEnv ? 'env' : 'file') : null;
-
-  // Kundenausgabe (Branch dronivo, Abweichung von main wie PORTAL_ABSENCE_CAPTURE): Ohne
-  // Variable und Datei gilt der eingebaute Server. Das eingebettete Backend
-  // mit eigener, leerer Datenbank startet damit nie; fehlte die Adresse,
-  // hiess es dort mit richtigen Zugangsdaten "E-Mail oder Passwort ist
-  // falsch" (siehe CUSTOMER_SERVER in packages/shared/src/dronivo.ts).
-  if (!apiBaseUrl && CUSTOMER_SERVER) {
-    apiBaseUrl = CUSTOMER_SERVER;
-    apiBaseSource = 'build';
-  }
-
-  let serverKeyPins = readConfiguredPins(parsed.serverKeyPins, cfgPath);
-  // Der eingebaute Schluessel gilt nur fuer den eingebauten Server und nur,
-  // wenn weder Variable noch Datei Pins setzen (die gehen vor).
-  if (!serverKeyPins && apiBaseUrl && CUSTOMER_SERVER && CUSTOMER_SERVER_KEY_PINS.length > 0 && sameOrigin(apiBaseUrl, CUSTOMER_SERVER)) {
-    serverKeyPins = { pins: [...CUSTOMER_SERVER_KEY_PINS], from: 'build' };
-  }
-
-  return { apiBaseUrl, apiBaseSource, serverKeyPins };
-}
-
-function sameOrigin(a: string, b: string): boolean {
-  try {
-    return new URL(a).origin === new URL(b).origin;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Adressen, die den eigenen Rechner meinen. Nur für sie bleibt Klartext-HTTP
@@ -498,7 +379,7 @@ async function assertReachable(base: string, policy: PinPolicy | null, source: A
     if (mismatch) throw new StartupError(pinMismatchMessage(mismatch.policy, mismatch.observed));
 
     const { reason, hint } = describeConnectionFailure(err);
-    // Eingebaute Adresse: Es gibt nichts zu korrigieren, nur die Verbindung zu pruefen.
+    // Eingebaute Adresse: Es gibt nichts zu korrigieren, nur die Verbindung zu prüfen.
     const advice =
       source === 'build'
         ? `Bitte die Internetverbindung prüfen und oHRganize erneut starten. Besteht das ` +
@@ -555,7 +436,7 @@ async function assertReachable(base: string, policy: PinPolicy | null, source: A
 async function startBackend(): Promise<string> {
   if (isDev) return 'http://127.0.0.1:3001';
 
-  const config = readDesktopConfig();
+  const config = readDesktopConfig(configFilePath(), BUILT_IN_SERVER);
   if (config.apiBaseUrl) {
     const base = normalizeApiBase(config.apiBaseUrl);
     // Pinning nur über https: Lokale http-Testadressen tragen kein TLS.
