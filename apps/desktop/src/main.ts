@@ -4,7 +4,14 @@ import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { pathToFileURL } from 'node:url';
-import { DEFAULT_VARIANT_ID, MIN_SERVER_VERSION, isAtLeast, variantById } from '@ohrganize/shared';
+import {
+  CUSTOMER_SERVER,
+  CUSTOMER_SERVER_KEY_PINS,
+  DEFAULT_VARIANT_ID,
+  MIN_SERVER_VERSION,
+  isAtLeast,
+  variantById,
+} from '@ohrganize/shared';
 import { StartupError } from './startupError';
 import {
   PIN_STORE_FILE,
@@ -187,6 +194,8 @@ function registerAppProtocol(): void {
 //   %APPDATA%\oHRganize\config.json → { "apiBaseUrl": "…" }  (IT-Konfiguration)
 // Ohne Konfiguration bleibt es beim eingebetteten Backend mit lokaler
 // Datenbank — der Einzelplatz-Betrieb ändert sich dadurch nicht.
+// Ausnahme Kundenausgabe (Branch dronivo): Ohne beide Quellen gilt der
+// eingebaute Server CUSTOMER_SERVER samt Schlüssel, siehe readDesktopConfig.
 //
 // Optional dazu der öffentliche Schlüssel des Servers (serverPinning.ts):
 //   OHRGANIZE_SERVER_KEY_PINS=sha256/…,sha256/…       (kommagetrennt)
@@ -200,8 +209,12 @@ function pinStorePath(): string {
   return path.join(app.getPath('userData'), PIN_STORE_FILE);
 }
 
+/** Woher die Serveradresse stammt; 'build' heisst eingebaut (CUSTOMER_SERVER, Kundenausgabe). */
+type ApiBaseSource = 'env' | 'file' | 'build';
+
 interface DesktopConfig {
   apiBaseUrl: string | null;
+  apiBaseSource: ApiBaseSource | null;
   /** null = nichts konfiguriert (Trust on first use); sonst Pins samt wirksamer Quelle. */
   serverKeyPins: ConfiguredPins | null;
 }
@@ -278,8 +291,34 @@ function readDesktopConfig(): DesktopConfig {
       apiBaseUrl = value.trim();
     }
   }
+  let apiBaseSource: ApiBaseSource | null = apiBaseUrl ? (fromEnv ? 'env' : 'file') : null;
 
-  return { apiBaseUrl, serverKeyPins: readConfiguredPins(parsed.serverKeyPins, cfgPath) };
+  // Kundenausgabe (Branch dronivo, Abweichung von main wie PORTAL_ABSENCE_CAPTURE): Ohne
+  // Variable und Datei gilt der eingebaute Server. Das eingebettete Backend
+  // mit eigener, leerer Datenbank startet damit nie; fehlte die Adresse,
+  // hiess es dort mit richtigen Zugangsdaten "E-Mail oder Passwort ist
+  // falsch" (siehe CUSTOMER_SERVER in packages/shared/src/dronivo.ts).
+  if (!apiBaseUrl && CUSTOMER_SERVER) {
+    apiBaseUrl = CUSTOMER_SERVER;
+    apiBaseSource = 'build';
+  }
+
+  let serverKeyPins = readConfiguredPins(parsed.serverKeyPins, cfgPath);
+  // Der eingebaute Schluessel gilt nur fuer den eingebauten Server und nur,
+  // wenn weder Variable noch Datei Pins setzen (die gehen vor).
+  if (!serverKeyPins && apiBaseUrl && CUSTOMER_SERVER && CUSTOMER_SERVER_KEY_PINS.length > 0 && sameOrigin(apiBaseUrl, CUSTOMER_SERVER)) {
+    serverKeyPins = { pins: [...CUSTOMER_SERVER_KEY_PINS], from: 'build' };
+  }
+
+  return { apiBaseUrl, apiBaseSource, serverKeyPins };
+}
+
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -442,7 +481,7 @@ function fetchJson(target: URL, agent: http.Agent | undefined, timeoutMs: number
 // erreichbares Backend ist im Server-Betrieb der wahrscheinlichste Fehler.
 // Im https-Betrieb prüft dieselbe Verbindung den Serverschlüssel (policy) —
 // ein fremder Schlüssel ist ein eigener, immer tödlicher Startabbruch.
-async function assertReachable(base: string, policy: PinPolicy | null): Promise<void> {
+async function assertReachable(base: string, policy: PinPolicy | null, source: ApiBaseSource | null): Promise<void> {
   let health: { version?: unknown; variant?: { id?: unknown; label?: unknown } };
   try {
     const agent = policy
@@ -459,11 +498,15 @@ async function assertReachable(base: string, policy: PinPolicy | null): Promise<
     if (mismatch) throw new StartupError(pinMismatchMessage(mismatch.policy, mismatch.observed));
 
     const { reason, hint } = describeConnectionFailure(err);
+    // Eingebaute Adresse: Es gibt nichts zu korrigieren, nur die Verbindung zu pruefen.
+    const advice =
+      source === 'build'
+        ? `Bitte die Internetverbindung prüfen und oHRganize erneut starten. Besteht das ` +
+          `Problem weiter, bitte die IT verständigen: Läuft der oHRganize-Dienst auf dem Server?`
+        : `Prüfen Sie, ob der Dienst läuft und ob die Adresse in\n${configFilePath()}\n` +
+          `bzw. in der Umgebungsvariable OHRGANIZE_API_BASE stimmt.`;
     throw new StartupError(
-      `Das oHRganize-Backend unter ${base} ist nicht erreichbar (${reason}).\n\n` +
-        (hint ? `${hint}\n\n` : '') +
-        `Prüfen Sie, ob der Dienst läuft und ob die Adresse in\n${configFilePath()}\n` +
-        `bzw. in der Umgebungsvariable OHRGANIZE_API_BASE stimmt.`,
+      `Das oHRganize-Backend unter ${base} ist nicht erreichbar (${reason}).\n\n` + (hint ? `${hint}\n\n` : '') + advice,
     );
   }
 
@@ -531,7 +574,7 @@ async function startBackend(): Promise<string> {
       console.warn(`[oHRganize] serverKeyPins werden für ${base} ignoriert — Schlüssel-Pinning gilt nur für https://.`);
     }
 
-    await assertReachable(base, pinPolicy);
+    await assertReachable(base, pinPolicy, config.apiBaseSource);
 
     // Trust on first use: erster Kontakt ohne Konfiguration — Schlüssel merken.
     if (pinPolicy && pinPolicy.source === null) {

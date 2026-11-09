@@ -10,7 +10,7 @@ Auf ausdruecklichen Wunsch des Anbieters (21.10.2026) entsteht die Ausgabe
 fuer den Kunden Dronivo als eigener Branch `dronivo`, abweichend von der
 Regel "Kundenfunktionen als Feature, nie als Branch" weiter unten. Er bleibt
 dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
-`1.1.2-dronivo` (angezeigt als "Version de-1.1.2-dronivo"), Ausgabe
+`1.1.3-dronivo` (angezeigt als "Version de-1.1.3-dronivo"), Ausgabe
 (Variante) `de-dronivo`. Was den Branch von main unterscheidet:
 
 - **Ein Schalter, kein entfernter Code:** `PORTAL_ABSENCE_CAPTURE = false` in
@@ -29,9 +29,9 @@ dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
   und Router (`portalPathOpen`), die Uebersicht zeigt die Kachel "Stammdaten
   aendern" statt des Urlaubskontos und keine Karte "Offene Antraege"; das
   Desktop-Dashboard schreibt an keinen Antrag "Aus dem Portal beantragt.".
-  Release-Dateien tragen das Kennzeichen `de-1.1.2-dronivo` (`releaseLabel`
-  in scripts/dronivo-guard.mjs): `oHRganize-Setup-de-1.1.2-dronivo.exe`,
-  `ohrganize-server-de-1.1.2-dronivo.zip`. Jede abweichende
+  Release-Dateien tragen das Kennzeichen `de-1.1.3-dronivo` (`releaseLabel`
+  in scripts/dronivo-guard.mjs): `oHRganize-Setup-de-1.1.3-dronivo.exe`,
+  `ohrganize-server-de-1.1.3-dronivo.zip`. Jede abweichende
   Stelle nennt den Schalter; `git grep PORTAL_ABSENCE_CAPTURE` findet alle.
 - **Eigene Ausgabe `de-dronivo` als Trennung von main:** Das Register auf
   diesem Branch kennt NUR `de-dronivo` (Edition `dronivo`, Label
@@ -52,6 +52,16 @@ dauerhaft bestehen; main wird hineingemergt, nie umgekehrt. Version
   VARIANTE.txt, traegt die Zeile nach, gleicht `OHRGANIZE_VARIANT` in der
   Dienstumgebung (NSSM) bei jedem Update ab und nimmt beides bei einem
   Fehlstart zurueck; beide vertragen Archive auf UNC-Pfaden.
+- **Eingebauter Server der Desktop-App (seit 1.1.3-dronivo):**
+  `CUSTOMER_SERVER` und `CUSTOMER_SERVER_KEY_PINS` in
+  `packages/shared/src/dronivo.ts`. Ohne `OHRGANIZE_API_BASE` und
+  config.json verbindet sich die App mit diesem Server (Pins nur fuer seine
+  Herkunft, Quelle `build` in serverPinning.ts) und startet nie das
+  eingebettete Backend; vorher lief sie ohne Konfiguration still mit
+  leerer Datenbank auf dem Rechner und meldete "E-Mail oder Passwort ist
+  falsch". Variable und Datei gehen weiterhin vor. Auf main gibt es beide
+  Konstanten nicht; bei einem Merge von main bleibt die Abfrage in
+  `readDesktopConfig` (main.ts) stehen, check-dronivo prueft sie.
 - **Fuenftes Theme `dronivo` (Anzeige "DRONIVO"):** Farben der Website
   dronivo.de (Schiefer `#323f48`, Stahlblau `#435a6b`, Nebelblau `#9baebc`),
   Block `:root[data-theme='dronivo']` am Ende BEIDER tokens.css und Eintrag in

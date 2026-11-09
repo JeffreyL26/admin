@@ -27,6 +27,32 @@ export const CUSTOMER_VARIANT = 'de-dronivo';
 export const CUSTOMER_TAG = 'dronivo';
 
 /**
+ * Server dieser Ausgabe, fest in die Desktop-App eingebaut (seit
+ * 1.1.3-dronivo). Ohne Serveradresse startete die App still ein eigenes
+ * Backend mit leerer Datenbank auf dem Rechner, in der nur das Startkonto
+ * steht; die HR-Konten hiessen dort "E-Mail oder Passwort ist falsch",
+ * obwohl dieselben Zugangsdaten im Portal galten (zwei Arbeitsplaetze im
+ * Oktober und November 2026). Dronivo arbeitet nie mit einer Datenbank auf
+ * dem Arbeitsplatz. Deshalb gilt in apps/desktop/src/main.ts: Fehlen
+ * Umgebungsvariable OHRGANIZE_API_BASE und config.json, verbindet sich die
+ * App mit diesem Server und meldet klar, wenn er nicht erreichbar ist; das
+ * eingebettete Backend startet nie. Variable und config.json gehen weiterhin
+ * vor, damit ein Umzug des Servers kein neues Release braucht.
+ * `null` hiesse: kein eingebauter Server (Verhalten von main).
+ */
+export const CUSTOMER_SERVER: string | null = 'https://dronivo.ohrganize.com';
+
+/**
+ * Schluessel des Servers (SPKI-Pin wie in apps/desktop/src/serverPinning.ts),
+ * gilt nur fuer die Herkunft von CUSTOMER_SERVER und nur, wenn weder
+ * OHRGANIZE_SERVER_KEY_PINS noch "serverKeyPins" in config.json gesetzt ist.
+ * Er ueberlebt Zertifikatserneuerungen, weil Caddy auf der VM das
+ * Schluesselpaar behaelt (`reuse_private_keys`, setup-server.ps1 prueft es).
+ * Gemessen am 09.11.2026 gegen das Zertifikat bis 20.01.2027.
+ */
+export const CUSTOMER_SERVER_KEY_PINS: readonly string[] = ['sha256/AG0EZctCIx87sLdZwzNFaf0ltyiUWA7VvbO7yMw7Yu8='];
+
+/**
  * Erfassen Mitarbeitende ihre Abwesenheiten im Portal selbst (Antrag,
  * Rueckzug eines offenen Antrags, Krankmeldung)? Bei Dronivo nicht:
  * Abwesenheiten erfasst ausschliesslich die HR-Administration in der

@@ -6,6 +6,26 @@ Das Format folgt "Keep a Changelog"; die Versionsnummer folgt Semver
 Version, die mit `scripts/release.mjs` gebaut wird, braucht hier einen
 eigenen Abschnitt.
 
+## 1.1.3-dronivo (2026-11-09)
+
+Korrektur der Desktop-App; Server und Portal sind inhaltlich unveraendert
+gegenueber 1.1.2-dronivo (die Server-Fassung zieht nur die Versionsnummer
+mit). Mindestversionen fuer App und Server bleiben 1.0.0-dronivo.
+
+- **Behoben:** Die Desktop-App kennt ihren Server jetzt selbst
+  (`https://dronivo.ohrganize.com` samt Serverschluessel, eingebaut). Bisher
+  brauchte sie dafuer die Umgebungsvariable `OHRGANIZE_API_BASE` oder
+  `%APPDATA%\oHRganize\config.json`; fehlte beides oder hatte die Anmeldung
+  an Windows die Variable noch nicht uebernommen, startete sie still eine
+  eigene, leere Datenbank auf dem Rechner. Dort meldete sie mit richtigen
+  Zugangsdaten "E-Mail oder Passwort ist falsch", waehrend das Portal im
+  Browser dieselben Zugangsdaten annahm. Die App arbeitet bei Dronivo nie
+  mehr mit einer Datenbank auf dem Arbeitsplatz; ist der Server nicht
+  erreichbar, sagt sie das beim Start. Variable und config.json gehen dem
+  eingebauten Server weiterhin vor (Umzug ohne neues Release); eine eigene
+  Datenbank, die eine fruehere Fassung angelegt hat, bleibt unberuehrt und
+  ungenutzt.
+
 ## 1.1.2-dronivo (2026-11-04)
 
 Rueckmeldung Dronivo zur Krankmeldung; Grundlage ist main mit Commit

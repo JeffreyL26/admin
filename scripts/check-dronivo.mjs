@@ -23,7 +23,9 @@
  *   4. Portal: jede abweichende Stelle fragt den Schalter ab, jeder Pfad des
  *      Portals ist entweder gesperrt oder ausdruecklich offen, und kein anderer
  *      Teil des Portals verweist auf die gesperrten Seiten oder nutzt die
- *      schreibenden Hooks der Abwesenheitserfassung.
+ *      schreibenden Hooks der Abwesenheitserfassung. Die Desktop-App nimmt
+ *      ohne Konfiguration den eingebauten Server (CUSTOMER_SERVER) statt
+ *      einer eigenen Datenbank auf dem Rechner.
  *
  * Aufruf: node scripts/check-dronivo.mjs [--version <x.y.z>-dronivo]
  */
@@ -260,6 +262,11 @@ const SITES = [
   ['scripts/release-server.mjs', /apps\/web\/dist gehoert nicht \(nur\) zur Variante/],
   ['apps/desktop/scripts/dist.mjs', /customerVariantProblem\(repo, variantId\)/],
   ['package.json', /"posttest": "node scripts\/check-dronivo\.mjs"/],
+  // Eingebauter Server: Ohne ihn startete die App ohne Konfiguration eine eigene, leere Datenbank.
+  ['packages/shared/src/dronivo.ts', /export const CUSTOMER_SERVER: string \| null = 'https:\/\/dronivo\.ohrganize\.com';/],
+  ['packages/shared/src/dronivo.ts', /export const CUSTOMER_SERVER_KEY_PINS: readonly string\[\] = \['sha256\/[A-Za-z0-9+/=]{44}'(?:, 'sha256\/[A-Za-z0-9+/=]{44}')*\];/],
+  ['apps/desktop/src/main.ts', /if \(!apiBaseUrl && CUSTOMER_SERVER\) \{\s*apiBaseUrl = CUSTOMER_SERVER;\s*apiBaseSource = 'build';/],
+  ['apps/desktop/src/main.ts', /serverKeyPins = \{ pins: \[\.\.\.CUSTOMER_SERVER_KEY_PINS\], from: 'build' \};/],
   // Dateinamen der Release-Dateien (releaseLabel: de-1.0.0-dronivo statt Variante plus Version).
   ['apps/desktop/scripts/dist.mjs', /-c\.artifactName=oHRganize-Setup-\$\{label\}\./],
   ['scripts/release.mjs', /ohrganize-server-\$\{releaseLabel\(root, version\)\}\.zip/],

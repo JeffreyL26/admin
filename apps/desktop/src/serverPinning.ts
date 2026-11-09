@@ -58,7 +58,7 @@ export type PinSource = 'configured' | 'learned';
  * config.json einträgt, während die Variable gesetzt ist, ändert nichts; die
  * Meldung zur Abweichung muss deshalb die wirksame Quelle nennen.
  */
-export type ConfiguredPinSource = 'env' | 'file';
+export type ConfiguredPinSource = 'env' | 'file' | 'build';
 
 export interface ConfiguredPins {
   pins: string[];
@@ -261,12 +261,17 @@ export function pinMismatchMessage(policy: PinPolicy, observed: string): string 
   // Nur die WIRKSAME Quelle nennen: Wer den neuen Pin in die Datei schreibt,
   // während die Variable gesetzt ist, bekäme sonst dieselbe Meldung erneut,
   // ohne zu erfahren, warum.
+  // Kundenausgabe mit eingebautem Schlüssel (CUSTOMER_SERVER_KEY_PINS in
+  // packages/shared/src/dronivo.ts): Variable und Datei gehen ihm vor.
   const where =
     policy.configSource === 'env'
       ? `in der Umgebungsvariable OHRGANIZE_SERVER_KEY_PINS eingetragen werden. ` +
         `Sie ist auf diesem Rechner gesetzt und schlägt "serverKeyPins" in\n${policy.configPath}\n` +
         `— ein Eintrag dort bleibt wirkungslos, solange die Variable gesetzt ist.`
-      : `unter "serverKeyPins" in\n${policy.configPath}\neingetragen werden.`;
+      : policy.configSource === 'build'
+        ? `in der Umgebungsvariable OHRGANIZE_SERVER_KEY_PINS oder unter "serverKeyPins" in\n` +
+          `${policy.configPath}\neingetragen werden. Beide gehen dem in die App eingebauten Schlüssel vor.`
+        : `unter "serverKeyPins" in\n${policy.configPath}\neingetragen werden.`;
   return (
     `Der Server ${policy.origin} weist sich mit einem anderen Schlüssel aus als in der Konfiguration hinterlegt ` +
     `(erwartet: ${policy.pins.join(', ')}, jetzt: ${observed}).\n\n` +
