@@ -27,8 +27,10 @@ export interface DesktopConfig {
   /** null = nichts konfiguriert (Trust on first use); sonst Pins samt wirksamer Quelle. */
   serverKeyPins: ConfiguredPins | null;
   /**
-   * Gesetzt, wenn eine defekte config.json zugunsten des eingebauten Servers
-   * übersprungen wurde: Text für einen sichtbaren Hinweis (main.ts). Sonst
+   * Gesetzt, wenn eine nicht verwendbare config.json (unlesbar oder defekt)
+   * zugunsten des eingebauten Servers übersprungen wurde: Text für einen
+   * sichtbaren Hinweis und für die Fehlermeldung eines gescheiterten Starts
+   * (main.ts). Sonst
    * verbände sich die App unbemerkt mit dem eingebauten Server, auch wenn die
    * Datei auf einen neuen Server zeigen sollte.
    */
@@ -104,7 +106,7 @@ export function readDesktopConfig(cfgPath: string, builtIn: BuiltInServer | null
       // den eingebauten Server braucht einen Hinweis, den man auch sieht.
       if (!fromEnv && builtIn) {
         skippedConfigNotice =
-          `${err.message}\n\nDie App arbeitet deshalb mit dem eingebauten Server ${builtIn.url}. ` +
+          `${err.message}\n\nDie App hat deshalb den eingebauten Server ${builtIn.url} genommen. ` +
           `Sollte die Datei auf einen anderen Server zeigen, bitte die IT verständigen.`;
       }
     }

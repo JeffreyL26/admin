@@ -715,16 +715,19 @@ function showPinLearnedNotice(): void {
 }
 
 /**
- * Hinweis, wenn eine defekte config.json zugunsten des eingebauten Servers
- * übersprungen wurde (desktopConfig.ts). Nicht blockierend wie der Hinweis
- * zum Serverschlüssel: Die App arbeitet weiter, aber nicht unbemerkt.
+ * Hinweis, wenn eine nicht verwendbare config.json zugunsten des eingebauten
+ * Servers übersprungen wurde (desktopConfig.ts). Nicht blockierend wie der
+ * Hinweis zum Serverschlüssel: Die App arbeitet weiter, aber nicht unbemerkt.
+ * Scheitert der Start, steht derselbe Text in der Fehlermeldung.
  */
 function showConfigSkippedNotice(): void {
   if (!configSkippedNotice) return;
   const options: Electron.MessageBoxOptions = {
     type: 'warning',
     title: 'Konfigurationsdatei übersprungen',
-    message: 'Die Konfigurationsdatei dieses Arbeitsplatzes ist beschädigt und wurde übersprungen.',
+    // Neutral: übersprungen wird auch eine nur gesperrte oder nicht lesbare
+    // Datei (Synchronisierung, Virenscanner); den Grund nennt `detail`.
+    message: 'Die Konfigurationsdatei dieses Arbeitsplatzes konnte nicht verwendet werden und wurde übersprungen.',
     detail: configSkippedNotice,
     buttons: ['OK'],
   };
@@ -767,14 +770,14 @@ if (!gotLock) {
         if (BrowserWindow.getAllWindows().length === 0) void createWindow(apiBaseUrl);
       });
     } catch (err) {
-      dialog.showErrorBox(
-        'oHRganize konnte nicht gestartet werden',
-        err instanceof StartupError
-          ? err.message
-          : err instanceof Error
-            ? err.stack ?? err.message
-            : String(err),
-      );
+      const reason =
+        err instanceof StartupError ? err.message : err instanceof Error ? (err.stack ?? err.message) : String(err);
+      // Wurde config.json zugunsten des eingebauten Servers übersprungen und
+      // scheitert dann der Start (Server nicht erreichbar, anderer Schlüssel),
+      // ist die Datei oft die eigentliche Ursache: Sie sollte auf einen
+      // anderen Server zeigen. Ohne diesen Zusatz stünde nur der Folgefehler da.
+      const skipped = configSkippedNotice ? `\n\nAußerdem: ${configSkippedNotice}` : '';
+      dialog.showErrorBox('oHRganize konnte nicht gestartet werden', reason + skipped);
       app.quit();
     }
   });

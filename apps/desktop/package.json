@@ -10,7 +10,7 @@
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs --dev && electron . ",
     "typecheck": "tsc --noEmit",
-    "test": "tsx src/test/desktopConfigTest.ts",
+    "test": "tsx src/test/desktopConfigTest.ts && node scripts/builtInServerGuardTest.mjs",
     "dist:win": "node scripts/dist.mjs --win",
     "dist:mac": "node scripts/dist.mjs --mac",
     "dist:linux": "node scripts/dist.mjs --linux"

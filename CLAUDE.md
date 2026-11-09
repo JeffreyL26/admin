@@ -871,9 +871,11 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (`packages/shared/src/builtInServer.ts`), sonst das eingebettete Backend;
   Pins in derselben Reihenfolge, die eingebauten nur für dessen Herkunft.
   Auf main ist `BUILT_IN_SERVER` `null`; Test und Desktop-Build
-  (`desktop/scripts/build.mjs`) brechen sonst ab, für die Vollversion und
-  auf dem Branch main. Nur eine Kundenausgabe setzt ihn; eine defekte
-  config.json führt dann zu ihm, mit sichtbarem Hinweis beim Start
+  (`desktop/scripts/builtInServerGuard.mjs`, Test daneben) brechen sonst ab,
+  für die Vollversion, auf dem Branch main und für jeden Commit aus der
+  Geschichte von main (Build von einem Tag). Nur eine Kundenausgabe setzt
+  ihn; eine nicht verwendbare config.json führt dann zu ihm, mit sichtbarem
+  Hinweis beim Start und in der Fehlermeldung, falls der Start scheitert
   (`skippedConfigNotice`). Die Anmeldeseite nennt das Backend
   (`backendLabel`; ob eingebettet, meldet der Main-Prozess über den Preload
   `embeddedBackend`), weil eine App ohne Serveradresse still mit leerer
