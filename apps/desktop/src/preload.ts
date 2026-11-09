@@ -3,8 +3,10 @@ import type { ServerPinInfo } from './serverPinning';
 
 // Der API-Port wird vom Main-Prozess deterministisch via additionalArguments
 // übergeben (im Prod-Betrieb ist es ein zufälliger freier Port).
-const apiArg = process.argv.find((a) => a.startsWith('--ohrganize-api-base='));
-const apiBaseUrl = apiArg?.split('=')[1] ?? 'http://127.0.0.1:3001';
+// slice statt split('='): Eine Adresse mit '=' (Pfad oder Query hinter einem
+// Proxy) käme sonst ab dem zweiten '=' abgeschnitten im Renderer an.
+const API_ARG = '--ohrganize-api-base=';
+const apiBaseUrl = process.argv.find((a) => a.startsWith(API_ARG))?.slice(API_ARG.length) || 'http://127.0.0.1:3001';
 
 // Ebenso deterministisch vom Main-Prozess (app.getVersion()). Vorher stand hier
 // process.env.npm_package_version — das ist ausschließlich im Dev-Betrieb

@@ -181,7 +181,8 @@ try {
   // sich nie von selbst mit einem Kundenserver; das setzt nur eine
   // Kundenausgabe auf ihrem Branch. Beides getrennt geprueft: Ein
   // versehentlicher Merge eines Kundenbranches nach main braechte dessen
-  // Register mit. Dieselbe Sperre steht im Desktop-Build (scripts/build.mjs).
+  // Register mit. Dieselbe Sperre, dazu Builds von einem Tag aus der
+  // Geschichte von main, steht im Desktop-Build (scripts/builtInServerGuard.mjs).
   const branch = spawnSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' });
   const onMain = branch.status === 0 && branch.stdout.trim() === 'main';
   if (VARIANT_IDS.includes('de-vollversion') || onMain) {
