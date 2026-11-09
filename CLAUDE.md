@@ -878,10 +878,14 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Tag, neuer Kundenbranch ohne eigenen Commit) und, wenn sich die Herkunft
   nicht prüfen lässt (kein main, flacher Klon, kein git), auch dann. Nur
   eine Kundenausgabe setzt ihn; eine nicht verwendbare config.json
-  (unlesbar, kein JSON, falsch befüllt) führt dann zu ihm, mit sichtbarem
-  Hinweis beim Start und in der Fehlermeldung, falls danach die Verbindung
-  scheitert (`skippedConfigNotice`). Die Umgebungsvariablen werden vor der
-  Datei gelesen und brechen bei Fehlern immer ab. Die Anmeldeseite nennt das Backend
+  (unlesbar, kein JSON, falsch befüllt, auch eine ungültige Adresse:
+  `normalizeApiBase` steht deshalb in desktopConfig.ts) führt dann zu ihm,
+  mit sichtbarem Hinweis beim Start und in der Fehlermeldung, falls danach
+  die Verbindungsprüfung scheitert (`skippedConfigNotice`); mit
+  `OHRGANIZE_API_BASE` sagt derselbe Hinweis, dass Pins der Datei nicht
+  gelten. Die Umgebungsvariablen werden vor der Datei gelesen und brechen
+  bei Fehlern immer ab. `release.mjs` prüft die Sperre vor Commit und Tag.
+  Die Anmeldeseite nennt das Backend
   (`backendLabel`; ob eingebettet, meldet der Main-Prozess über den Preload
   `embeddedBackend`), weil eine App ohne Serveradresse still mit leerer
   Datenbank lief und die HR-Konten dort „E-Mail oder Passwort ist falsch“

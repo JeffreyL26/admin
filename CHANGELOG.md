@@ -152,10 +152,13 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   laesst (kein main, flacher Klon); eine auskommentierte null-Zeile zaehlt
   nicht. Eine Kundenausgabe, die nur mit ihrem Server arbeitet, setzt
   ihn; dann startet das eingebettete Backend dort nie, und eine nicht
-  verwendbare config.json (unlesbar, kein JSON, falsch befuellt) fuehrt zum
-  eingebauten Server statt zum Abbruch, mit einem sichtbaren Hinweis beim
-  Start; scheitert danach die Verbindung zum Server, nennt die Fehlermeldung
-  die Datei mit. Ob die App mit Daten auf dem Rechner
+  verwendbare config.json (unlesbar, kein JSON, falsch befuellt, auch eine
+  Adresse ohne https://) fuehrt zum eingebauten Server statt zum Abbruch, mit
+  einem sichtbaren Hinweis beim Start; scheitert danach die Verbindung zum
+  Server, nennt die Fehlermeldung die Datei mit. Gibt OHRGANIZE_API_BASE die
+  Adresse vor, sagt derselbe Hinweis, dass Serverschluessel aus der
+  uebersprungenen Datei nicht gelten. `npm run release` prueft die Sperre
+  schon vor Commit und Tag. Ob die App mit Daten auf dem Rechner
   arbeitet, meldet der Main-Prozess der Anmeldeseite ausdruecklich; ein
   Testserver auf 127.0.0.1 heisst dort "Verbunden mit 127.0.0.1:3001".
 - **Geaendert:** `npm run release` verlangt `--issues` mit den
