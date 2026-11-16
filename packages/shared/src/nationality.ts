@@ -86,6 +86,15 @@ export function nationalitiesLabel(nationality: string | null | undefined, furth
 }
 
 /**
+ * Bringt eine der Staatsangehoerigkeiten Freizuegigkeit (EU, EWR, Schweiz)?
+ * Dann gibt es keinen Aufenthaltstitel. Ohne Angabe: nein (unbekannt ist
+ * nicht dasselbe wie frei).
+ */
+export function hasFreeMovement(nationality: string | null | undefined, further?: string | null): boolean {
+  return nationalitiesOf(nationality, further).some((code) => (FREE_MOVEMENT_COUNTRIES as readonly string[]).includes(code));
+}
+
+/**
  * Braucht die Person einen Aufenthaltstitel? Nur, wenn keine ihrer
  * Staatsangehoerigkeiten Freizuegigkeit bringt; eine aus EU, EWR oder Schweiz
  * neben einer anderen genuegt. Ohne Angabe: nein.

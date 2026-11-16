@@ -23,6 +23,7 @@ import {
   withoutEntitlementFrozen,
   withoutEntitlementFrozenColumns,
   formatDate,
+  hasFreeMovement,
   nationalitiesLabel,
   needsResidencePermit,
   personnelDeadlineText,
@@ -90,6 +91,10 @@ check('EWR und Schweiz kein Titel', !needsResidencePermit('NO') && !needsResiden
 check('Drittstaat braucht Titel', needsResidencePermit('TR') && needsResidencePermit('GB'));
 check('weitere aus der EU: kein Titel', !needsResidencePermit('TR', 'DE') && !needsResidencePermit('US', 'GB,PL'));
 check('nur Drittstaaten: Titel', needsResidencePermit('TR', 'US,GB'));
+check(
+  'Freizuegigkeit nur mit einer Staatsangehoerigkeit aus EU, EWR oder Schweiz, ohne Angabe nicht',
+  hasFreeMovement('TR', 'DE') && hasFreeMovement('CH') && !hasFreeMovement('TR', 'US') && !hasFreeMovement(null, null),
+);
 
 // Mehrere Staatsangehoerigkeiten: gespeicherte Form und Anzeige.
 check(

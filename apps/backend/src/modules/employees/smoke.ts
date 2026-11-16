@@ -500,6 +500,20 @@ check(
   permitWithoutNeed.statusCode === 200 && permitWithoutNeed.json().employee.residence_permit === null,
   permitWithoutNeed.json(),
 );
+// Ohne erfasste Staatsangehoerigkeit bleibt ein Titel: Unbekannt heisst nicht frei.
+const permitUnknownOrigin = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { nationality: null, further_nationalities: null, residence_permit: 'blaue_karte_eu' },
+});
+check(
+  'Aufenthaltstitel ohne erfasste Staatsangehoerigkeit bleibt',
+  permitUnknownOrigin.statusCode === 200 &&
+    permitUnknownOrigin.json().employee.nationality === null &&
+    permitUnknownOrigin.json().employee.residence_permit === 'blaue_karte_eu',
+  permitUnknownOrigin.json(),
+);
 const badFurther = await app.inject({
   method: 'PATCH',
   url: `/api/employees/${empId}`,

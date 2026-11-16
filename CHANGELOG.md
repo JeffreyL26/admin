@@ -35,12 +35,15 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 - **Neu:** Abwesenheitsarten der Kategorie Sonderabwesenheit haben den Haken
   "ab sechs Wochen im Status zeigen" (Migration
   `209_absence_type_long_absence`). Ab Werk ist er bei allen gesetzt ausser
-  Home Office, das ein Arbeitsort ist und keine Abwesenheit.
+  Home Office, das ein Arbeitsort ist und keine Abwesenheit, auch wenn die
+  Art umbenannt wurde (Homeoffice, Mobiles Arbeiten, Remote, Telearbeit).
+  Andere Arten bitte nach dem Update in der Arten-Verwaltung pruefen.
 - **Neu:** Weitere Staatsangehoerigkeiten in der Personalakte (Feld unter der
   Staatsangehoerigkeit, hoechstens zehn, Migration
   `121_employee_further_nationalities`). Personalliste und Portal nennen
   alle; nach einem Aufenthaltstitel fragt das Formular nur, wenn keine aus
-  EU, EWR oder Schweiz dabei ist, und auch der Server leert ihn dann. Wird
+  EU, EWR oder Schweiz dabei ist, und auch der Server leert ihn dann (ohne
+  erfasste Staatsangehoerigkeit bleibt er). Wird
   die erste geleert, rueckt beim Speichern die erste weitere nach.
 - **Korrektur:** Mehrfachauswahl (Filter der Personalliste, weitere
   Staatsangehoerigkeiten) in der Hausschrift statt der Systemschrift; Escape

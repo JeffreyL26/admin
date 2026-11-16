@@ -112,8 +112,30 @@ const newType = await post('/api/absences/types', {
   color: '#22AA88',
   max_days_per_year: 12,
 });
-check('Art anlegen → 201', newType.statusCode === 201, newType.json());
+check(
+  'Art anlegen → 201, Sonderabwesenheit ohne Angabe im Status',
+  newType.statusCode === 201 && newType.json().type.long_absence_hint === 1,
+  newType.json(),
+);
 const newTypeId = newType.json().type.id as number;
+// Nur Sonderabwesenheiten koennen im Status erscheinen: Eine andere Kategorie
+// speichert 0, auch wenn das Formular (Vorgabe) true schickt.
+const vacationLike = await post('/api/absences/types', {
+  name: 'Arbeitszeitkonto',
+  category: 'urlaub',
+  paid: true,
+  affects_balance: false,
+  requires_proof: false,
+  requires_approval: true,
+  color: '#2288AA',
+  long_absence_hint: true,
+});
+check(
+  'Andere Kategorie speichert den Statushaken nie',
+  vacationLike.statusCode === 201 && vacationLike.json().type.long_absence_hint === 0,
+  vacationLike.json(),
+);
+await app.inject({ method: 'DELETE', url: `/api/absences/types/${vacationLike.json().type.id as number}`, headers: auth });
 
 const updType = await app.inject({
   method: 'PUT',
@@ -130,7 +152,38 @@ const updType = await app.inject({
     max_days_per_year: 10,
   },
 });
-check('Art bearbeiten', updType.statusCode === 200 && updType.json().type.color === '#118866');
+check(
+  'Art bearbeiten, Statushaken ohne Angabe bleibt',
+  updType.statusCode === 200 && updType.json().type.color === '#118866' && updType.json().type.long_absence_hint === 1,
+  updType.json(),
+);
+const hintOff = await app.inject({
+  method: 'PUT',
+  url: `/api/absences/types/${newTypeId}`,
+  headers: auth,
+  payload: {
+    name: 'Gleittag',
+    category: 'sonder',
+    paid: false,
+    affects_balance: false,
+    requires_proof: false,
+    requires_approval: true,
+    color: '#118866',
+    max_days_per_year: 10,
+    long_absence_hint: false,
+  },
+});
+check('Statushaken abschalten', hintOff.statusCode === 200 && hintOff.json().type.long_absence_hint === 0, hintOff.json());
+const homeOfficeType = db
+  .prepare("SELECT long_absence_hint FROM absence_types WHERE name = 'Home Office'")
+  .get() as { long_absence_hint: number };
+const parentalType = db
+  .prepare("SELECT long_absence_hint FROM absence_types WHERE name = 'Elternzeit'")
+  .get() as { long_absence_hint: number };
+check(
+  'Ab Werk im Status: Elternzeit ja, Home Office nein (Migration 209)',
+  parentalType.long_absence_hint === 1 && homeOfficeType.long_absence_hint === 0,
+);
 
 const delUnused = await app.inject({ method: 'DELETE', url: `/api/absences/types/${newTypeId}`, headers: auth });
 check('Unbenutzte Art löschen → 204', delUnused.statusCode === 204);

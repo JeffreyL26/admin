@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState
 import { ChevronDown, Pipette } from 'lucide-react';
 import { clamp01, hsvFromHex, hsvToHex, hsvToRgb, normalizeHex, rgbToHex, type Hsv, type Rgb } from '@ohrganize/shared';
 import { Popover } from './Popover';
+import { keepTabInPanel, useLabelClickGuard } from './panelKeys';
 import { Tooltip } from './Tooltip';
 
 /**
@@ -43,7 +44,6 @@ interface EyeDropperApi {
 const eyeDropperCtor = (): (new () => EyeDropperApi) | null =>
   'EyeDropper' in window ? (window as unknown as { EyeDropper: new () => EyeDropperApi }).EyeDropper : null;
 
-const FOCUSABLE_SELECTOR = 'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const PANEL_WIDTH = 276;
 const FULL_HEX = /^#?[0-9a-f]{6}$/i;
 const HEX_ERROR = 'Ungültig: 3 oder 6 Hex-Ziffern (0 bis 9, A bis F)';
@@ -167,7 +167,6 @@ export function ColorPicker({
   const pipetteRef = useRef<HTMLButtonElement>(null);
   const pickingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
-  const labelGuardRef = useRef(false);
   const [EyeDropperCtor] = useState(eyeDropperCtor);
 
   useLayoutEffect(() => {
@@ -219,28 +218,9 @@ export function ColorPicker({
     if (disabled) close('escape');
   }, [disabled, close]);
 
-  // Field ist ein <label>: Ein Klick auf die Beschriftung schließt das Panel
-  // über den Außenklick des Popovers und reicht dann einen Klick an den
-  // Auslöser weiter, der es sofort wieder öffnete. Der Wächter merkt sich den
-  // Fall beim Drücken und lässt den Auslöser den weitergereichten Klick schlucken.
-  useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      const target = e.target as Element | null;
-      const trigger = triggerRef.current;
-      labelGuardRef.current = Boolean(
-        openRef.current && trigger && target && !trigger.contains(target) && target.closest('label')?.contains(trigger),
-      );
-    };
-    const onKey = () => {
-      labelGuardRef.current = false;
-    };
-    document.addEventListener('pointerdown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey, true);
-    };
-  }, []);
+  // Field ist ein <label>: Klick auf die Beschriftung bei offenem Panel nicht
+  // gleich wieder öffnen (panelKeys.ts).
+  const swallowLabelClick = useLabelClickGuard(triggerRef, open);
 
   // Fokus erst, wenn das Popover gemessen und sichtbar ist; vorher steht es
   // bei -9999 und ein unsichtbares Element nimmt keinen Fokus an. Ein Timer
@@ -257,10 +237,7 @@ export function ColorPicker({
   const rgb = hsvToRgb(hsv);
 
   const onTriggerClick = () => {
-    if (labelGuardRef.current) {
-      labelGuardRef.current = false;
-      return;
-    }
+    if (swallowLabelClick()) return;
     if (openRef.current) close('trigger');
     else if (!disabled) setOpen(true);
   };
@@ -277,23 +254,7 @@ export function ColorPicker({
 
   const onPanelKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Tab') {
-      e.stopPropagation();
-      const panel = panelRef.current;
-      if (!panel) return;
-      const nodes = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-        (el) => el.getClientRects().length > 0,
-      );
-      if (nodes.length === 0) return;
-      const first = nodes[0]!;
-      const last = nodes[nodes.length - 1]!;
-      const active = document.activeElement;
-      if (e.shiftKey && (active === first || active === panel)) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
+      keepTabInPanel(e, panelRef.current);
       return;
     }
     if (e.key === 'Escape') {

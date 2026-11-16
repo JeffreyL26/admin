@@ -16,8 +16,8 @@ import {
   settleNationalities,
   employeeTypeRulesFor,
   employeeTypesFor,
+  hasFreeMovement,
   isRegionOf,
-  needsResidencePermit,
   regionCodesFor,
   taxClassesFor,
   type CountryCode,
@@ -187,9 +187,10 @@ export function settleWorkSchedule(
  * Staatsangehoerigkeiten in die gespeicherte Form bringen (shared
  * settleNationalities): ohne Doppel, ohne die erste unter den weiteren,
  * weitere sortiert, und ohne erste rueckt die erste weitere nach. Danach der
- * Aufenthaltstitel: Bringt eine der Staatsangehoerigkeiten Freizuegigkeit
- * (oder gibt es keine), wird er geleert (needsResidencePermit), wie im
- * Formular; sonst warnten Dashboard und Aktenkopf weiter vor seinem Ablauf.
+ * Aufenthaltstitel: Bringt eine der Staatsangehoerigkeiten Freizuegigkeit,
+ * wird er geleert (hasFreeMovement), wie im Formular; sonst warnten Dashboard
+ * und Aktenkopf weiter vor seinem Ablauf. Ohne erfasste Staatsangehoerigkeit
+ * bleibt er, wie er kommt: Unbekannt heisst nicht frei.
  * Aufgerufen nach dem Parsen von POST und PATCH, beim PATCH nur, wenn eines
  * der vier Felder kommt, mit dem Bestand fuer die anderen. Gesetzt wird nur,
  * was kam oder sich dadurch aendert, damit das Protokoll keine unveraenderten
@@ -225,7 +226,7 @@ export function settleNationalityFields(
   } else if (body.residence_permit === undefined && body.residence_permit_until === undefined) {
     return;
   }
-  if (needsResidencePermit(nationality, further)) return;
+  if (!hasFreeMovement(nationality, further)) return;
   for (const key of ['residence_permit', 'residence_permit_until'] as const) {
     if (body[key] !== undefined || stored(existing?.[key]) !== null) body[key] = null;
   }
