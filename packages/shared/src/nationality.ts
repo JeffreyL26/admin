@@ -88,7 +88,9 @@ export function nationalitiesLabel(nationality: string | null | undefined, furth
 /**
  * Bringt eine der Staatsangehoerigkeiten Freizuegigkeit (EU, EWR, Schweiz)?
  * Dann gibt es keinen Aufenthaltstitel. Ohne Angabe: nein (unbekannt ist
- * nicht dasselbe wie frei).
+ * nicht dasselbe wie frei). Die EINE Regel fuer das Leeren eines
+ * gespeicherten Titels, im Formular (formToPayload) wie im Server
+ * (settleNationalityFields).
  */
 export function hasFreeMovement(nationality: string | null | undefined, further?: string | null): boolean {
   return nationalitiesOf(nationality, further).some((code) => (FREE_MOVEMENT_COUNTRIES as readonly string[]).includes(code));
@@ -100,8 +102,7 @@ export function hasFreeMovement(nationality: string | null | undefined, further?
  * neben einer anderen genuegt. Ohne Angabe: nein.
  */
 export function needsResidencePermit(nationality: string | null | undefined, further?: string | null): boolean {
-  const all = nationalitiesOf(nationality, further);
-  return all.length > 0 && !all.some((code) => (FREE_MOVEMENT_COUNTRIES as readonly string[]).includes(code));
+  return nationalitiesOf(nationality, further).length > 0 && !hasFreeMovement(nationality, further);
 }
 
 /**
