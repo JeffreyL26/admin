@@ -76,10 +76,20 @@ const typeBodySchema = z.object({
   // Sichtbarkeit im Firmenkalender des Portals. Fehlt das Feld, entscheidet
   // die Kategorie (siehe defaultPortalVisibility) — nicht pauschal 'name'.
   portal_visibility: z.enum(['name', 'neutral']).optional(),
-  // Zusatz zum Status ab sechs Wochen (nur Kategorie 'sonder'). Fehlt das
-  // Feld, gilt beim Anlegen die Kategorie, beim Aendern der Bestand.
+  // Zusatz zum Status ab sechs Wochen, nur Kategorie 'sonder' (andere
+  // speichern immer 0, longAbsenceHintFor). Fehlt das Feld, gilt beim
+  // Anlegen an, beim Aendern der Bestand.
   long_absence_hint: z.boolean().optional(),
 });
+
+/**
+ * Gespeicherter Wert von absence_types.long_absence_hint: nur eine
+ * Sonderabwesenheit kann im Status erscheinen, alle anderen Kategorien
+ * speichern 0, auch wenn der Client (Formular-Vorgabe) true schickt.
+ */
+function longAbsenceHintFor(category: string, sent: boolean | undefined, fallback: boolean): 0 | 1 {
+  return category === 'sonder' && (sent ?? fallback) ? 1 : 0;
+}
 
 /**
  * Vorgabe für die Portal-Sichtbarkeit, wenn der Client das Feld weglässt.
@@ -316,7 +326,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
           body.max_days_per_year ?? null,
           body.active === false ? 0 : 1,
           body.portal_visibility ?? defaultPortalVisibility(body.category),
-          (body.long_absence_hint ?? body.category === 'sonder') ? 1 : 0,
+          longAbsenceHintFor(body.category, body.long_absence_hint, true),
         );
       const newId = Number(result.lastInsertRowid);
       audit(req, 'create', 'absence_type', newId, body);
@@ -352,7 +362,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
           body.max_days_per_year ?? null,
           body.active === false ? 0 : 1,
           body.portal_visibility ?? defaultPortalVisibility(body.category),
-          (body.long_absence_hint ?? existing.long_absence_hint === 1) ? 1 : 0,
+          longAbsenceHintFor(body.category, body.long_absence_hint, existing.long_absence_hint === 1),
           id,
         );
       audit(req, 'update', 'absence_type', id, body);
@@ -819,7 +829,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
 
     // Für die Ketten-Betrachtung alle (nicht stornierten) AUs der betroffenen
     // Mitarbeitenden laden — die gefilterte Liste könnte Kettenglieder verlieren.
-    const all = sickChainNotes(employeeIds.map(() => '?').join(','), employeeIds);
+    const all = sickChainNotes({ employeeIds });
     // Kettenumfang je Krankmeldung: frühester Beginn, spätestes Ende (wie der
     // Zusatz „Langzeitkrank“ in Personal und Gehaltsübersicht, longAbsenceFor).
     const chains = sickChainSpans(all);

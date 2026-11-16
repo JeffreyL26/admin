@@ -410,9 +410,11 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   kein eigener Status, sondern aus den Abwesenheiten abgeleitet. Eine
   genehmigte Sonderabwesenheit (Kategorie `sonder`) einer Art mit „im Status
   zeigen“ (`absence_types.long_absence_hint`, Migration
-  `209_absence_type_long_absence`, Haken in der Arten-Verwaltung; ab Werk
-  alle außer Home Office, das ein Arbeitsort ist: die Arten sind nur am
-  änderbaren Namen erkennbar, deshalb die Wahl an der Art), die heute
+  `209_absence_type_long_absence`, Haken in der Arten-Verwaltung, andere
+  Kategorien speichern immer 0; ab Werk alle außer Home Office, das ein
+  Arbeitsort ist, auch unter den üblichen anderen Namen wie Mobiles Arbeiten:
+  die Arten sind nur am änderbaren Namen erkennbar, deshalb die Wahl an der
+  Art), die heute
   andauert und mindestens sechs Wochen dauert; aneinandergereihte Anträge
   derselben Art (Beginn spätestens am Tag nach dem Ende) zählen als ein
   Zeitraum, weil eine Verlängerung ein neuer Antrag ist. Sonst eine eigene
@@ -480,7 +482,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Wechsel der ersten nur diese, weil der Select jeden Tastaturschritt meldet),
   Aufenthaltstitel nur, wenn keine davon aus EU, EWR oder Schweiz ist
   (`needsResidencePermit` mit allen; das Formular blendet ihn sonst aus und
-  schickt null, das Backend leert ihn ebenso in `settleNationalityFields`),
+  schickt null; das Backend leert ihn, sobald eine aus EU, EWR oder Schweiz
+  dabei ist, `hasFreeMovement` in `settleNationalityFields`, ohne erfasste
+  Staatsangehörigkeit bleibt er),
   höchster Abschluss
   (`HIGHEST_DEGREES`). Die
   **Beschäftigungsart je Vertragsversion** (`contracts.employee_type`) ist die
@@ -998,7 +1002,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `#rrggbb` in Kleinbuchstaben, toleriert im `value` Kurzform, fehlendes `#`
   und Grossschreibung, die Farbmathematik (Hex/RGB/HSV) liegt rein in
   `packages/shared/src/color.ts`, geprueft von
-  `apps/backend/src/test/colorTest.ts`.
+  `apps/backend/src/test/colorTest.ts`. Panels im Popover, die in einem
+  Modal stehen können (ColorPicker, MultiSelect), behandeln Tab, Escape und
+  den Klick auf ein umgebendes Label über `components/panelKeys.ts`; die
+  Fokusfalle des Modals sieht das Portal sonst als draußen.
 - **Dateien** liegen ausschließlich im Backend-Storage (`files`-Tabelle + Ordner).
   Downloads laufen über kurzlebige HMAC-signierte URLs (`core/files.ts`) — für
   Desktop- und späteren Web-Client identisch.

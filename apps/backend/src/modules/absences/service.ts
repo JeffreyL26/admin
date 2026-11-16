@@ -1741,20 +1741,43 @@ export interface SickChainRow extends SickChainNote {
 
 /**
  * Glieder der AU-Ketten (sickChainSpans): alle nicht stornierten
- * Krankmeldungen der Personen, deren IDs `employeeIdsSql` liefert
- * (Platzhalterliste oder Unterabfrage, Parameter in `params`). EINE Abfrage
- * für die Krankmeldungsliste (sick_pay_exceeded) und den Zusatz
- * „Langzeitkrank“, damit beide dieselben Ketten sehen.
+ * Krankmeldungen bestimmter Personen. EINE Abfrage für die Krankmeldungsliste
+ * (sick_pay_exceeded) und den Zusatz „Langzeitkrank“, damit beide dieselben
+ * Ketten sehen. Die Personen kommen als IDs (`employeeIds`) oder als die
+ * aktiven Personen, die am Tag `sickOn` selbst krankgemeldet sind (Kind krank
+ * zählt nicht), wahlweise nur unter `employeeIds`. Werte gehen nur als
+ * Parameter in die Abfrage. Die Unterabfrage nennt den Status als Liste statt
+ * mit `!=`, damit sie den Index (status, date_to) nutzt statt die ganze
+ * Historie zu lesen.
  */
-export function sickChainNotes(employeeIdsSql: string, params: readonly unknown[]): SickChainRow[] {
+export function sickChainNotes(
+  filter: { employeeIds: readonly number[]; sickOn?: undefined } | { sickOn: string; employeeIds?: readonly number[] },
+): SickChainRow[] {
+  const ids = filter.employeeIds ?? [];
+  const placeholders = ids.map(() => '?').join(',');
+  let people: string;
+  let params: unknown[];
+  if (filter.sickOn === undefined) {
+    if (ids.length === 0) return [];
+    people = placeholders;
+    params = [...ids];
+  } else {
+    if (filter.employeeIds && ids.length === 0) return [];
+    people = `SELECT r2.employee_id FROM sick_notes s2
+       JOIN absence_requests r2 ON r2.id = s2.absence_request_id
+       JOIN employees e ON e.id = r2.employee_id
+       WHERE e.status = 'aktiv' AND r2.status IN ('beantragt', 'genehmigt', 'abgelehnt') AND s2.child_sick = 0
+         AND r2.date_to >= ? AND r2.date_from <= ?${filter.employeeIds ? ` AND r2.employee_id IN (${placeholders})` : ''}`;
+    params = [filter.sickOn, filter.sickOn, ...ids];
+  }
   return getDb()
     .prepare(
       `SELECT s.id, s.follow_up_of_id, s.child_sick, r.employee_id, r.date_from, r.date_to
        FROM sick_notes s
        JOIN absence_requests r ON r.id = s.absence_request_id
-       WHERE r.status != 'storniert' AND r.employee_id IN (${employeeIdsSql})`,
+       WHERE r.status != 'storniert' AND r.employee_id IN (${people})`,
     )
-    .all([...params]) as SickChainRow[];
+    .all(params) as SickChainRow[];
 }
 
 /**
@@ -1766,9 +1789,9 @@ export function sickChainNotes(employeeIdsSql: string, params: readonly unknown[
  * Abfragen für alle zusammen: die genehmigten Sonderabwesenheiten der Arten
  * mit „im Status zeigen“ (alle, damit aneinandergereihte Anträge als ein
  * Zeitraum zählen) der Personen, die heute eine haben, und die AU-Ketten der
- * Personen, die heute selbst krankgemeldet sind. Die Unterabfragen nennen
- * den Status als Liste statt mit `!=`, damit sie den Index (status, date_to)
- * nutzen statt die ganze Historie zu lesen.
+ * Personen, die heute selbst krankgemeldet sind (sickChainNotes). Beide
+ * Unterabfragen suchen über den Index (status, date_to) statt die ganze
+ * Historie zu lesen.
  */
 export function longAbsencesToday(req: FastifyRequest, employeeIds?: readonly number[]): Map<number, LongAbsence> {
   const found = new Map<number, LongAbsence>();
@@ -1795,14 +1818,7 @@ export function longAbsencesToday(req: FastifyRequest, employeeIds?: readonly nu
              AND t2.long_absence_hint = 1 AND r2.date_to >= ? AND r2.date_from <= ?${only('r2.employee_id')})`,
     )
     .all([today, today, ...ids]) as (LongLeaveRequest & { employee_id: number })[];
-  const notes = sickChainNotes(
-    `SELECT r2.employee_id FROM sick_notes s2
-     JOIN absence_requests r2 ON r2.id = s2.absence_request_id
-     JOIN employees e ON e.id = r2.employee_id
-     WHERE e.status = 'aktiv' AND r2.status IN ('beantragt', 'genehmigt', 'abgelehnt') AND s2.child_sick = 0
-       AND r2.date_to >= ? AND r2.date_from <= ?${only('r2.employee_id')}`,
-    [today, today, ...ids],
-  );
+  const notes = sickChainNotes({ sickOn: today, employeeIds });
   const byEmployee = new Map<number, { leaves: LongLeaveRequest[]; notes: SickChainRow[] }>();
   const of = (employeeId: number) => {
     let entry = byEmployee.get(employeeId);

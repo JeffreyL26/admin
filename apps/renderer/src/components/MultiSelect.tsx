@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search, X } from 'lucide-react';
 import { Popover } from './Popover';
+import { keepTabInPanel, useLabelClickGuard } from './panelKeys';
 
 /**
  * Auswahlfeld mit Mehrfachauswahl.
@@ -15,7 +16,7 @@ import { Popover } from './Popover';
  * mit `overflow: hidden`, die ein eingebettetes Panel abschneiden würde.
  * Weil das Panel damit außerhalb eines Modals liegt, dessen Fokusfalle und
  * Escape es als „draußen“ sähen, behandelt es Tab und Escape selbst und
- * stoppt die Weitergabe (wie ColorPicker).
+ * stoppt die Weitergabe (panelKeys.ts, wie ColorPicker).
  *
  * Leere Auswahl bedeutet als Filter immer „kein Filter“, nicht „nichts anzeigen“.
  */
@@ -48,8 +49,6 @@ interface Props<T extends string | number> {
   max?: number;
 }
 
-const FOCUSABLE_SELECTOR = 'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 export function MultiSelect<T extends string | number>({
   allLabel,
   options,
@@ -67,7 +66,6 @@ export function MultiSelect<T extends string | number>({
   const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const openRef = useRef(false);
-  const labelGuardRef = useRef(false);
   const setOpen = (next: boolean) => {
     openRef.current = next;
     setOpenState(next);
@@ -82,28 +80,9 @@ export function MultiSelect<T extends string | number>({
     if (!open) setTerm('');
   }, [open, searchable]);
 
-  // Steht das Feld in einem <label> (Field), schließt ein Klick auf die
-  // Beschriftung das Panel über den Außenklick und reicht dann einen Klick an
-  // den Auslöser weiter, der es sofort wieder öffnete. Der Wächter merkt sich
-  // den Fall beim Drücken, der Auslöser schluckt den weitergereichten Klick.
-  useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      const target = e.target as Element | null;
-      const trigger = buttonRef.current;
-      labelGuardRef.current = Boolean(
-        openRef.current && trigger && target && !trigger.contains(target) && target.closest('label')?.contains(trigger),
-      );
-    };
-    const onKey = () => {
-      labelGuardRef.current = false;
-    };
-    document.addEventListener('pointerdown', onDown, true);
-    document.addEventListener('keydown', onKey, true);
-    return () => {
-      document.removeEventListener('pointerdown', onDown, true);
-      document.removeEventListener('keydown', onKey, true);
-    };
-  }, []);
+  // Steht das Feld in einem <label> (Field): Klick auf die Beschriftung bei
+  // offener Liste nicht gleich wieder öffnen (panelKeys.ts).
+  const swallowLabelClick = useLabelClickGuard(buttonRef, open);
 
   const shown = useMemo(() => {
     if (!term.trim()) return options;
@@ -122,10 +101,7 @@ export function MultiSelect<T extends string | number>({
   };
 
   const onTriggerClick = () => {
-    if (labelGuardRef.current) {
-      labelGuardRef.current = false;
-      return;
-    }
+    if (swallowLabelClick()) return;
     setOpen(!openRef.current);
   };
 
@@ -141,26 +117,7 @@ export function MultiSelect<T extends string | number>({
       closeToTrigger();
       return;
     }
-    if (e.key !== 'Tab') return;
-    // Tab bleibt im Panel; sonst holte die Fokusfalle eines Modals den Fokus
-    // auf seinen ersten Knopf, und die Kontrollkästchen wären unerreichbar.
-    e.stopPropagation();
-    const panel = panelRef.current;
-    if (!panel) return;
-    const nodes = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-      (el) => el.getClientRects().length > 0,
-    );
-    if (nodes.length === 0) return;
-    const first = nodes[0]!;
-    const last = nodes[nodes.length - 1]!;
-    const active = document.activeElement;
-    if (e.shiftKey && (active === first || !panel.contains(active))) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
-      e.preventDefault();
-      first.focus();
-    }
+    if (e.key === 'Tab') keepTabInPanel(e, panelRef.current);
   };
 
   const optionLabel = (v: T) => options.find((o) => o.value === v)?.label;
