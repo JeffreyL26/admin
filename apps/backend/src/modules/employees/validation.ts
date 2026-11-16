@@ -16,9 +16,9 @@ import {
   settleNationalities,
   employeeTypeRulesFor,
   employeeTypesFor,
-  hasFreeMovement,
   isRegionOf,
   regionCodesFor,
+  residencePermitFields,
   taxClassesFor,
   type CountryCode,
   type EmployeeType,
@@ -188,7 +188,7 @@ export function settleWorkSchedule(
  * settleNationalities): ohne Doppel, ohne die erste unter den weiteren,
  * weitere sortiert, und ohne erste rueckt die erste weitere nach. Danach der
  * Aufenthaltstitel: Bringt eine der Staatsangehoerigkeiten Freizuegigkeit,
- * wird er geleert (hasFreeMovement), wie im Formular; sonst warnten Dashboard
+ * wird er geleert (residencePermitFields), wie im Formular; sonst warnten Dashboard
  * und Aktenkopf weiter vor seinem Ablauf. Ohne erfasste Staatsangehoerigkeit
  * bleibt er, wie er kommt: Unbekannt heisst nicht frei.
  * Aufgerufen nach dem Parsen von POST und PATCH, beim PATCH nur, wenn eines
@@ -226,9 +226,16 @@ export function settleNationalityFields(
   } else if (body.residence_permit === undefined && body.residence_permit_until === undefined) {
     return;
   }
-  if (!hasFreeMovement(nationality, further)) return;
+  // Dieselbe Feldregel wie im Formular (shared residencePermitFields); gesetzt
+  // wird nur, was kam oder sich dadurch aendert.
+  const current = {
+    residence_permit: body.residence_permit !== undefined ? body.residence_permit : stored(existing?.residence_permit),
+    residence_permit_until:
+      body.residence_permit_until !== undefined ? body.residence_permit_until : stored(existing?.residence_permit_until),
+  };
+  const target = residencePermitFields(nationality, further, current.residence_permit, current.residence_permit_until);
   for (const key of ['residence_permit', 'residence_permit_until'] as const) {
-    if (body[key] !== undefined || stored(existing?.[key]) !== null) body[key] = null;
+    if (body[key] !== undefined || target[key] !== current[key]) body[key] = target[key];
   }
 }
 

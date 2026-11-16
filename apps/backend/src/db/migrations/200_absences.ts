@@ -1,5 +1,12 @@
-import { looksLikeHomeOffice } from '@ohrganize/shared';
 import type { Migration } from './types.js';
+
+/**
+ * Namen, die Migration 209 als Home Office liest: eingefroren mit Stand 1.1.5
+ * (damals gleich shared looksLikeHomeOffice). Bewusst eine Kopie, damit eine
+ * spaetere Aenderung der Laufzeitregel diese ausgelieferte Migration nicht
+ * nachtraeglich anders rechnen laesst. Getestet in longAbsenceTest.
+ */
+export const HOME_OFFICE_NAME_209 = /home.*office|work.*from.*home|(^|\s)mobil|remote|telearbeit/i;
 
 // Nummernkreis 2xx: Abwesenheitsmanagement.
 export const absencesMigrations: Migration[] = [
@@ -245,8 +252,8 @@ export const absencesMigrations: Migration[] = [
     // Arten sind nur am aenderbaren Namen erkennbar, deshalb steht die Wahl
     // an der Art. Ab Werk alle Sonderabwesenheiten ausser Home Office, das
     // ein Arbeitsort ist und keine Abwesenheit (207_home_office), erkannt auch
-    // unter anderen Namen (shared looksLikeHomeOffice, getestet in
-    // longAbsenceTest). Was danach noch falsch steht, korrigiert die HR am
+    // unter anderen Namen (HOME_OFFICE_NAME_209 oben, eingefroren, getestet
+    // in longAbsenceTest). Was danach noch falsch steht, korrigiert die HR am
     // Haken der Art. Mit 1.1.5 ausgeliefert: ab dann nicht mehr aendern, eine
     // Korrektur ist eine neue Migration (eine schon gelaufene laeuft nie
     // wieder). Fruehere Entwicklungsstaende dieser Migration unterschieden
@@ -261,7 +268,7 @@ export const absencesMigrations: Migration[] = [
         name: string;
       }[];
       const flag = db.prepare('UPDATE absence_types SET long_absence_hint = 1 WHERE id = ?');
-      for (const type of types) if (!looksLikeHomeOffice(type.name)) flag.run(type.id);
+      for (const type of types) if (!HOME_OFFICE_NAME_209.test(type.name)) flag.run(type.id);
     },
   },
 ];

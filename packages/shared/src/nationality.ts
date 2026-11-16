@@ -88,9 +88,8 @@ export function nationalitiesLabel(nationality: string | null | undefined, furth
 /**
  * Bringt eine der Staatsangehoerigkeiten Freizuegigkeit (EU, EWR, Schweiz)?
  * Dann gibt es keinen Aufenthaltstitel. Ohne Angabe: nein (unbekannt ist
- * nicht dasselbe wie frei). Die EINE Regel fuer das Leeren eines
- * gespeicherten Titels, im Formular (formToPayload) wie im Server
- * (settleNationalityFields).
+ * nicht dasselbe wie frei). Grundlage von residencePermitFields, der EINEN
+ * Regel fuer das Leeren eines gespeicherten Titels in Formular und Server.
  */
 export function hasFreeMovement(nationality: string | null | undefined, further?: string | null): boolean {
   return nationalitiesOf(nationality, further).some((code) => (FREE_MOVEMENT_COUNTRIES as readonly string[]).includes(code));
@@ -108,10 +107,9 @@ export function needsResidencePermit(nationality: string | null | undefined, fur
 /**
  * Gespeicherte Felder des Aufenthaltstitels: Bringt eine der
  * Staatsangehoerigkeiten Freizuegigkeit, sind beide leer, sonst bleiben sie,
- * wie sie sind (auch ohne erfasste Staatsangehoerigkeit). Das Formular
- * (formToPayload) rechnet damit; der Server leert nach derselben Regel
- * (hasFreeMovement in settleNationalityFields), setzt aber nur Felder, die
- * sich aendern.
+ * wie sie sind (auch ohne erfasste Staatsangehoerigkeit). Formular
+ * (formToPayload) und Server (settleNationalityFields, der nur Felder setzt,
+ * die kamen oder sich aendern) rechnen beide damit.
  */
 export function residencePermitFields<P, U>(
   nationality: string | null | undefined,

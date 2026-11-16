@@ -8,6 +8,7 @@
  * Aufruf: tsx src/test/longAbsenceTest.ts (Teil von npm test)
  */
 import { longAbsenceFor, longAbsenceText, looksLikeHomeOffice, sickChainSpans, sickPayDaysUsed } from '@ohrganize/shared';
+import { HOME_OFFICE_NAME_209 } from '../db/migrations/200_absences.js';
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -141,16 +142,22 @@ const homeOfficeNames = [
   'Telearbeit',
 ];
 const absenceNames = ['Elternzeit', 'Mutterschutz', 'Sabbatical', 'Unbezahlter Urlaub', 'Sonderurlaub Immobilienkauf', 'Bildungsurlaub'];
-check(
-  'Home Office unter seinen ueblichen Namen erkannt',
-  homeOfficeNames.every(looksLikeHomeOffice),
-  homeOfficeNames.filter((n) => !looksLikeHomeOffice(n)),
-);
-check(
-  'Abwesenheiten, auch mit mobil mitten im Wort, nicht als Home Office',
-  absenceNames.every((n) => !looksLikeHomeOffice(n)),
-  absenceNames.filter(looksLikeHomeOffice),
-);
+// Laufzeitregel und das eingefrorene Muster der Migration 209 (Stand 1.1.5).
+for (const [where, isHomeOffice] of [
+  ['looksLikeHomeOffice', looksLikeHomeOffice],
+  ['Migration 209', (name: string) => HOME_OFFICE_NAME_209.test(name)],
+] as const) {
+  check(
+    `${where}: Home Office unter seinen ueblichen Namen erkannt`,
+    homeOfficeNames.every(isHomeOffice),
+    homeOfficeNames.filter((n) => !isHomeOffice(n)),
+  );
+  check(
+    `${where}: Abwesenheiten, auch mit mobil mitten im Wort, nicht als Home Office`,
+    absenceNames.every((n) => !isHomeOffice(n)),
+    absenceNames.filter(isHomeOffice),
+  );
+}
 
 if (failures > 0) {
   console.log(`longAbsenceTest: ${failures} Fehler`);
