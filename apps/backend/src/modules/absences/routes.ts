@@ -43,7 +43,7 @@ import {
   regionForEmployee,
   regionSelectParams,
   schedulePreview,
-  sickChainNotes,
+  sickChainNotesFor,
   REGION_JOIN_SQL,
   REGION_SELECT_SQL,
   type AbsenceTypeRow as TypeRow,
@@ -829,7 +829,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
 
     // Für die Ketten-Betrachtung alle (nicht stornierten) AUs der betroffenen
     // Mitarbeitenden laden — die gefilterte Liste könnte Kettenglieder verlieren.
-    const all = sickChainNotes({ employeeIds });
+    const all = sickChainNotesFor(employeeIds);
     // Kettenumfang je Krankmeldung: frühester Beginn, spätestes Ende (wie der
     // Zusatz „Langzeitkrank“ in Personal und Gehaltsübersicht, longAbsenceFor).
     const chains = sickChainSpans(all);

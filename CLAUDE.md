@@ -421,7 +421,7 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   AU-Kette, die heute andauert und seit mehr als 42 Kalendertagen läuft
   (`sickChainSpans` und `sickPayDaysUsed`, dieselbe Zählung wie
   `sick_pay_exceeded` der Krankmeldungen, geladen über dieselbe Abfrage
-  `sickChainNotes`; Kind krank nie). Geliefert als `long_absence` von
+  in `sickChainNotesFor` und `sickChainNotesOfSickOn`; Kind krank nie). Geliefert als `long_absence` von
   `GET /api/employees` (nicht `fields=lite`, gerechnet nur für die aktiven
   Treffer), `GET /api/employees/:id` und der Gehaltsübersicht, nur mit
   `abwesenheit: lesen` (`longAbsencesToday` in `absences/service.ts`, zwei
@@ -481,10 +481,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   sortiert, ohne erste rückt die erste weitere nach; das Formular setzt beim
   Wechsel der ersten nur diese, weil der Select jeden Tastaturschritt meldet),
   Aufenthaltstitel nur, wenn keine davon aus EU, EWR oder Schweiz ist
-  (`needsResidencePermit` mit allen; das Formular blendet ihn sonst aus und
-  schickt null; das Backend leert ihn, sobald eine aus EU, EWR oder Schweiz
-  dabei ist, `hasFreeMovement` in `settleNationalityFields`, ohne erfasste
-  Staatsangehörigkeit bleibt er),
+  (`needsResidencePermit` mit allen; geleert wird ein gespeicherter Titel in
+  Formular und Backend nach derselben Regel `hasFreeMovement`: sobald eine
+  aus EU, EWR oder Schweiz dabei ist; ohne erfasste Staatsangehörigkeit
+  bleibt er, und das Formular zeigt ihn dann, wenn einer eingetragen ist),
   höchster Abschluss
   (`HIGHEST_DEGREES`). Die
   **Beschäftigungsart je Vertragsversion** (`contracts.employee_type`) ist die

@@ -187,21 +187,23 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   "ab sechs Wochen im Status zeigen" (Migration
   `209_absence_type_long_absence`). Ab Werk ist er bei allen gesetzt ausser
   Home Office, das ein Arbeitsort ist und keine Abwesenheit, auch wenn die
-  Art umbenannt wurde (Homeoffice, Mobiles Arbeiten, Remote, Telearbeit).
+  Art umbenannt wurde (Homeoffice, Work from Home, Mobiles Arbeiten, Mobile
+  Office, Remote, Telearbeit).
   Andere Arten bitte nach dem Update in der Arten-Verwaltung pruefen.
 - **Neu:** Weitere Staatsangehoerigkeiten in der Personalakte (Feld unter der
   Staatsangehoerigkeit, hoechstens zehn, Migration
   `121_employee_further_nationalities`). Personalliste und Portal nennen
   alle; nach einem Aufenthaltstitel fragt das Formular nur, wenn keine aus
-  EU, EWR oder Schweiz dabei ist, und auch der Server leert ihn dann (ohne
-  erfasste Staatsangehoerigkeit bleibt er). Wird
+  EU, EWR oder Schweiz dabei ist, und Formular wie Server leeren ihn dann
+  (ohne erfasste Staatsangehoerigkeit bleibt er und bleibt sichtbar). Wird
   die erste geleert, rueckt beim Speichern die erste weitere nach.
 - **Korrektur:** Mehrfachauswahl (Filter der Personalliste, weitere
   Staatsangehoerigkeiten) in der Hausschrift statt der Systemschrift; Escape
   in der offenen Liste schliesst nur die Liste, nicht den Dialog dahinter,
   und Tab bleibt in der Liste.
-- **Intern:** Die AU-Kette der Krankmeldungen rechnen `sickChainNotes`,
-  `sickChainSpans` und `sickPayDaysUsed` an einer Stelle; Krankmeldungsliste
+- **Intern:** Die AU-Kette der Krankmeldungen rechnen `sickChainNotesFor`
+  bzw. `sickChainNotesOfSickOn`, `sickChainSpans` und `sickPayDaysUsed` an
+  einer Stelle; Krankmeldungsliste
   und Zusatz zaehlen damit gleich. Bereichsrechte im Handler prueft
   `mayArea` (`core/permissions.ts`).
 

@@ -245,17 +245,22 @@ export const absencesMigrations: Migration[] = [
     // an der Art. Ab Werk alle Sonderabwesenheiten ausser Home Office, das
     // ein Arbeitsort ist und keine Abwesenheit (207_home_office); erkannt auch
     // unter den ueblichen anderen Namen, falls die Art umbenannt wurde
-    // (Homeoffice, Mobiles Arbeiten, Remote, Telearbeit). Was danach noch
-    // falsch steht, korrigiert die HR am Haken der Art.
+    // (Homeoffice, Work from Home, Mobiles Arbeiten, Mobile Office, Mobiles
+    // Buero, Remote, Telearbeit; "mobil" nur am Wortanfang, damit etwa
+    // "Immobilienkauf" nicht darunter faellt). LIKE vergleicht ASCII ohne
+    // Gross- und Kleinschreibung. Was danach noch falsch steht, korrigiert die
+    // HR am Haken der Art.
     name: '209_absence_type_long_absence',
     sql: `
       ALTER TABLE absence_types ADD COLUMN long_absence_hint INTEGER NOT NULL DEFAULT 0;
       UPDATE absence_types SET long_absence_hint = 1
        WHERE category = 'sonder'
-         AND lower(name) NOT LIKE '%home%office%'
-         AND lower(name) NOT LIKE '%mobil%arbeit%'
-         AND lower(name) NOT LIKE '%remote%'
-         AND lower(name) NOT LIKE '%telearbeit%';
+         AND NOT (name LIKE '%home%office%'
+              OR name LIKE '%work%from%home%'
+              OR name LIKE 'mobil%'
+              OR name LIKE '% mobil%'
+              OR name LIKE '%remote%'
+              OR name LIKE '%telearbeit%');
     `,
   },
 ];

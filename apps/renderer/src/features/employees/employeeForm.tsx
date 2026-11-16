@@ -13,6 +13,7 @@ import {
   disabilityNotes,
   entitlementDaysPerWeek,
   formatWeekdays,
+  hasFreeMovement,
   MAX_FURTHER_NATIONALITIES,
   nationalityLabel,
   needsResidencePermit,
@@ -283,10 +284,11 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     photo_thumb_file_id: f.photo_thumb_file_id,
     // Gespeicherte Form wie im Backend (settleNationalities).
     ...settleNationalities(str(f.nationality), f.further_nationalities.join(',')),
-    // Ohne Bedarf (eine Staatsangehörigkeit aus EU, EWR oder Schweiz, oder
-    // keine Angabe) bleibt nichts stehen.
-    residence_permit: formNeedsPermit(f) ? str(f.residence_permit) : null,
-    residence_permit_until: formNeedsPermit(f) ? str(f.residence_permit_until) : null,
+    // Dieselbe Regel wie im Server (hasFreeMovement): Bringt eine
+    // Staatsangehörigkeit Freizügigkeit, bleibt kein Titel stehen; ohne
+    // erfasste Staatsangehörigkeit bleibt er, wie er ist.
+    residence_permit: formFreeMovement(f) ? null : str(f.residence_permit),
+    residence_permit_until: formFreeMovement(f) ? null : str(f.residence_permit_until),
     highest_degree: str(f.highest_degree),
     degree_field: str(f.degree_field),
     home_office_weekdays: f.home_office_weekdays.length > 0 ? formatWeekdays(f.home_office_weekdays) : null,
@@ -299,9 +301,21 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
   };
 }
 
-/** Braucht die Person laut Formular einen Aufenthaltstitel (alle Staatsangehörigkeiten)? */
-function formNeedsPermit(f: EmployeeFormState): boolean {
-  return needsResidencePermit(f.nationality, f.further_nationalities.join(','));
+/** Bringt laut Formular eine der Staatsangehörigkeiten Freizügigkeit? */
+function formFreeMovement(f: EmployeeFormState): boolean {
+  return hasFreeMovement(f.nationality, f.further_nationalities.join(','));
+}
+
+/**
+ * Felder des Aufenthaltstitels zeigen: wenn er nötig ist (nur
+ * Staatsangehörigkeiten außerhalb von EU, EWR und Schweiz) oder, ohne
+ * erfasste Staatsangehörigkeit, wenn schon einer eingetragen ist. Sonst
+ * stünde ein gespeicherter Titel unsichtbar im Formular, während das
+ * Dashboard vor seinem Ablauf warnt.
+ */
+function formShowsPermit(f: EmployeeFormState): boolean {
+  if (needsResidencePermit(f.nationality, f.further_nationalities.join(','))) return true;
+  return !formFreeMovement(f) && Boolean(f.residence_permit || f.residence_permit_until);
 }
 
 /** Arbeitstage je Woche laut Formular (für den Hinweis zum Mindesturlaub). */
@@ -454,7 +468,7 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
           />
         </Field>
       ) : null}
-      {formNeedsPermit(form) ? (
+      {formShowsPermit(form) ? (
         <>
           <Field label="Aufenthaltstitel" hint="Außerhalb von EU, EWR und Schweiz">
             <Select

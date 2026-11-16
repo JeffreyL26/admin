@@ -43,8 +43,12 @@ const LABEL_CLICK_WINDOW_MS = 1000;
  * dann einen Klick an den Auslöser weiter, der es sofort wieder öffnete. Der
  * Wächter merkt sich beim Drücken, dass der nächste Klick des Auslösers
  * geschluckt werden soll; die Rückgabe fragt das im Klick-Handler ab (und
- * verbraucht es). Gehorcht wird nur, solange das Panel offen ist; ein Druck
- * ohne folgenden Klick verfällt nach kurzer Zeit, ein Tastendruck sofort.
+ * verbraucht es). Gesetzt wird er nur, solange das Panel offen ist (die
+ * Listener am Dokument hängen nur dann). Zurück setzen ihn jeder Druck und
+ * jede Taste am Auslöser selbst, auch bei geschlossenem Panel: Ein
+ * weitergereichter Klick des Labels kommt ohne beides an, ein echter Klick
+ * oder Enter nicht. Ein Druck ohne folgenden Klick verfällt zudem nach
+ * kurzer Zeit.
  */
 export function useLabelClickGuard(triggerRef: RefObject<HTMLElement>, open: boolean): () => boolean {
   const until = useRef(0);
@@ -68,6 +72,19 @@ export function useLabelClickGuard(triggerRef: RefObject<HTMLElement>, open: boo
       document.removeEventListener('keydown', onKey, true);
     };
   }, [open, triggerRef]);
+  useEffect(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const clear = () => {
+      until.current = 0;
+    };
+    trigger.addEventListener('pointerdown', clear);
+    trigger.addEventListener('keydown', clear);
+    return () => {
+      trigger.removeEventListener('pointerdown', clear);
+      trigger.removeEventListener('keydown', clear);
+    };
+  }, [triggerRef]);
   return useCallback(() => {
     const swallow = performance.now() < until.current;
     until.current = 0;
