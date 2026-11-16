@@ -11,6 +11,7 @@ import {
   DEFAULT_WORK_SCHEDULE,
   SICK_PAY_LIMIT_DAYS,
   isScheduledDay,
+  looksLikeHomeOffice,
   maskDisabilityEntitlement,
   nextWorkdayIso,
   sickChainSpans,
@@ -78,7 +79,8 @@ const typeBodySchema = z.object({
   portal_visibility: z.enum(['name', 'neutral']).optional(),
   // Zusatz zum Status ab sechs Wochen, nur Kategorie 'sonder' (andere
   // speichern immer 0, longAbsenceHintFor). Fehlt das Feld, gilt beim
-  // Anlegen an, beim Aendern der Bestand.
+  // Anlegen an (ausser fuer Home Office, looksLikeHomeOffice), beim Aendern
+  // der Bestand.
   long_absence_hint: z.boolean().optional(),
 });
 
@@ -326,7 +328,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
           body.max_days_per_year ?? null,
           body.active === false ? 0 : 1,
           body.portal_visibility ?? defaultPortalVisibility(body.category),
-          longAbsenceHintFor(body.category, body.long_absence_hint, true),
+          longAbsenceHintFor(body.category, body.long_absence_hint, !looksLikeHomeOffice(body.name)),
         );
       const newId = Number(result.lastInsertRowid);
       audit(req, 'create', 'absence_type', newId, body);

@@ -253,6 +253,18 @@ export function sickPayDaysUsed(chain: { from: string; to: string }, today: stri
 /** Ab sechs Wochen (42 Kalendertagen) gilt eine Sonderabwesenheit als lang, wie bei der Entgeltfortzahlung. */
 const LONG_ABSENCE_DAYS = SICK_PAY_LIMIT_DAYS;
 
+/**
+ * Heißt eine Abwesenheitsart wie Home Office? Home Office ist ein Arbeitsort
+ * und keine Abwesenheit, deshalb steht es nicht im Status (long_absence_hint
+ * ab Werk aus, Migration 209, und beim Anlegen ohne Angabe). Erkannt auch
+ * unter den üblichen anderen Namen: Homeoffice, Work from Home, Mobiles
+ * Arbeiten, Mobile Office, Mobiles Büro, Remote, Telearbeit; „mobil“ nur am
+ * Wortanfang, damit etwa „Immobilienkauf“ nicht darunter fällt.
+ */
+export function looksLikeHomeOffice(name: string): boolean {
+  return /home.*office|work.*from.*home|(^|\s)mobil|remote|telearbeit/i.test(name);
+}
+
 /** Genehmigter Antrag einer Art mit „im Status zeigen“ (absence_types.long_absence_hint). */
 export interface LongLeaveRequest {
   type_id: number;

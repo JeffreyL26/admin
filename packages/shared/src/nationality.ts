@@ -106,6 +106,42 @@ export function needsResidencePermit(nationality: string | null | undefined, fur
 }
 
 /**
+ * Gespeicherte Felder des Aufenthaltstitels: Bringt eine der
+ * Staatsangehoerigkeiten Freizuegigkeit, sind beide leer, sonst bleiben sie,
+ * wie sie sind (auch ohne erfasste Staatsangehoerigkeit). Das Formular
+ * (formToPayload) rechnet damit; der Server leert nach derselben Regel
+ * (hasFreeMovement in settleNationalityFields), setzt aber nur Felder, die
+ * sich aendern.
+ */
+export function residencePermitFields<P, U>(
+  nationality: string | null | undefined,
+  further: string | null | undefined,
+  permit: P,
+  until: U,
+): { residence_permit: P | null; residence_permit_until: U | null } {
+  return hasFreeMovement(nationality, further)
+    ? { residence_permit: null, residence_permit_until: null }
+    : { residence_permit: permit, residence_permit_until: until };
+}
+
+/**
+ * Zeigt das Formular die Felder des Aufenthaltstitels? Wenn er noetig ist
+ * (nur Staatsangehoerigkeiten ausserhalb von EU, EWR und Schweiz) oder, ohne
+ * erfasste Staatsangehoerigkeit, wenn schon einer eingetragen ist. Sonst
+ * stuende ein gespeicherter Titel unsichtbar im Formular, waehrend das
+ * Dashboard vor seinem Ablauf warnt.
+ */
+export function residencePermitShown(
+  nationality: string | null | undefined,
+  further: string | null | undefined,
+  permit: string | null | undefined,
+  until: string | null | undefined,
+): boolean {
+  if (needsResidencePermit(nationality, further)) return true;
+  return !hasFreeMovement(nationality, further) && Boolean(permit || until);
+}
+
+/**
  * Art des Aufenthaltstitels (AufenthG), nur fuer Staatsangehoerige ausserhalb
  * von EU, EWR und Schweiz. Die Auswahl deckt die haeufigen Faelle der
  * Beschaeftigung ab; alles andere ist `sonstiges` mit Notiz in der Akte.

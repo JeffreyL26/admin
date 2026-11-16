@@ -13,12 +13,12 @@ import {
   disabilityNotes,
   entitlementDaysPerWeek,
   formatWeekdays,
-  hasFreeMovement,
   MAX_FURTHER_NATIONALITIES,
   nationalityLabel,
-  needsResidencePermit,
   parseNationalities,
   parseWeekdays,
+  residencePermitFields,
+  residencePermitShown,
   settleNationalities,
   statutoryLeaveDays,
   churchTaxOptionsFor,
@@ -284,11 +284,15 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     photo_thumb_file_id: f.photo_thumb_file_id,
     // Gespeicherte Form wie im Backend (settleNationalities).
     ...settleNationalities(str(f.nationality), f.further_nationalities.join(',')),
-    // Dieselbe Regel wie im Server (hasFreeMovement): Bringt eine
+    // Dieselbe Regel wie im Server (shared residencePermitFields): Bringt eine
     // Staatsangehörigkeit Freizügigkeit, bleibt kein Titel stehen; ohne
     // erfasste Staatsangehörigkeit bleibt er, wie er ist.
-    residence_permit: formFreeMovement(f) ? null : str(f.residence_permit),
-    residence_permit_until: formFreeMovement(f) ? null : str(f.residence_permit_until),
+    ...residencePermitFields(
+      f.nationality,
+      f.further_nationalities.join(','),
+      str(f.residence_permit),
+      str(f.residence_permit_until),
+    ),
     highest_degree: str(f.highest_degree),
     degree_field: str(f.degree_field),
     home_office_weekdays: f.home_office_weekdays.length > 0 ? formatWeekdays(f.home_office_weekdays) : null,
@@ -301,21 +305,14 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
   };
 }
 
-/** Bringt laut Formular eine der Staatsangehörigkeiten Freizügigkeit? */
-function formFreeMovement(f: EmployeeFormState): boolean {
-  return hasFreeMovement(f.nationality, f.further_nationalities.join(','));
-}
-
-/**
- * Felder des Aufenthaltstitels zeigen: wenn er nötig ist (nur
- * Staatsangehörigkeiten außerhalb von EU, EWR und Schweiz) oder, ohne
- * erfasste Staatsangehörigkeit, wenn schon einer eingetragen ist. Sonst
- * stünde ein gespeicherter Titel unsichtbar im Formular, während das
- * Dashboard vor seinem Ablauf warnt.
- */
+/** Felder des Aufenthaltstitels zeigen (shared residencePermitShown)? */
 function formShowsPermit(f: EmployeeFormState): boolean {
-  if (needsResidencePermit(f.nationality, f.further_nationalities.join(','))) return true;
-  return !formFreeMovement(f) && Boolean(f.residence_permit || f.residence_permit_until);
+  return residencePermitShown(
+    f.nationality,
+    f.further_nationalities.join(','),
+    f.residence_permit,
+    f.residence_permit_until,
+  );
 }
 
 /** Arbeitstage je Woche laut Formular (für den Hinweis zum Mindesturlaub). */

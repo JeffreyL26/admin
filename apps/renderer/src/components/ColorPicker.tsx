@@ -220,7 +220,7 @@ export function ColorPicker({
 
   // Field ist ein <label>: Klick auf die Beschriftung bei offenem Panel nicht
   // gleich wieder öffnen (panelKeys.ts).
-  const swallowLabelClick = useLabelClickGuard(triggerRef, open);
+  const labelGuard = useLabelClickGuard(triggerRef, open);
 
   // Fokus erst, wenn das Popover gemessen und sichtbar ist; vorher steht es
   // bei -9999 und ein unsichtbares Element nimmt keinen Fokus an. Ein Timer
@@ -237,11 +237,12 @@ export function ColorPicker({
   const rgb = hsvToRgb(hsv);
 
   const onTriggerClick = () => {
-    if (swallowLabelClick()) return;
+    if (labelGuard.swallow()) return;
     if (openRef.current) close('trigger');
     else if (!disabled) setOpen(true);
   };
   const onTriggerKeyDown = (e: React.KeyboardEvent) => {
+    labelGuard.triggerProps.onKeyDown();
     if (e.key === 'ArrowDown' && !openRef.current && !disabled) {
       e.preventDefault();
       setOpen(true);
@@ -396,6 +397,7 @@ export function ColorPicker({
       aria-controls={open ? panelId : undefined}
       aria-label={`${label}: ${display}`}
       onClick={onTriggerClick}
+      onPointerDown={labelGuard.triggerProps.onPointerDown}
       onKeyDown={onTriggerKeyDown}
     >
       <span className="hm-color__swatch" style={{ background: valid ? hex : undefined }} aria-hidden="true" />

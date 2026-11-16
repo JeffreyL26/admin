@@ -284,8 +284,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   genehmigte Sonderabwesenheit (Kategorie `sonder`) einer Art mit „im Status
   zeigen“ (`absence_types.long_absence_hint`, Migration
   `209_absence_type_long_absence`, Haken in der Arten-Verwaltung, andere
-  Kategorien speichern immer 0; ab Werk alle außer Home Office, das ein
-  Arbeitsort ist, auch unter den üblichen anderen Namen wie Mobiles Arbeiten:
+  Kategorien speichern immer 0; ab Werk und beim Anlegen ohne Angabe alle
+  außer Home Office, das ein Arbeitsort ist, auch unter den üblichen anderen
+  Namen wie Mobiles Arbeiten (`looksLikeHomeOffice` in shared, getestet):
   die Arten sind nur am änderbaren Namen erkennbar, deshalb die Wahl an der
   Art), die heute
   andauert und mindestens sechs Wochen dauert; aneinandergereihte Anträge
@@ -357,7 +358,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (`needsResidencePermit` mit allen; geleert wird ein gespeicherter Titel in
   Formular und Backend nach derselben Regel `hasFreeMovement`: sobald eine
   aus EU, EWR oder Schweiz dabei ist; ohne erfasste Staatsangehörigkeit
-  bleibt er, und das Formular zeigt ihn dann, wenn einer eingetragen ist),
+  bleibt er, und das Formular zeigt ihn dann, wenn einer eingetragen ist;
+  die Regeln des Formulars stehen DOM-frei als `residencePermitFields` und
+  `residencePermitShown` in shared, Test `src/test/masterDataTest.ts`),
   höchster Abschluss
   (`HIGHEST_DEGREES`). Die
   **Beschäftigungsart je Vertragsversion** (`contracts.employee_type`) ist die

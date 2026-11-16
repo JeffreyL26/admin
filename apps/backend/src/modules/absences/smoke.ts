@@ -136,6 +136,22 @@ check(
   vacationLike.json(),
 );
 await app.inject({ method: 'DELETE', url: `/api/absences/types/${vacationLike.json().type.id as number}`, headers: auth });
+// Home Office unter anderem Namen: ohne Angabe nicht im Status (looksLikeHomeOffice).
+const mobileOffice = await post('/api/absences/types', {
+  name: 'Mobile Office',
+  category: 'sonder',
+  paid: true,
+  affects_balance: false,
+  requires_proof: false,
+  requires_approval: true,
+  color: '#3E8E7E',
+});
+check(
+  'Home Office unter anderem Namen ohne Angabe nicht im Status',
+  mobileOffice.statusCode === 201 && mobileOffice.json().type.long_absence_hint === 0,
+  mobileOffice.json(),
+);
+await app.inject({ method: 'DELETE', url: `/api/absences/types/${mobileOffice.json().type.id as number}`, headers: auth });
 
 const updType = await app.inject({
   method: 'PUT',
