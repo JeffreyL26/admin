@@ -5,13 +5,14 @@ import { ArrowLeft, Check, Columns3, History, Plus, Receipt, ScrollText, Wallet,
 import {
   formatDate,
   formatEuro,
-  longAbsenceText,
   todayIsoLocal,
   BONUS_KIND_LABELS,
+  EMPLOYEE_STATUS_LABELS,
   EMPLOYEE_TYPE_LABELS,
   SALARY_COMPONENT_KINDS,
   SALARY_COMPONENT_LABELS,
   type BonusKind,
+  type EmployeeStatus,
   type EmployeeType,
   type LongAbsence,
   type SalaryComponentKind,
@@ -20,6 +21,7 @@ import { api, ApiRequestError } from '../../api/client';
 import { Badge, Card, EmptyState, Field, PageHeader, Spinner, Tabs } from '../../components/ui';
 import { Modal } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
+import { LongAbsenceBadge } from '../../components/LongAbsenceBadge';
 import { useToast } from '../../components/Toast';
 import { useAuth } from '../../auth/AuthContext';
 import { useBackTo } from '../../lib/backTo';
@@ -112,7 +114,7 @@ function salaryCell(r: SalaryOverviewRow, id: SalaryColumnId): React.ReactNode {
       return (
         <span style={{ fontWeight: 600 }}>
           {r.last_name}, {r.first_name} {r.status !== 'aktiv' && <Badge tone="neutral">ausgeschieden</Badge>}
-          {r.long_absence && <Badge tone="yellow">{longAbsenceText(r.long_absence)}</Badge>}
+          <LongAbsenceBadge absence={r.long_absence} />
         </span>
       );
     case 'type':
@@ -190,22 +192,22 @@ const salaryTieBreak = (r: SalaryOverviewRow) => `${r.last_name} ${r.first_name}
  * die Aktiven; Ausgeschiedene bleiben über "Ausgeschieden" und "Alle"
  * erreichbar, ausgeblendet wird nichts endgültig.
  */
-type SalaryStatusFilter = 'aktiv' | 'ausgeschieden' | 'alle';
+type SalaryStatusFilter = EmployeeStatus | 'alle';
 const SALARY_STATUS_KEY = 'ohrganize.salaryList.status';
-const SALARY_STATUS_FILTERS: { key: SalaryStatusFilter; label: string; empty: string }[] = [
-  { key: 'aktiv', label: 'Aktiv', empty: 'Keine aktiven Mitarbeitenden' },
-  { key: 'ausgeschieden', label: 'Ausgeschieden', empty: 'Keine ausgeschiedenen Mitarbeitenden' },
-  { key: 'alle', label: 'Alle', empty: 'Keine Mitarbeitenden vorhanden' },
-];
+const SALARY_STATUS_FILTERS: readonly SalaryStatusFilter[] = ['aktiv', 'ausgeschieden', 'alle'];
+const SALARY_STATUS_EMPTY: Record<EmployeeStatus, string> = {
+  aktiv: 'Keine aktiven Mitarbeitenden',
+  ausgeschieden: 'Keine ausgeschiedenen Mitarbeitenden',
+};
+const salaryStatusLabel = (f: SalaryStatusFilter) => (f === 'alle' ? 'Alle' : EMPLOYEE_STATUS_LABELS[f]);
 
 function loadSalaryStatus(): SalaryStatusFilter {
   const stored = readJson<unknown>(SALARY_STATUS_KEY);
-  return stored === 'ausgeschieden' || stored === 'alle' ? stored : 'aktiv';
+  return SALARY_STATUS_FILTERS.find((f) => f === stored) ?? 'aktiv';
 }
 
 function matchesSalaryStatus(r: SalaryOverviewRow, filter: SalaryStatusFilter): boolean {
-  if (filter === 'alle') return true;
-  return filter === 'aktiv' ? r.status === 'aktiv' : r.status !== 'aktiv';
+  return filter === 'alle' || r.status === filter;
 }
 
 interface ComponentRow {
@@ -1023,8 +1025,8 @@ export function SalariesPage() {
                 size="sm"
                 ariaLabel="Mitarbeitende nach Status"
                 tabs={SALARY_STATUS_FILTERS.map((f) => ({
-                  key: f.key,
-                  label: `${f.label} (${(data ?? []).filter((r) => matchesSalaryStatus(r, f.key)).length})`,
+                  key: f,
+                  label: `${salaryStatusLabel(f)} (${(data ?? []).filter((r) => matchesSalaryStatus(r, f)).length})`,
                 }))}
                 active={statusFilter}
                 onChange={(k) => {
@@ -1098,10 +1100,10 @@ export function SalariesPage() {
                 title="Keine Mitarbeitenden vorhanden"
                 hint="Legen Sie zunächst Mitarbeitende im Personal-Modul an."
               />
-            ) : (filtered ?? []).length === 0 ? (
+            ) : statusFilter !== 'alle' && (filtered ?? []).length === 0 ? (
               <EmptyState
                 icon={<Wallet size={40} />}
-                title={SALARY_STATUS_FILTERS.find((f) => f.key === statusFilter)?.empty ?? 'Keine Mitarbeitenden'}
+                title={SALARY_STATUS_EMPTY[statusFilter]}
                 hint="Unter „Alle“ stehen sämtliche Mitarbeitenden."
               />
             ) : (

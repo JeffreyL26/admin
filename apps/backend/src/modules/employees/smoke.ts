@@ -431,28 +431,50 @@ const badNationality = await app.inject({
   payload: { nationality: 'XX' },
 });
 check('Unbekannte Staatsangehoerigkeit → 400', badNationality.statusCode === 400);
-// Weitere Staatsangehoerigkeiten: gespeichert ohne Doppel und ohne die erste;
-// das Protokoll nennt nur das gesendete Feld.
+// Weitere Staatsangehoerigkeiten: gespeichert ohne Doppel, ohne die erste und
+// sortiert; das Protokoll nennt nur das gesendete Feld, der Titel bleibt, weil
+// keine davon Freizuegigkeit bringt.
+const lastEmployeeAudit = () =>
+  JSON.parse(
+    (
+      getDb()
+        .prepare("SELECT details FROM audit_log WHERE action = 'update' AND entity = 'employee' AND entity_id = ? ORDER BY id DESC LIMIT 1")
+        .get(empId) as { details: string }
+    ).details,
+  ) as { changed: Record<string, unknown> };
 const further = await app.inject({
   method: 'PATCH',
   url: `/api/employees/${empId}`,
   headers: auth,
-  payload: { further_nationalities: 'DE,TR,US,DE' },
+  payload: { further_nationalities: 'US,TR,GB,US' },
 });
-const furtherAudit = JSON.parse(
-  (
-    getDb()
-      .prepare("SELECT details FROM audit_log WHERE action = 'update' AND entity = 'employee' AND entity_id = ? ORDER BY id DESC LIMIT 1")
-      .get(empId) as { details: string }
-  ).details,
-) as { changed: Record<string, unknown> };
+const furtherAudit = lastEmployeeAudit();
 check(
-  'Weitere Staatsangehoerigkeiten ohne Doppel und ohne die erste',
+  'Weitere Staatsangehoerigkeiten ohne Doppel, ohne die erste, sortiert',
   further.statusCode === 200 &&
     further.json().employee.nationality === 'TR' &&
-    further.json().employee.further_nationalities === 'DE,US' &&
+    further.json().employee.further_nationalities === 'GB,US' &&
+    further.json().employee.residence_permit === 'blaue_karte_eu' &&
     JSON.stringify(Object.keys(furtherAudit.changed)) === '["further_nationalities"]',
   { body: further.json(), audit: furtherAudit },
+);
+// Eine weitere aus der EU: Der Aufenthaltstitel faellt weg (wie im Formular).
+const withEu = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { further_nationalities: 'GB,US,DE' },
+});
+const withEuAudit = lastEmployeeAudit();
+check(
+  'Weitere aus der EU leert den Aufenthaltstitel',
+  withEu.statusCode === 200 &&
+    withEu.json().employee.further_nationalities === 'DE,GB,US' &&
+    withEu.json().employee.residence_permit === null &&
+    withEu.json().employee.residence_permit_until === null &&
+    JSON.stringify(Object.keys(withEuAudit.changed).sort()) ===
+      '["further_nationalities","residence_permit","residence_permit_until"]',
+  { body: withEu.json(), audit: withEuAudit },
 );
 const promoted = await app.inject({
   method: 'PATCH',
@@ -464,8 +486,19 @@ check(
   'Ohne erste rueckt die erste weitere nach',
   promoted.statusCode === 200 &&
     promoted.json().employee.nationality === 'DE' &&
-    promoted.json().employee.further_nationalities === 'US',
+    promoted.json().employee.further_nationalities === 'GB,US',
   promoted.json(),
+);
+const permitWithoutNeed = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { residence_permit: 'blaue_karte_eu', residence_permit_until: '2027-03-31' },
+});
+check(
+  'Aufenthaltstitel neben EU-Staatsangehoerigkeit wird nicht gespeichert',
+  permitWithoutNeed.statusCode === 200 && permitWithoutNeed.json().employee.residence_permit === null,
+  permitWithoutNeed.json(),
 );
 const badFurther = await app.inject({
   method: 'PATCH',
@@ -474,13 +507,30 @@ const badFurther = await app.inject({
   payload: { further_nationalities: 'US,XX' },
 });
 check('Unbekannte weitere Staatsangehoerigkeit → 400', badFurther.statusCode === 400, badFurther.json());
+const tooManyFurther = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { further_nationalities: 'AT,BE,BG,HR,CY,CZ,DK,EE,FI,FR,GR' },
+});
+check('Mehr als zehn weitere Staatsangehoerigkeiten → 400', tooManyFurther.statusCode === 400, tooManyFurther.json());
 const restoredOrigin = await app.inject({
   method: 'PATCH',
   url: `/api/employees/${empId}`,
   headers: auth,
-  payload: { nationality: 'TR', further_nationalities: null },
+  payload: {
+    nationality: 'TR',
+    further_nationalities: null,
+    residence_permit: 'blaue_karte_eu',
+    residence_permit_until: '2027-03-31',
+  },
 });
-check('Staatsangehoerigkeit zurueckgesetzt', restoredOrigin.json().employee?.further_nationalities === null, restoredOrigin.json());
+check(
+  'Staatsangehoerigkeit und Aufenthaltstitel zurueckgesetzt',
+  restoredOrigin.json().employee?.further_nationalities === null &&
+    restoredOrigin.json().employee?.residence_permit === 'blaue_karte_eu',
+  restoredOrigin.json(),
+);
 const badPermit = await app.inject({
   method: 'PATCH',
   url: `/api/employees/${empId}`,

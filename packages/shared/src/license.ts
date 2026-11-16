@@ -234,8 +234,3 @@ export interface LicenseReport {
   edition?: Edition | null;
   country?: CountryCode | null;
 }
-
-/** Tage zwischen zwei ISO-Kalendertagen (b − a), taggenau, ohne Zeitzoneneffekt. */
-export function daysBetweenIso(a: string, b: string): number {
-  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
-}

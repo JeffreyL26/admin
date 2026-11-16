@@ -6,6 +6,7 @@ import {
   DOCUMENT_CATEGORIES,
   EMPLOYEE_RULE_FIELD_LABELS,
   HIGHEST_DEGREES,
+  MAX_FURTHER_NATIONALITIES,
   NATIONALITY_CODES,
   RESIDENCE_PERMIT_TYPES,
   churchTaxOptionsFor,
@@ -16,6 +17,7 @@ import {
   employeeTypeRulesFor,
   employeeTypesFor,
   isRegionOf,
+  needsResidencePermit,
   regionCodesFor,
   taxClassesFor,
   type CountryCode,
@@ -112,7 +114,10 @@ export const employeeBodySchema = z.object({
   // work_weekdays; settleNationalityFields ordnet sie.
   further_nationalities: z
     .string()
-    .regex(/^[A-Z]{2}(,[A-Z]{2}){0,9}$/, 'Weitere Staatsangehörigkeiten als Ländercodes, durch Komma getrennt (höchstens zehn)')
+    .regex(
+      new RegExp(`^[A-Z]{2}(,[A-Z]{2}){0,${MAX_FURTHER_NATIONALITIES - 1}}$`),
+      `Weitere Staatsangehörigkeiten als Ländercodes, durch Komma getrennt (höchstens ${MAX_FURTHER_NATIONALITIES})`,
+    )
     .refine(
       (value) => parseNationalities(value).every((code) => (NATIONALITY_CODES as readonly string[]).includes(code)),
       'Unbekannte Staatsangehörigkeit',
@@ -180,26 +185,49 @@ export function settleWorkSchedule(
 
 /**
  * Staatsangehoerigkeiten in die gespeicherte Form bringen (shared
- * settleNationalities): ohne Doppel, ohne die erste unter den weiteren, und
- * ohne erste rueckt die erste weitere nach. Aufgerufen nach dem Parsen von
- * POST und PATCH, beim PATCH nur, wenn eines der Felder kommt, mit dem
- * Bestand fuer das andere. Gesetzt wird nur, was kam oder sich durch das
- * Ordnen aendert, damit das Protokoll keine unveraenderten Felder nennt.
+ * settleNationalities): ohne Doppel, ohne die erste unter den weiteren,
+ * weitere sortiert, und ohne erste rueckt die erste weitere nach. Danach der
+ * Aufenthaltstitel: Bringt eine der Staatsangehoerigkeiten Freizuegigkeit
+ * (oder gibt es keine), wird er geleert (needsResidencePermit), wie im
+ * Formular; sonst warnten Dashboard und Aktenkopf weiter vor seinem Ablauf.
+ * Aufgerufen nach dem Parsen von POST und PATCH, beim PATCH nur, wenn eines
+ * der vier Felder kommt, mit dem Bestand fuer die anderen. Gesetzt wird nur,
+ * was kam oder sich dadurch aendert, damit das Protokoll keine unveraenderten
+ * Felder nennt.
  */
 export function settleNationalityFields(
-  body: { nationality?: NationalityCode | null; further_nationalities?: string | null },
-  existing?: { nationality?: unknown; further_nationalities?: unknown },
+  body: {
+    nationality?: NationalityCode | null;
+    further_nationalities?: string | null;
+    residence_permit?: string | null;
+    residence_permit_until?: string | null;
+  },
+  existing?: {
+    nationality?: unknown;
+    further_nationalities?: unknown;
+    residence_permit?: unknown;
+    residence_permit_until?: unknown;
+  },
 ): void {
-  if (body.nationality === undefined && body.further_nationalities === undefined) return;
   const stored = (value: unknown) => (typeof value === 'string' ? value : null);
-  const nationality = body.nationality !== undefined ? body.nationality : stored(existing?.nationality);
-  const further = body.further_nationalities !== undefined ? body.further_nationalities : stored(existing?.further_nationalities);
-  const settled = settleNationalities(nationality, further);
-  if (body.nationality !== undefined || settled.nationality !== nationality) {
-    body.nationality = settled.nationality as NationalityCode | null;
+  let nationality = body.nationality !== undefined ? body.nationality : stored(existing?.nationality);
+  let further = body.further_nationalities !== undefined ? body.further_nationalities : stored(existing?.further_nationalities);
+  if (body.nationality !== undefined || body.further_nationalities !== undefined) {
+    const settled = settleNationalities(nationality, further);
+    if (body.nationality !== undefined || settled.nationality !== nationality) {
+      body.nationality = settled.nationality as NationalityCode | null;
+    }
+    if (body.further_nationalities !== undefined || settled.further_nationalities !== further) {
+      body.further_nationalities = settled.further_nationalities;
+    }
+    nationality = settled.nationality as NationalityCode | null;
+    further = settled.further_nationalities;
+  } else if (body.residence_permit === undefined && body.residence_permit_until === undefined) {
+    return;
   }
-  if (body.further_nationalities !== undefined || settled.further_nationalities !== further) {
-    body.further_nationalities = settled.further_nationalities;
+  if (needsResidencePermit(nationality, further)) return;
+  for (const key of ['residence_permit', 'residence_permit_until'] as const) {
+    if (body[key] !== undefined || stored(existing?.[key]) !== null) body[key] = null;
   }
 }
 

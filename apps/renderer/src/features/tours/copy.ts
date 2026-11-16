@@ -30,8 +30,8 @@ export const COPY = {
   // ---- Gehälter -------------------------------------------------------------
   'gehaelter.title': 'Gehälter kennenlernen',
   'gehaelter.finale': 'Gehälter erledigt',
-  'gehaelter.step1.title': 'Alle auf einen Blick',
-  'gehaelter.step1.text': 'Hier steht das aktuelle Monatsbrutto jeder Person.',
+  'gehaelter.step1.title': 'Gehälter auf einen Blick',
+  'gehaelter.step1.text': 'Hier steht das aktuelle Monatsbrutto jeder Person. Die Reiter oben trennen Aktive und Ausgeschiedene.',
   'gehaelter.step1.todo': 'Öffnen Sie eine Zeile.',
   'gehaelter.step2.title': 'Die erste Komponente',
   'gehaelter.step2.text': 'Grundgehalt, Zulagen und Boni sind einzelne Komponenten.',

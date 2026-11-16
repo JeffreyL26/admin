@@ -118,6 +118,18 @@ export function permissionsFor(adminRoleId: number | null | undefined): AdminPer
 }
 
 /**
+ * Darf das anfragende Konto im Bereich `area` mindestens `needed`? Nur
+ * Admin-Konten: Portal-Konten haben `admin_role_id = NULL`, und NULL heißt in
+ * permissionsFor Vollzugriff, deshalb steht die Prüfung der Rolle hier EINMAL.
+ * `req.user` trägt die frisch gelesene Rolle aus dem globalen Hook (server.ts).
+ */
+export function mayArea(req: FastifyRequest, area: AdminArea, needed: Exclude<PermissionLevel, 'kein'>): boolean {
+  const user = req.user as { role?: string; admin_role_id?: number | null } | undefined;
+  if (!user || user.role !== 'admin') return false;
+  return permits(permissionsFor(user.admin_role_id ?? null)[area], needed);
+}
+
+/**
  * POST-Routen, die fachlich reine LESEvorgänge sind: Sie stellen eine
  * kurzlebige signierte Download-URL aus und ändern nichts. POST steht dort nur,
  * damit der Link nicht selbst in einem Query-String (und damit im Proxy-Log)

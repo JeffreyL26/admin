@@ -13,6 +13,7 @@ import {
   disabilityNotes,
   entitlementDaysPerWeek,
   formatWeekdays,
+  MAX_FURTHER_NATIONALITIES,
   nationalityLabel,
   needsResidencePermit,
   parseNationalities,
@@ -413,14 +414,10 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
         <Select
           className="hm-select"
           value={form.nationality}
-          onChange={(e) => {
-            // Weitere gibt es nur neben einer ersten, und die erste steht nicht doppelt.
-            const nationality = e.target.value;
-            set({
-              nationality,
-              further_nationalities: nationality ? form.further_nationalities.filter((c) => c !== nationality) : [],
-            });
-          }}
+          // Nur die erste setzen: Der Select meldet auch jeden Tastaturschritt
+          // durch die Liste, ein Abgleich hier verlöre unterwegs die weiteren.
+          // Doppel und Nachrücken ordnet settleNationalities beim Speichern.
+          onChange={(e) => set({ nationality: e.target.value })}
         >
           <option value="">— keine Angabe —</option>
           {NATIONALITY_OPTIONS.map((o) => (
@@ -430,16 +427,27 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
           ))}
         </Select>
       </Field>
-      {form.nationality ? (
-        <Field label="Weitere Staatsangehörigkeiten" hint="Für Personen mit mehreren Staatsangehörigkeiten">
+      {form.nationality || form.further_nationalities.length > 0 ? (
+        <Field
+          label="Weitere Staatsangehörigkeiten"
+          hint={
+            form.nationality
+              ? 'Für Personen mit mehreren Staatsangehörigkeiten'
+              : 'Ohne erste Staatsangehörigkeit rückt beim Speichern die erste weitere nach'
+          }
+        >
           <MultiSelect
             allLabel="Keine weiteren"
+            label="Weitere Staatsangehörigkeiten"
             options={NATIONALITY_OPTIONS.filter((o) => o.code !== form.nationality).map((o) => ({
               value: o.code,
               label: o.label,
             }))}
-            value={form.further_nationalities}
+            // Die erste steht hier nicht noch einmal (sie bleibt im Zustand, falls
+            // die erste gleich wieder wechselt).
+            value={form.further_nationalities.filter((c) => c !== form.nationality)}
             onChange={(next) => set({ further_nationalities: next })}
+            max={MAX_FURTHER_NATIONALITIES}
             searchable
             width="100%"
             field

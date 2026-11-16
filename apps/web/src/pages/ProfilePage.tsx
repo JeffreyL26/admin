@@ -5,7 +5,6 @@ import {
   HIGHEST_DEGREE_LABELS,
   RESIDENCE_PERMIT_LABELS,
   nationalitiesLabel,
-  nationalitiesOf,
   todayIsoLocal,
   type EmployeeType,
   type HighestDegree,
@@ -209,11 +208,9 @@ export function ProfilePage() {
                   }
                 />
                 <Row
-                  label={
-                    nationalitiesOf(profile.nationality, profile.further_nationalities).length > 1
-                      ? 'Staatsangehörigkeiten'
-                      : 'Staatsangehörigkeit'
-                  }
+                  // Gespeichert ist die geordnete Form (settleNationalities):
+                  // Weitere gibt es nur neben einer ersten.
+                  label={profile.further_nationalities ? 'Staatsangehörigkeiten' : 'Staatsangehörigkeit'}
                   value={nationalitiesLabel(profile.nationality, profile.further_nationalities)}
                 />
                 {profile.residence_permit && (

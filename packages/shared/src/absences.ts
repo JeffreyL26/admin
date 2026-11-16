@@ -1,7 +1,6 @@
 import type { EntitlementDetail } from './leaveEntitlement.js';
 import type { HomeOfficeException } from './homeOffice.js';
-import { formatDate } from './common.js';
-import { daysBetweenIso } from './license.js';
+import { addDaysIso, daysBetweenIso, formatDate } from './common.js';
 // Typen des Moduls Abwesenheitsmanagement.
 
 export type AbsenceCategory = 'urlaub' | 'krankheit' | 'sonder';
@@ -51,6 +50,11 @@ export interface AbsenceType {
   max_days_per_year: number | null;
   active: number;
   portal_visibility: PortalVisibility;
+  /**
+   * Nur Kategorie 'sonder': genehmigte Anträge ab sechs Wochen erscheinen als
+   * Zusatz zum Status (longAbsenceFor). Ab Werk an, nur Home Office nicht.
+   */
+  long_absence_hint: number;
   /**
    * Angereichert in der HR-Liste (GET /api/absences/types): Rollen-Allowlist
    * und Personenregeln zur Anzeige. Leere Rollenliste ⇒ alle Rollen dürfen
@@ -235,8 +239,47 @@ export function sickChainSpans(notes: readonly SickChainNote[]): Map<number, { f
   return spans;
 }
 
-/** Ab sechs Wochen (42 Kalendertagen) gilt eine Abwesenheit als lang, wie bei der Entgeltfortzahlung. */
-export const LONG_ABSENCE_DAYS = SICK_PAY_LIMIT_DAYS;
+/**
+ * Kalendertage der Entgeltfortzahlung, die eine AU-Kette verbraucht hat: vom
+ * Beginn der Kette bis zu ihrem Ende, höchstens bis heute. EINE Zählung für
+ * sick_pay_days_used/sick_pay_exceeded der Krankmeldungen und den Zusatz
+ * „Langzeitkrank“ (longAbsenceFor); überzogen ist sie über SICK_PAY_LIMIT_DAYS.
+ */
+export function sickPayDaysUsed(chain: { from: string; to: string }, today: string): number {
+  const end = chain.to < today ? chain.to : today;
+  return chain.from > end ? 0 : daysBetweenIso(chain.from, end) + 1;
+}
+
+/** Ab sechs Wochen (42 Kalendertagen) gilt eine Sonderabwesenheit als lang, wie bei der Entgeltfortzahlung. */
+const LONG_ABSENCE_DAYS = SICK_PAY_LIMIT_DAYS;
+
+/** Genehmigter Antrag einer Art mit „im Status zeigen“ (absence_types.long_absence_hint). */
+export interface LongLeaveRequest {
+  type_id: number;
+  type_name: string;
+  date_from: string;
+  date_to: string;
+}
+
+/**
+ * Aneinandergereihte Anträge derselben Art als ein Zeitraum: Beginnt einer
+ * spätestens am Tag nach dem Ende des vorigen, gehören beide zusammen. Eine
+ * Verlängerung entsteht als neuer Antrag (genehmigte lassen sich nicht
+ * verlängern), und Elternzeit wird oft in Blöcken eingetragen.
+ */
+function joinedLeaves(leaves: readonly LongLeaveRequest[]): { type_name: string; from: string; to: string }[] {
+  const sorted = [...leaves].sort((a, b) => a.type_id - b.type_id || a.date_from.localeCompare(b.date_from));
+  const spans: { type_id: number; type_name: string; from: string; to: string }[] = [];
+  for (const r of sorted) {
+    const last = spans[spans.length - 1];
+    if (last && last.type_id === r.type_id && r.date_from <= addDaysIso(last.to, 1)) {
+      if (r.date_to > last.to) last.to = r.date_to;
+    } else {
+      spans.push({ type_id: r.type_id, type_name: r.type_name, from: r.date_from, to: r.date_to });
+    }
+  }
+  return spans;
+}
 
 /**
  * Lange Abwesenheit, die heute andauert: Zusatz zum Status „Aktiv“ in
@@ -256,11 +299,13 @@ export interface LongAbsence {
 
 /**
  * Regel des Zusatzes für EINE Person. `specialLeaves` sind ihre genehmigten
- * Anträge der Kategorie 'sonder', `sickNotes` alle nicht stornierten
- * Krankmeldungen (für die Kette, siehe sickChainSpans).
- * - Sonderabwesenheit: deckt heute ab und dauert mindestens sechs Wochen;
+ * Anträge der Kategorie 'sonder' aus Arten mit „im Status zeigen“ (ab Werk
+ * alle außer Home Office, das ein Arbeitsort ist), `sickNotes` alle nicht
+ * stornierten Krankmeldungen (für die Kette, siehe sickChainSpans).
+ * - Sonderabwesenheit: ein Zeitraum aus aneinandergereihten Anträgen derselben
+ *   Art (joinedLeaves) deckt heute ab und dauert mindestens sechs Wochen;
  *   kurze Arten wie Umzug oder Bildungsurlaub bleiben außen vor. Bei mehreren
- *   gilt die, die am längsten reicht.
+ *   gilt der, der am längsten reicht.
  * - Krankheit: eine eigene Krankmeldung (nicht Kind krank) deckt heute ab,
  *   und ihre AU-Kette läuft seit mehr als sechs Wochen, die
  *   Entgeltfortzahlung ist also vorbei (dieselbe Zählung wie
@@ -270,15 +315,15 @@ export interface LongAbsence {
  */
 export function longAbsenceFor(
   today: string,
-  specialLeaves: readonly { type_name: string; date_from: string; date_to: string }[],
+  specialLeaves: readonly LongLeaveRequest[],
   sickNotes: readonly (SickChainNote & { child_sick: number })[],
 ): LongAbsence | null {
   let leave: LongAbsence | null = null;
-  for (const r of specialLeaves) {
-    if (r.date_from > today || r.date_to < today) continue;
-    if (daysBetweenIso(r.date_from, r.date_to) + 1 < LONG_ABSENCE_DAYS) continue;
-    if (!leave || r.date_to > leave.until) {
-      leave = { kind: 'sonder', label: r.type_name, since: r.date_from, until: r.date_to };
+  for (const span of joinedLeaves(specialLeaves)) {
+    if (span.from > today || span.to < today) continue;
+    if (daysBetweenIso(span.from, span.to) + 1 < LONG_ABSENCE_DAYS) continue;
+    if (!leave || span.to > leave.until) {
+      leave = { kind: 'sonder', label: span.type_name, since: span.from, until: span.to };
     }
   }
   if (leave) return leave;
@@ -286,7 +331,7 @@ export function longAbsenceFor(
   for (const n of sickNotes) {
     if (n.child_sick !== 0 || n.date_from > today || n.date_to < today) continue;
     const chain = spans.get(n.id);
-    if (chain && daysBetweenIso(chain.from, today) + 1 > SICK_PAY_LIMIT_DAYS) {
+    if (chain && sickPayDaysUsed(chain, today) > SICK_PAY_LIMIT_DAYS) {
       return { kind: 'krankheit', label: 'Langzeitkrank', since: chain.from, until: chain.to };
     }
   }

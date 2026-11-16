@@ -20,7 +20,6 @@ import {
   contractState,
   entitlementFrozenNote,
   formatDate,
-  longAbsenceText,
   probationText,
   todayIsoLocal,
   type AdminArea,
@@ -32,6 +31,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { LOCALE } from '../../lib/locale';
 import { ApiRequestError, api, downloadFile } from '../../api/client';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, Tabs, type BadgeTone } from '../../components/ui';
+import { LongAbsenceBadge } from '../../components/LongAbsenceBadge';
 import { ConfirmDialog } from '../../components/Modal';
 import { Tooltip } from '../../components/Tooltip';
 import { useToast } from '../../components/Toast';
@@ -121,7 +121,7 @@ export function EmployeeDetailPage() {
         <Avatar name={`${e.first_name} ${e.last_name}`} size={56} src={photo.data} />
         <Badge tone={TYPE_TONES[e.employee_type]}>{EMPLOYEE_TYPE_LABELS[e.employee_type]}</Badge>
         <Badge tone={e.status === 'aktiv' ? 'green' : 'neutral'}>{EMPLOYEE_STATUS_LABELS[e.status]}</Badge>
-        {e.long_absence && <Badge tone="yellow">{longAbsenceText(e.long_absence)}</Badge>}
+        <LongAbsenceBadge absence={e.long_absence} />
         {e.executive === 1 && <Badge tone="navy">Leitungsebene</Badge>}
         {e.hire_date && (
           <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>
