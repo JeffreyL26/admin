@@ -101,6 +101,12 @@ check(
   JSON.stringify(settleNationalities(null, 'TR,US')) === '{"nationality":"TR","further_nationalities":"US"}',
 );
 check(
+  'weitere nach Laendercode sortiert, nachgerueckt wird in der uebergebenen Reihenfolge',
+  settleNationalities('DE', 'US,TR').further_nationalities === 'TR,US' &&
+    JSON.stringify(settleNationalities(null, 'US,TR,AT')) === '{"nationality":"US","further_nationalities":"AT,TR"}',
+  settleNationalities(null, 'US,TR,AT'),
+);
+check(
   'leer bleibt leer',
   JSON.stringify(settleNationalities('', '')) === '{"nationality":null,"further_nationalities":null}' &&
     settleNationalities('DE', 'DE').further_nationalities === null,

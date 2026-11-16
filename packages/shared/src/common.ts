@@ -91,6 +91,11 @@ export function addDaysIso(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Tage zwischen zwei ISO-Kalendertagen (b minus a), taggenau, ohne Zeitzoneneffekt. */
+export function daysBetweenIso(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
 /**
  * ISO-Kalendertag plus/minus volle Monate. Fehlt der Tag im Zielmonat (31.01.
  * plus ein Monat), gilt dessen letzter Tag, wie bei Fristen nach § 188 BGB.

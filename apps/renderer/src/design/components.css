@@ -1009,6 +1009,8 @@
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   color: var(--text-primary);
+  /* Knöpfe erben die Schrift nicht von selbst (Chromium: Systemschrift). */
+  font: inherit;
   font-size: var(--text-sm);
   cursor: pointer;
   text-align: left;
@@ -1027,18 +1029,6 @@
   border-color: var(--brand-primary);
   color: var(--brand-primary);
   font-weight: 600;
-}
-/* Als Formularfeld (MultiSelect `field`): Maße und Rahmen wie .hm-select,
-   ohne die Hervorhebung des aktiven Filters. */
-.hm-multi__button--field {
-  height: 38px;
-  padding: 0 11px 0 13px;
-  border-color: var(--border-strong);
-  border-radius: 10px;
-  font-size: var(--text-base);
-}
-.hm-multi__button--field:hover:not(:focus-visible) {
-  border-color: var(--gray-300);
 }
 .hm-multi__label {
   flex: 1;
@@ -1100,6 +1090,7 @@
   border: none;
   background: none;
   color: var(--text-primary);
+  font: inherit;
   font-size: var(--text-sm);
   outline: none;
 }
@@ -1159,6 +1150,7 @@
 .hm-multi__reset {
   padding: 8px;
   color: var(--text-muted);
+  font: inherit;
   font-size: var(--text-xs);
   text-align: center;
 }

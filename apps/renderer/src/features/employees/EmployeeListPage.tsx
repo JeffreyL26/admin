@@ -12,7 +12,6 @@ import {
   nextSort,
   formatDate,
   formatSeniority,
-  longAbsenceText,
   type EmployeeColumnDef,
   type EmployeeSortField,
   type EmployeeStatus,
@@ -20,6 +19,7 @@ import {
   type SeniorityFormat,
 } from '@ohrganize/shared';
 import { Avatar, Badge, Card, EmptyState, PageHeader, Spinner, type BadgeTone } from '../../components/ui';
+import { LongAbsenceBadge } from '../../components/LongAbsenceBadge';
 import { MultiSelect } from '../../components/MultiSelect';
 import { Popover } from '../../components/Popover';
 import { useToast } from '../../components/Toast';
@@ -132,7 +132,7 @@ function cellContent(
   seniorityFormat: SeniorityFormat,
   statusShown: boolean,
 ): React.ReactNode {
-  const longAbsence = e.long_absence ? <Badge tone="yellow">{longAbsenceText(e.long_absence)}</Badge> : null;
+  const longAbsence = <LongAbsenceBadge absence={e.long_absence} />;
   switch (columnId) {
     case 'name':
       return (

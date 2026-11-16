@@ -1,7 +1,7 @@
 import type { FastifyRequest } from 'fastify';
-import { DISABILITY_FIELDS, permits, type PermissionLevel } from '@ohrganize/shared';
+import { DISABILITY_FIELDS, type PermissionLevel } from '@ohrganize/shared';
 import { forbidden } from '../../core/errors.js';
-import { permissionsFor } from '../../core/permissions.js';
+import { mayArea } from '../../core/permissions.js';
 
 /**
  * Schwerbehinderung in der Personalakte (shared/disability.ts): Gesundheitsdaten
@@ -13,9 +13,7 @@ import { permissionsFor } from '../../core/permissions.js';
  * nicht, `GET /api/me/profile` nennt die Felder nicht.
  */
 export function mayDisability(req: FastifyRequest, needed: Exclude<PermissionLevel, 'kein'>): boolean {
-  const user = req.user as { role?: string; admin_role_id?: number | null } | undefined;
-  if (!user || user.role !== 'admin') return false;
-  return permits(permissionsFor(user.admin_role_id ?? null).schwerbehinderung, needed);
+  return mayArea(req, 'schwerbehinderung', needed);
 }
 
 /** Personalzeile ohne die Felder der Schwerbehinderung, wenn das Leserecht fehlt. */

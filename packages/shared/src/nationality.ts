@@ -61,17 +61,22 @@ export function nationalitiesOf(nationality: string | null | undefined, further:
   return [...new Set([nationality ?? '', ...parseNationalities(further)].filter(Boolean))];
 }
 
+/** Hoechstzahl weiterer Staatsangehoerigkeiten (Pruefung im Backend, Grenze im Formular). */
+export const MAX_FURTHER_NATIONALITIES = 10;
+
 /**
  * Gespeicherte Form: die erste in `nationality`, weitere als "TR,US" ohne
- * Doppel und ohne die erste, leer = null. Fehlt die erste, rueckt die erste
- * weitere nach. Backend (POST, PATCH) und Formular rechnen gleich.
+ * Doppel, ohne die erste und nach Laendercode sortiert (gleiche Menge, gleicher
+ * Wert: sonst zaehlte eine andere Reihenfolge als Aenderung), leer = null.
+ * Fehlt die erste, rueckt die erste der weiteren in der uebergebenen
+ * Reihenfolge nach. Backend (POST, PATCH) und Formular rechnen gleich.
  */
 export function settleNationalities(
   nationality: string | null | undefined,
   further: string | null | undefined,
 ): { nationality: string | null; further_nationalities: string | null } {
   const all = nationalitiesOf(nationality, further);
-  return { nationality: all[0] ?? null, further_nationalities: all.length > 1 ? all.slice(1).join(',') : null };
+  return { nationality: all[0] ?? null, further_nationalities: all.length > 1 ? all.slice(1).sort().join(',') : null };
 }
 
 /** Anzeige aller Staatsangehoerigkeiten, z. B. "Türkei, Deutschland"; ohne Angabe null. */

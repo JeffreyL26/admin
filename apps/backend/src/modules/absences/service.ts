@@ -23,7 +23,6 @@ import {
   isScheduledDay,
   leaveEntitlementForPeriods,
   longAbsenceFor,
-  permits,
   regionCodesFor,
   workScheduleOf,
   type CountryCode,
@@ -31,6 +30,7 @@ import {
   type EntitlementFrozenField,
   type EntitlementPeriod,
   type LongAbsence,
+  type LongLeaveRequest,
   type RegionCode,
   type SickChainNote,
   type WorkSchedule,
@@ -38,7 +38,7 @@ import {
 import { getSetting } from '../../core/settings.js';
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
 import { audit, auditSystem } from '../../core/audit.js';
-import { permissionsFor } from '../../core/permissions.js';
+import { mayArea } from '../../core/permissions.js';
 
 export interface EmployeeRow {
   id: number;
@@ -1713,52 +1713,77 @@ export function changeSickNoteEnd(sickNoteId: number, dateTo: string): SickNoteE
   };
 }
 
+/** Glied einer AU-Kette mit Person und Art (Kind krank), wie sickChainNotes es liefert. */
+export interface SickChainRow extends SickChainNote {
+  employee_id: number;
+  child_sick: number;
+}
+
+/**
+ * Glieder der AU-Ketten (sickChainSpans): alle nicht stornierten
+ * Krankmeldungen der Personen, deren IDs `employeeIdsSql` liefert
+ * (Platzhalterliste oder Unterabfrage, Parameter in `params`). EINE Abfrage
+ * für die Krankmeldungsliste (sick_pay_exceeded) und den Zusatz
+ * „Langzeitkrank“, damit beide dieselben Ketten sehen.
+ */
+export function sickChainNotes(employeeIdsSql: string, params: readonly unknown[]): SickChainRow[] {
+  return getDb()
+    .prepare(
+      `SELECT s.id, s.follow_up_of_id, s.child_sick, r.employee_id, r.date_from, r.date_to
+       FROM sick_notes s
+       JOIN absence_requests r ON r.id = s.absence_request_id
+       WHERE r.status != 'storniert' AND r.employee_id IN (${employeeIdsSql})`,
+    )
+    .all([...params]) as SickChainRow[];
+}
+
 /**
  * Lange Abwesenheiten, die heute andauern (longAbsenceFor in
  * shared/absences.ts): der Zusatz zum Status „Aktiv“ in Personalliste,
  * Personalakte und Gehaltsübersicht. Nur für Konten mit `abwesenheit: lesen`,
- * sonst leer: Dahinter stehen Krankmeldungen, also Gesundheitsdaten. Zwei
- * Abfragen für alle Personen zusammen (ohne `employeeIds` alle aktiven):
- * genehmigte Sonderabwesenheiten, die heute abdecken, und sämtliche
- * Krankmeldungen der Personen, die heute selbst krankgemeldet sind (ganz, für
- * die AU-Kette).
+ * sonst leer: Dahinter stehen Krankmeldungen, also Gesundheitsdaten. Ohne
+ * `employeeIds` für alle aktiven Personen, sonst nur für diese. Zwei
+ * Abfragen für alle zusammen: die genehmigten Sonderabwesenheiten der Arten
+ * mit „im Status zeigen“ (alle, damit aneinandergereihte Anträge als ein
+ * Zeitraum zählen) der Personen, die heute eine haben, und die AU-Ketten der
+ * Personen, die heute selbst krankgemeldet sind. Die Unterabfragen nennen
+ * den Status als Liste statt mit `!=`, damit sie den Index (status, date_to)
+ * nutzen statt die ganze Historie zu lesen.
  */
 export function longAbsencesToday(req: FastifyRequest, employeeIds?: readonly number[]): Map<number, LongAbsence> {
   const found = new Map<number, LongAbsence>();
-  const user = req.user as { role?: string; admin_role_id?: number | null } | undefined;
-  if (!user || user.role !== 'admin' || !permits(permissionsFor(user.admin_role_id ?? null).abwesenheit, 'lesen')) {
-    return found;
-  }
+  if (!mayArea(req, 'abwesenheit', 'lesen')) return found;
   if (employeeIds?.length === 0) return found;
   const today = todayIso();
   const ids = employeeIds ?? [];
   const only = (column: string): string =>
     employeeIds ? ` AND ${column} IN (${employeeIds.map(() => '?').join(',')})` : '';
-  const db = getDb();
-  const leaves = db
+  // `+r.status`: Die äußere Abfrage soll über die Person suchen; mit dem Index
+  // auf dem Status läse sie jeden genehmigten Antrag der Historie (gemessen:
+  // 9 ms statt 0,3 ms bei 400 Personen über sechs Jahre).
+  const leaves = getDb()
     .prepare(
-      `SELECT r.employee_id, t.name AS type_name, r.date_from, r.date_to
+      `SELECT r.employee_id, r.type_id, t.name AS type_name, r.date_from, r.date_to
        FROM absence_requests r
        JOIN absence_types t ON t.id = r.type_id
-       JOIN employees e ON e.id = r.employee_id
-       WHERE e.status = 'aktiv' AND r.status = 'genehmigt' AND t.category = 'sonder'
-         AND r.date_from <= ? AND r.date_to >= ?${only('r.employee_id')}`,
+       WHERE +r.status = 'genehmigt' AND t.category = 'sonder' AND t.long_absence_hint = 1
+         AND r.employee_id IN (
+           SELECT r2.employee_id FROM absence_requests r2
+           JOIN absence_types t2 ON t2.id = r2.type_id
+           JOIN employees e ON e.id = r2.employee_id
+           WHERE e.status = 'aktiv' AND r2.status = 'genehmigt' AND t2.category = 'sonder'
+             AND t2.long_absence_hint = 1 AND r2.date_to >= ? AND r2.date_from <= ?${only('r2.employee_id')})`,
     )
-    .all([today, today, ...ids]) as { employee_id: number; type_name: string; date_from: string; date_to: string }[];
-  const notes = db
-    .prepare(
-      `SELECT s.id, s.follow_up_of_id, s.child_sick, r.employee_id, r.date_from, r.date_to
-       FROM sick_notes s
-       JOIN absence_requests r ON r.id = s.absence_request_id
-       WHERE r.status != 'storniert' AND r.employee_id IN (
-         SELECT r2.employee_id FROM sick_notes s2
-         JOIN absence_requests r2 ON r2.id = s2.absence_request_id
-         JOIN employees e ON e.id = r2.employee_id
-         WHERE e.status = 'aktiv' AND r2.status != 'storniert' AND s2.child_sick = 0
-           AND r2.date_from <= ? AND r2.date_to >= ?${only('r2.employee_id')})`,
-    )
-    .all([today, today, ...ids]) as (SickChainNote & { employee_id: number; child_sick: number })[];
-  const byEmployee = new Map<number, { leaves: typeof leaves; notes: typeof notes }>();
+    .all([today, today, ...ids]) as (LongLeaveRequest & { employee_id: number })[];
+  const notes = sickChainNotes(
+    `SELECT r2.employee_id FROM sick_notes s2
+     JOIN absence_requests r2 ON r2.id = s2.absence_request_id
+     JOIN employees e ON e.id = r2.employee_id
+     WHERE e.status = 'aktiv' AND r2.status IN ('beantragt', 'genehmigt', 'abgelehnt') AND s2.child_sick = 0
+       AND r2.date_to >= ? AND r2.date_from <= ?${only('r2.employee_id')}`,
+    [today, today, ...ids],
+  );
+  const byEmployee = new Map<number, { leaves: LongLeaveRequest[]; notes: SickChainRow[] }>();
   const of = (employeeId: number) => {
     let entry = byEmployee.get(employeeId);
     if (!entry) {

@@ -19,24 +19,37 @@ Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
   "Spalten"): Grundgehalt bzw. Stundenlohn auf die Vollzeit-Wochenstunden aus
   den Einstellungen hochgerechnet, ohne Zulagen, Sachbezuege und Abzuege. Bei
   20 von 40 Stunden und 2.600 EUR Grundgehalt stehen dort 5.200 EUR. FTE
-  bleibt der Anteil an der Vollzeit (20 von 40 Stunden ergeben 0,5).
+  bleibt der Anteil an der Vollzeit (20 von 40 Stunden ergeben 0,5). Ein
+  Stundenlohn braucht dafuer keine hinterlegten Wochenstunden.
 - **Neu:** Zusatz zum Status "Aktiv" bei langer Abwesenheit, die heute
   andauert: "Elternzeit bis 31.03.2027" fuer eine genehmigte
   Sonderabwesenheit ab sechs Wochen (Elternzeit, Mutterschutz, Sabbatical,
-  unbezahlter Urlaub), "Langzeitkrank seit 01.09.2026" fuer eine eigene
+  unbezahlter Urlaub; aneinandergereihte Antraege derselben Art zaehlen
+  zusammen), "Langzeitkrank seit 01.09.2026" fuer eine eigene
   AU-Kette nach dem Ende der Entgeltfortzahlung (mehr als 42 Kalendertage,
   gezaehlt wie bei den Krankmeldungen; Kind krank nie). Sichtbar in der
   Personalliste (Spalte Status, ohne sie beim Namen), in der Personalakte und
   in der Gehaltsuebersicht, nur mit dem Recht "Abwesenheit: Lesen", weil
   Krankmeldungen dahinterstehen. Kein neuer Status: Der Zusatz ergibt sich
   aus den Abwesenheiten und verschwindet mit ihrem Ende.
+- **Neu:** Abwesenheitsarten der Kategorie Sonderabwesenheit haben den Haken
+  "ab sechs Wochen im Status zeigen" (Migration
+  `209_absence_type_long_absence`). Ab Werk ist er bei allen gesetzt ausser
+  Home Office, das ein Arbeitsort ist und keine Abwesenheit.
 - **Neu:** Weitere Staatsangehoerigkeiten in der Personalakte (Feld unter der
-  Staatsangehoerigkeit, Migration `121_employee_further_nationalities`).
-  Personalliste und Portal nennen alle; nach einem Aufenthaltstitel fragt das
-  Formular nur, wenn keine aus EU, EWR oder Schweiz dabei ist.
-- **Intern:** Die AU-Kette der Krankmeldungen rechnet `sickChainSpans` in
-  `packages/shared/src/absences.ts`; Krankmeldungsliste und Zusatz zaehlen
-  damit gleich.
+  Staatsangehoerigkeit, hoechstens zehn, Migration
+  `121_employee_further_nationalities`). Personalliste und Portal nennen
+  alle; nach einem Aufenthaltstitel fragt das Formular nur, wenn keine aus
+  EU, EWR oder Schweiz dabei ist, und auch der Server leert ihn dann. Wird
+  die erste geleert, rueckt beim Speichern die erste weitere nach.
+- **Korrektur:** Mehrfachauswahl (Filter der Personalliste, weitere
+  Staatsangehoerigkeiten) in der Hausschrift statt der Systemschrift; Escape
+  in der offenen Liste schliesst nur die Liste, nicht den Dialog dahinter,
+  und Tab bleibt in der Liste.
+- **Intern:** Die AU-Kette der Krankmeldungen rechnen `sickChainNotes`,
+  `sickChainSpans` und `sickPayDaysUsed` an einer Stelle; Krankmeldungsliste
+  und Zusatz zaehlen damit gleich. Bereichsrechte im Handler prueft
+  `mayArea` (`core/permissions.ts`).
 
 ### Desktop-App: Serverwahl geprueft, Anmeldeseite nennt das Backend (09.11.2026)
 - **Neu:** Unter dem Knopf "Anmelden" steht, womit die Desktop-App spricht:

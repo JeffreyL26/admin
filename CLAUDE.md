@@ -87,7 +87,10 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Präfix dort ein, sonst antworten sie mit 403.
   `admin_role_id = NULL` heißt **Vollzugriff**, nicht „keine Rechte“: So bleiben
   bestehende Installationen nach dem Update benutzbar und neue Konten sperren
-  sich nicht selbst aus. Selbstschutz in `modules/admin/userRoutes.ts`: niemand
+  sich nicht selbst aus. Prüft ein Handler ein Bereichsrecht selbst, dann über
+  `mayArea(req, bereich, stufe)` (`core/permissions.ts`): Es verlangt
+  zusätzlich `users.role = 'admin'`, denn Portal-Konten haben ebenfalls
+  `admin_role_id = NULL`. Selbstschutz in `modules/admin/userRoutes.ts`: niemand
   ändert die eigene Zuweisung, hebt in der eigenen Rolle Rechte an oder entzieht
   sich die Benutzerverwaltung; das letzte Konto mit `benutzer: bearbeiten` bleibt
   erhalten, und eine Rolle mit Mitgliedern ist nicht löschbar (sonst hätten
@@ -278,17 +281,24 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **Zusatz zum Status bei langer Abwesenheit** (`longAbsenceFor` in
   `packages/shared/src/absences.ts`, Test `src/test/longAbsenceTest.ts`):
   kein eigener Status, sondern aus den Abwesenheiten abgeleitet. Eine
-  genehmigte Sonderabwesenheit (Kategorie `sonder`), die heute andauert und
-  mindestens sechs Wochen dauert (Elternzeit, Mutterschutz: die Arten sind
-  nur am änderbaren Namen erkennbar, deshalb die Dauer), sonst eine eigene
+  genehmigte Sonderabwesenheit (Kategorie `sonder`) einer Art mit „im Status
+  zeigen“ (`absence_types.long_absence_hint`, Migration
+  `209_absence_type_long_absence`, Haken in der Arten-Verwaltung; ab Werk
+  alle außer Home Office, das ein Arbeitsort ist: die Arten sind nur am
+  änderbaren Namen erkennbar, deshalb die Wahl an der Art), die heute
+  andauert und mindestens sechs Wochen dauert; aneinandergereihte Anträge
+  derselben Art (Beginn spätestens am Tag nach dem Ende) zählen als ein
+  Zeitraum, weil eine Verlängerung ein neuer Antrag ist. Sonst eine eigene
   AU-Kette, die heute andauert und seit mehr als 42 Kalendertagen läuft
-  (`sickChainSpans`, dieselbe Zählung wie `sick_pay_exceeded` der
-  Krankmeldungen; Kind krank nie). Geliefert als `long_absence` von
-  `GET /api/employees` (nicht `fields=lite`), `GET /api/employees/:id` und
-  der Gehaltsübersicht, nur mit `abwesenheit: lesen` (`longAbsencesToday` in
-  `absences/service.ts`, zwei Abfragen für alle; dahinter stehen
-  Krankmeldungen), sonst null; das Portal bekommt ihn nie. Die
-  Personalliste zeigt ihn in der Spalte Status, ohne sie beim Namen.
+  (`sickChainSpans` und `sickPayDaysUsed`, dieselbe Zählung wie
+  `sick_pay_exceeded` der Krankmeldungen, geladen über dieselbe Abfrage
+  `sickChainNotes`; Kind krank nie). Geliefert als `long_absence` von
+  `GET /api/employees` (nicht `fields=lite`, gerechnet nur für die aktiven
+  Treffer), `GET /api/employees/:id` und der Gehaltsübersicht, nur mit
+  `abwesenheit: lesen` (`longAbsencesToday` in `absences/service.ts`, zwei
+  Abfragen für alle; dahinter stehen Krankmeldungen), sonst null; das Portal
+  bekommt ihn nie. Die Personalliste zeigt ihn in der Spalte Status, ohne sie
+  beim Namen; alle drei Seiten über `components/LongAbsenceBadge.tsx`.
 - **Vier-Augen-Prinzip:** `approve` und `reject` in `absences/routes.ts` weisen
   den eigenen Antrag mit 403 ab (Vergleich `req.user.employee_id` gegen
   `absence_requests.employee_id`). `cancel` bleibt erlaubt (Rückzug, kein
@@ -336,11 +346,15 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (`packages/shared/src/nationality.ts`, Namen über `Intl.DisplayNames`,
   keine zweite Länderliste), weitere Staatsangehörigkeiten in
   `further_nationalities` ("TR,US", Migration
-  `121_employee_further_nationalities`; `settleNationalities` ordnet sie in
-  Backend und Formular gleich: ohne Doppel, ohne die erste, ohne erste rückt
-  die erste weitere nach), Aufenthaltstitel nur, wenn keine davon aus EU,
-  EWR oder Schweiz ist (`needsResidencePermit` mit allen; das Formular
-  blendet ihn sonst aus und schickt null), höchster Abschluss
+  `121_employee_further_nationalities`, höchstens
+  `MAX_FURTHER_NATIONALITIES`; `settleNationalities` ordnet sie in Backend
+  und Formular gleich: ohne Doppel, ohne die erste, nach Ländercode
+  sortiert, ohne erste rückt die erste weitere nach; das Formular setzt beim
+  Wechsel der ersten nur diese, weil der Select jeden Tastaturschritt meldet),
+  Aufenthaltstitel nur, wenn keine davon aus EU, EWR oder Schweiz ist
+  (`needsResidencePermit` mit allen; das Formular blendet ihn sonst aus und
+  schickt null, das Backend leert ihn ebenso in `settleNationalityFields`),
+  höchster Abschluss
   (`HIGHEST_DEGREES`). Die
   **Beschäftigungsart je Vertragsversion** (`contracts.employee_type`) ist die
   Historie „seit wann Vollzeit/Werkstudent“; die aktuelle Version spiegelt sie

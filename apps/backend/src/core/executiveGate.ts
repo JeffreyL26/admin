@@ -1,8 +1,8 @@
 import type { FastifyRequest } from 'fastify';
-import { permits, type PermissionLevel } from '@ohrganize/shared';
+import { type PermissionLevel } from '@ohrganize/shared';
 import { getDb } from '../db/db.js';
 import { forbidden } from './errors.js';
-import { permissionsFor } from './permissions.js';
+import { mayArea } from './permissions.js';
 
 /**
  * Leitungsebene (Chief-HR): Personen mit `employees.executive = 1` sehen
@@ -30,9 +30,7 @@ export const DIRECTORY_COLUMNS: ReadonlySet<string> = new Set([
 type Needed = Exclude<PermissionLevel, 'kein'>;
 
 export function mayAccessExecutive(req: FastifyRequest, needed: Needed): boolean {
-  const user = req.user as { role?: string; admin_role_id?: number | null } | undefined;
-  if (!user || user.role !== 'admin') return false;
-  return permits(permissionsFor(user.admin_role_id ?? null).leitung, needed);
+  return mayArea(req, 'leitung', needed);
 }
 
 export function isExecutive(employeeId: number): boolean {

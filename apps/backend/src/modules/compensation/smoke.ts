@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
-import { DATEV_LOHNART_DEFAULTS } from '@ohrganize/shared';
+import { DATEV_LOHNART_DEFAULTS, todayIsoLocal } from '@ohrganize/shared';
 
 process.env.OHRGANIZE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ohrganize-comp-smoke-'));
 process.env.OHRGANIZE_LOG_LEVEL = 'silent';
@@ -184,17 +184,19 @@ check(
     before,
   );
   const adjustment = before.last_adjustment as string | null;
-  const todayIsoLocal = new Date().toISOString().slice(0, 10);
+  // Ortsdatum wie der Server (todayIso), sonst gaelte die Zulage westlich von
+  // UTC abends erst morgen.
+  const todayLocal = todayIsoLocal();
   const allowance = await app.inject({
     method: 'POST',
     url: `/api/compensation/employees/${e1}/components`,
     headers: auth,
-    payload: { kind: 'zulage_funktion', amount_cents: 10000, valid_from: todayIsoLocal },
+    payload: { kind: 'zulage_funktion', amount_cents: 10000, valid_from: todayLocal },
   });
   const after = await row();
   check(
     'Uebersicht: Zulage aendert letzte Aenderung, nicht letzte Gehaltsanpassung',
-    allowance.statusCode === 201 && after.last_adjustment === adjustment && after.last_change === todayIsoLocal,
+    allowance.statusCode === 201 && after.last_adjustment === adjustment && after.last_change === todayLocal,
     { before, after, allowance: allowance.json() },
   );
   // Vollzeitgehalt: nur die Grundverguetung, auf die Vollzeit-Wochenstunden
@@ -228,6 +230,16 @@ check(
     hourlyOverview.monthly_gross_cents === 125570 && hourlyOverview.full_time_monthly_cents === 251140,
     hourlyOverview,
   );
+  // Ein Stundenlohn braucht fuer das Vollzeitgehalt keine Wochenstunden der Person.
+  db.prepare('UPDATE employees SET weekly_hours = NULL WHERE id = ?').run(e4);
+  const hourlyNoHours = (
+    (await app.inject({ method: 'GET', url: '/api/compensation/salaries', headers: auth })).json().salaries as Record<string, unknown>[]
+  ).find((x) => x.employee_id === e4)!;
+  check(
+    'Uebersicht: Stundenlohn ohne Wochenstunden hat trotzdem ein Vollzeitgehalt',
+    hourlyNoHours.full_time_monthly_cents === 251140,
+    hourlyNoHours,
+  );
   db.prepare('DELETE FROM salary_components WHERE id = ?').run(hourlyRow);
   db.prepare('UPDATE employees SET weekly_hours = 40 WHERE id = ?').run(e4);
   db.prepare("DELETE FROM salary_components WHERE employee_id = ? AND kind = 'zulage_funktion'").run(e1);
@@ -246,13 +258,18 @@ check(
   const firstNote = Number(addSickNote.run(firstSick, shift(-58), null).lastInsertRowid);
   const followSick = Number(addRequest.run(e2, typeId('Krankheit'), shift(-30), shift(5)).lastInsertRowid);
   addSickNote.run(followSick, shift(-28), firstNote);
+  // Elternzeit in zwei Bloecken (20 und 31 Tage) zaehlt zusammen; Home Office
+  // ist ein Arbeitsort und erscheint auch nach 61 Tagen nicht.
+  const blockOne = Number(addRequest.run(e3, typeId('Elternzeit'), shift(-20), shift(-1)).lastInsertRowid);
+  const blockTwo = Number(addRequest.run(e3, typeId('Elternzeit'), shift(0), shift(30)).lastInsertRowid);
+  const homeOffice = Number(addRequest.run(e4, typeId('Home Office'), shift(-10), shift(50)).lastInsertRowid);
   const rows = (await app.inject({ method: 'GET', url: '/api/compensation/salaries', headers: auth })).json().salaries as {
     employee_id: number;
     long_absence: { kind: string; label: string; since: string } | null;
   }[];
   const of = (id: number) => rows.find((r) => r.employee_id === id)?.long_absence;
   check(
-    'Uebersicht: Elternzeit und Langzeitkrank als Zusatz zum Status, sonst keiner',
+    'Uebersicht: Elternzeit und Langzeitkrank als Zusatz zum Status, Home Office nicht',
     of(e1)?.kind === 'sonder' &&
       of(e1)?.label === 'Elternzeit' &&
       of(e2)?.kind === 'krankheit' &&
@@ -263,7 +280,13 @@ check(
   const list = await app.inject({ method: 'GET', url: '/api/employees', headers: auth });
   const detail = await app.inject({ method: 'GET', url: `/api/employees/${e2}`, headers: auth });
   const lite = await app.inject({ method: 'GET', url: '/api/employees?fields=lite', headers: auth });
-  const listed = list.json().employees as { id: number; long_absence?: { label: string } | null }[];
+  const listed = list.json().employees as { id: number; long_absence?: { label: string; since: string } | null }[];
+  check(
+    'Personal: Elternzeit in zwei Bloecken zaehlt als ein Zeitraum',
+    listed.find((x) => x.id === e3)?.long_absence?.label === 'Elternzeit' &&
+      listed.find((x) => x.id === e3)?.long_absence?.since === shift(-20),
+    listed.map((x) => [x.id, x.long_absence]),
+  );
   check(
     'Personal: Zusatz in Liste und Personalakte, nicht in der schlanken Form',
     listed.find((x) => x.id === e1)?.long_absence?.label === 'Elternzeit' &&
@@ -290,7 +313,14 @@ check(
     })
   ).json().salaries as { long_absence: unknown }[];
   check('Uebersicht: ohne Recht Abwesenheit kein Zusatz', hidden.length > 0 && hidden.every((r) => r.long_absence === null), hidden);
-  db.prepare('DELETE FROM absence_requests WHERE id IN (?, ?, ?)').run(parental, firstSick, followSick);
+  db.prepare('DELETE FROM absence_requests WHERE id IN (?, ?, ?, ?, ?, ?)').run(
+    parental,
+    firstSick,
+    followSick,
+    blockOne,
+    blockTwo,
+    homeOffice,
+  );
 }
 
 // ---------------- Gehaltsänderungs-Workflow ----------------

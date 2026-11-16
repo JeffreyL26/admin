@@ -33,6 +33,8 @@ interface TypeForm {
   max_days_per_year: number | null;
   active: boolean;
   portal_visibility: PortalVisibility;
+  /** Zusatz zum Status ab sechs Wochen (nur Sonderabwesenheit). */
+  long_absence_hint: boolean;
 }
 
 const EMPTY_FORM: TypeForm = {
@@ -46,6 +48,7 @@ const EMPTY_FORM: TypeForm = {
   max_days_per_year: null,
   active: true,
   portal_visibility: 'name',
+  long_absence_hint: true,
 };
 
 const EMPTY_ELIGIBILITY: AbsenceTypeEligibility = { role_ids: [], employee_rules: [] };
@@ -175,6 +178,7 @@ export function TypesPage() {
                           {t.requires_proof === 1 && <Badge tone="yellow">Nachweis</Badge>}
                           {t.requires_approval === 1 && <Badge tone="navy">Genehmigung</Badge>}
                           {t.portal_visibility === 'neutral' && <Badge tone="neutral">Portal: „Abwesend“</Badge>}
+                          {t.category === 'sonder' && t.long_absence_hint === 1 && <Badge tone="yellow">im Status</Badge>}
                           {/*
                             Krankheits-Art im Klartext: in der Liste sichtbar machen,
                             damit die Einstellung bei einer Datenschutz-Prüfung auffällt,
@@ -225,6 +229,7 @@ export function TypesPage() {
                                   max_days_per_year: t.max_days_per_year,
                                   active: t.active === 1,
                                   portal_visibility: t.portal_visibility ?? 'name',
+                                  long_absence_hint: t.long_absence_hint === 1,
                                 },
                               })
                             }
@@ -488,6 +493,16 @@ function TypeDialog({
             <input type="checkbox" checked={form.requires_approval} onChange={(e) => set({ requires_approval: e.target.checked })} />
             genehmigungspflichtig
           </label>
+          {form.category === 'sonder' && (
+            <label className="hm-checkbox">
+              <input
+                type="checkbox"
+                checked={form.long_absence_hint}
+                onChange={(e) => set({ long_absence_hint: e.target.checked })}
+              />
+              ab sechs Wochen im Status zeigen (z. B. Elternzeit, nicht Home Office)
+            </label>
+          )}
           <label className="hm-checkbox">
             <input type="checkbox" checked={form.active} onChange={(e) => set({ active: e.target.checked })} />
             aktiv

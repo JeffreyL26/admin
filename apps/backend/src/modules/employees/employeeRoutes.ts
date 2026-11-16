@@ -468,8 +468,12 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     const rows = queryEmployees(query, mayAccessExecutive(req, 'lesen'));
     if (query.fields === 'lite') return { employees: rows.map(toLite) };
     // Zusatz zum Status (Elternzeit, Langzeitkrank): wie die Abwesenheiten
-    // auch bei Leitungspersonen, aber nur mit `abwesenheit: lesen`.
-    const longAbsences = longAbsencesToday(req);
+    // auch bei Leitungspersonen, aber nur mit `abwesenheit: lesen`; gerechnet
+    // nur fuer die aktiven Treffer (Suche und Filter).
+    const longAbsences = longAbsencesToday(
+      req,
+      rows.filter((r) => r.status === 'aktiv').map((r) => r.id as number),
+    );
     return {
       employees: rows.map((r) => ({
         ...stripDisability(req, projectDirectory(req, r)),

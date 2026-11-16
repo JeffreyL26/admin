@@ -10,11 +10,11 @@ import { holidaysByRegion, isHoliday } from '../../core/holidays.js';
 import {
   DEFAULT_WORK_SCHEDULE,
   SICK_PAY_LIMIT_DAYS,
-  daysBetweenIso,
   isScheduledDay,
   maskDisabilityEntitlement,
   nextWorkdayIso,
   sickChainSpans,
+  sickPayDaysUsed,
   type EntitlementDetail,
   workScheduleOf,
   type CountryCode,
@@ -43,6 +43,7 @@ import {
   regionForEmployee,
   regionSelectParams,
   schedulePreview,
+  sickChainNotes,
   REGION_JOIN_SQL,
   REGION_SELECT_SQL,
   type AbsenceTypeRow as TypeRow,
@@ -52,6 +53,7 @@ import {
   type ContractPeriodRow,
   type EmployeeRow,
   type RegionRow,
+  type SickChainRow,
 } from './service.js';
 
 /** Konflikt-Schwelle Kalender: > 50 % eines Teams gleichzeitig abwesend. */
@@ -74,6 +76,9 @@ const typeBodySchema = z.object({
   // Sichtbarkeit im Firmenkalender des Portals. Fehlt das Feld, entscheidet
   // die Kategorie (siehe defaultPortalVisibility) — nicht pauschal 'name'.
   portal_visibility: z.enum(['name', 'neutral']).optional(),
+  // Zusatz zum Status ab sechs Wochen (nur Kategorie 'sonder'). Fehlt das
+  // Feld, gilt beim Anlegen die Kategorie, beim Aendern der Bestand.
+  long_absence_hint: z.boolean().optional(),
 });
 
 /**
@@ -296,8 +301,9 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
       const result = db()
         .prepare(
           `INSERT INTO absence_types
-           (name, category, paid, affects_balance, requires_proof, requires_approval, color, max_days_per_year, active, portal_visibility)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (name, category, paid, affects_balance, requires_proof, requires_approval, color, max_days_per_year, active,
+            portal_visibility, long_absence_hint)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           body.name,
@@ -310,6 +316,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
           body.max_days_per_year ?? null,
           body.active === false ? 0 : 1,
           body.portal_visibility ?? defaultPortalVisibility(body.category),
+          (body.long_absence_hint ?? body.category === 'sonder') ? 1 : 0,
         );
       const newId = Number(result.lastInsertRowid);
       audit(req, 'create', 'absence_type', newId, body);
@@ -321,7 +328,9 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
 
   app.put('/api/absences/types/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
-    const existing = db().prepare('SELECT * FROM absence_types WHERE id = ?').get(id);
+    const existing = db().prepare('SELECT * FROM absence_types WHERE id = ?').get(id) as
+      | { long_absence_hint: number }
+      | undefined;
     if (!existing) throw notFound('Abwesenheitsart nicht gefunden');
     const body = parse(typeBodySchema, req.body);
     inTransaction(() => {
@@ -329,7 +338,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         .prepare(
           `UPDATE absence_types SET name = ?, category = ?, paid = ?, affects_balance = ?,
            requires_proof = ?, requires_approval = ?, color = ?, max_days_per_year = ?, active = ?,
-           portal_visibility = ?
+           portal_visibility = ?, long_absence_hint = ?
            WHERE id = ?`,
         )
         .run(
@@ -343,6 +352,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
           body.max_days_per_year ?? null,
           body.active === false ? 0 : 1,
           body.portal_visibility ?? defaultPortalVisibility(body.category),
+          (body.long_absence_hint ?? existing.long_absence_hint === 1) ? 1 : 0,
           id,
         );
       audit(req, 'update', 'absence_type', id, body);
@@ -788,14 +798,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     JOIN absence_requests r ON r.id = s.absence_request_id
     JOIN employees e ON e.id = r.employee_id`;
 
-  interface SickRow {
-    id: number;
-    employee_id: number;
-    date_from: string;
-    date_to: string;
-    follow_up_of_id: number | null;
-    child_sick: number;
-  }
+  type SickRow = SickChainRow;
 
   /**
    * Reichert Krankmeldungen um die bereits angefallenen Fehltage an:
@@ -816,14 +819,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
 
     // Für die Ketten-Betrachtung alle (nicht stornierten) AUs der betroffenen
     // Mitarbeitenden laden — die gefilterte Liste könnte Kettenglieder verlieren.
-    const all = db()
-      .prepare(
-        `SELECT s.id, s.follow_up_of_id, s.child_sick, r.employee_id, r.date_from, r.date_to
-         FROM sick_notes s
-         JOIN absence_requests r ON r.id = s.absence_request_id
-         WHERE r.status != 'storniert' AND r.employee_id IN (${employeeIds.map(() => '?').join(',')})`,
-      )
-      .all(...employeeIds) as SickRow[];
+    const all = sickChainNotes(employeeIds.map(() => '?').join(','), employeeIds);
     // Kettenumfang je Krankmeldung: frühester Beginn, spätestes Ende (wie der
     // Zusatz „Langzeitkrank“ in Personal und Gehaltsübersicht, longAbsenceFor).
     const chains = sickChainSpans(all);
@@ -864,9 +860,7 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         clipTo: today,
         closures,
       });
-      const chain = chains.get(row.id) ?? { from: row.date_from, to: row.date_to };
-      const chainEnd = chain.to < today ? chain.to : today;
-      const sickPayDays = chain.from > chainEnd ? 0 : daysBetweenIso(chain.from, chainEnd) + 1;
+      const sickPayDays = sickPayDaysUsed(chains.get(row.id) ?? { from: row.date_from, to: row.date_to }, today);
       return {
         ...row,
         days_absent_so_far: daysAbsent,

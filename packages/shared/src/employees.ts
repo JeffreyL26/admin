@@ -1,5 +1,5 @@
 // Typen des Moduls Personalverwaltung & Stammdaten.
-import { addDaysIso, addMonthsIso } from './common.js';
+import { addDaysIso, addMonthsIso, daysBetweenIso } from './common.js';
 import { type CountryCode } from './country.js';
 import type { LongAbsence } from './absences.js';
 
@@ -244,7 +244,7 @@ export interface PersonnelDeadline {
  */
 export function personnelDeadlineText(d: PersonnelDeadline, today: string): string {
   const name = `${d.first_name} ${d.last_name}`;
-  const days = Math.round((Date.parse(`${d.date}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  const days = daysBetweenIso(today, d.date);
   const when =
     days < 0
       ? null
