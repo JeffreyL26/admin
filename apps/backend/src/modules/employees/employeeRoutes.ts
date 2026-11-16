@@ -25,6 +25,7 @@ import {
   bulkBodySchema,
   employeeBodySchema,
   employeePatchSchema,
+  settleNationalityFields,
   settleWorkSchedule,
 } from './validation.js';
 import { assertDisabilityWrite, stripDisability } from './disability.js';
@@ -38,6 +39,7 @@ import {
   COUNTING_EMPLOYEE_COLUMNS,
   ENTITLEMENT_EMPLOYEE_COLUMNS,
   freezeEntitlementInputs,
+  longAbsencesToday,
   recountUpcomingRequests,
 } from '../absences/service.js';
 import { frozenDetails, mirrorDueContracts, syncCurrentContract, type ContractSync } from './contractRoutes.js';
@@ -465,7 +467,15 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     const query = parse(listQuerySchema, req.query ?? {});
     const rows = queryEmployees(query, mayAccessExecutive(req, 'lesen'));
     if (query.fields === 'lite') return { employees: rows.map(toLite) };
-    return { employees: rows.map((r) => stripDisability(req, projectDirectory(req, r))) };
+    // Zusatz zum Status (Elternzeit, Langzeitkrank): wie die Abwesenheiten
+    // auch bei Leitungspersonen, aber nur mit `abwesenheit: lesen`.
+    const longAbsences = longAbsencesToday(req);
+    return {
+      employees: rows.map((r) => ({
+        ...stripDisability(req, projectDirectory(req, r)),
+        long_absence: longAbsences.get(r.id as number) ?? null,
+      })),
+    };
   });
 
   // CSV-Export (BOM + Semikolon für deutsches Excel), gleiche Filter wie die Liste.
@@ -591,7 +601,10 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/employees/:id', async (req) => {
     const id = Number((req.params as { id: string }).id);
     const employee = stripDisability(req, projectDirectory(req, getEmployeeOr404(id)));
-    return { employee, reporting_line: reportingLine(id) };
+    return {
+      employee: { ...employee, long_absence: longAbsencesToday(req, [id]).get(id) ?? null },
+      reporting_line: reportingLine(id),
+    };
   });
 
   /**
@@ -623,6 +636,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
       throw forbidden('Die Leitungsebene kennzeichnet nur, wer das Recht „Leitungsebene: Bearbeiten“ hat.');
     }
     settleWorkSchedule(body);
+    settleNationalityFields(body);
     settlePhotoThumb(body);
     assertNewPhotoFiles(body, req.user.id);
     assertTypeRules(body);
@@ -689,6 +703,7 @@ export async function employeeRoutes(app: FastifyInstance): Promise<void> {
     }
     assertDisabilityWrite(req, patch, existing);
     settleWorkSchedule(patch, existing);
+    settleNationalityFields(patch, existing);
     if (mirrored.length && expected_updated_at != null) {
       // Das Formular zeigte noch die Werte der Vorversion (der Stand davor war
       // geprueft, geaendert hat hier nur die Uebernahme). Abgelehnt wird nur

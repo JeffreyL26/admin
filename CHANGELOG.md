@@ -163,6 +163,32 @@ Alles seit 1.0.0. Die Version bleibt 1.0.0, bis der erste Kunde betreut ist;
 die datierten Unterabschnitte sind Arbeitsstaende, kein Release. Ein
 Versionsabschnitt entsteht erst mit `scripts/release.mjs` (Tag, Manifest).
 
+### Gehaltsuebersicht, Zusatz zum Status, mehrere Staatsangehoerigkeiten (16.11.2026)
+- **Neu:** Die Gehaltsuebersicht filtert nach Aktiv, Ausgeschieden oder Alle
+  (Vorgabe Aktiv, je Geraet gemerkt); die Reiter nennen die Zahl.
+- **Neu:** Spalte "Vollzeitgehalt" in der Gehaltsuebersicht (waehlbar unter
+  "Spalten"): Grundgehalt bzw. Stundenlohn auf die Vollzeit-Wochenstunden aus
+  den Einstellungen hochgerechnet, ohne Zulagen, Sachbezuege und Abzuege. Bei
+  20 von 40 Stunden und 2.600 EUR Grundgehalt stehen dort 5.200 EUR. FTE
+  bleibt der Anteil an der Vollzeit (20 von 40 Stunden ergeben 0,5).
+- **Neu:** Zusatz zum Status "Aktiv" bei langer Abwesenheit, die heute
+  andauert: "Elternzeit bis 31.03.2027" fuer eine genehmigte
+  Sonderabwesenheit ab sechs Wochen (Elternzeit, Mutterschutz, Sabbatical,
+  unbezahlter Urlaub), "Langzeitkrank seit 01.09.2026" fuer eine eigene
+  AU-Kette nach dem Ende der Entgeltfortzahlung (mehr als 42 Kalendertage,
+  gezaehlt wie bei den Krankmeldungen; Kind krank nie). Sichtbar in der
+  Personalliste (Spalte Status, ohne sie beim Namen), in der Personalakte und
+  in der Gehaltsuebersicht, nur mit dem Recht "Abwesenheit: Lesen", weil
+  Krankmeldungen dahinterstehen. Kein neuer Status: Der Zusatz ergibt sich
+  aus den Abwesenheiten und verschwindet mit ihrem Ende.
+- **Neu:** Weitere Staatsangehoerigkeiten in der Personalakte (Feld unter der
+  Staatsangehoerigkeit, Migration `121_employee_further_nationalities`).
+  Personalliste und Portal nennen alle; nach einem Aufenthaltstitel fragt das
+  Formular nur, wenn keine aus EU, EWR oder Schweiz dabei ist.
+- **Intern:** Die AU-Kette der Krankmeldungen rechnet `sickChainSpans` in
+  `packages/shared/src/absences.ts`; Krankmeldungsliste und Zusatz zaehlen
+  damit gleich.
+
 ### Desktop-App: Serverwahl geprueft, Anmeldeseite nennt das Backend (09.11.2026)
 - **Neu:** Unter dem Knopf "Anmelden" steht, womit die Desktop-App spricht:
   "Verbunden mit musterfirma.ohrganize.com" oder "Daten auf diesem Rechner

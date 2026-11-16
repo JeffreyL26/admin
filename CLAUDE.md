@@ -402,6 +402,20 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   (`home_office_weekdays`, `home_office`); das Portal zeigt die Markierung
   nur lesend und bekommt die Arbeitswoche der anderen nicht. Die
   Abwesenheitsart "Home Office" bleibt für Einzelfälle ohne Muster.
+- **Zusatz zum Status bei langer Abwesenheit** (`longAbsenceFor` in
+  `packages/shared/src/absences.ts`, Test `src/test/longAbsenceTest.ts`):
+  kein eigener Status, sondern aus den Abwesenheiten abgeleitet. Eine
+  genehmigte Sonderabwesenheit (Kategorie `sonder`), die heute andauert und
+  mindestens sechs Wochen dauert (Elternzeit, Mutterschutz: die Arten sind
+  nur am änderbaren Namen erkennbar, deshalb die Dauer), sonst eine eigene
+  AU-Kette, die heute andauert und seit mehr als 42 Kalendertagen läuft
+  (`sickChainSpans`, dieselbe Zählung wie `sick_pay_exceeded` der
+  Krankmeldungen; Kind krank nie). Geliefert als `long_absence` von
+  `GET /api/employees` (nicht `fields=lite`), `GET /api/employees/:id` und
+  der Gehaltsübersicht, nur mit `abwesenheit: lesen` (`longAbsencesToday` in
+  `absences/service.ts`, zwei Abfragen für alle; dahinter stehen
+  Krankmeldungen), sonst null; das Portal bekommt ihn nie. Die
+  Personalliste zeigt ihn in der Spalte Status, ohne sie beim Namen.
 - **Vier-Augen-Prinzip:** `approve` und `reject` in `absences/routes.ts` weisen
   den eigenen Antrag mit 403 ab (Vergleich `req.user.employee_id` gegen
   `absence_requests.employee_id`). `cancel` bleibt erlaubt (Rückzug, kein
@@ -447,9 +461,14 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **Stammdaten zu Herkunft, Abschluss und Fristen** (Migration
   `112_employee_master_data`): Staatsangehörigkeit als ISO-2
   (`packages/shared/src/nationality.ts`, Namen über `Intl.DisplayNames`,
-  keine zweite Länderliste), Aufenthaltstitel nur außerhalb von EU, EWR und
-  Schweiz (`needsResidencePermit`; das Formular blendet ihn sonst aus und
-  schickt null), höchster Abschluss (`HIGHEST_DEGREES`). Die
+  keine zweite Länderliste), weitere Staatsangehörigkeiten in
+  `further_nationalities` ("TR,US", Migration
+  `121_employee_further_nationalities`; `settleNationalities` ordnet sie in
+  Backend und Formular gleich: ohne Doppel, ohne die erste, ohne erste rückt
+  die erste weitere nach), Aufenthaltstitel nur, wenn keine davon aus EU,
+  EWR oder Schweiz ist (`needsResidencePermit` mit allen; das Formular
+  blendet ihn sonst aus und schickt null), höchster Abschluss
+  (`HIGHEST_DEGREES`). Die
   **Beschäftigungsart je Vertragsversion** (`contracts.employee_type`) ist die
   Historie „seit wann Vollzeit/Werkstudent“; die aktuelle Version spiegelt sie
   wie Stunden und Urlaub auf `employees` (`mirrorToEmployee`, Typregeln
@@ -1518,12 +1537,15 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
 - **Gehaltsübersicht** (`GET /api/compensation/salaries`): Spalten je Gerät
   wählbar (`ohrganize.salaryList`, `SALARY_COLUMNS` in `SalariesPage.tsx`):
   Wochenstunden, FTE (Einstellung `fullTimeWeeklyHours`, Vorgabe 40),
+  Vollzeitgehalt (`fullTimeBasePayCents` in `shared/compensation.ts`: nur
+  Grundgehalt und Stundenlohn, auf die Vollzeit-Wochenstunden hochgerechnet),
   Stundenlohn (vereinbart oder aus Monatsbrutto und `contractMonthHours`
   gerechnet), Jahresbrutto (12 × Monatsbrutto, ohne variable Vergütung),
   Extras (Bonusarten des laufenden Jahres, Link auf
   `/verguetung/boni?person=`), letzte Gehaltsanpassung (jüngster gültiger
   Beginn einer Komponente aus `BASE_PAY_KINDS`) und letzte Änderung (jede
-  Komponente).
+  Komponente). Reiter Aktiv, Ausgeschieden und Alle filtern im Client
+  (`ohrganize.salaryList.status`, Vorgabe Aktiv).
 - **Tabellen sortieren und verschieben (alle Hauptlisten):** Spaltenköpfe über
   `components/SortableTh.tsx`, Stand je Gerät unter
   `ohrganize.tableSort.<tabelle>`. Clientseitig sortierte Listen nutzen

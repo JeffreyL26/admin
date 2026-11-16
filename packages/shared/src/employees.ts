@@ -1,6 +1,7 @@
 // Typen des Moduls Personalverwaltung & Stammdaten.
 import { addDaysIso, addMonthsIso } from './common.js';
 import { type CountryCode } from './country.js';
+import type { LongAbsence } from './absences.js';
 
 export type EmployeeType =
   | 'vollzeit'
@@ -394,6 +395,8 @@ export interface EmployeeDto extends EmployeeLiteDto {
   annual_leave_days: number | null;
   /** Staatsangehörigkeit, ISO-2 (nationality.ts). */
   nationality: string | null;
+  /** Weitere Staatsangehörigkeiten "TR,US", ohne die erste (settleNationalities). */
+  further_nationalities: string | null;
   /** Art des Aufenthaltstitels (RESIDENCE_PERMIT_TYPES), nur außerhalb von EU, EWR und Schweiz. */
   residence_permit: string | null;
   residence_permit_until: string | null;
@@ -424,6 +427,12 @@ export interface EmployeeDto extends EmployeeLiteDto {
   disability_equal?: number;
   disability_valid_until?: string | null;
   disability_note?: string | null;
+  /**
+   * Lange Abwesenheit, die heute andauert (Elternzeit, Mutterschutz,
+   * Langzeitkrank; longAbsenceFor in absences.ts): Zusatz zum Status. Nur in
+   * Liste und Einzelabruf, null ohne Recht "Abwesenheit: lesen".
+   */
+  long_absence?: LongAbsence | null;
   created_at: string;
   updated_at: string;
 }

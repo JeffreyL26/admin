@@ -1,5 +1,7 @@
 import type { EntitlementDetail } from './leaveEntitlement.js';
 import type { HomeOfficeException } from './homeOffice.js';
+import { formatDate } from './common.js';
+import { daysBetweenIso } from './license.js';
 // Typen des Moduls Abwesenheitsmanagement.
 
 export type AbsenceCategory = 'urlaub' | 'krankheit' | 'sonder';
@@ -188,6 +190,113 @@ export interface SickNote {
 
 /** Entgeltfortzahlung im Krankheitsfall: 6 Wochen = 42 Kalendertage. */
 export const SICK_PAY_LIMIT_DAYS = 42;
+
+/** Glied einer AU-Kette: Erst- oder Folgebescheinigung (follow_up_of_id). */
+export interface SickChainNote {
+  id: number;
+  follow_up_of_id: number | null;
+  date_from: string;
+  date_to: string;
+}
+
+/**
+ * Umfang der AU-Kette jeder Krankmeldung: frühester Beginn und spätestes Ende
+ * aller Bescheinigungen, die über follow_up_of_id an derselben
+ * Erstbescheinigung hängen. Ein Verweis auf eine Bescheinigung außerhalb der
+ * Liste (storniert, nicht geladen) beendet die Kette dort, ein Ring bricht ab.
+ * Die Liste enthält deshalb alle nicht stornierten Krankmeldungen der
+ * Personen, nicht nur die angezeigten.
+ */
+export function sickChainSpans(notes: readonly SickChainNote[]): Map<number, { from: string; to: string }> {
+  const byId = new Map(notes.map((n) => [n.id, n]));
+  const rootOf = (note: SickChainNote): number => {
+    let cur = note;
+    const seen = new Set<number>();
+    while (cur.follow_up_of_id !== null && byId.has(cur.follow_up_of_id) && !seen.has(cur.id)) {
+      seen.add(cur.id);
+      cur = byId.get(cur.follow_up_of_id)!;
+    }
+    return cur.id;
+  };
+  const byRoot = new Map<number, { from: string; to: string }>();
+  const spans = new Map<number, { from: string; to: string }>();
+  for (const n of notes) {
+    const root = rootOf(n);
+    let chain = byRoot.get(root);
+    if (!chain) {
+      chain = { from: n.date_from, to: n.date_to };
+      byRoot.set(root, chain);
+    } else {
+      if (n.date_from < chain.from) chain.from = n.date_from;
+      if (n.date_to > chain.to) chain.to = n.date_to;
+    }
+    spans.set(n.id, chain);
+  }
+  return spans;
+}
+
+/** Ab sechs Wochen (42 Kalendertagen) gilt eine Abwesenheit als lang, wie bei der Entgeltfortzahlung. */
+export const LONG_ABSENCE_DAYS = SICK_PAY_LIMIT_DAYS;
+
+/**
+ * Lange Abwesenheit, die heute andauert: Zusatz zum Status „Aktiv“ in
+ * Personalliste, Personalakte und Gehaltsübersicht (longAbsenceFor). Die
+ * Antworten tragen ihn nur für Konten mit `abwesenheit: lesen`.
+ */
+export interface LongAbsence {
+  /** 'sonder': Sonderabwesenheit wie Elternzeit oder Mutterschutz; 'krankheit': eigene AU-Kette. */
+  kind: 'sonder' | 'krankheit';
+  /** Name der Abwesenheitsart, bei Krankheit „Langzeitkrank“. */
+  label: string;
+  /** Beginn des Antrags bzw. der AU-Kette. */
+  since: string;
+  /** Ende des Antrags bzw. der letzten Bescheinigung der Kette. */
+  until: string;
+}
+
+/**
+ * Regel des Zusatzes für EINE Person. `specialLeaves` sind ihre genehmigten
+ * Anträge der Kategorie 'sonder', `sickNotes` alle nicht stornierten
+ * Krankmeldungen (für die Kette, siehe sickChainSpans).
+ * - Sonderabwesenheit: deckt heute ab und dauert mindestens sechs Wochen;
+ *   kurze Arten wie Umzug oder Bildungsurlaub bleiben außen vor. Bei mehreren
+ *   gilt die, die am längsten reicht.
+ * - Krankheit: eine eigene Krankmeldung (nicht Kind krank) deckt heute ab,
+ *   und ihre AU-Kette läuft seit mehr als sechs Wochen, die
+ *   Entgeltfortzahlung ist also vorbei (dieselbe Zählung wie
+ *   sick_pay_exceeded der Krankmeldungen).
+ * Die Sonderabwesenheit geht vor: Wer in Elternzeit krank wird, bleibt in
+ * Elternzeit.
+ */
+export function longAbsenceFor(
+  today: string,
+  specialLeaves: readonly { type_name: string; date_from: string; date_to: string }[],
+  sickNotes: readonly (SickChainNote & { child_sick: number })[],
+): LongAbsence | null {
+  let leave: LongAbsence | null = null;
+  for (const r of specialLeaves) {
+    if (r.date_from > today || r.date_to < today) continue;
+    if (daysBetweenIso(r.date_from, r.date_to) + 1 < LONG_ABSENCE_DAYS) continue;
+    if (!leave || r.date_to > leave.until) {
+      leave = { kind: 'sonder', label: r.type_name, since: r.date_from, until: r.date_to };
+    }
+  }
+  if (leave) return leave;
+  const spans = sickChainSpans(sickNotes);
+  for (const n of sickNotes) {
+    if (n.child_sick !== 0 || n.date_from > today || n.date_to < today) continue;
+    const chain = spans.get(n.id);
+    if (chain && daysBetweenIso(chain.from, today) + 1 > SICK_PAY_LIMIT_DAYS) {
+      return { kind: 'krankheit', label: 'Langzeitkrank', since: chain.from, until: chain.to };
+    }
+  }
+  return null;
+}
+
+/** Text des Zusatzes: „Elternzeit bis 31.03.2027“ bzw. „Langzeitkrank seit 01.09.2026“. */
+export function longAbsenceText(a: LongAbsence): string {
+  return a.kind === 'krankheit' ? `${a.label} seit ${formatDate(a.since)}` : `${a.label} bis ${formatDate(a.until)}`;
+}
 
 export interface CompanyClosure {
   id: number;

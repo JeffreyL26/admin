@@ -51,9 +51,43 @@ export function nationalityLabel(code: string): string {
   return regionNames?.of(code) ?? code;
 }
 
-/** Braucht diese Staatsangehoerigkeit einen Aufenthaltstitel? Ohne Angabe: nein. */
-export function needsResidencePermit(nationality: string | null | undefined): boolean {
-  return !!nationality && !(FREE_MOVEMENT_COUNTRIES as readonly string[]).includes(nationality);
+/** Weitere Staatsangehoerigkeiten, gespeichert wie die Arbeitstage ("TR,US"), als Liste. */
+export function parseNationalities(value: string | null | undefined): string[] {
+  return value ? value.split(',').map((code) => code.trim()).filter(Boolean) : [];
+}
+
+/** Alle Staatsangehoerigkeiten einer Person ohne Doppel, die erste vorn. */
+export function nationalitiesOf(nationality: string | null | undefined, further: string | null | undefined): string[] {
+  return [...new Set([nationality ?? '', ...parseNationalities(further)].filter(Boolean))];
+}
+
+/**
+ * Gespeicherte Form: die erste in `nationality`, weitere als "TR,US" ohne
+ * Doppel und ohne die erste, leer = null. Fehlt die erste, rueckt die erste
+ * weitere nach. Backend (POST, PATCH) und Formular rechnen gleich.
+ */
+export function settleNationalities(
+  nationality: string | null | undefined,
+  further: string | null | undefined,
+): { nationality: string | null; further_nationalities: string | null } {
+  const all = nationalitiesOf(nationality, further);
+  return { nationality: all[0] ?? null, further_nationalities: all.length > 1 ? all.slice(1).join(',') : null };
+}
+
+/** Anzeige aller Staatsangehoerigkeiten, z. B. "Türkei, Deutschland"; ohne Angabe null. */
+export function nationalitiesLabel(nationality: string | null | undefined, further: string | null | undefined): string | null {
+  const all = nationalitiesOf(nationality, further);
+  return all.length ? all.map(nationalityLabel).join(', ') : null;
+}
+
+/**
+ * Braucht die Person einen Aufenthaltstitel? Nur, wenn keine ihrer
+ * Staatsangehoerigkeiten Freizuegigkeit bringt; eine aus EU, EWR oder Schweiz
+ * neben einer anderen genuegt. Ohne Angabe: nein.
+ */
+export function needsResidencePermit(nationality: string | null | undefined, further?: string | null): boolean {
+  const all = nationalitiesOf(nationality, further);
+  return all.length > 0 && !all.some((code) => (FREE_MOVEMENT_COUNTRIES as readonly string[]).includes(code));
 }
 
 /**

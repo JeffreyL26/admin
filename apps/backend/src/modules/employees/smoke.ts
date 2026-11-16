@@ -431,6 +431,56 @@ const badNationality = await app.inject({
   payload: { nationality: 'XX' },
 });
 check('Unbekannte Staatsangehoerigkeit → 400', badNationality.statusCode === 400);
+// Weitere Staatsangehoerigkeiten: gespeichert ohne Doppel und ohne die erste;
+// das Protokoll nennt nur das gesendete Feld.
+const further = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { further_nationalities: 'DE,TR,US,DE' },
+});
+const furtherAudit = JSON.parse(
+  (
+    getDb()
+      .prepare("SELECT details FROM audit_log WHERE action = 'update' AND entity = 'employee' AND entity_id = ? ORDER BY id DESC LIMIT 1")
+      .get(empId) as { details: string }
+  ).details,
+) as { changed: Record<string, unknown> };
+check(
+  'Weitere Staatsangehoerigkeiten ohne Doppel und ohne die erste',
+  further.statusCode === 200 &&
+    further.json().employee.nationality === 'TR' &&
+    further.json().employee.further_nationalities === 'DE,US' &&
+    JSON.stringify(Object.keys(furtherAudit.changed)) === '["further_nationalities"]',
+  { body: further.json(), audit: furtherAudit },
+);
+const promoted = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { nationality: null },
+});
+check(
+  'Ohne erste rueckt die erste weitere nach',
+  promoted.statusCode === 200 &&
+    promoted.json().employee.nationality === 'DE' &&
+    promoted.json().employee.further_nationalities === 'US',
+  promoted.json(),
+);
+const badFurther = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { further_nationalities: 'US,XX' },
+});
+check('Unbekannte weitere Staatsangehoerigkeit → 400', badFurther.statusCode === 400, badFurther.json());
+const restoredOrigin = await app.inject({
+  method: 'PATCH',
+  url: `/api/employees/${empId}`,
+  headers: auth,
+  payload: { nationality: 'TR', further_nationalities: null },
+});
+check('Staatsangehoerigkeit zurueckgesetzt', restoredOrigin.json().employee?.further_nationalities === null, restoredOrigin.json());
 const badPermit = await app.inject({
   method: 'PATCH',
   url: `/api/employees/${empId}`,
