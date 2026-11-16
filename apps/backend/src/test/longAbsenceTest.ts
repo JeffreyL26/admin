@@ -7,7 +7,7 @@
  *
  * Aufruf: tsx src/test/longAbsenceTest.ts (Teil von npm test)
  */
-import { longAbsenceFor, longAbsenceText, sickChainSpans, sickPayDaysUsed } from '@ohrganize/shared';
+import { longAbsenceFor, longAbsenceText, looksLikeHomeOffice, sickChainSpans, sickPayDaysUsed } from '@ohrganize/shared';
 
 let failures = 0;
 function check(label: string, ok: boolean, extra?: unknown) {
@@ -125,6 +125,32 @@ check(
 );
 check('Verweis auf fehlende Bescheinigung beendet die Kette', JSON.stringify(spans.get(3)) === '{"from":"2026-11-02","to":"2026-11-05"}');
 check('ein Ring bricht ab', spans.has(4) && spans.has(5));
+
+// Home Office ist ein Arbeitsort: ab Werk nicht im Status (Migration 209,
+// Anlegen ohne Angabe), auch unter anderen Namen.
+const homeOfficeNames = [
+  'Home Office',
+  'Homeoffice',
+  'HOME-OFFICE',
+  'Work from Home',
+  'Mobiles Arbeiten',
+  'Mobile Office',
+  'Mobiles Büro',
+  'Arbeit mobil',
+  'Remote',
+  'Telearbeit',
+];
+const absenceNames = ['Elternzeit', 'Mutterschutz', 'Sabbatical', 'Unbezahlter Urlaub', 'Sonderurlaub Immobilienkauf', 'Bildungsurlaub'];
+check(
+  'Home Office unter seinen ueblichen Namen erkannt',
+  homeOfficeNames.every(looksLikeHomeOffice),
+  homeOfficeNames.filter((n) => !looksLikeHomeOffice(n)),
+);
+check(
+  'Abwesenheiten, auch mit mobil mitten im Wort, nicht als Home Office',
+  absenceNames.every((n) => !looksLikeHomeOffice(n)),
+  absenceNames.filter(looksLikeHomeOffice),
+);
 
 if (failures > 0) {
   console.log(`longAbsenceTest: ${failures} Fehler`);

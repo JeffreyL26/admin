@@ -82,7 +82,7 @@ export function MultiSelect<T extends string | number>({
 
   // Steht das Feld in einem <label> (Field): Klick auf die Beschriftung bei
   // offener Liste nicht gleich wieder öffnen (panelKeys.ts).
-  const swallowLabelClick = useLabelClickGuard(buttonRef, open);
+  const labelGuard = useLabelClickGuard(buttonRef, open);
 
   const shown = useMemo(() => {
     if (!term.trim()) return options;
@@ -101,7 +101,7 @@ export function MultiSelect<T extends string | number>({
   };
 
   const onTriggerClick = () => {
-    if (swallowLabelClick()) return;
+    if (labelGuard.swallow()) return;
     setOpen(!openRef.current);
   };
 
@@ -164,7 +164,9 @@ export function MultiSelect<T extends string | number>({
             : `hm-multi__button${value.length ? ' hm-multi__button--active' : ''}`
         }
         onClick={onTriggerClick}
+        onPointerDown={labelGuard.triggerProps.onPointerDown}
         onKeyDown={(e) => {
+          labelGuard.triggerProps.onKeyDown();
           // Escape schließt nur die Liste, nicht ein umgebendes Modal.
           if (e.key === 'Escape' && openRef.current) {
             e.preventDefault();

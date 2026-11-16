@@ -1,3 +1,4 @@
+import { looksLikeHomeOffice } from '@ohrganize/shared';
 import type { Migration } from './types.js';
 
 // Nummernkreis 2xx: Abwesenheitsmanagement.
@@ -243,24 +244,24 @@ export const absencesMigrations: Migration[] = [
     // Art, ob ein genehmigter Antrag ab sechs Wochen im Status erscheint. Die
     // Arten sind nur am aenderbaren Namen erkennbar, deshalb steht die Wahl
     // an der Art. Ab Werk alle Sonderabwesenheiten ausser Home Office, das
-    // ein Arbeitsort ist und keine Abwesenheit (207_home_office); erkannt auch
-    // unter den ueblichen anderen Namen, falls die Art umbenannt wurde
-    // (Homeoffice, Work from Home, Mobiles Arbeiten, Mobile Office, Mobiles
-    // Buero, Remote, Telearbeit; "mobil" nur am Wortanfang, damit etwa
-    // "Immobilienkauf" nicht darunter faellt). LIKE vergleicht ASCII ohne
-    // Gross- und Kleinschreibung. Was danach noch falsch steht, korrigiert die
-    // HR am Haken der Art.
+    // ein Arbeitsort ist und keine Abwesenheit (207_home_office), erkannt auch
+    // unter anderen Namen (shared looksLikeHomeOffice, getestet in
+    // longAbsenceTest). Was danach noch falsch steht, korrigiert die HR am
+    // Haken der Art. Mit 1.1.5 ausgeliefert: ab dann nicht mehr aendern, eine
+    // Korrektur ist eine neue Migration (eine schon gelaufene laeuft nie
+    // wieder). Fruehere Entwicklungsstaende dieser Migration unterschieden
+    // sich nur bei umbenannten Arten.
     name: '209_absence_type_long_absence',
     sql: `
       ALTER TABLE absence_types ADD COLUMN long_absence_hint INTEGER NOT NULL DEFAULT 0;
-      UPDATE absence_types SET long_absence_hint = 1
-       WHERE category = 'sonder'
-         AND NOT (name LIKE '%home%office%'
-              OR name LIKE '%work%from%home%'
-              OR name LIKE 'mobil%'
-              OR name LIKE '% mobil%'
-              OR name LIKE '%remote%'
-              OR name LIKE '%telearbeit%');
     `,
+    run: (db) => {
+      const types = db.prepare("SELECT id, name FROM absence_types WHERE category = 'sonder'").all() as {
+        id: number;
+        name: string;
+      }[];
+      const flag = db.prepare('UPDATE absence_types SET long_absence_hint = 1 WHERE id = ?');
+      for (const type of types) if (!looksLikeHomeOffice(type.name)) flag.run(type.id);
+    },
   },
 ];

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type KeyboardEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type KeyboardEvent, type RefObject } from 'react';
 
 /**
  * Tastatur und Label-Klick für Panels im Popover (Portal am <body>), die
@@ -45,12 +45,16 @@ const LABEL_CLICK_WINDOW_MS = 1000;
  * geschluckt werden soll; die Rückgabe fragt das im Klick-Handler ab (und
  * verbraucht es). Gesetzt wird er nur, solange das Panel offen ist (die
  * Listener am Dokument hängen nur dann). Zurück setzen ihn jeder Druck und
- * jede Taste am Auslöser selbst, auch bei geschlossenem Panel: Ein
- * weitergereichter Klick des Labels kommt ohne beides an, ein echter Klick
- * oder Enter nicht. Ein Druck ohne folgenden Klick verfällt zudem nach
- * kurzer Zeit.
+ * jede Taste am Auslöser selbst, auch bei geschlossenem Panel: Die Komponente
+ * gibt `triggerProps` an ihren Auslöser (als React-Props, damit sie auch an
+ * einem neu gerenderten Knopf hängen). Ein weitergereichter Klick des Labels
+ * kommt ohne Druck und Taste am Auslöser an, ein echter Klick oder Enter
+ * nicht. Ein Druck ohne folgenden Klick verfällt zudem nach kurzer Zeit.
  */
-export function useLabelClickGuard(triggerRef: RefObject<HTMLElement>, open: boolean): () => boolean {
+export function useLabelClickGuard(
+  triggerRef: RefObject<HTMLElement>,
+  open: boolean,
+): { swallow: () => boolean; triggerProps: { onPointerDown: () => void; onKeyDown: () => void } } {
   const until = useRef(0);
   useEffect(() => {
     if (!open) return;
@@ -72,22 +76,16 @@ export function useLabelClickGuard(triggerRef: RefObject<HTMLElement>, open: boo
       document.removeEventListener('keydown', onKey, true);
     };
   }, [open, triggerRef]);
-  useEffect(() => {
-    const trigger = triggerRef.current;
-    if (!trigger) return;
-    const clear = () => {
-      until.current = 0;
-    };
-    trigger.addEventListener('pointerdown', clear);
-    trigger.addEventListener('keydown', clear);
-    return () => {
-      trigger.removeEventListener('pointerdown', clear);
-      trigger.removeEventListener('keydown', clear);
-    };
-  }, [triggerRef]);
-  return useCallback(() => {
-    const swallow = performance.now() < until.current;
+  const swallow = useCallback(() => {
+    const swallowed = performance.now() < until.current;
     until.current = 0;
-    return swallow;
+    return swallowed;
   }, []);
+  const reset = useCallback(() => {
+    until.current = 0;
+  }, []);
+  return useMemo(
+    () => ({ swallow, triggerProps: { onPointerDown: reset, onKeyDown: reset } }),
+    [swallow, reset],
+  );
 }

@@ -26,6 +26,8 @@ import {
   hasFreeMovement,
   nationalitiesLabel,
   needsResidencePermit,
+  residencePermitFields,
+  residencePermitShown,
   personnelDeadlineText,
   settleNationalities,
   probationEndFor,
@@ -91,6 +93,24 @@ check('EWR und Schweiz kein Titel', !needsResidencePermit('NO') && !needsResiden
 check('Drittstaat braucht Titel', needsResidencePermit('TR') && needsResidencePermit('GB'));
 check('weitere aus der EU: kein Titel', !needsResidencePermit('TR', 'DE') && !needsResidencePermit('US', 'GB,PL'));
 check('nur Drittstaaten: Titel', needsResidencePermit('TR', 'US,GB'));
+// Felder des Aufenthaltstitels im Formular (residencePermitFields,
+// residencePermitShown): geleert nur bei Freizuegigkeit, ohne Angabe bleibt
+// ein Titel stehen und sichtbar.
+check(
+  'Titel bleibt bei Drittstaat und ohne Angabe, faellt bei EU-Staatsangehoerigkeit weg',
+  JSON.stringify(residencePermitFields('TR', null, 'blaue_karte_eu', '2027-03-31')) ===
+    '{"residence_permit":"blaue_karte_eu","residence_permit_until":"2027-03-31"}' &&
+    residencePermitFields(null, null, 'blaue_karte_eu', null).residence_permit === 'blaue_karte_eu' &&
+    JSON.stringify(residencePermitFields('TR', 'DE', 'blaue_karte_eu', '2027-03-31')) ===
+      '{"residence_permit":null,"residence_permit_until":null}',
+);
+check(
+  'Titelfelder sichtbar bei Drittstaat, ohne Angabe nur mit Eintrag, nie bei Freizuegigkeit',
+  residencePermitShown('TR', null, null, null) &&
+    residencePermitShown(null, null, 'blaue_karte_eu', null) &&
+    !residencePermitShown(null, null, null, null) &&
+    !residencePermitShown('TR', 'DE', 'blaue_karte_eu', null),
+);
 check(
   'Freizuegigkeit nur mit einer Staatsangehoerigkeit aus EU, EWR oder Schweiz, ohne Angabe nicht',
   hasFreeMovement('TR', 'DE') && hasFreeMovement('CH') && !hasFreeMovement('TR', 'US') && !hasFreeMovement(null, null),
