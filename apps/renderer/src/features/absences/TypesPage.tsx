@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarOff, Info, ListPlus, Pencil, Plus, ShieldAlert, Trash2, X } from 'lucide-react';
 import {
   formatDate,
+  looksLikeHomeOffice,
   ABSENCE_CATEGORY_LABELS,
   PORTAL_VISIBILITY_LABELS,
   type AbsenceCategory,
@@ -329,6 +330,9 @@ function TypeDialog({
   const [eligibilityLoadedFor, setEligibilityLoadedFor] = useState<number | null>(null);
   const [pickEmployee, setPickEmployee] = useState<number | null>(null);
   const [pickEffect, setPickEffect] = useState<'allow' | 'deny'>('deny');
+  // Beim Anlegen folgt der Haken "im Status" dem Namen (Home Office nicht,
+  // shared looksLikeHomeOffice), bis ihn jemand selbst setzt.
+  const [hintTouched, setHintTouched] = useState(false);
 
   const roleGroupId = useId();
   const ruleGroupId = useId();
@@ -352,6 +356,7 @@ function TypeDialog({
     setEligibilityLoadedFor(null);
     setPickEmployee(null);
     setPickEffect('deny');
+    setHintTouched(false);
     if (state) setForm(state.form);
   }
   // Gespeicherte Berechtigung genau einmal je Dialogöffnung übernehmen, sonst
@@ -447,7 +452,18 @@ function TypeDialog({
     >
       <div className="hm-form-grid">
         <Field label="Name" required span2>
-          <input className="hm-input" value={form.name} onChange={(e) => set({ name: e.target.value })} />
+          <input
+            className="hm-input"
+            value={form.name}
+            onChange={(e) => {
+              const name = e.target.value;
+              set(
+                state.id === null && !hintTouched
+                  ? { name, long_absence_hint: !looksLikeHomeOffice(name) }
+                  : { name },
+              );
+            }}
+          />
         </Field>
         <Field label="Kategorie" required>
           <Select
@@ -498,7 +514,10 @@ function TypeDialog({
               <input
                 type="checkbox"
                 checked={form.long_absence_hint}
-                onChange={(e) => set({ long_absence_hint: e.target.checked })}
+                onChange={(e) => {
+                  setHintTouched(true);
+                  set({ long_absence_hint: e.target.checked });
+                }}
               />
               ab sechs Wochen im Status zeigen (z. B. Elternzeit, nicht Home Office)
             </label>

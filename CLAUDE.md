@@ -413,7 +413,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   `209_absence_type_long_absence`, Haken in der Arten-Verwaltung, andere
   Kategorien speichern immer 0; ab Werk und beim Anlegen ohne Angabe alle
   außer Home Office, das ein Arbeitsort ist, auch unter den üblichen anderen
-  Namen wie Mobiles Arbeiten (`looksLikeHomeOffice` in shared, getestet):
+  Namen wie Mobiles Arbeiten (`looksLikeHomeOffice` in shared, getestet; der
+  Arten-Dialog setzt den Haken beim Anlegen danach vor, Migration 209 nutzt
+  eine eingefrorene Kopie `HOME_OFFICE_NAME_209`):
   die Arten sind nur am änderbaren Namen erkennbar, deshalb die Wahl an der
   Art), die heute
   andauert und mindestens sechs Wochen dauert; aneinandergereihte Anträge
@@ -486,8 +488,9 @@ packages/fonts  Schriftdateien der Clients (Creato Display: 14 WOFF2 + @font-fac
   Formular und Backend nach derselben Regel `hasFreeMovement`: sobald eine
   aus EU, EWR oder Schweiz dabei ist; ohne erfasste Staatsangehörigkeit
   bleibt er, und das Formular zeigt ihn dann, wenn einer eingetragen ist;
-  die Regeln des Formulars stehen DOM-frei als `residencePermitFields` und
-  `residencePermitShown` in shared, Test `src/test/masterDataTest.ts`),
+  die Regeln stehen DOM-frei als `residencePermitFields` (Formular und
+  Backend) und `residencePermitShown` (Formular) in shared, Test
+  `src/test/masterDataTest.ts`),
   höchster Abschluss
   (`HIGHEST_DEGREES`). Die
   **Beschäftigungsart je Vertragsversion** (`contracts.employee_type`) ist die
