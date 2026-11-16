@@ -20,6 +20,7 @@ import {
   contractState,
   entitlementFrozenNote,
   formatDate,
+  longAbsenceText,
   probationText,
   todayIsoLocal,
   type AdminArea,
@@ -120,6 +121,7 @@ export function EmployeeDetailPage() {
         <Avatar name={`${e.first_name} ${e.last_name}`} size={56} src={photo.data} />
         <Badge tone={TYPE_TONES[e.employee_type]}>{EMPLOYEE_TYPE_LABELS[e.employee_type]}</Badge>
         <Badge tone={e.status === 'aktiv' ? 'green' : 'neutral'}>{EMPLOYEE_STATUS_LABELS[e.status]}</Badge>
+        {e.long_absence && <Badge tone="yellow">{longAbsenceText(e.long_absence)}</Badge>}
         {e.executive === 1 && <Badge tone="navy">Leitungsebene</Badge>}
         {e.hire_date && (
           <span style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>

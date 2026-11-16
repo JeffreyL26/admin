@@ -4,9 +4,16 @@ import { getDb, inTransaction } from '../../db/db.js';
 import { parse, badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
 import { audit, auditTrail } from '../../core/audit.js';
 import { todayIso, isValidIsoDate } from '../../core/dates.js';
-import { BASE_PAY_KINDS, SALARY_COMPONENT_KINDS, contractMonthHours, isOwnRequestDecision } from '@ohrganize/shared';
+import {
+  BASE_PAY_KINDS,
+  SALARY_COMPONENT_KINDS,
+  contractMonthHours,
+  fullTimeBasePayCents,
+  isOwnRequestDecision,
+} from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import { assertExecutiveAccess, executiveFilterSql } from '../../core/executiveGate.js';
+import { longAbsencesToday } from '../absences/service.js';
 import {
   assertNoComponentOverlap,
   componentsAt,
@@ -100,6 +107,8 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
       extrasByEmployee.set(r.employee_id, list);
     }
     const fullTime = getSetting('fullTimeWeeklyHours');
+    // Zusatz zum Status (Elternzeit, Langzeitkrank), nur mit `abwesenheit: lesen`.
+    const longAbsences = longAbsencesToday(req);
     return {
       salaries: employees.map((e) => {
         // Eine Abfrage je Person: Summe und Zähler teilen sich das Ergebnis —
@@ -118,6 +127,7 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
           last_name: e.last_name,
           employee_type: e.employee_type,
           status: e.status,
+          long_absence: longAbsences.get(e.id) ?? null,
           job_title: e.job_title,
           monthly_gross_cents: monthlyGross,
           component_count: components.length,
@@ -126,6 +136,8 @@ export async function salaryRoutes(app: FastifyInstance): Promise<void> {
           weekly_hours: e.weekly_hours,
           // Anteil einer Vollzeitstelle (Einstellung fullTimeWeeklyHours).
           fte: e.weekly_hours !== null ? Math.round((e.weekly_hours / fullTime) * 100) / 100 : null,
+          // Grundvergütung auf Vollzeit hochgerechnet (Spalte "Vollzeitgehalt").
+          full_time_monthly_cents: fullTimeBasePayCents(components, e.weekly_hours, fullTime),
           // Stundenlohn: vereinbart (Komponente) oder aus dem Monatsbrutto
           // und den Vertragsstunden des Monats gerechnet (hourly_derived).
           hourly_rate_cents: hourly

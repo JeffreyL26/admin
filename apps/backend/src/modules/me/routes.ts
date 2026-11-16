@@ -92,7 +92,7 @@ export const meModule: FastifyPluginAsync = async (app) => {
                 e.private_street, e.private_zip, e.private_city, e.private_phone, e.private_email,
                 e.employee_type, e.job_title, e.hire_date, e.weekly_hours, e.annual_leave_days,
                 e.health_insurance,
-                e.nationality, e.residence_permit, e.residence_permit_until,
+                e.nationality, e.further_nationalities, e.residence_permit, e.residence_permit_until,
                 e.highest_degree, e.degree_field,
                 -- Probezeit der aktuellen Vertragsversion (nur das Ende, keine
                 -- weiteren Vertragsdaten): lesend fuer die Person selbst.

@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Check, Columns3, History, Plus, Receipt, ScrollText, Wallet, X } from 'lucide-react';
 import {
   formatDate,
   formatEuro,
+  longAbsenceText,
   todayIsoLocal,
   BONUS_KIND_LABELS,
   EMPLOYEE_TYPE_LABELS,
@@ -12,6 +13,7 @@ import {
   SALARY_COMPONENT_LABELS,
   type BonusKind,
   type EmployeeType,
+  type LongAbsence,
   type SalaryComponentKind,
 } from '@ohrganize/shared';
 import { api, ApiRequestError } from '../../api/client';
@@ -38,6 +40,8 @@ interface SalaryOverviewRow {
   last_name: string;
   employee_type: string;
   status: string;
+  /** Elternzeit, Mutterschutz, Langzeitkrank (shared longAbsenceFor); null ohne Recht Abwesenheit. */
+  long_absence: LongAbsence | null;
   job_title: string | null;
   monthly_gross_cents: number;
   component_count: number;
@@ -46,6 +50,8 @@ interface SalaryOverviewRow {
   last_adjustment: string | null;
   weekly_hours: number | null;
   fte: number | null;
+  /** Grundvergütung auf die Vollzeit-Wochenstunden hochgerechnet (shared fullTimeBasePayCents). */
+  full_time_monthly_cents: number | null;
   hourly_rate_cents: number | null;
   /** true: aus Monatsbrutto und Vertragsstunden gerechnet, kein vereinbarter Stundenlohn. */
   hourly_derived: boolean;
@@ -59,7 +65,7 @@ interface SalaryOverviewRow {
  * (`ohrganize.salaryList`). `sort` ist der Schlüssel aus SALARY_SORT.
  */
 type SalaryColumnId =
-  | 'name' | 'type' | 'job_title' | 'weekly_hours' | 'fte' | 'hourly' | 'gross' | 'annual'
+  | 'name' | 'type' | 'job_title' | 'weekly_hours' | 'fte' | 'full_time' | 'hourly' | 'gross' | 'annual'
   | 'extras' | 'components' | 'last_adjustment' | 'last_change';
 interface SalaryColumn {
   id: SalaryColumnId;
@@ -75,6 +81,12 @@ const SALARY_COLUMNS: SalaryColumn[] = [
   { id: 'job_title', label: 'Position', defaultVisible: true },
   { id: 'weekly_hours', label: 'Wochenstunden', num: true },
   { id: 'fte', label: 'FTE', num: true, hint: 'Anteil einer Vollzeitstelle (Einstellungen: Vollzeit-Wochenstunden)' },
+  {
+    id: 'full_time',
+    label: 'Vollzeitgehalt',
+    num: true,
+    hint: 'Grundgehalt bzw. Stundenlohn auf die Vollzeit-Wochenstunden hochgerechnet (Einstellungen), ohne Zulagen, Sachbezüge und Abzüge',
+  },
   { id: 'hourly', label: 'Stundenlohn', num: true, hint: 'Vereinbart oder, kursiv, aus Monatsbrutto und Vertragsstunden gerechnet' },
   { id: 'gross', label: 'Monatsbrutto', num: true, defaultVisible: true },
   { id: 'annual', label: 'Jahresbrutto', num: true, defaultVisible: true, hint: '12 × Monatsbrutto, ohne Boni und Einmalzahlungen' },
@@ -100,6 +112,7 @@ function salaryCell(r: SalaryOverviewRow, id: SalaryColumnId): React.ReactNode {
       return (
         <span style={{ fontWeight: 600 }}>
           {r.last_name}, {r.first_name} {r.status !== 'aktiv' && <Badge tone="neutral">ausgeschieden</Badge>}
+          {r.long_absence && <Badge tone="yellow">{longAbsenceText(r.long_absence)}</Badge>}
         </span>
       );
     case 'type':
@@ -110,6 +123,8 @@ function salaryCell(r: SalaryOverviewRow, id: SalaryColumnId): React.ReactNode {
       return r.weekly_hours !== null ? `${r.weekly_hours.toLocaleString(LOCALE)} h` : '—';
     case 'fte':
       return r.fte !== null ? r.fte.toLocaleString(LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+    case 'full_time':
+      return r.full_time_monthly_cents !== null ? formatEuro(r.full_time_monthly_cents) : '—';
     case 'hourly':
       return r.hourly_rate_cents !== null ? (
         <span style={r.hourly_derived ? { fontStyle: 'italic', color: 'var(--text-secondary)' } : undefined}>
@@ -158,6 +173,7 @@ const SALARY_SORT: Record<SalaryColumnId, (r: SalaryOverviewRow) => string | num
   job_title: (r) => r.job_title,
   weekly_hours: (r) => r.weekly_hours,
   fte: (r) => r.fte,
+  full_time: (r) => r.full_time_monthly_cents,
   hourly: (r) => r.hourly_rate_cents,
   gross: (r) => r.monthly_gross_cents,
   annual: (r) => r.annual_gross_cents,
@@ -168,6 +184,29 @@ const SALARY_SORT: Record<SalaryColumnId, (r: SalaryOverviewRow) => string | num
 };
 const SALARY_SORT_DEFAULT = { key: 'name', dir: 'asc' } as const;
 const salaryTieBreak = (r: SalaryOverviewRow) => `${r.last_name} ${r.first_name}`;
+
+/**
+ * Statusfilter der Übersicht, je Gerät gemerkt wie die Spalten. Vorgabe sind
+ * die Aktiven; Ausgeschiedene bleiben über "Ausgeschieden" und "Alle"
+ * erreichbar, ausgeblendet wird nichts endgültig.
+ */
+type SalaryStatusFilter = 'aktiv' | 'ausgeschieden' | 'alle';
+const SALARY_STATUS_KEY = 'ohrganize.salaryList.status';
+const SALARY_STATUS_FILTERS: { key: SalaryStatusFilter; label: string; empty: string }[] = [
+  { key: 'aktiv', label: 'Aktiv', empty: 'Keine aktiven Mitarbeitenden' },
+  { key: 'ausgeschieden', label: 'Ausgeschieden', empty: 'Keine ausgeschiedenen Mitarbeitenden' },
+  { key: 'alle', label: 'Alle', empty: 'Keine Mitarbeitenden vorhanden' },
+];
+
+function loadSalaryStatus(): SalaryStatusFilter {
+  const stored = readJson<unknown>(SALARY_STATUS_KEY);
+  return stored === 'ausgeschieden' || stored === 'alle' ? stored : 'aktiv';
+}
+
+function matchesSalaryStatus(r: SalaryOverviewRow, filter: SalaryStatusFilter): boolean {
+  if (filter === 'alle') return true;
+  return filter === 'aktiv' ? r.status === 'aktiv' : r.status !== 'aktiv';
+}
 
 interface ComponentRow {
   id: number;
@@ -933,7 +972,10 @@ export function SalariesPage() {
     select: (d) => d.salaries,
   });
 
-  const { sort, toggle: sortBy, sorted } = useTableSort('salaries', data, SALARY_SORT, SALARY_SORT_DEFAULT, salaryTieBreak);
+  const [statusFilter, setStatusFilter] = useState<SalaryStatusFilter>(loadSalaryStatus);
+  // Gemerkt, sonst sortierte useTableSort bei jedem Rendern neu.
+  const filtered = useMemo(() => data?.filter((r) => matchesSalaryStatus(r, statusFilter)), [data, statusFilter]);
+  const { sort, toggle: sortBy, sorted } = useTableSort('salaries', filtered, SALARY_SORT, SALARY_SORT_DEFAULT, salaryTieBreak);
   const [columns, setColumns] = useState<SalaryColumnId[]>(loadSalaryColumns);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const columnsButtonRef = useRef<HTMLButtonElement>(null);
@@ -976,7 +1018,21 @@ export function SalariesPage() {
         <PendingRequests />
         <div data-tour="gehaelter-overview">
           <Card
-            title="Übersicht"
+            title={
+              <Tabs
+                size="sm"
+                ariaLabel="Mitarbeitende nach Status"
+                tabs={SALARY_STATUS_FILTERS.map((f) => ({
+                  key: f.key,
+                  label: `${f.label} (${(data ?? []).filter((r) => matchesSalaryStatus(r, f.key)).length})`,
+                }))}
+                active={statusFilter}
+                onChange={(k) => {
+                  setStatusFilter(k as SalaryStatusFilter);
+                  writeJson(SALARY_STATUS_KEY, k);
+                }}
+              />
+            }
             flush
             actions={
               <div className="hm-multi" style={{ width: 150 }}>
@@ -1041,6 +1097,12 @@ export function SalariesPage() {
                 icon={<Wallet size={40} />}
                 title="Keine Mitarbeitenden vorhanden"
                 hint="Legen Sie zunächst Mitarbeitende im Personal-Modul an."
+              />
+            ) : (filtered ?? []).length === 0 ? (
+              <EmptyState
+                icon={<Wallet size={40} />}
+                title={SALARY_STATUS_FILTERS.find((f) => f.key === statusFilter)?.empty ?? 'Keine Mitarbeitenden'}
+                hint="Unter „Alle“ stehen sämtliche Mitarbeitenden."
               />
             ) : (
               <TableScroller>

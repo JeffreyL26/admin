@@ -561,4 +561,12 @@ export const employeesMigrations: Migration[] = [
       ALTER TABLE contracts ADD COLUMN entitlement_frozen TEXT;
     `,
   },
+  {
+    // Weitere Staatsangehoerigkeiten ("TR,US", shared/nationality.ts); die
+    // erste bleibt in nationality (Sortierung, Aufenthaltstitel, Portal).
+    name: '121_employee_further_nationalities',
+    sql: `
+      ALTER TABLE employees ADD COLUMN further_nationalities TEXT;
+    `,
+  },
 ];

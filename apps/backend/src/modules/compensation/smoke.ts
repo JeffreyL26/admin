@@ -197,7 +197,100 @@ check(
     allowance.statusCode === 201 && after.last_adjustment === adjustment && after.last_change === todayIsoLocal,
     { before, after, allowance: allowance.json() },
   );
+  // Vollzeitgehalt: nur die Grundverguetung, auf die Vollzeit-Wochenstunden
+  // (Vorgabe 40) hochgerechnet; die Zulage zaehlt nicht mit.
+  check(
+    'Uebersicht: Vollzeitgehalt bei 40 h gleich dem Grundgehalt, ohne Zulage',
+    after.full_time_monthly_cents === 520000 && after.monthly_gross_cents === 530000,
+    after,
+  );
+  db.prepare('UPDATE employees SET weekly_hours = 20 WHERE id = ?').run(e1);
+  const half = await row();
+  check(
+    'Uebersicht: bei 20 h FTE 0,5 und Vollzeitgehalt doppelt so hoch wie das Grundgehalt',
+    half.fte === 0.5 && half.full_time_monthly_cents === 1040000 && half.monthly_gross_cents === 530000,
+    half,
+  );
+  db.prepare('UPDATE employees SET weekly_hours = NULL WHERE id = ?').run(e1);
+  const noHours = await row();
+  check('Uebersicht: ohne Wochenstunden kein Vollzeitgehalt', noHours.full_time_monthly_cents === null, noHours);
+  db.prepare('UPDATE employees SET weekly_hours = 40 WHERE id = ?').run(e1);
+  // Stundenlohn: mit den Vertragsstunden der Vollzeit (40 h x 4,33 = 173,2 h).
+  db.prepare('UPDATE employees SET weekly_hours = 20 WHERE id = ?').run(e4);
+  const hourlyRow = db
+    .prepare("INSERT INTO salary_components (employee_id, kind, amount_cents, valid_from) VALUES (?, 'stundenlohn', 1450, '2024-01-01')")
+    .run(e4).lastInsertRowid;
+  const hourlyOverview = (
+    (await app.inject({ method: 'GET', url: '/api/compensation/salaries', headers: auth })).json().salaries as Record<string, unknown>[]
+  ).find((x) => x.employee_id === e4)!;
+  check(
+    'Uebersicht: Stundenlohn 14,50 EUR bei 20 h ergibt 1.255,70 EUR, auf Vollzeit 2.511,40 EUR',
+    hourlyOverview.monthly_gross_cents === 125570 && hourlyOverview.full_time_monthly_cents === 251140,
+    hourlyOverview,
+  );
+  db.prepare('DELETE FROM salary_components WHERE id = ?').run(hourlyRow);
+  db.prepare('UPDATE employees SET weekly_hours = 40 WHERE id = ?').run(e4);
   db.prepare("DELETE FROM salary_components WHERE employee_id = ? AND kind = 'zulage_funktion'").run(e1);
+}
+{
+  // Zusatz zum Status (shared longAbsenceFor): genehmigte Elternzeit ab sechs
+  // Wochen und eine AU-Kette ueber 42 Tage, nur mit `abwesenheit: lesen`.
+  const shift = (days: number) => new Date(Date.parse(`${today}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+  const typeId = (name: string) => (db.prepare('SELECT id FROM absence_types WHERE name = ?').get(name) as { id: number }).id;
+  const addRequest = db.prepare(
+    `INSERT INTO absence_requests (employee_id, type_id, date_from, date_to, days_counted, status) VALUES (?, ?, ?, ?, 1, 'genehmigt')`,
+  );
+  const addSickNote = db.prepare('INSERT INTO sick_notes (absence_request_id, certificate_due_date, follow_up_of_id) VALUES (?, ?, ?)');
+  const parental = Number(addRequest.run(e1, typeId('Elternzeit'), shift(-30), shift(60)).lastInsertRowid);
+  const firstSick = Number(addRequest.run(e2, typeId('Krankheit'), shift(-60), shift(-31)).lastInsertRowid);
+  const firstNote = Number(addSickNote.run(firstSick, shift(-58), null).lastInsertRowid);
+  const followSick = Number(addRequest.run(e2, typeId('Krankheit'), shift(-30), shift(5)).lastInsertRowid);
+  addSickNote.run(followSick, shift(-28), firstNote);
+  const rows = (await app.inject({ method: 'GET', url: '/api/compensation/salaries', headers: auth })).json().salaries as {
+    employee_id: number;
+    long_absence: { kind: string; label: string; since: string } | null;
+  }[];
+  const of = (id: number) => rows.find((r) => r.employee_id === id)?.long_absence;
+  check(
+    'Uebersicht: Elternzeit und Langzeitkrank als Zusatz zum Status, sonst keiner',
+    of(e1)?.kind === 'sonder' &&
+      of(e1)?.label === 'Elternzeit' &&
+      of(e2)?.kind === 'krankheit' &&
+      of(e2)?.since === shift(-60) &&
+      of(e4) === null,
+    rows.map((r) => [r.employee_id, r.long_absence]),
+  );
+  const list = await app.inject({ method: 'GET', url: '/api/employees', headers: auth });
+  const detail = await app.inject({ method: 'GET', url: `/api/employees/${e2}`, headers: auth });
+  const lite = await app.inject({ method: 'GET', url: '/api/employees?fields=lite', headers: auth });
+  const listed = list.json().employees as { id: number; long_absence?: { label: string } | null }[];
+  check(
+    'Personal: Zusatz in Liste und Personalakte, nicht in der schlanken Form',
+    listed.find((x) => x.id === e1)?.long_absence?.label === 'Elternzeit' &&
+      detail.json().employee.long_absence?.label === 'Langzeitkrank' &&
+      (lite.json().employees as Record<string, unknown>[]).every((x) => !('long_absence' in x)),
+    { list: listed.map((x) => [x.id, x.long_absence]), detail: detail.json().employee?.long_absence },
+  );
+  // Ohne `abwesenheit: lesen` kein Zusatz: Dahinter stehen Krankmeldungen.
+  const noAbsenceRole = Number(db.prepare(`INSERT INTO admin_roles (name) VALUES ('Lohn ohne Abwesenheit')`).run().lastInsertRowid);
+  db.prepare(`INSERT INTO admin_role_permissions (role_id, area, level) VALUES (?, 'verguetung', 'lesen')`).run(noAbsenceRole);
+  db.prepare(
+    "INSERT INTO users (email, name, password_hash, role, admin_role_id) VALUES ('ohneabwesenheit@test.de', 'Ohne Abwesenheit', ?, 'admin', ?)",
+  ).run(bcrypt.hashSync('geheim123', 10), noAbsenceRole);
+  const noAbsenceLogin = await app.inject({
+    method: 'POST',
+    url: '/api/auth/login',
+    payload: { email: 'ohneabwesenheit@test.de', password: 'geheim123' },
+  });
+  const hidden = (
+    await app.inject({
+      method: 'GET',
+      url: '/api/compensation/salaries',
+      headers: { authorization: `Bearer ${noAbsenceLogin.json().token as string}` },
+    })
+  ).json().salaries as { long_absence: unknown }[];
+  check('Uebersicht: ohne Recht Abwesenheit kein Zusatz', hidden.length > 0 && hidden.every((r) => r.long_absence === null), hidden);
+  db.prepare('DELETE FROM absence_requests WHERE id IN (?, ?, ?)').run(parental, firstSick, followSick);
 }
 
 // ---------------- Gehaltsänderungs-Workflow ----------------

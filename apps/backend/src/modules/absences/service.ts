@@ -5,6 +5,7 @@
  * Urlaubssaldo-Berechnung (Anspruch nach BUrlG: shared/leaveEntitlement.ts).
  */
 import { createHash } from 'node:crypto';
+import type { FastifyRequest } from 'fastify';
 import { getDb, inTransaction } from '../../db/db.js';
 import { addDaysIso, eachDay, isWeekend, todayIso } from '../../core/dates.js';
 import { holidaysForYear, isHoliday } from '../../core/holidays.js';
@@ -21,18 +22,23 @@ import {
   isOwnPersonDecision,
   isScheduledDay,
   leaveEntitlementForPeriods,
+  longAbsenceFor,
+  permits,
   regionCodesFor,
   workScheduleOf,
   type CountryCode,
   type EntitlementDetail,
   type EntitlementFrozenField,
   type EntitlementPeriod,
+  type LongAbsence,
   type RegionCode,
+  type SickChainNote,
   type WorkSchedule,
 } from '@ohrganize/shared';
 import { getSetting } from '../../core/settings.js';
 import { AppError, badRequest, conflict, forbidden, notFound } from '../../core/errors.js';
 import { audit, auditSystem } from '../../core/audit.js';
+import { permissionsFor } from '../../core/permissions.js';
 
 export interface EmployeeRow {
   id: number;
@@ -1705,4 +1711,67 @@ export function changeSickNoteEnd(sickNoteId: number, dateTo: string): SickNoteE
       : {}),
     ...(next ? { linked_follow_up_id: next.id } : {}),
   };
+}
+
+/**
+ * Lange Abwesenheiten, die heute andauern (longAbsenceFor in
+ * shared/absences.ts): der Zusatz zum Status „Aktiv“ in Personalliste,
+ * Personalakte und Gehaltsübersicht. Nur für Konten mit `abwesenheit: lesen`,
+ * sonst leer: Dahinter stehen Krankmeldungen, also Gesundheitsdaten. Zwei
+ * Abfragen für alle Personen zusammen (ohne `employeeIds` alle aktiven):
+ * genehmigte Sonderabwesenheiten, die heute abdecken, und sämtliche
+ * Krankmeldungen der Personen, die heute selbst krankgemeldet sind (ganz, für
+ * die AU-Kette).
+ */
+export function longAbsencesToday(req: FastifyRequest, employeeIds?: readonly number[]): Map<number, LongAbsence> {
+  const found = new Map<number, LongAbsence>();
+  const user = req.user as { role?: string; admin_role_id?: number | null } | undefined;
+  if (!user || user.role !== 'admin' || !permits(permissionsFor(user.admin_role_id ?? null).abwesenheit, 'lesen')) {
+    return found;
+  }
+  if (employeeIds?.length === 0) return found;
+  const today = todayIso();
+  const ids = employeeIds ?? [];
+  const only = (column: string): string =>
+    employeeIds ? ` AND ${column} IN (${employeeIds.map(() => '?').join(',')})` : '';
+  const db = getDb();
+  const leaves = db
+    .prepare(
+      `SELECT r.employee_id, t.name AS type_name, r.date_from, r.date_to
+       FROM absence_requests r
+       JOIN absence_types t ON t.id = r.type_id
+       JOIN employees e ON e.id = r.employee_id
+       WHERE e.status = 'aktiv' AND r.status = 'genehmigt' AND t.category = 'sonder'
+         AND r.date_from <= ? AND r.date_to >= ?${only('r.employee_id')}`,
+    )
+    .all([today, today, ...ids]) as { employee_id: number; type_name: string; date_from: string; date_to: string }[];
+  const notes = db
+    .prepare(
+      `SELECT s.id, s.follow_up_of_id, s.child_sick, r.employee_id, r.date_from, r.date_to
+       FROM sick_notes s
+       JOIN absence_requests r ON r.id = s.absence_request_id
+       WHERE r.status != 'storniert' AND r.employee_id IN (
+         SELECT r2.employee_id FROM sick_notes s2
+         JOIN absence_requests r2 ON r2.id = s2.absence_request_id
+         JOIN employees e ON e.id = r2.employee_id
+         WHERE e.status = 'aktiv' AND r2.status != 'storniert' AND s2.child_sick = 0
+           AND r2.date_from <= ? AND r2.date_to >= ?${only('r2.employee_id')})`,
+    )
+    .all([today, today, ...ids]) as (SickChainNote & { employee_id: number; child_sick: number })[];
+  const byEmployee = new Map<number, { leaves: typeof leaves; notes: typeof notes }>();
+  const of = (employeeId: number) => {
+    let entry = byEmployee.get(employeeId);
+    if (!entry) {
+      entry = { leaves: [], notes: [] };
+      byEmployee.set(employeeId, entry);
+    }
+    return entry;
+  };
+  for (const leave of leaves) of(leave.employee_id).leaves.push(leave);
+  for (const note of notes) of(note.employee_id).notes.push(note);
+  for (const [employeeId, entry] of byEmployee) {
+    const absence = longAbsenceFor(today, entry.leaves, entry.notes);
+    if (absence) found.set(employeeId, absence);
+  }
+  return found;
 }

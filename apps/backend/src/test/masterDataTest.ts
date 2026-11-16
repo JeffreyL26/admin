@@ -23,8 +23,10 @@ import {
   withoutEntitlementFrozen,
   withoutEntitlementFrozenColumns,
   formatDate,
+  nationalitiesLabel,
   needsResidencePermit,
   personnelDeadlineText,
+  settleNationalities,
   probationEndFor,
   probationMonths,
   probationText,
@@ -86,6 +88,28 @@ check('ohne Angabe kein Titel', !needsResidencePermit(null) && !needsResidencePe
 check('EU kein Titel', !needsResidencePermit('PL') && !needsResidencePermit('DE'));
 check('EWR und Schweiz kein Titel', !needsResidencePermit('NO') && !needsResidencePermit('CH'));
 check('Drittstaat braucht Titel', needsResidencePermit('TR') && needsResidencePermit('GB'));
+check('weitere aus der EU: kein Titel', !needsResidencePermit('TR', 'DE') && !needsResidencePermit('US', 'GB,PL'));
+check('nur Drittstaaten: Titel', needsResidencePermit('TR', 'US,GB'));
+
+// Mehrere Staatsangehoerigkeiten: gespeicherte Form und Anzeige.
+check(
+  'weitere ohne Doppel und ohne die erste',
+  JSON.stringify(settleNationalities('DE', 'TR,DE,TR,US')) === '{"nationality":"DE","further_nationalities":"TR,US"}',
+);
+check(
+  'ohne erste rueckt die erste weitere nach',
+  JSON.stringify(settleNationalities(null, 'TR,US')) === '{"nationality":"TR","further_nationalities":"US"}',
+);
+check(
+  'leer bleibt leer',
+  JSON.stringify(settleNationalities('', '')) === '{"nationality":null,"further_nationalities":null}' &&
+    settleNationalities('DE', 'DE').further_nationalities === null,
+);
+check(
+  'Anzeige nennt alle, die erste vorn',
+  nationalitiesLabel('TR', 'DE') === 'Türkei, Deutschland' && nationalitiesLabel(null, null) === null,
+  nationalitiesLabel('TR', 'DE'),
+);
 
 // Vertragszustand: heute 01.11.2026, geplante Versionen ab 01.12. und 01.01.
 {

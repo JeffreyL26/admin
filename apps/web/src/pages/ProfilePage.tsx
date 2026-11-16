@@ -4,7 +4,8 @@ import {
   EMPLOYEE_TYPE_LABELS,
   HIGHEST_DEGREE_LABELS,
   RESIDENCE_PERMIT_LABELS,
-  nationalityLabel,
+  nationalitiesLabel,
+  nationalitiesOf,
   todayIsoLocal,
   type EmployeeType,
   type HighestDegree,
@@ -208,8 +209,12 @@ export function ProfilePage() {
                   }
                 />
                 <Row
-                  label="Staatsangehörigkeit"
-                  value={profile.nationality ? nationalityLabel(profile.nationality) : null}
+                  label={
+                    nationalitiesOf(profile.nationality, profile.further_nationalities).length > 1
+                      ? 'Staatsangehörigkeiten'
+                      : 'Staatsangehörigkeit'
+                  }
+                  value={nationalitiesLabel(profile.nationality, profile.further_nationalities)}
                 />
                 {profile.residence_permit && (
                   <Row

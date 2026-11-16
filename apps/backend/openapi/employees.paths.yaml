@@ -14,7 +14,7 @@ paths:
         - { name: dir, in: query, schema: { type: string, enum: [asc, desc] } }
         - { name: fields, in: query, schema: { type: string, enum: [lite, full] } }
       responses:
-        "200": { description: "{ employees: [...] }" }
+        "200": { description: "{ employees: [...] }; ohne fields=lite traegt jede Zeile long_absence: Zusatz zum Status { kind (sonder oder krankheit), label, since, until } fuer eine genehmigte Sonderabwesenheit ab sechs Wochen, die heute andauert, oder eine eigene AU-Kette seit mehr als 42 Tagen; null ohne Recht Abwesenheit lesen" }
     post:
       summary: Mitarbeiter:in anlegen (typabhängige Pflichtfelder serverseitig validiert; photo_file_id = Original, photo_thumb_file_id = Vorschaubild dazu)
       responses:
@@ -65,7 +65,7 @@ paths:
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer } }
       responses:
-        "200": { description: "{ employee, reporting_line }" }
+        "200": { description: "{ employee, reporting_line }; employee.long_absence wie in der Liste" }
         "404": { description: Nicht gefunden }
     patch:
       summary: "Stammdaten teilweise ändern (Typregeln gelten für den gemergten Stand). Ein neues oder entferntes photo_file_id ohne photo_thumb_file_id setzt das Vorschaubild auf null; ersetzte Foto- und Vorschaudateien werden aufgeräumt (Audit: removed_file, removed_thumb_file)"

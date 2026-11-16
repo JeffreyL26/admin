@@ -72,6 +72,8 @@ export interface MeProfile {
   health_insurance: string | null;
   /** Staatsangehörigkeit (ISO-2) und Aufenthaltstitel: lesend, Änderungen meldet die Person der HR. */
   nationality: string | null;
+  /** Weitere Staatsangehörigkeiten "TR,US" (nationality.ts). */
+  further_nationalities: string | null;
   residence_permit: string | null;
   residence_permit_until: string | null;
   highest_degree: string | null;

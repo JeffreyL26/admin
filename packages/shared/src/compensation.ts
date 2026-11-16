@@ -172,3 +172,30 @@ export function hourlyMonthCents(rateCents: number, weeklyHours: number | null |
   const hundredths = Math.round(contractMonthHours(weeklyHours) * 100);
   return Math.round((hundredths * rateCents) / 100);
 }
+
+/**
+ * Vollzeitgehalt der Gehaltsübersicht: was die Grundvergütung bei den
+ * Vollzeit-Wochenstunden (Einstellung fullTimeWeeklyHours) ergäbe. Ein
+ * Grundgehalt gilt für die vereinbarten Wochenstunden und wird im
+ * Verhältnis hochgerechnet, ein Stundenlohn mit den Vertragsstunden der
+ * Vollzeit (hourlyMonthCents). Zulagen, Sachbezüge und Abzüge hängen nicht
+ * an den Stunden und zählen nicht mit. null ohne Wochenstunden oder ohne
+ * Grundvergütung.
+ */
+export function fullTimeBasePayCents(
+  components: readonly { kind: string; amount_cents: number }[],
+  weeklyHours: number | null | undefined,
+  fullTimeWeeklyHours: number,
+): number | null {
+  if (weeklyHours == null || weeklyHours <= 0 || fullTimeWeeklyHours <= 0) return null;
+  const basePay = components.filter((c) => (BASE_PAY_KINDS as string[]).includes(c.kind));
+  if (basePay.length === 0) return null;
+  return basePay.reduce(
+    (sum, c) =>
+      sum +
+      (c.kind === 'stundenlohn'
+        ? hourlyMonthCents(c.amount_cents, fullTimeWeeklyHours)
+        : Math.round((c.amount_cents * fullTimeWeeklyHours) / weeklyHours)),
+    0,
+  );
+}

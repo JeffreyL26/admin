@@ -9,9 +9,12 @@ import { addDaysIso, eachDay, isValidIsoDate, isWeekend, todayIso } from '../../
 import { holidaysByRegion, isHoliday } from '../../core/holidays.js';
 import {
   DEFAULT_WORK_SCHEDULE,
+  SICK_PAY_LIMIT_DAYS,
+  daysBetweenIso,
   isScheduledDay,
   maskDisabilityEntitlement,
   nextWorkdayIso,
+  sickChainSpans,
   type EntitlementDetail,
   workScheduleOf,
   type CountryCode,
@@ -785,9 +788,6 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
     JOIN absence_requests r ON r.id = s.absence_request_id
     JOIN employees e ON e.id = r.employee_id`;
 
-  /** Entgeltfortzahlung im Krankheitsfall: 6 Wochen = 42 Kalendertage. */
-  const SICK_PAY_LIMIT_DAYS = 42;
-
   interface SickRow {
     id: number;
     employee_id: number;
@@ -824,29 +824,9 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
          WHERE r.status != 'storniert' AND r.employee_id IN (${employeeIds.map(() => '?').join(',')})`,
       )
       .all(...employeeIds) as SickRow[];
-    const byId = new Map(all.map((n) => [n.id, n]));
-    const rootOf = (note: SickRow): number => {
-      let cur = note;
-      const seen = new Set<number>();
-      while (cur.follow_up_of_id !== null && byId.has(cur.follow_up_of_id) && !seen.has(cur.id)) {
-        seen.add(cur.id);
-        cur = byId.get(cur.follow_up_of_id)!;
-      }
-      return cur.id;
-    };
-    // Kettenumfang je Wurzel: frühester Beginn, spätestes Ende.
-    const chains = new Map<number, { from: string; to: string }>();
-    for (const n of all) {
-      const root = rootOf(n);
-      const chain = chains.get(root);
-      if (!chain) chains.set(root, { from: n.date_from, to: n.date_to });
-      else {
-        if (n.date_from < chain.from) chain.from = n.date_from;
-        if (n.date_to > chain.to) chain.to = n.date_to;
-      }
-    }
-    const calendarDays = (from: string, to: string): number =>
-      Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+    // Kettenumfang je Krankmeldung: frühester Beginn, spätestes Ende (wie der
+    // Zusatz „Langzeitkrank“ in Personal und Gehaltsübersicht, longAbsenceFor).
+    const chains = sickChainSpans(all);
 
     // Land und Region aller betroffenen Personen in EINER Abfrage statt einer
     // je Person (regionForEmployee); gleiche Ausdrücke, gleiche Vorgaben.
@@ -884,9 +864,9 @@ export const absencesModule: FastifyPluginAsync = async (app) => {
         clipTo: today,
         closures,
       });
-      const chain = chains.get(rootOf(byId.get(row.id) ?? row)) ?? { from: row.date_from, to: row.date_to };
+      const chain = chains.get(row.id) ?? { from: row.date_from, to: row.date_to };
       const chainEnd = chain.to < today ? chain.to : today;
-      const sickPayDays = chain.from > chainEnd ? 0 : calendarDays(chain.from, chainEnd);
+      const sickPayDays = chain.from > chainEnd ? 0 : daysBetweenIso(chain.from, chainEnd) + 1;
       return {
         ...row,
         days_absent_so_far: daysAbsent,

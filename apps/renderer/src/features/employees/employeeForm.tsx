@@ -15,7 +15,9 @@ import {
   formatWeekdays,
   nationalityLabel,
   needsResidencePermit,
+  parseNationalities,
   parseWeekdays,
+  settleNationalities,
   statutoryLeaveDays,
   churchTaxOptionsFor,
   employeeTypeRulesFor,
@@ -29,6 +31,7 @@ import {
 import { COUNTRY } from '../../lib/locale';
 import { uploadFile } from '../../api/client';
 import { Field } from '../../components/ui';
+import { MultiSelect } from '../../components/MultiSelect';
 import { PhotoPicker } from '../../components/FilePicker';
 import { EmployeeSelect } from '../../components/EmployeeSelect';
 import { createPhotoThumbnail } from '../../lib/photoThumbnail';
@@ -74,6 +77,8 @@ export interface EmployeeFormState {
   /** Vorschaubild zum Foto, entsteht beim Hochladen (createPhotoThumbnail). */
   photo_thumb_file_id: number | null;
   nationality: string;
+  /** Weitere Staatsangehörigkeiten (ISO-2), ohne die erste. */
+  further_nationalities: string[];
   residence_permit: string;
   residence_permit_until: string;
   highest_degree: string;
@@ -130,6 +135,7 @@ export const EMPTY_EMPLOYEE_FORM: EmployeeFormState = {
   photo_file_id: null,
   photo_thumb_file_id: null,
   nationality: '',
+  further_nationalities: [],
   residence_permit: '',
   residence_permit_until: '',
   highest_degree: '',
@@ -182,6 +188,7 @@ export function employeeToForm(e: EmployeeRow): EmployeeFormState {
     photo_file_id: e.photo_file_id,
     photo_thumb_file_id: e.photo_thumb_file_id ?? null,
     nationality: e.nationality ?? '',
+    further_nationalities: parseNationalities(e.further_nationalities),
     residence_permit: e.residence_permit ?? '',
     residence_permit_until: e.residence_permit_until ?? '',
     highest_degree: e.highest_degree ?? '',
@@ -273,10 +280,12 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     annual_leave_days: num(f.annual_leave_days),
     photo_file_id: f.photo_file_id,
     photo_thumb_file_id: f.photo_thumb_file_id,
-    nationality: str(f.nationality),
-    // Ohne Bedarf (EU, EWR, Schweiz oder keine Angabe) bleibt nichts stehen.
-    residence_permit: needsResidencePermit(f.nationality) ? str(f.residence_permit) : null,
-    residence_permit_until: needsResidencePermit(f.nationality) ? str(f.residence_permit_until) : null,
+    // Gespeicherte Form wie im Backend (settleNationalities).
+    ...settleNationalities(str(f.nationality), f.further_nationalities.join(',')),
+    // Ohne Bedarf (eine Staatsangehörigkeit aus EU, EWR oder Schweiz, oder
+    // keine Angabe) bleibt nichts stehen.
+    residence_permit: formNeedsPermit(f) ? str(f.residence_permit) : null,
+    residence_permit_until: formNeedsPermit(f) ? str(f.residence_permit_until) : null,
     highest_degree: str(f.highest_degree),
     degree_field: str(f.degree_field),
     home_office_weekdays: f.home_office_weekdays.length > 0 ? formatWeekdays(f.home_office_weekdays) : null,
@@ -287,6 +296,11 @@ export function formToPayload(f: EmployeeFormState, base?: EmployeeFormState): R
     executive: f.executive ? 1 : 0,
     ...workScheduleToPayload(f),
   };
+}
+
+/** Braucht die Person laut Formular einen Aufenthaltstitel (alle Staatsangehörigkeiten)? */
+function formNeedsPermit(f: EmployeeFormState): boolean {
+  return needsResidencePermit(f.nationality, f.further_nationalities.join(','));
 }
 
 /** Arbeitstage je Woche laut Formular (für den Hinweis zum Mindesturlaub). */
@@ -399,7 +413,14 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
         <Select
           className="hm-select"
           value={form.nationality}
-          onChange={(e) => set({ nationality: e.target.value })}
+          onChange={(e) => {
+            // Weitere gibt es nur neben einer ersten, und die erste steht nicht doppelt.
+            const nationality = e.target.value;
+            set({
+              nationality,
+              further_nationalities: nationality ? form.further_nationalities.filter((c) => c !== nationality) : [],
+            });
+          }}
         >
           <option value="">— keine Angabe —</option>
           {NATIONALITY_OPTIONS.map((o) => (
@@ -409,7 +430,23 @@ export function PersonFields({ form, set }: { form: EmployeeFormState; set: SetF
           ))}
         </Select>
       </Field>
-      {needsResidencePermit(form.nationality) ? (
+      {form.nationality ? (
+        <Field label="Weitere Staatsangehörigkeiten" hint="Für Personen mit mehreren Staatsangehörigkeiten">
+          <MultiSelect
+            allLabel="Keine weiteren"
+            options={NATIONALITY_OPTIONS.filter((o) => o.code !== form.nationality).map((o) => ({
+              value: o.code,
+              label: o.label,
+            }))}
+            value={form.further_nationalities}
+            onChange={(next) => set({ further_nationalities: next })}
+            searchable
+            width="100%"
+            field
+          />
+        </Field>
+      ) : null}
+      {formNeedsPermit(form) ? (
         <>
           <Field label="Aufenthaltstitel" hint="Außerhalb von EU, EWR und Schweiz">
             <Select

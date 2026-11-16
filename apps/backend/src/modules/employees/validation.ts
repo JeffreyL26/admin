@@ -10,7 +10,9 @@ import {
   RESIDENCE_PERMIT_TYPES,
   churchTaxOptionsFor,
   formatWeekdays,
+  parseNationalities,
   parseWeekdays,
+  settleNationalities,
   employeeTypeRulesFor,
   employeeTypesFor,
   isRegionOf,
@@ -18,6 +20,7 @@ import {
   taxClassesFor,
   type CountryCode,
   type EmployeeType,
+  type NationalityCode,
 } from '@ohrganize/shared';
 import { VARIANT } from '@variant-manifest';
 import { badRequest } from '../../core/errors.js';
@@ -105,6 +108,16 @@ export const employeeBodySchema = z.object({
   weekly_hours: z.number().min(0).max(60).nullish(),
   annual_leave_days: z.number().min(0).max(100).nullish(),
   nationality: z.enum(NATIONALITY_CODES).nullish(),
+  // Weitere Staatsangehoerigkeiten "TR,US" (shared/nationality.ts), Form wie
+  // work_weekdays; settleNationalityFields ordnet sie.
+  further_nationalities: z
+    .string()
+    .regex(/^[A-Z]{2}(,[A-Z]{2}){0,9}$/, 'Weitere Staatsangehörigkeiten als Ländercodes, durch Komma getrennt (höchstens zehn)')
+    .refine(
+      (value) => parseNationalities(value).every((code) => (NATIONALITY_CODES as readonly string[]).includes(code)),
+      'Unbekannte Staatsangehörigkeit',
+    )
+    .nullish(),
   residence_permit: z.enum(RESIDENCE_PERMIT_TYPES).nullish(),
   residence_permit_until: isoDate.nullish(),
   highest_degree: z.enum(HIGHEST_DEGREES).nullish(),
@@ -163,6 +176,31 @@ export function settleWorkSchedule(
   const days = parseWeekdays(body.work_weekdays);
   body.work_weekdays = days ? formatWeekdays(days) : null;
   body.work_days_per_week = days ? days.length : (body.work_days_per_week ?? null);
+}
+
+/**
+ * Staatsangehoerigkeiten in die gespeicherte Form bringen (shared
+ * settleNationalities): ohne Doppel, ohne die erste unter den weiteren, und
+ * ohne erste rueckt die erste weitere nach. Aufgerufen nach dem Parsen von
+ * POST und PATCH, beim PATCH nur, wenn eines der Felder kommt, mit dem
+ * Bestand fuer das andere. Gesetzt wird nur, was kam oder sich durch das
+ * Ordnen aendert, damit das Protokoll keine unveraenderten Felder nennt.
+ */
+export function settleNationalityFields(
+  body: { nationality?: NationalityCode | null; further_nationalities?: string | null },
+  existing?: { nationality?: unknown; further_nationalities?: unknown },
+): void {
+  if (body.nationality === undefined && body.further_nationalities === undefined) return;
+  const stored = (value: unknown) => (typeof value === 'string' ? value : null);
+  const nationality = body.nationality !== undefined ? body.nationality : stored(existing?.nationality);
+  const further = body.further_nationalities !== undefined ? body.further_nationalities : stored(existing?.further_nationalities);
+  const settled = settleNationalities(nationality, further);
+  if (body.nationality !== undefined || settled.nationality !== nationality) {
+    body.nationality = settled.nationality as NationalityCode | null;
+  }
+  if (body.further_nationalities !== undefined || settled.further_nationalities !== further) {
+    body.further_nationalities = settled.further_nationalities;
+  }
 }
 
 export const employeePatchSchema = employeeBodySchema.partial();

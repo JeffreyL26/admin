@@ -31,7 +31,13 @@ interface Props<T extends string | number> {
   onChange: (next: T[]) => void;
   /** Suchfeld einblenden — sinnvoll ab etwa zehn Einträgen. */
   searchable?: boolean;
-  width?: number;
+  /** Breite in Pixeln oder als CSS-Wert (z. B. '100%' im Formular). */
+  width?: number | string;
+  /**
+   * Als Formularfeld statt als Filter: gewählte Einträge namentlich statt
+   * „2 ausgewählt“, Maße wie .hm-select, ohne die Hervorhebung des aktiven Filters.
+   */
+  field?: boolean;
 }
 
 export function MultiSelect<T extends string | number>({
@@ -41,6 +47,7 @@ export function MultiSelect<T extends string | number>({
   onChange,
   searchable = false,
   width = 180,
+  field = false,
 }: Props<T>) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
@@ -76,14 +83,16 @@ export function MultiSelect<T extends string | number>({
       ? allLabel
       : value.length === 1
         ? (options.find((o) => o.value === value[0])?.label ?? '1 ausgewählt')
-        : `${value.length} ausgewählt`;
+        : field
+          ? value.map((v) => options.find((o) => o.value === v)?.label ?? String(v)).join(', ')
+          : `${value.length} ausgewählt`;
 
   return (
     <div className="hm-multi" style={{ width }}>
       <button
         ref={buttonRef}
         type="button"
-        className={`hm-multi__button${value.length ? ' hm-multi__button--active' : ''}`}
+        className={`hm-multi__button${field ? ' hm-multi__button--field' : value.length ? ' hm-multi__button--active' : ''}`}
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         aria-haspopup="listbox"
@@ -113,7 +122,12 @@ export function MultiSelect<T extends string | number>({
         <ChevronDown size={14} className="hm-multi__chevron" />
       </button>
 
-      <Popover open={open} onClose={() => setOpen(false)} anchorRef={buttonRef} minWidth={width}>
+      <Popover
+        open={open}
+        onClose={() => setOpen(false)}
+        anchorRef={buttonRef}
+        minWidth={typeof width === 'number' ? width : undefined}
+      >
         {/* Gruppe echter Kontrollkästchen statt listbox/option mit nachgebautem
             Haken: Der Browser zeichnet und positioniert die Marke selbst
             (accent-color), sie ist tastaturbedienbar und Screenreader nennen

@@ -260,6 +260,8 @@ inTransaction(() => {
   setOrigin.run(['NG', 'blaue_karte_eu', permitSoon, 'master_diplom', 'Elektrotechnik', OPS1]);
   setOrigin.run(['DE', null, null, 'master_diplom', 'Betriebswirtschaft', GF]);
   setOrigin.run(['DE', null, null, 'promotion', 'Informatik', CTO]);
+  // Zwei Staatsangehoerigkeiten (Beispiel): die weitere neben der ersten.
+  db.prepare("UPDATE employees SET further_nationalities = 'US' WHERE id = ?").run(CTO);
 
   // Arbeitswochen in Teilzeit (Beispiele fuer feste und flexible Tage): Der
   // gesetzliche Mindesturlaub rechnet sich daraus (4 x Tage je Woche).

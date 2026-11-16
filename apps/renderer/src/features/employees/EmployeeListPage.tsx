@@ -8,10 +8,11 @@ import {
   EMPLOYEE_TYPE_LABELS,
   HIGHEST_DEGREE_LABELS,
   SENIORITY_FORMAT_LABELS,
-  nationalityLabel,
+  nationalitiesLabel,
   nextSort,
   formatDate,
   formatSeniority,
+  longAbsenceText,
   type EmployeeColumnDef,
   type EmployeeSortField,
   type EmployeeStatus,
@@ -121,7 +122,17 @@ function loadFilters(): EmployeeFilters {
   };
 }
 
-function cellContent(e: EmployeeRow, columnId: string, seniorityFormat: SeniorityFormat): React.ReactNode {
+/**
+ * Zusatz zum Status (Elternzeit, Mutterschutz, Langzeitkrank): in der Spalte
+ * Status, ohne sie beim Namen, damit er auch in der Vorgabeansicht steht.
+ */
+function cellContent(
+  e: EmployeeRow,
+  columnId: string,
+  seniorityFormat: SeniorityFormat,
+  statusShown: boolean,
+): React.ReactNode {
+  const longAbsence = e.long_absence ? <Badge tone="yellow">{longAbsenceText(e.long_absence)}</Badge> : null;
   switch (columnId) {
     case 'name':
       return (
@@ -131,6 +142,7 @@ function cellContent(e: EmployeeRow, columnId: string, seniorityFormat: Seniorit
             {e.first_name} {e.last_name}
           </span>
           {e.executive === 1 && <Badge tone="navy">Leitungsebene</Badge>}
+          {!statusShown && longAbsence}
         </div>
       );
     case 'personnel_number':
@@ -158,7 +170,10 @@ function cellContent(e: EmployeeRow, columnId: string, seniorityFormat: Seniorit
       return e.location_name ?? '—';
     case 'status':
       return (
-        <Badge tone={e.status === 'aktiv' ? 'green' : 'neutral'}>{EMPLOYEE_STATUS_LABELS[e.status]}</Badge>
+        <div className="row">
+          <Badge tone={e.status === 'aktiv' ? 'green' : 'neutral'}>{EMPLOYEE_STATUS_LABELS[e.status]}</Badge>
+          {longAbsence}
+        </div>
       );
     case 'email':
       return e.email ?? '—';
@@ -173,7 +188,7 @@ function cellContent(e: EmployeeRow, columnId: string, seniorityFormat: Seniorit
     case 'exit_date':
       return formatDate(e.exit_date);
     case 'nationality':
-      return e.nationality ? nationalityLabel(e.nationality) : '—';
+      return nationalitiesLabel(e.nationality, e.further_nationalities) ?? '—';
     case 'highest_degree':
       return e.highest_degree ? HIGHEST_DEGREE_LABELS[e.highest_degree] : '—';
     default:
@@ -204,6 +219,7 @@ const EmployeeTableRow = React.memo(function EmployeeTableRow({
   onToggle: (id: number) => void;
   onOpen: (id: number) => void;
 }) {
+  const statusShown = columns.some((c) => c.id === 'status');
   return (
     <tr className="clickable" onClick={() => onOpen(e.id)}>
       <td onClick={(ev) => ev.stopPropagation()}>
@@ -217,7 +233,7 @@ const EmployeeTableRow = React.memo(function EmployeeTableRow({
         />
       </td>
       {columns.map((c) => (
-        <td key={c.id}>{cellContent(e, c.id, seniorityFormat)}</td>
+        <td key={c.id}>{cellContent(e, c.id, seniorityFormat, statusShown)}</td>
       ))}
     </tr>
   );
